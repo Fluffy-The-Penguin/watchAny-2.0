@@ -30,20 +30,10 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
   List<dynamic> _romance = [];
   List<dynamic> _fantasy = [];
 
-  // Hero Carousel State
-  int _heroIndex = 0;
-  Timer? _heroTimer;
-
   @override
   void initState() {
     super.initState();
     _loadData();
-  }
-
-  @override
-  void dispose() {
-    _heroTimer?.cancel();
-    super.dispose();
   }
 
   Future<void> _loadData() async {
@@ -61,11 +51,6 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
           _fantasy = data['fantasy']?['media'] ?? [];
           _isLoading = false;
         });
-
-        // Initialize Hero Timer if we have trending items
-        if (_trending.isNotEmpty) {
-          _startHeroTimer();
-        }
       }
     } catch (e) {
       if (mounted) {
@@ -77,29 +62,54 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
     }
   }
 
-  void _startHeroTimer() {
-    _heroTimer?.cancel();
-    _heroTimer = Timer.periodic(const Duration(seconds: 7), (timer) {
-      if (mounted && _trending.isNotEmpty) {
-        setState(() {
-          _heroIndex = (_heroIndex + 1) % _trending.length;
-        });
-      }
-    });
-  }
+  // Load more paginated category results for railways
+  Future<List<dynamic>> _loadMoreCategoryData({
+    required String category,
+    required int page,
+  }) async {
+    final now = DateTime.now();
+    final season = AnilistService.getCurrentSeason(now);
+    final year = now.year;
 
-  String _cleanDescription(String? htmlDesc) {
-    if (htmlDesc == null) return '';
-    // Strip HTML tags
-    final regExp = RegExp(r"<[^>]*>", multiLine: true, caseSensitive: true);
-    String clean = htmlDesc.replaceAll(regExp, '');
-    // Clean up entities
-    clean = clean
-        .replaceAll('&quot;', '"')
-        .replaceAll('&#039;', "'")
-        .replaceAll('&rsquo;', "'")
-        .replaceAll('&amp;', '&');
-    return clean;
+    Map<String, dynamic> response;
+
+    if (category == 'popular') {
+      response = await _anilistService.search(
+        page: page,
+        perPage: 12,
+        type: 'ANIME',
+        season: season,
+        year: year,
+        sort: 'POPULARITY_DESC',
+      );
+    } else if (category == 'newlyReleased') {
+      response = await _anilistService.search(
+        page: page,
+        perPage: 12,
+        type: 'ANIME',
+        status: 'RELEASING',
+        sort: 'TRENDING_DESC',
+      );
+    } else if (category == 'upcoming') {
+      response = await _anilistService.search(
+        page: page,
+        perPage: 12,
+        type: 'ANIME',
+        status: 'NOT_YET_RELEASED',
+        sort: 'POPULARITY_DESC',
+      );
+    } else {
+      // Genres (e.g. Action, Adventure, Romance, Fantasy)
+      response = await _anilistService.search(
+        page: page,
+        perPage: 12,
+        type: 'ANIME',
+        genres: [category],
+        sort: 'POPULARITY_DESC',
+      );
+    }
+
+    return response['Page']?['media'] ?? [];
   }
 
   @override
@@ -148,55 +158,155 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
       );
     }
 
-    return SingleChildScrollView(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // 1. Hero Section (Fading Banner Carousel)
-          if (_trending.isNotEmpty) _buildHeroSection(),
-
-          // Content rows
-          Padding(
-            padding: const EdgeInsets.only(left: 20.0, right: 20.0, bottom: 40.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const SizedBox(height: 24.0),
-                if (_popularThisSeason.isNotEmpty)
-                  _buildRailway('Popular This Season', _popularThisSeason),
-                
-                if (_newlyReleased.isNotEmpty)
-                  _buildRailway('Newly Released', _newlyReleased),
-                
-                if (_upcoming.isNotEmpty)
-                  _buildRailway('Upcoming Releases', _upcoming),
-
-                const SizedBox(height: 16.0),
-                const Text(
-                  'Genres',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 22.0,
-                    fontWeight: FontWeight.bold,
-                    fontFamily: 'Outfit',
-                  ),
-                ),
-                const SizedBox(height: 12.0),
-
-                if (_action.isNotEmpty) _buildRailway('Action', _action),
-                if (_adventure.isNotEmpty) _buildRailway('Adventure', _adventure),
-                if (_romance.isNotEmpty) _buildRailway('Romance', _romance),
-                if (_fantasy.isNotEmpty) _buildRailway('Fantasy', _fantasy),
-              ],
-            ),
+    // Lazy load the vertical railway sections using ListView builder/recycling
+    return ListView(
+      padding: EdgeInsets.zero,
+      children: [
+        // 1. Hero Section (Fading Banner Carousel) - Localized State
+        if (_trending.isNotEmpty)
+          _HeroSection(
+            trending: _trending,
+            navigationState: widget.navigationState,
           ),
-        ],
-      ),
+
+        // 2. Content Railways (Horizontal tracks with load-more at the end)
+        Padding(
+          padding: const EdgeInsets.only(left: 20.0, right: 20.0, bottom: 40.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const SizedBox(height: 24.0),
+              if (_popularThisSeason.isNotEmpty)
+                _RailwayTrack(
+                  title: 'Popular This Season',
+                  initialItems: _popularThisSeason,
+                  onLoadMore: (page) => _loadMoreCategoryData(category: 'popular', page: page),
+                  navigationState: widget.navigationState,
+                ),
+              
+              if (_newlyReleased.isNotEmpty)
+                _RailwayTrack(
+                  title: 'Newly Released',
+                  initialItems: _newlyReleased,
+                  onLoadMore: (page) => _loadMoreCategoryData(category: 'newlyReleased', page: page),
+                  navigationState: widget.navigationState,
+                ),
+              
+              if (_upcoming.isNotEmpty)
+                _RailwayTrack(
+                  title: 'Upcoming Releases',
+                  initialItems: _upcoming,
+                  onLoadMore: (page) => _loadMoreCategoryData(category: 'upcoming', page: page),
+                  navigationState: widget.navigationState,
+                ),
+
+              const SizedBox(height: 16.0),
+              const Text(
+                'Genres',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 22.0,
+                  fontWeight: FontWeight.bold,
+                  fontFamily: 'Outfit',
+                ),
+              ),
+              const SizedBox(height: 12.0),
+
+              if (_action.isNotEmpty)
+                _RailwayTrack(
+                  title: 'Action',
+                  initialItems: _action,
+                  onLoadMore: (page) => _loadMoreCategoryData(category: 'Action', page: page),
+                  navigationState: widget.navigationState,
+                ),
+              
+              if (_adventure.isNotEmpty)
+                _RailwayTrack(
+                  title: 'Adventure',
+                  initialItems: _adventure,
+                  onLoadMore: (page) => _loadMoreCategoryData(category: 'Adventure', page: page),
+                  navigationState: widget.navigationState,
+                ),
+              
+              if (_romance.isNotEmpty)
+                _RailwayTrack(
+                  title: 'Romance',
+                  initialItems: _romance,
+                  onLoadMore: (page) => _loadMoreCategoryData(category: 'Romance', page: page),
+                  navigationState: widget.navigationState,
+                ),
+              
+              if (_fantasy.isNotEmpty)
+                _RailwayTrack(
+                  title: 'Fantasy',
+                  initialItems: _fantasy,
+                  onLoadMore: (page) => _loadMoreCategoryData(category: 'Fantasy', page: page),
+                  navigationState: widget.navigationState,
+                ),
+            ],
+          ),
+        ),
+      ],
     );
   }
+}
 
-  Widget _buildHeroSection() {
-    final anime = _trending[_heroIndex];
+// Localized state for the Hero Carousel to prevent rebuilding the entire dashboard every 7 seconds
+class _HeroSection extends StatefulWidget {
+  final List<dynamic> trending;
+  final NavigationState navigationState;
+
+  const _HeroSection({
+    required this.trending,
+    required this.navigationState,
+  });
+
+  @override
+  State<_HeroSection> createState() => _HeroSectionState();
+}
+
+class _HeroSectionState extends State<_HeroSection> {
+  int _heroIndex = 0;
+  Timer? _heroTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _startHeroTimer();
+  }
+
+  @override
+  void dispose() {
+    _heroTimer?.cancel();
+    super.dispose();
+  }
+
+  void _startHeroTimer() {
+    _heroTimer?.cancel();
+    _heroTimer = Timer.periodic(const Duration(seconds: 7), (timer) {
+      if (mounted && widget.trending.isNotEmpty) {
+        setState(() {
+          _heroIndex = (_heroIndex + 1) % widget.trending.length;
+        });
+      }
+    });
+  }
+
+  String _cleanDescription(String? htmlDesc) {
+    if (htmlDesc == null) return '';
+    final regExp = RegExp(r"<[^>]*>", multiLine: true, caseSensitive: true);
+    String clean = htmlDesc.replaceAll(regExp, '');
+    clean = clean
+        .replaceAll('&quot;', '"')
+        .replaceAll('&#039;', "'")
+        .replaceAll('&rsquo;', "'")
+        .replaceAll('&amp;', '&');
+    return clean;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final anime = widget.trending[_heroIndex];
     final String bannerUrl = anime['bannerImage'] ?? anime['coverImage']?['extraLarge'] ?? '';
     final String title = anime['title']?['english'] ?? anime['title']?['romaji'] ?? 'Untitled';
     final String description = _cleanDescription(anime['description']);
@@ -232,7 +342,7 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
             ),
           ),
 
-          // Gradient overlays to blend into pure black
+          // Gradients
           Positioned.fill(
             child: Container(
               decoration: const BoxDecoration(
@@ -277,7 +387,6 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Badges Row
                   Row(
                     children: [
                       if (format.isNotEmpty)
@@ -298,32 +407,42 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
                         ),
                       if (episodes != null) ...[
                         const SizedBox(width: 8.0),
-                        Text(
-                          '$episodes Episodes',
-                          style: const TextStyle(
-                            color: Colors.white54,
-                            fontSize: 12.0,
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
+                          decoration: BoxDecoration(
+                            color: Colors.white12,
+                            borderRadius: BorderRadius.circular(4.0),
+                          ),
+                          child: Text(
+                            '$episodes Episodes',
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: 11.0,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                         ),
                       ],
                       if (rating != null) ...[
-                        const SizedBox(width: 12.0),
-                        const Icon(Icons.star, color: Colors.amber, size: 14.0),
-                        const SizedBox(width: 4.0),
-                        Text(
-                          (rating / 10).toStringAsFixed(1),
-                          style: const TextStyle(
-                            color: Colors.amber,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 12.0,
-                          ),
+                        const SizedBox(width: 8.0),
+                        Row(
+                          children: [
+                            const Icon(Icons.star, color: Colors.amber, size: 16.0),
+                            const SizedBox(width: 4.0),
+                            Text(
+                              (rating / 10).toStringAsFixed(1),
+                              style: const TextStyle(
+                                color: Colors.amber,
+                                fontSize: 13.0,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ],
                   ),
                   const SizedBox(height: 12.0),
-
-                  // Title
                   Text(
                     title,
                     maxLines: 2,
@@ -332,36 +451,32 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
                       color: Colors.white,
                       fontSize: 32.0,
                       fontWeight: FontWeight.bold,
-                      letterSpacing: -0.5,
-                      fontFamily: 'Outfit',
                       height: 1.1,
+                      fontFamily: 'Outfit',
                     ),
                   ),
-                  const SizedBox(height: 10.0),
-
-                  // Description
-                  if (description.isNotEmpty)
+                  if (description.isNotEmpty) ...[
+                    const SizedBox(height: 12.0),
                     Text(
                       description,
                       maxLines: 3,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.65),
+                      style: const TextStyle(
+                        color: Colors.white70,
                         fontSize: 13.0,
                         height: 1.4,
                         fontFamily: 'Outfit',
                       ),
                     ),
+                  ],
                   const SizedBox(height: 20.0),
-
-                  // Action Buttons
                   Row(
                     children: [
                       ElevatedButton.icon(
                         icon: const Icon(Icons.play_arrow, size: 18),
                         label: const Text('Play'),
                         onPressed: () {
-                          // Handle play action
+                          widget.navigationState.selectAnime(anime['id']);
                         },
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.white,
@@ -390,14 +505,14 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
               ),
             ),
           ),
-          
-          // Carousel Navigation Indicators
+
+          // Indicators
           Positioned(
             bottom: 24.0,
             right: 24.0,
             child: Row(
               children: List.generate(
-                _trending.length > 6 ? 6 : _trending.length,
+                widget.trending.length > 6 ? 6 : widget.trending.length,
                 (index) => GestureDetector(
                   onTap: () {
                     setState(() {
@@ -422,15 +537,93 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
       ),
     );
   }
+}
 
-  Widget _buildRailway(String title, List<dynamic> list) {
+// Localized state for each Railway Track to listen to scrolls, page results, and load-more at the end of the track
+class _RailwayTrack extends StatefulWidget {
+  final String title;
+  final List<dynamic> initialItems;
+  final Future<List<dynamic>> Function(int page) onLoadMore;
+  final NavigationState navigationState;
+
+  const _RailwayTrack({
+    required this.title,
+    required this.initialItems,
+    required this.onLoadMore,
+    required this.navigationState,
+  });
+
+  @override
+  State<_RailwayTrack> createState() => _RailwayTrackState();
+}
+
+class _RailwayTrackState extends State<_RailwayTrack> {
+  final ScrollController _scrollController = ScrollController();
+  late final List<dynamic> _items = List.from(widget.initialItems);
+  int _currentPage = 1;
+  bool _isLoadingMore = false;
+  bool _hasMore = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController.addListener(_onScroll);
+  }
+
+  @override
+  void dispose() {
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 250) {
+      _loadNextPage();
+    }
+  }
+
+  Future<void> _loadNextPage() async {
+    if (_isLoadingMore || !_hasMore) return;
+    
+    setState(() {
+      _isLoadingMore = true;
+    });
+
+    try {
+      final nextPage = _currentPage + 1;
+      final newItems = await widget.onLoadMore(nextPage);
+      
+      if (mounted) {
+        setState(() {
+          if (newItems.isEmpty) {
+            _hasMore = false;
+          } else {
+            _currentPage = nextPage;
+            _items.addAll(newItems);
+          }
+          _isLoadingMore = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading more items for track ${widget.title}: $e');
+      if (mounted) {
+        setState(() {
+          _isLoadingMore = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
           padding: const EdgeInsets.only(top: 24.0, bottom: 12.0),
           child: Text(
-            title,
+            widget.title,
             style: const TextStyle(
               color: Colors.white,
               fontSize: 18.0,
@@ -442,10 +635,29 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
         SizedBox(
           height: 235.0,
           child: ListView.builder(
+            controller: _scrollController,
             scrollDirection: Axis.horizontal,
-            itemCount: list.length,
+            itemCount: _items.length + (_hasMore ? 1 : 0),
             itemBuilder: (context, index) {
-              final animeItem = list[index];
+              if (index == _items.length) {
+                // Return loading placeholder card at the end of the track
+                return Container(
+                  width: 140.0,
+                  margin: const EdgeInsets.only(right: 14.0),
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.01),
+                    borderRadius: BorderRadius.circular(6.0),
+                    border: Border.all(color: Colors.white10),
+                  ),
+                  child: const CircularProgressIndicator(
+                    color: Colors.white30,
+                    strokeWidth: 2.0,
+                  ),
+                );
+              }
+
+              final animeItem = _items[index];
               return _AnimeCard(
                 anime: animeItem,
                 onTap: () => widget.navigationState.selectAnime(animeItem['id']),
@@ -536,12 +748,12 @@ class _AnimeCardState extends State<_AnimeCard> {
                                   cacheWidth: 280,
                                   loadingBuilder: (context, child, progress) {
                                     if (progress == null) return child;
-                                    return Container(color: Colors.grey[900]);
+                                    return Container(color: Colors.grey[950]);
                                   },
                                   errorBuilder: (context, error, stackTrace) =>
-                                      Container(color: Colors.grey[900]),
+                                      Container(color: Colors.grey[950]),
                                 )
-                              : Container(color: Colors.grey[900]),
+                              : Container(color: Colors.grey[950]),
                         ),
                       ),
                       

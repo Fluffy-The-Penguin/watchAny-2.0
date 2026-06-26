@@ -167,4 +167,84 @@ class TmdbService {
     }
     return null;
   }
+
+  // Search and discover movies and tv shows with filter options
+  Future<List<dynamic>> searchAndDiscover({
+    required String query,
+    int? year,
+    String? format, // 'MOVIE' or 'TV'
+    List<int>? genres,
+    String? sortBy, // 'popularity.desc', 'vote_average.desc', 'release_date.desc'
+  }) async {
+    if (!isConfigured) return [];
+    try {
+      if (query.trim().isNotEmpty) {
+        // Search API
+        final searchType = (format == 'MOVIE') ? 'movie' : ((format == 'TV') ? 'tv' : 'multi');
+        final yearParam = year != null 
+            ? ((searchType == 'movie') ? '&year=$year' : ((searchType == 'tv') ? '&first_air_date_year=$year' : '')) 
+            : '';
+        final url = '$_baseUrl/search/$searchType?api_key=$tmdbApiKey&query=${Uri.encodeComponent(query)}$yearParam';
+        final response = await http.get(Uri.parse(url));
+        if (response.statusCode == 200) {
+          final data = jsonDecode(response.body);
+          final results = data['results'] as List? ?? [];
+          
+          return results.map((item) {
+            final isMovieType = item['media_type'] == 'movie' || format == 'MOVIE';
+            return {
+              'id': item['id'],
+              'title': item[isMovieType ? 'title' : 'name'] ?? 'Untitled',
+              'coverImage': {
+                'large': item['poster_path'] != null 
+                    ? 'https://image.tmdb.org/t/p/w300${item['poster_path']}' 
+                    : '',
+              },
+              'averageScore': (item['vote_average'] as num?)?.toDouble() != null 
+                  ? ((item['vote_average'] as num).toDouble() * 10).toInt()
+                  : null,
+              'format': isMovieType ? 'MOVIE' : 'TV',
+            };
+          }).toList();
+        }
+      } else {
+        // Discover API
+        final searchType = (format == 'TV') ? 'tv' : 'movie';
+        final yearParam = year != null 
+            ? ((searchType == 'movie') ? '&primary_release_year=$year' : '&first_air_date_year=$year') 
+            : '';
+        final genreParam = (genres != null && genres.isNotEmpty) 
+            ? '&with_genres=${genres.join(',')}' 
+            : '';
+        final sortParam = sortBy != null ? '&sort_by=$sortBy' : '&sort_by=popularity.desc';
+        
+        final url = '$_baseUrl/discover/$searchType?api_key=$tmdbApiKey$yearParam$genreParam$sortParam';
+        final response = await http.get(Uri.parse(url));
+        if (response.statusCode == 200) {
+          final data = jsonDecode(response.body);
+          final results = data['results'] as List? ?? [];
+          
+          return results.map((item) {
+            final isMovieType = searchType == 'movie';
+            return {
+              'id': item['id'],
+              'title': item[isMovieType ? 'title' : 'name'] ?? 'Untitled',
+              'coverImage': {
+                'large': item['poster_path'] != null 
+                    ? 'https://image.tmdb.org/t/p/w300${item['poster_path']}' 
+                    : '',
+              },
+              'averageScore': (item['vote_average'] as num?)?.toDouble() != null 
+                  ? ((item['vote_average'] as num).toDouble() * 10).toInt() 
+                  : null,
+              'format': isMovieType ? 'MOVIE' : 'TV',
+            };
+          }).toList();
+        }
+      }
+    } catch (e) {
+      debugPrint('TMDB Service searchAndDiscover error: $e');
+    }
+    return [];
+  }
 }

@@ -312,4 +312,102 @@ class AnilistService {
       throw Exception('Failed to load anime details ($id): $e');
     }
   }
+
+  // Search and discover AniList media (type 'ANIME' or 'MANGA') with filters
+  Future<Map<String, dynamic>> search({
+    required int page,
+    required int perPage,
+    String? searchQuery,
+    required String type, // 'ANIME' or 'MANGA'
+    List<String>? genres,
+    int? year,
+    String? season, // 'WINTER', 'SPRING', 'SUMMER', 'FALL'
+    List<String>? formats, // list of formats like 'TV', 'MOVIE', etc.
+    String? status, // 'FINISHED', 'RELEASING', etc.
+    String? sort, // 'TRENDING_DESC', 'POPULARITY_DESC', 'SCORE_DESC', etc.
+  }) async {
+    const query = r'''
+      query($page: Int, $perPage: Int, $search: String, $type: MediaType, $genres: [String], $year: Int, $season: MediaSeason, $formats: [MediaFormat], $status: MediaStatus, $sort: [MediaSort]) {
+        Page(page: $page, perPage: $perPage) {
+          pageInfo {
+            total
+            currentPage
+            lastPage
+            hasNextPage
+          }
+          media(search: $search, type: $type, genre_in: $genres, seasonYear: $year, season: $season, format_in: $formats, status: $status, sort: $sort) {
+            id
+            title {
+              romaji
+              english
+              native
+            }
+            coverImage {
+              large
+            }
+            averageScore
+            format
+            episodes
+            status
+          }
+        }
+      }
+    ''';
+
+    final Map<String, dynamic> variables = {
+      'page': page,
+      'perPage': perPage,
+      'type': type,
+    };
+
+    if (searchQuery != null && searchQuery.trim().isNotEmpty) {
+      variables['search'] = searchQuery.trim();
+    }
+    if (genres != null && genres.isNotEmpty) {
+      variables['genres'] = genres;
+    }
+    if (year != null) {
+      variables['year'] = year;
+    }
+    if (season != null && season.isNotEmpty && season != 'ALL') {
+      variables['season'] = season.toUpperCase();
+    }
+    if (formats != null && formats.isNotEmpty) {
+      variables['formats'] = formats.map((f) => f.toUpperCase()).toList();
+    }
+    if (status != null && status.isNotEmpty && status != 'ALL') {
+      variables['status'] = status.toUpperCase();
+    }
+    if (sort != null && sort.isNotEmpty) {
+      variables['sort'] = [sort.toUpperCase()];
+    } else {
+      variables['sort'] = ['POPULARITY_DESC'];
+    }
+
+    try {
+      final response = await http.post(
+        Uri.parse(_endpoint),
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: jsonEncode({
+          'query': query,
+          'variables': variables,
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        final body = jsonDecode(response.body);
+        if (body['data'] != null) {
+          return body['data'] as Map<String, dynamic>;
+        }
+        throw Exception('GraphQL error: ${body['errors']}');
+      } else {
+        throw Exception('HTTP Request failed with status: ${response.statusCode}');
+      }
+    } catch (e) {
+      throw Exception('Search failed: $e');
+    }
+  }
 }
