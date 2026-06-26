@@ -180,7 +180,7 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
-  Widget _buildRepoSection() {
+  Widget _buildRepoSection(bool isMobile) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -200,77 +200,143 @@ class _SettingsPageState extends State<SettingsPage> {
         ),
         const SizedBox(height: 16.0),
         
-        // Add Repo Fields Row
-        Row(
-          children: [
-            Expanded(
-              flex: 2,
-              child: TextField(
-                controller: _repoNameController,
-                style: const TextStyle(color: Colors.white, fontSize: 14.0),
-                decoration: InputDecoration(
-                  labelText: 'Repo Name (Optional)',
-                  labelStyle: const TextStyle(color: Colors.white38),
-                  filled: true,
-                  fillColor: Colors.white.withValues(alpha: 0.03),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8.0),
-                    borderSide: const BorderSide(color: Colors.white10),
+        // Add Repo Fields
+        isMobile
+            ? Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  TextField(
+                    controller: _repoNameController,
+                    style: const TextStyle(color: Colors.white, fontSize: 14.0),
+                    decoration: InputDecoration(
+                      labelText: 'Repo Name (Optional)',
+                      labelStyle: const TextStyle(color: Colors.white38),
+                      filled: true,
+                      fillColor: Colors.white.withValues(alpha: 0.03),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8.0),
+                        borderSide: const BorderSide(color: Colors.white10),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8.0),
+                        borderSide: const BorderSide(color: Colors.white10),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8.0),
+                        borderSide: const BorderSide(color: Colors.white38),
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 14.0),
+                    ),
                   ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8.0),
-                    borderSide: const BorderSide(color: Colors.white10),
+                  const SizedBox(height: 12.0),
+                  TextField(
+                    controller: _repoUrlController,
+                    style: const TextStyle(color: Colors.white, fontSize: 14.0),
+                    decoration: InputDecoration(
+                      labelText: 'Repository JSON URL',
+                      labelStyle: const TextStyle(color: Colors.white38),
+                      filled: true,
+                      fillColor: Colors.white.withValues(alpha: 0.03),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8.0),
+                        borderSide: const BorderSide(color: Colors.white10),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8.0),
+                        borderSide: const BorderSide(color: Colors.white10),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8.0),
+                        borderSide: const BorderSide(color: Colors.white38),
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 14.0),
+                    ),
                   ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8.0),
-                    borderSide: const BorderSide(color: Colors.white38),
+                  const SizedBox(height: 12.0),
+                  ElevatedButton.icon(
+                    icon: const Icon(Icons.add, color: Colors.black, size: 18),
+                    label: const Text('Add Repo', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                    onPressed: _isLoading ? null : _addRepo,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 16.0),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8.0),
+                      ),
+                    ),
                   ),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 14.0),
-                ),
+                ],
+              )
+            : Row(
+                children: [
+                  Expanded(
+                    flex: 2,
+                    child: TextField(
+                      controller: _repoNameController,
+                      style: const TextStyle(color: Colors.white, fontSize: 14.0),
+                      decoration: InputDecoration(
+                        labelText: 'Repo Name (Optional)',
+                        labelStyle: const TextStyle(color: Colors.white38),
+                        filled: true,
+                        fillColor: Colors.white.withValues(alpha: 0.03),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8.0),
+                          borderSide: const BorderSide(color: Colors.white10),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8.0),
+                          borderSide: const BorderSide(color: Colors.white10),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8.0),
+                          borderSide: const BorderSide(color: Colors.white38),
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 14.0),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12.0),
+                  Expanded(
+                    flex: 4,
+                    child: TextField(
+                      controller: _repoUrlController,
+                      style: const TextStyle(color: Colors.white, fontSize: 14.0),
+                      decoration: InputDecoration(
+                        labelText: 'Repository JSON URL',
+                        labelStyle: const TextStyle(color: Colors.white38),
+                        filled: true,
+                        fillColor: Colors.white.withValues(alpha: 0.03),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8.0),
+                          borderSide: const BorderSide(color: Colors.white10),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8.0),
+                          borderSide: const BorderSide(color: Colors.white10),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8.0),
+                          borderSide: const BorderSide(color: Colors.white38),
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 14.0),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12.0),
+                  ElevatedButton.icon(
+                    icon: const Icon(Icons.add, color: Colors.black, size: 18),
+                    label: const Text('Add Repo', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                    onPressed: _isLoading ? null : _addRepo,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 16.0),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8.0),
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            ),
-            const SizedBox(width: 12.0),
-            Expanded(
-              flex: 4,
-              child: TextField(
-                controller: _repoUrlController,
-                style: const TextStyle(color: Colors.white, fontSize: 14.0),
-                decoration: InputDecoration(
-                  labelText: 'Repository JSON URL',
-                  labelStyle: const TextStyle(color: Colors.white38),
-                  filled: true,
-                  fillColor: Colors.white.withValues(alpha: 0.03),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8.0),
-                    borderSide: const BorderSide(color: Colors.white10),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8.0),
-                    borderSide: const BorderSide(color: Colors.white10),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8.0),
-                    borderSide: const BorderSide(color: Colors.white38),
-                  ),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 14.0),
-                ),
-              ),
-            ),
-            const SizedBox(width: 12.0),
-            ElevatedButton.icon(
-              icon: const Icon(Icons.add, color: Colors.black, size: 18),
-              label: const Text('Add Repo', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
-              onPressed: _isLoading ? null : _addRepo,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 16.0),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8.0),
-                ),
-              ),
-            ),
-          ],
-        ),
         
         const SizedBox(height: 20.0),
         
@@ -351,7 +417,96 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
-  Widget _buildExtensionsSection() {
+  Widget _buildActionButtons(Extension ext, String status, String? error, {bool isMobile = false}) {
+    final testWidget = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (status == 'testing')
+          const SizedBox(
+            width: 16,
+            height: 16,
+            child: CircularProgressIndicator(strokeWidth: 2.0, color: Colors.white54),
+          )
+        else if (status == 'success')
+          const Icon(Icons.check_circle, color: Colors.green, size: 18)
+        else if (status == 'error')
+          Tooltip(
+            message: error ?? 'Test failed',
+            child: const Icon(Icons.error, color: Colors.redAccent, size: 18),
+          ),
+        const SizedBox(width: 8.0),
+        OutlinedButton.icon(
+          icon: const Icon(Icons.play_circle_outline, size: 13.0),
+          label: const Text('Test', style: TextStyle(fontSize: 11.0)),
+          onPressed: ext.isEnabled && status != 'testing' ? () => _testExtension(ext) : null,
+          style: OutlinedButton.styleFrom(
+            foregroundColor: Colors.white,
+            side: const BorderSide(color: Colors.white24),
+            padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 6.0),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6.0)),
+            minimumSize: Size.zero,
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
+        ),
+      ],
+    );
+
+    final toggleWidget = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (!isMobile) ...[
+          Text(
+            ext.isEnabled ? 'Enabled' : 'Disabled',
+            style: TextStyle(
+              color: ext.isEnabled ? Colors.white70 : Colors.white30,
+              fontSize: 12.0,
+            ),
+          ),
+          const SizedBox(width: 8.0),
+        ],
+        Transform.scale(
+          scale: isMobile ? 0.8 : 0.9,
+          child: Switch(
+            value: ext.isEnabled,
+            activeColor: Colors.white,
+            activeTrackColor: Colors.white24,
+            inactiveThumbColor: Colors.white30,
+            inactiveTrackColor: Colors.black26,
+            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            onChanged: (value) {
+              _extensionService.toggleExtension(ext.id, value);
+              setState(() {
+                _testStatus.remove(ext.id);
+                _testErrors.remove(ext.id);
+              });
+            },
+          ),
+        ),
+      ],
+    );
+
+    if (isMobile) {
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          testWidget,
+          const SizedBox(width: 8.0),
+          toggleWidget,
+        ],
+      );
+    } else {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          testWidget,
+          const SizedBox(height: 10.0),
+          toggleWidget,
+        ],
+      );
+    }
+  }
+
+  Widget _buildExtensionsSection(bool isMobile) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -408,73 +563,97 @@ class _SettingsPageState extends State<SettingsPage> {
                       width: 1.0,
                     ),
                   ),
-                  child: Row(
+                  child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Extension Icon / Logo
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(6.0),
-                        child: ext.icon.isNotEmpty
-                            ? Image.network(
-                                ext.icon,
-                                width: 44,
-                                height: 44,
-                                fit: BoxFit.cover,
-                                errorBuilder: (context, error, stackTrace) => Container(
-                                  color: Colors.white.withValues(alpha: 0.05),
-                                  width: 44,
-                                  height: 44,
-                                  child: const Icon(Icons.extension, color: Colors.white38),
-                                ),
-                              )
-                            : Container(
-                                color: Colors.white.withValues(alpha: 0.05),
-                                width: 44,
-                                height: 44,
-                                child: const Icon(Icons.extension, color: Colors.white38),
-                              ),
-                      ),
-                      const SizedBox(width: 16.0),
-                      
-                      // Metadata Info
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Extension Icon / Logo
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(6.0),
+                            child: ext.icon.isNotEmpty
+                                ? Image.network(
+                                    ext.icon,
+                                    width: 44,
+                                    height: 44,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (context, error, stackTrace) => Container(
+                                      color: Colors.white.withValues(alpha: 0.05),
+                                      width: 44,
+                                      height: 44,
+                                      child: const Icon(Icons.extension, color: Colors.white38),
+                                    ),
+                                  )
+                                : Container(
+                                    color: Colors.white.withValues(alpha: 0.05),
+                                    width: 44,
+                                    height: 44,
+                                    child: const Icon(Icons.extension, color: Colors.white38),
+                                  ),
+                          ),
+                          const SizedBox(width: 16.0),
+                          
+                          // Metadata Info
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(
-                                  ext.name,
-                                  style: TextStyle(
-                                    color: ext.isEnabled ? Colors.white : Colors.white38,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 15.0,
-                                    fontFamily: 'Outfit',
-                                  ),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        ext.name,
+                                        style: TextStyle(
+                                          color: ext.isEnabled ? Colors.white : Colors.white38,
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 15.0,
+                                          fontFamily: 'Outfit',
+                                        ),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8.0),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 6.0, vertical: 2.0),
+                                      decoration: BoxDecoration(
+                                        color: Colors.white10,
+                                        borderRadius: BorderRadius.circular(4.0),
+                                      ),
+                                      child: Text(
+                                        'v${ext.version}',
+                                        style: const TextStyle(color: Colors.white60, fontSize: 10.0),
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                                const SizedBox(width: 8.0),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 6.0, vertical: 2.0),
-                                  decoration: BoxDecoration(
-                                    color: Colors.white10,
-                                    borderRadius: BorderRadius.circular(4.0),
-                                  ),
-                                  child: Text(
-                                    'v${ext.version}',
-                                    style: const TextStyle(color: Colors.white60, fontSize: 10.0),
-                                  ),
+                                const SizedBox(height: 4.0),
+                                Text(
+                                  'ID: ${ext.id} • Type: ${ext.type.toUpperCase()}',
+                                  style: const TextStyle(color: Colors.white38, fontSize: 11.5),
+                                  overflow: TextOverflow.ellipsis,
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 4.0),
-                            Text(
-                              'ID: ${ext.id} • Type: ${ext.type.toUpperCase()}',
-                              style: const TextStyle(color: Colors.white38, fontSize: 11.5),
-                            ),
-                            const SizedBox(height: 8.0),
-                            
-                            // Badges Row
-                            Wrap(
+                          ),
+                          if (!isMobile) ...[
+                            const SizedBox(width: 16.0),
+                            // Action buttons side-by-side for desktop
+                            _buildActionButtons(ext, status, error),
+                          ],
+                        ],
+                      ),
+                      
+                      const SizedBox(height: 12.0),
+                      
+                      // Badges & Mobile Actions Row
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          // Badges (Expanded so they wrap if needed)
+                          Expanded(
+                            child: Wrap(
                               spacing: 6.0,
                               runSpacing: 6.0,
                               children: [
@@ -515,78 +694,13 @@ class _SettingsPageState extends State<SettingsPage> {
                                 )),
                               ],
                             ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 16.0),
-                      
-                      // Action buttons (Test & Toggle)
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          Row(
-                            children: [
-                              // Test Results
-                              if (status == 'testing')
-                                const SizedBox(
-                                  width: 20,
-                                  height: 20,
-                                  child: CircularProgressIndicator(strokeWidth: 2.0, color: Colors.white54),
-                                )
-                              else if (status == 'success')
-                                const Icon(Icons.check_circle, color: Colors.green, size: 20)
-                              else if (status == 'error')
-                                Tooltip(
-                                  message: error ?? 'Test failed',
-                                  child: const Icon(Icons.error, color: Colors.redAccent, size: 20),
-                                ),
-                              
-                              const SizedBox(width: 12.0),
-                              
-                              // Test button
-                              OutlinedButton.icon(
-                                icon: const Icon(Icons.play_circle_outline, size: 14.0),
-                                label: const Text('Test', style: TextStyle(fontSize: 12.0)),
-                                onPressed: ext.isEnabled && status != 'testing' ? () => _testExtension(ext) : null,
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor: Colors.white,
-                                  side: const BorderSide(color: Colors.white24),
-                                  padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6.0)),
-                                ),
-                              ),
-                            ],
                           ),
-                          const SizedBox(height: 12.0),
                           
-                          // Toggle Switch
-                          Row(
-                            children: [
-                              Text(
-                                ext.isEnabled ? 'Enabled' : 'Disabled',
-                                style: TextStyle(
-                                  color: ext.isEnabled ? Colors.white70 : Colors.white30,
-                                  fontSize: 12.0,
-                                ),
-                              ),
-                              const SizedBox(width: 8.0),
-                              Switch(
-                                value: ext.isEnabled,
-                                activeColor: Colors.white,
-                                activeTrackColor: Colors.white24,
-                                inactiveThumbColor: Colors.white30,
-                                inactiveTrackColor: Colors.black26,
-                                onChanged: (value) {
-                                  _extensionService.toggleExtension(ext.id, value);
-                                  // Clear testing status on toggle
-                                  setState(() {
-                                    _testStatus.remove(ext.id);
-                                    _testErrors.remove(ext.id);
-                                  });
-                                },
-                              ),
-                            ],
-                          ),
+                          if (isMobile) ...[
+                            const SizedBox(width: 8.0),
+                            // Compact actions for mobile
+                            _buildActionButtons(ext, status, error, isMobile: true),
+                          ],
                         ],
                       ),
                     ],
@@ -622,6 +736,62 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
+  Widget _buildTopCategoryBar() {
+    final categories = [
+      {'title': 'Extensions', 'icon': Icons.extension},
+      {'title': 'General', 'icon': Icons.settings_applications},
+    ];
+
+    return Container(
+      decoration: const BoxDecoration(
+        border: Border(
+          bottom: BorderSide(color: Colors.white10, width: 1.0),
+        ),
+      ),
+      child: Row(
+        children: List.generate(categories.length, (index) {
+          final isSelected = _activeCategoryIndex == index;
+          return Expanded(
+            child: InkWell(
+              onTap: () => setState(() => _activeCategoryIndex = index),
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 16.0),
+                decoration: BoxDecoration(
+                  border: Border(
+                    bottom: BorderSide(
+                      color: isSelected ? Colors.white : Colors.transparent,
+                      width: 2.0,
+                    ),
+                  ),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      categories[index]['icon'] as IconData,
+                      color: isSelected ? Colors.white : Colors.white54,
+                      size: 18,
+                    ),
+                    const SizedBox(width: 8.0),
+                    Text(
+                      categories[index]['title'] as String,
+                      style: TextStyle(
+                        color: isSelected ? Colors.white : Colors.white70,
+                        fontSize: 13,
+                        fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                        fontFamily: 'Outfit',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        }),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
@@ -633,59 +803,71 @@ class _SettingsPageState extends State<SettingsPage> {
       );
     }
 
+    final double screenWidth = MediaQuery.of(context).size.width;
+    final bool isMobile = screenWidth < 650;
+
+    final Widget contentPane = SingleChildScrollView(
+      padding: EdgeInsets.all(isMobile ? 16.0 : 32.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Title Header
+          const Text(
+            'Settings',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 28.0,
+              fontWeight: FontWeight.bold,
+              fontFamily: 'Outfit',
+            ),
+          ),
+          const SizedBox(height: 4.0),
+          const Text(
+            'Configure scrapers, local servers, and global application options.',
+            style: TextStyle(color: Colors.white38, fontSize: 14.0),
+          ),
+          const SizedBox(height: 24.0),
+          
+          Container(height: 1.0, color: Colors.white10),
+          const SizedBox(height: 24.0),
+          
+          // Display Active category content
+          if (_activeCategoryIndex == 0) ...[
+            _buildRepoSection(isMobile),
+            const SizedBox(height: 36.0),
+            Container(height: 1.0, color: Colors.white10),
+            const SizedBox(height: 24.0),
+            _buildExtensionsSection(isMobile),
+          ] else if (_activeCategoryIndex == 1) ...[
+            _buildGeneralSection(),
+          ],
+        ],
+      ),
+    );
+
     return Scaffold(
       backgroundColor: Colors.black,
       body: Padding(
-        padding: const EdgeInsets.only(top: 50.0), // Room for floating drag handle / custom title bar
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Left Settings Sidebar
-            _buildSidebar(),
-            
-            // Right Settings Details Pane
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(32.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Title Header
-                    const Text(
-                      'Settings',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 28.0,
-                        fontWeight: FontWeight.bold,
-                        fontFamily: 'Outfit',
-                      ),
-                    ),
-                    const SizedBox(height: 4.0),
-                    const Text(
-                      'Configure scrapers, local servers, and global application options.',
-                      style: TextStyle(color: Colors.white38, fontSize: 14.0),
-                    ),
-                    const SizedBox(height: 24.0),
-                    
-                    Container(height: 1.0, color: Colors.white10),
-                    const SizedBox(height: 24.0),
-                    
-                    // Display Active category content
-                    if (_activeCategoryIndex == 0) ...[
-                      _buildRepoSection(),
-                      const SizedBox(height: 36.0),
-                      Container(height: 1.0, color: Colors.white10),
-                      const SizedBox(height: 24.0),
-                      _buildExtensionsSection(),
-                    ] else if (_activeCategoryIndex == 1) ...[
-                      _buildGeneralSection(),
-                    ],
-                  ],
-                ),
+        padding: EdgeInsets.only(top: isMobile ? 0.0 : 50.0), // Room for floating drag handle / custom title bar on desktop
+        child: isMobile
+            ? Column(
+                children: [
+                  _buildTopCategoryBar(),
+                  Expanded(child: contentPane),
+                ],
+              )
+            : Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Left Settings Sidebar
+                  _buildSidebar(),
+                  
+                  // Right Settings Details Pane
+                  Expanded(
+                    child: contentPane,
+                  ),
+                ],
               ),
-            ),
-          ],
-        ),
       ),
     );
   }

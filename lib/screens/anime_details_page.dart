@@ -432,6 +432,9 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
                                   _details!['title']?['native'] ?? '',
                                 ].where((t) => t.isNotEmpty).map((t) => t.toString()).toList();
 
+                                final double screenWidth = MediaQuery.of(context).size.width;
+                                final bool isMobileSheet = screenWidth < 650;
+
                                 showModalBottomSheet(
                                   context: context,
                                   isScrollControlled: true,
@@ -441,12 +444,14 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
                                     return Align(
                                       alignment: Alignment.bottomCenter,
                                       child: Container(
-                                        width: 800.0,
-                                        height: MediaQuery.of(context).size.height * 0.65,
-                                        margin: const EdgeInsets.all(24.0),
+                                        width: isMobileSheet ? double.infinity : 800.0,
+                                        height: MediaQuery.of(context).size.height * (isMobileSheet ? 0.8 : 0.65),
+                                        margin: isMobileSheet ? EdgeInsets.zero : const EdgeInsets.all(24.0),
                                         decoration: BoxDecoration(
                                           color: const Color(0xFF0C0C0E),
-                                          borderRadius: BorderRadius.circular(12.0),
+                                          borderRadius: isMobileSheet
+                                              ? const BorderRadius.vertical(top: Radius.circular(16.0))
+                                              : BorderRadius.circular(12.0),
                                           border: Border.all(color: Colors.white10, width: 1.0),
                                           boxShadow: const [
                                             BoxShadow(
@@ -457,7 +462,9 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
                                           ],
                                         ),
                                         child: ClipRRect(
-                                          borderRadius: BorderRadius.circular(11.0),
+                                          borderRadius: isMobileSheet
+                                              ? const BorderRadius.vertical(top: Radius.circular(15.0))
+                                              : BorderRadius.circular(11.0),
                                           child: TorrentSelectorPanel(
                                             anilistId: widget.animeId,
                                             titles: titles,
@@ -552,6 +559,9 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
     final String studio = (anime['studios']?['nodes'] as List?)?.firstOrNull?['name'] ?? '';
     final String season = anime['season'] ?? '';
     final int? seasonYear = anime['seasonYear'];
+
+    final double screenWidth = MediaQuery.of(context).size.width;
+    final bool isMobile = screenWidth < 650;
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -652,122 +662,233 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
 
                     // Centered 70% width top/middle section (poster cover, title, description, tabs)
                     Center(
-                      child: SizedBox(
-                        width: MediaQuery.of(context).size.width * 0.7,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(horizontal: isMobile ? 16.0 : 0.0),
+                        child: SizedBox(
+                          width: isMobile ? double.infinity : MediaQuery.of(context).size.width * 0.7,
+                          child: Column(
+                            crossAxisAlignment: isMobile ? CrossAxisAlignment.center : CrossAxisAlignment.start,
+                            children: [
                             // Media Header Area (Cover + Info card)
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                // Poster Cover
-                                if (coverUrl.isNotEmpty)
-                                  Container(
-                                    height: 220.0,
-                                    width: 155.0,
-                                    decoration: BoxDecoration(
-                                      borderRadius: BorderRadius.circular(8.0),
-                                      boxShadow: [
-                                        BoxShadow(
-                                          color: Colors.black.withValues(alpha: 0.8),
-                                          blurRadius: 12.0,
-                                          offset: const Offset(0, 4),
-                                        )
-                                      ],
-                                      border: Border.all(color: Colors.white10, width: 1.0),
-                                    ),
-                                    child: ClipRRect(
-                                      borderRadius: BorderRadius.circular(7.0),
-                                      child: Image.network(
-                                        coverUrl, 
-                                        fit: BoxFit.cover,
-                                        cacheWidth: 310, // Optimizes cover RAM caching (155px * 2)
-                                      ),
-                                    ),
-                                  ),
-                                const SizedBox(width: 24.0),
-
-                                // Title metadata
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                            isMobile
+                                ? Column(
+                                    crossAxisAlignment: CrossAxisAlignment.center,
                                     children: [
-                                      // Native / Romaji names
-                                      if (nativeTitle.isNotEmpty)
-                                        Text(
-                                          nativeTitle,
-                                          style: const TextStyle(
-                                            color: Colors.white54,
-                                            fontSize: 14.0,
-                                            fontFamily: 'Outfit',
-                                            fontWeight: FontWeight.w500,
+                                      // Poster Cover
+                                      if (coverUrl.isNotEmpty)
+                                        Container(
+                                          height: 180.0,
+                                          width: 125.0,
+                                          decoration: BoxDecoration(
+                                            borderRadius: BorderRadius.circular(8.0),
+                                            boxShadow: [
+                                              BoxShadow(
+                                                color: Colors.black.withValues(alpha: 0.8),
+                                                blurRadius: 12.0,
+                                                offset: const Offset(0, 4),
+                                              )
+                                            ],
+                                            border: Border.all(color: Colors.white10, width: 1.0),
+                                          ),
+                                          child: ClipRRect(
+                                            borderRadius: BorderRadius.circular(7.0),
+                                            child: Image.network(
+                                              coverUrl, 
+                                              fit: BoxFit.cover,
+                                              cacheWidth: 250,
+                                            ),
                                           ),
                                         ),
-                                      if (romajiTitle.isNotEmpty && romajiTitle != title) ...[
-                                        const SizedBox(height: 2.0),
-                                        Text(
-                                          romajiTitle,
-                                          style: const TextStyle(
-                                            color: Colors.white54,
-                                            fontSize: 13.0,
-                                            fontFamily: 'Outfit',
-                                          ),
-                                        ),
-                                      ],
-                                      const SizedBox(height: 12.0),
-
-                                      // Big Title
-                                      Text(
-                                        title,
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 28.0,
-                                          fontWeight: FontWeight.bold,
-                                          letterSpacing: -0.5,
-                                          fontFamily: 'Outfit',
-                                          height: 1.2,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 14.0),
-
-                                      // Metadata badges row
-                                      Wrap(
-                                        spacing: 8.0,
-                                        runSpacing: 8.0,
+                                      const SizedBox(height: 16.0),
+                                      // Title metadata
+                                      Column(
+                                        crossAxisAlignment: CrossAxisAlignment.center,
                                         children: [
-                                          if (format.isNotEmpty) _buildBadge(format),
-                                          if (status.isNotEmpty) _buildBadge(status.replaceAll('_', ' ')),
-                                          if (studio.isNotEmpty) _buildBadge(studio, isAccent: true),
-                                          if (rating != null)
-                                            _buildBadge('★ ${(rating / 10).toStringAsFixed(1)}', color: Colors.amber[800]!),
-                                          if (season.isNotEmpty && seasonYear != null)
-                                            _buildBadge('${season.toLowerCase()} $seasonYear'.toUpperCase()),
+                                          // Native / Romaji names
+                                          if (nativeTitle.isNotEmpty)
+                                            Text(
+                                              nativeTitle,
+                                              textAlign: TextAlign.center,
+                                              style: const TextStyle(
+                                                color: Colors.white54,
+                                                fontSize: 13.0,
+                                                fontFamily: 'Outfit',
+                                                fontWeight: FontWeight.w500,
+                                              ),
+                                            ),
+                                          if (romajiTitle.isNotEmpty && romajiTitle != title) ...[
+                                            const SizedBox(height: 2.0),
+                                            Text(
+                                              romajiTitle,
+                                              textAlign: TextAlign.center,
+                                              style: const TextStyle(
+                                                color: Colors.white54,
+                                                fontSize: 12.0,
+                                                fontFamily: 'Outfit',
+                                              ),
+                                            ),
+                                          ],
+                                          const SizedBox(height: 8.0),
+
+                                          // Big Title
+                                          Text(
+                                            title,
+                                            textAlign: TextAlign.center,
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 22.0,
+                                              fontWeight: FontWeight.bold,
+                                              letterSpacing: -0.5,
+                                              fontFamily: 'Outfit',
+                                              height: 1.2,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 12.0),
+
+                                          // Metadata badges row
+                                          Wrap(
+                                            alignment: WrapAlignment.center,
+                                            spacing: 8.0,
+                                            runSpacing: 8.0,
+                                            children: [
+                                              if (format.isNotEmpty) _buildBadge(format),
+                                              if (status.isNotEmpty) _buildBadge(status.replaceAll('_', ' ')),
+                                              if (studio.isNotEmpty) _buildBadge(studio, isAccent: true),
+                                              if (rating != null)
+                                                _buildBadge('★ ${(rating / 10).toStringAsFixed(1)}', color: Colors.amber[800]!),
+                                              if (season.isNotEmpty && seasonYear != null)
+                                                _buildBadge('${season.toLowerCase()} $seasonYear'.toUpperCase()),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 12.0),
+
+                                          // Genres list
+                                          Wrap(
+                                            alignment: WrapAlignment.center,
+                                            spacing: 6.0,
+                                            runSpacing: 6.0,
+                                            children: genres.map((g) => Chip(
+                                              label: Text(g, style: const TextStyle(fontSize: 11.0, color: Colors.white70)),
+                                              backgroundColor: Colors.white.withValues(alpha: 0.05),
+                                              padding: EdgeInsets.zero,
+                                              side: BorderSide.none,
+                                              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                            )).toList(),
+                                          ),
                                         ],
                                       ),
-                                      const SizedBox(height: 16.0),
+                                    ],
+                                  )
+                                : Row(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      // Poster Cover
+                                      if (coverUrl.isNotEmpty)
+                                        Container(
+                                          height: 220.0,
+                                          width: 155.0,
+                                          decoration: BoxDecoration(
+                                            borderRadius: BorderRadius.circular(8.0),
+                                            boxShadow: [
+                                              BoxShadow(
+                                                color: Colors.black.withValues(alpha: 0.8),
+                                                blurRadius: 12.0,
+                                                offset: const Offset(0, 4),
+                                              )
+                                            ],
+                                            border: Border.all(color: Colors.white10, width: 1.0),
+                                          ),
+                                          child: ClipRRect(
+                                            borderRadius: BorderRadius.circular(7.0),
+                                            child: Image.network(
+                                              coverUrl, 
+                                              fit: BoxFit.cover,
+                                              cacheWidth: 310, // Optimizes cover RAM caching (155px * 2)
+                                            ),
+                                          ),
+                                        ),
+                                      const SizedBox(width: 24.0),
 
-                                      // Genres list
-                                      Wrap(
-                                        spacing: 6.0,
-                                        runSpacing: 6.0,
-                                        children: genres.map((g) => Chip(
-                                          label: Text(g, style: const TextStyle(fontSize: 11.0, color: Colors.white70)),
-                                          backgroundColor: Colors.white.withValues(alpha: 0.05),
-                                          padding: EdgeInsets.zero,
-                                          side: BorderSide.none,
-                                          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                        )).toList(),
+                                      // Title metadata
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            // Native / Romaji names
+                                            if (nativeTitle.isNotEmpty)
+                                              Text(
+                                                nativeTitle,
+                                                style: const TextStyle(
+                                                  color: Colors.white54,
+                                                  fontSize: 14.0,
+                                                  fontFamily: 'Outfit',
+                                                  fontWeight: FontWeight.w500,
+                                                ),
+                                              ),
+                                            if (romajiTitle.isNotEmpty && romajiTitle != title) ...[
+                                              const SizedBox(height: 2.0),
+                                              Text(
+                                                romajiTitle,
+                                                style: const TextStyle(
+                                                  color: Colors.white54,
+                                                  fontSize: 13.0,
+                                                  fontFamily: 'Outfit',
+                                                ),
+                                              ),
+                                            ],
+                                            const SizedBox(height: 12.0),
+
+                                            // Big Title
+                                            Text(
+                                              title,
+                                              style: const TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 28.0,
+                                                fontWeight: FontWeight.bold,
+                                                letterSpacing: -0.5,
+                                                fontFamily: 'Outfit',
+                                                height: 1.2,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 14.0),
+
+                                            // Metadata badges row
+                                            Wrap(
+                                              spacing: 8.0,
+                                              runSpacing: 8.0,
+                                              children: [
+                                                if (format.isNotEmpty) _buildBadge(format),
+                                                if (status.isNotEmpty) _buildBadge(status.replaceAll('_', ' ')),
+                                                if (studio.isNotEmpty) _buildBadge(studio, isAccent: true),
+                                                if (rating != null)
+                                                  _buildBadge('★ ${(rating / 10).toStringAsFixed(1)}', color: Colors.amber[800]!),
+                                                if (season.isNotEmpty && seasonYear != null)
+                                                  _buildBadge('${season.toLowerCase()} $seasonYear'.toUpperCase()),
+                                              ],
+                                            ),
+                                            const SizedBox(height: 16.0),
+
+                                            // Genres list
+                                            Wrap(
+                                              spacing: 6.0,
+                                              runSpacing: 6.0,
+                                              children: genres.map((g) => Chip(
+                                                label: Text(g, style: const TextStyle(fontSize: 11.0, color: Colors.white70)),
+                                                backgroundColor: Colors.white.withValues(alpha: 0.05),
+                                                padding: EdgeInsets.zero,
+                                                side: BorderSide.none,
+                                                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                              )).toList(),
+                                            ),
+                                          ],
+                                        ),
                                       ),
                                     ],
                                   ),
-                                ),
-                              ],
-                            ),
                             const SizedBox(height: 36.0),
 
                             // Inner Nav Bar Tabs
-                            _buildInnerNavbar(),
+                            _buildInnerNavbar(isMobile),
                             const SizedBox(height: 16.0),
 
                             // Active Tab Content (Description, Characters, or Relations)
@@ -776,6 +897,7 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
                         ),
                       ),
                     ),
+                  ),
                     
                     const SizedBox(height: 40.0),
                     
@@ -786,29 +908,14 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
                     // Dual Column Section - Takes full width
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 24.0),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          // Left column (Episodes section)
-                          Expanded(
-                            flex: 7,
-                            child: _buildEpisodesSection(title),
-                          ),
-
-                          // Spacer / Divider
-                          const SizedBox(width: 24.0),
-                          Container(
-                            width: 1.0,
-                            color: Colors.white10,
-                          ),
-                          const SizedBox(width: 24.0),
-
-                          // Right column (Recommendations section)
-                          Expanded(
-                            flex: 3,
-                            child: Column(
+                      child: isMobile
+                          ? Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
+                                _buildEpisodesSection(title, isMobile),
+                                const SizedBox(height: 40.0),
+                                Container(height: 1.0, color: Colors.white10),
+                                const SizedBox(height: 24.0),
                                 const Text(
                                   'Recommended',
                                   style: TextStyle(
@@ -821,10 +928,46 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
                                 const SizedBox(height: 16.0),
                                 _buildRecommendationsList(anime['recommendations']?['nodes'] ?? []),
                               ],
+                            )
+                          : Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                // Left column (Episodes section)
+                                Expanded(
+                                  flex: 7,
+                                  child: _buildEpisodesSection(title, isMobile),
+                                ),
+
+                                // Spacer / Divider
+                                const SizedBox(width: 24.0),
+                                Container(
+                                  width: 1.0,
+                                  color: Colors.white10,
+                                ),
+                                const SizedBox(width: 24.0),
+
+                                // Right column (Recommendations section)
+                                Expanded(
+                                  flex: 3,
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Text(
+                                        'Recommended',
+                                        style: TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 18.0,
+                                          fontWeight: FontWeight.bold,
+                                          fontFamily: 'Outfit',
+                                        ),
+                                      ),
+                                      const SizedBox(height: 16.0),
+                                      _buildRecommendationsList(anime['recommendations']?['nodes'] ?? []),
+                                    ],
+                                  ),
+                                ),
+                              ],
                             ),
-                          ),
-                        ],
-                      ),
                     ),
                   ],
                 ),
@@ -854,40 +997,43 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
     );
   }
 
-  Widget _buildInnerNavbar() {
+  Widget _buildInnerNavbar(bool isMobile) {
     final tabs = ['Description', 'Characters & Cast', 'Relations'];
+    final row = Row(
+      mainAxisAlignment: isMobile ? MainAxisAlignment.spaceBetween : MainAxisAlignment.start,
+      children: List.generate(tabs.length, (index) {
+        final isSelected = _activeTab == index;
+        return GestureDetector(
+          onTap: () => setState(() => _activeTab = index),
+          child: Container(
+            padding: EdgeInsets.symmetric(horizontal: isMobile ? 8.0 : 16.0, vertical: 12.0),
+            decoration: BoxDecoration(
+              border: Border(
+                bottom: BorderSide(
+                  color: isSelected ? Colors.white : Colors.transparent,
+                  width: 2.0,
+                ),
+              ),
+            ),
+            child: Text(
+              tabs[index],
+              style: TextStyle(
+                color: isSelected ? Colors.white : Colors.white54,
+                fontSize: isMobile ? 12.5 : 14.0,
+                fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                fontFamily: 'Outfit',
+              ),
+            ),
+          ),
+        );
+      }),
+    );
+
     return Container(
       decoration: const BoxDecoration(
         border: Border(bottom: BorderSide(color: Colors.white10, width: 1.0)),
       ),
-      child: Row(
-        children: List.generate(tabs.length, (index) {
-          final isSelected = _activeTab == index;
-          return GestureDetector(
-            onTap: () => setState(() => _activeTab = index),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
-              decoration: BoxDecoration(
-                border: Border(
-                  bottom: BorderSide(
-                    color: isSelected ? Colors.white : Colors.transparent,
-                    width: 2.0,
-                  ),
-                ),
-              ),
-              child: Text(
-                tabs[index],
-                style: TextStyle(
-                  color: isSelected ? Colors.white : Colors.white54,
-                  fontSize: 14.0,
-                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-                  fontFamily: 'Outfit',
-                ),
-              ),
-            ),
-          );
-        }),
-      ),
+      child: isMobile ? SingleChildScrollView(scrollDirection: Axis.horizontal, child: row) : row,
     );
   }
 
@@ -946,14 +1092,16 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
       if (characters.isEmpty) {
         return const Text('No character information available.', style: TextStyle(color: Colors.white54));
       }
+      final double screenWidth = MediaQuery.of(context).size.width;
+      final bool isMobile = screenWidth < 650;
       return GridView.builder(
         shrinkWrap: true,
         physics: const NeverScrollableScrollPhysics(),
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 3, // Smaller cards (3 in a row instead of 2)
+        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: isMobile ? 1 : 3,
           crossAxisSpacing: 12.0,
           mainAxisSpacing: 10.0,
-          childAspectRatio: 3.2, // Rectangular card aspect ratio
+          childAspectRatio: isMobile ? 3.6 : 3.2,
         ),
         itemCount: characters.length,
         itemBuilder: (context, index) {
@@ -1076,7 +1224,7 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
     }
   }
 
-  Widget _buildEpisodesSection(String showTitle) {
+  Widget _buildEpisodesSection(String showTitle, bool isMobile) {
     if (_mergedEpisodes.isEmpty) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1187,10 +1335,10 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
         GridView.builder(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 3,
-            crossAxisSpacing: 14.0,
-            mainAxisSpacing: 14.0,
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: isMobile ? 2 : 3,
+            crossAxisSpacing: isMobile ? 10.0 : 14.0,
+            mainAxisSpacing: isMobile ? 10.0 : 14.0,
             childAspectRatio: 1.45,
           ),
           itemCount: pagedList.length,

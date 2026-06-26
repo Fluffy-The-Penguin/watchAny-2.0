@@ -314,8 +314,11 @@ class _HeroSectionState extends State<_HeroSection> {
     final String format = anime['format'] ?? '';
     final int? episodes = anime['episodes'];
 
+    final double screenWidth = MediaQuery.of(context).size.width;
+    final bool isMobile = screenWidth < 650;
+
     return SizedBox(
-      height: 480.0,
+      height: isMobile ? 360.0 : 480.0,
       width: double.infinity,
       child: Stack(
         children: [
@@ -379,9 +382,9 @@ class _HeroSectionState extends State<_HeroSection> {
 
           // Content Text Overlay
           Positioned(
-            bottom: 40.0,
-            left: 24.0,
-            right: 24.0,
+            bottom: isMobile ? 24.0 : 40.0,
+            left: isMobile ? 16.0 : 24.0,
+            right: isMobile ? 16.0 : 24.0,
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 600.0),
               child: Column(
@@ -447,9 +450,9 @@ class _HeroSectionState extends State<_HeroSection> {
                     title,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
+                    style: TextStyle(
                       color: Colors.white,
-                      fontSize: 32.0,
+                      fontSize: isMobile ? 22.0 : 32.0,
                       fontWeight: FontWeight.bold,
                       height: 1.1,
                       fontFamily: 'Outfit',
@@ -459,7 +462,7 @@ class _HeroSectionState extends State<_HeroSection> {
                     const SizedBox(height: 12.0),
                     Text(
                       description,
-                      maxLines: 3,
+                      maxLines: isMobile ? 2 : 3,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         color: Colors.white70,
@@ -473,7 +476,7 @@ class _HeroSectionState extends State<_HeroSection> {
                   Row(
                     children: [
                       ElevatedButton.icon(
-                        icon: const Icon(Icons.play_arrow, size: 18),
+                        icon: Icon(Icons.play_arrow, size: isMobile ? 16 : 18),
                         label: const Text('Play'),
                         onPressed: () {
                           widget.navigationState.selectAnime(anime['id']);
@@ -481,9 +484,15 @@ class _HeroSectionState extends State<_HeroSection> {
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.white,
                           foregroundColor: Colors.black,
-                          padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 12.0),
+                          padding: EdgeInsets.symmetric(
+                            horizontal: isMobile ? 18.0 : 24.0, 
+                            vertical: isMobile ? 10.0 : 12.0,
+                          ),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6.0)),
-                          textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14.0),
+                          textStyle: TextStyle(
+                            fontWeight: FontWeight.bold, 
+                            fontSize: isMobile ? 13.0 : 14.0,
+                          ),
                         ),
                       ),
                       const SizedBox(width: 12.0),
@@ -494,8 +503,14 @@ class _HeroSectionState extends State<_HeroSection> {
                         style: OutlinedButton.styleFrom(
                           foregroundColor: Colors.white,
                           side: const BorderSide(color: Colors.white24, width: 1.0),
-                          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+                          padding: EdgeInsets.symmetric(
+                            horizontal: isMobile ? 14.0 : 16.0, 
+                            vertical: isMobile ? 10.0 : 12.0,
+                          ),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6.0)),
+                          textStyle: TextStyle(
+                            fontSize: isMobile ? 13.0 : 14.0,
+                          ),
                         ),
                         child: const Text('Details'),
                       ),

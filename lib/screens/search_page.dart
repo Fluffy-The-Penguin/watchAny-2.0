@@ -237,51 +237,205 @@ class _SearchPageState extends State<SearchPage> {
     required String label,
     required String valueText,
     required VoidCallback onTap,
+    required bool isMobile,
   }) {
-    return Expanded(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 4.0),
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            onTap: onTap,
-            borderRadius: BorderRadius.circular(8.0),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.03),
-                borderRadius: BorderRadius.circular(8.0),
-                border: Border.all(color: Colors.white10),
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          label,
-                          style: const TextStyle(color: Colors.white38, fontSize: 10.0, fontFamily: 'Outfit'),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        const SizedBox(height: 2.0),
-                        Text(
-                          valueText,
-                          style: const TextStyle(color: Colors.white70, fontSize: 12.0, fontWeight: FontWeight.w600, fontFamily: 'Outfit'),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
-                    ),
+    final Widget buttonContent = Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4.0),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(8.0),
+          child: Container(
+            width: isMobile ? 110.0 : null,
+            padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.03),
+              borderRadius: BorderRadius.circular(8.0),
+              border: Border.all(color: Colors.white10),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        label,
+                        style: const TextStyle(color: Colors.white38, fontSize: 10.0, fontFamily: 'Outfit'),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 2.0),
+                      Text(
+                        valueText,
+                        style: const TextStyle(color: Colors.white70, fontSize: 12.0, fontWeight: FontWeight.w600, fontFamily: 'Outfit'),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
                   ),
-                  const Icon(Icons.arrow_drop_down, color: Colors.white38, size: 18),
-                ],
-              ),
+                ),
+                const Icon(Icons.arrow_drop_down, color: Colors.white38, size: 18),
+              ],
             ),
           ),
         ),
       ),
     );
+    return isMobile ? buttonContent : Expanded(child: buttonContent);
+  }
+
+  Widget _buildRow1(bool isMobile, List<String> years, List<String> seasons) {
+    final searchInput = Container(
+      width: isMobile ? 180.0 : null,
+      height: 38.0,
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.03),
+        borderRadius: BorderRadius.circular(8.0),
+        border: Border.all(color: Colors.white10),
+      ),
+      child: TextField(
+        controller: _searchController,
+        style: const TextStyle(color: Colors.white, fontSize: 13.0, fontFamily: 'Outfit'),
+        decoration: InputDecoration(
+          hintText: widget.mode == AppMode.manga
+              ? 'Search manga...'
+              : (widget.mode == AppMode.movies ? 'Search movies & series...' : 'Search anime...'),
+          hintStyle: const TextStyle(color: Colors.white24, fontSize: 13.0),
+          prefixIcon: const Icon(Icons.search, color: Colors.white38, size: 16),
+          border: InputBorder.none,
+          contentPadding: const EdgeInsets.symmetric(vertical: 8.0),
+        ),
+        onSubmitted: (_) => _performSearch(),
+      ),
+    );
+
+    final Widget searchWrapper = isMobile ? searchInput : Expanded(flex: 3, child: searchInput);
+
+    final rowContent = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        searchWrapper,
+        const SizedBox(width: 8.0),
+        
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.white,
+            foregroundColor: Colors.black,
+            padding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 12.0),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
+            minimumSize: const Size(0, 38),
+          ),
+          onPressed: () => _performSearch(),
+          child: const Icon(Icons.send, size: 14),
+        ),
+        const SizedBox(width: 4.0),
+
+        _buildFilterButton(
+          label: 'Genre',
+          valueText: _selectedGenres.isEmpty 
+              ? 'ALL' 
+              : (_selectedGenres.length == 1 ? _selectedGenres.first : '${_selectedGenres.length} selected'),
+          onTap: _showMultiSelectGenres,
+          isMobile: isMobile,
+        ),
+
+        _buildFilterButton(
+          label: 'Year',
+          valueText: _selectedYear,
+          onTap: () => _showSingleSelectDialog(
+            title: 'Select Year',
+            options: years,
+            selected: _selectedYear,
+            onChanged: (val) => setState(() => _selectedYear = val),
+          ),
+          isMobile: isMobile,
+        ),
+
+        if (widget.mode == AppMode.anime)
+          _buildFilterButton(
+            label: 'Season',
+            valueText: _selectedSeason,
+            onTap: () => _showSingleSelectDialog(
+              title: 'Select Season',
+              options: seasons,
+              selected: _selectedSeason,
+              onChanged: (val) => setState(() => _selectedSeason = val),
+            ),
+            isMobile: isMobile,
+          ),
+      ],
+    );
+
+    return isMobile 
+        ? SingleChildScrollView(scrollDirection: Axis.horizontal, child: rowContent) 
+        : rowContent;
+  }
+
+  Widget _buildRow2(bool isMobile, List<String> statuses, List<String> sortOptions) {
+    final rowContent = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _buildFilterButton(
+          label: 'Format',
+          valueText: _selectedFormats.isEmpty 
+              ? 'ALL' 
+              : (_selectedFormats.length == 1 ? _selectedFormats.first : '${_selectedFormats.length} selected'),
+          onTap: _showMultiSelectFormats,
+          isMobile: isMobile,
+        ),
+
+        if (widget.mode != AppMode.movies)
+          _buildFilterButton(
+            label: 'Status',
+            valueText: _selectedStatus,
+            onTap: () => _showSingleSelectDialog(
+              title: 'Select Status',
+              options: statuses,
+              selected: _selectedStatus,
+              onChanged: (val) => setState(() => _selectedStatus = val),
+            ),
+            isMobile: isMobile,
+          ),
+
+        _buildFilterButton(
+          label: 'Sorting',
+          valueText: _availableSortings[_selectedSorting] ?? 'Popularity',
+          onTap: () => _showSingleSelectDialog(
+            title: 'Select Sorting',
+            options: sortOptions.map((key) => _availableSortings[key]!).toList(),
+            selected: _availableSortings[_selectedSorting]!,
+            onChanged: (displayVal) {
+              final key = _availableSortings.entries
+                  .firstWhere((entry) => entry.value == displayVal)
+                  .key;
+              setState(() => _selectedSorting = key);
+            },
+          ),
+          isMobile: isMobile,
+        ),
+
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4.0),
+          child: OutlinedButton.icon(
+            style: OutlinedButton.styleFrom(
+              foregroundColor: Colors.white70,
+              side: const BorderSide(color: Colors.white10),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
+              minimumSize: const Size(0, 38),
+              padding: const EdgeInsets.symmetric(horizontal: 12.0),
+            ),
+            onPressed: _clearFilters,
+            icon: const Icon(Icons.refresh, size: 14),
+            label: const Text('Reset', style: TextStyle(fontSize: 12.0, fontFamily: 'Outfit')),
+          ),
+        ),
+      ],
+    );
+
+    return isMobile 
+        ? SingleChildScrollView(scrollDirection: Axis.horizontal, child: rowContent) 
+        : rowContent;
   }
 
   void _showMultiSelectGenres() {
@@ -487,12 +641,8 @@ class _SearchPageState extends State<SearchPage> {
     final statuses = ['ALL', ..._availableStatuses];
     final sortOptions = _availableSortings.keys.toList();
 
-    String placeholder = 'Search anime...';
-    if (widget.mode == AppMode.manga) {
-      placeholder = 'Search manga...';
-    } else if (widget.mode == AppMode.movies) {
-      placeholder = 'Search movies & series...';
-    }
+    final double screenWidth = MediaQuery.of(context).size.width;
+    final bool isMobile = screenWidth < 650;
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -507,146 +657,9 @@ class _SearchPageState extends State<SearchPage> {
               padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
               child: Column(
                 children: [
-                  // Row 1: Search text field, search button, Genre, Year, Season
-                  Row(
-                    children: [
-                      // Search text input
-                      Expanded(
-                        flex: 3,
-                        child: Container(
-                          height: 38.0,
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.03),
-                            borderRadius: BorderRadius.circular(8.0),
-                            border: Border.all(color: Colors.white10),
-                          ),
-                          child: TextField(
-                            controller: _searchController,
-                            style: const TextStyle(color: Colors.white, fontSize: 13.0, fontFamily: 'Outfit'),
-                            decoration: InputDecoration(
-                              hintText: placeholder,
-                              hintStyle: const TextStyle(color: Colors.white24, fontSize: 13.0),
-                              prefixIcon: const Icon(Icons.search, color: Colors.white38, size: 16),
-                              border: InputBorder.none,
-                              contentPadding: const EdgeInsets.symmetric(vertical: 8.0),
-                            ),
-                            onSubmitted: (_) => _performSearch(),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8.0),
-                      
-                      // Search Action Button
-                      ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.white,
-                          foregroundColor: Colors.black,
-                          padding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 12.0),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
-                          minimumSize: const Size(0, 38),
-                        ),
-                        onPressed: () => _performSearch(),
-                        child: const Icon(Icons.send, size: 14),
-                      ),
-                      const SizedBox(width: 4.0),
-
-                      // Genre Filter
-                      _buildFilterButton(
-                        label: 'Genre',
-                        valueText: _selectedGenres.isEmpty 
-                            ? 'ALL' 
-                            : (_selectedGenres.length == 1 ? _selectedGenres.first : '${_selectedGenres.length} selected'),
-                        onTap: _showMultiSelectGenres,
-                      ),
-
-                      // Year Filter
-                      _buildFilterButton(
-                        label: 'Year',
-                        valueText: _selectedYear,
-                        onTap: () => _showSingleSelectDialog(
-                          title: 'Select Year',
-                          options: years,
-                          selected: _selectedYear,
-                          onChanged: (val) => setState(() => _selectedYear = val),
-                        ),
-                      ),
-
-                      // Season Filter (Anime only)
-                      if (widget.mode == AppMode.anime)
-                        _buildFilterButton(
-                          label: 'Season',
-                          valueText: _selectedSeason,
-                          onTap: () => _showSingleSelectDialog(
-                            title: 'Select Season',
-                            options: seasons,
-                            selected: _selectedSeason,
-                            onChanged: (val) => setState(() => _selectedSeason = val),
-                          ),
-                        ),
-                    ],
-                  ),
+                  _buildRow1(isMobile, years, seasons),
                   const SizedBox(height: 8.0),
-
-                  // Row 2: Format, Status, Sorting, Reset
-                  Row(
-                    children: [
-                      // Format Filter
-                      _buildFilterButton(
-                        label: 'Format',
-                        valueText: _selectedFormats.isEmpty 
-                            ? 'ALL' 
-                            : (_selectedFormats.length == 1 ? _selectedFormats.first : '${_selectedFormats.length} selected'),
-                        onTap: _showMultiSelectFormats,
-                      ),
-
-                      // Status Filter (Anime/Manga only)
-                      if (widget.mode != AppMode.movies)
-                        _buildFilterButton(
-                          label: 'Status',
-                          valueText: _selectedStatus,
-                          onTap: () => _showSingleSelectDialog(
-                            title: 'Select Status',
-                            options: statuses,
-                            selected: _selectedStatus,
-                            onChanged: (val) => setState(() => _selectedStatus = val),
-                          ),
-                        ),
-
-                      // Sorting Filter
-                      _buildFilterButton(
-                        label: 'Sorting',
-                        valueText: _availableSortings[_selectedSorting] ?? 'Popularity',
-                        onTap: () => _showSingleSelectDialog(
-                          title: 'Select Sorting',
-                          options: sortOptions.map((key) => _availableSortings[key]!).toList(),
-                          selected: _availableSortings[_selectedSorting]!,
-                          onChanged: (displayVal) {
-                            final key = _availableSortings.entries
-                                .firstWhere((entry) => entry.value == displayVal)
-                                .key;
-                            setState(() => _selectedSorting = key);
-                          },
-                        ),
-                      ),
-
-                      // Reset Filters Button
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 4.0),
-                        child: OutlinedButton.icon(
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: Colors.white70,
-                            side: const BorderSide(color: Colors.white10),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
-                            minimumSize: const Size(0, 38),
-                            padding: const EdgeInsets.symmetric(horizontal: 12.0),
-                          ),
-                          onPressed: _clearFilters,
-                          icon: const Icon(Icons.refresh, size: 14),
-                          label: const Text('Reset', style: TextStyle(fontSize: 12.0, fontFamily: 'Outfit')),
-                        ),
-                      ),
-                    ],
-                  ),
+                  _buildRow2(isMobile, statuses, sortOptions),
                 ],
               ),
             ),
