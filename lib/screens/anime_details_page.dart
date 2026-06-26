@@ -3,8 +3,12 @@ import 'package:flutter/material.dart';
 import '../services/anilist_service.dart';
 import '../services/extension_service.dart';
 import '../services/tmdb_service.dart';
+import '../services/batch_mapping_service.dart';
+import '../services/torrserver_service.dart';
+import '../screens/player_screen.dart';
 import '../state/navigation_state.dart';
 import '../widgets/torrent_selector_panel.dart';
+import '../models/torrent.dart';
 
 class AnimeDetailsPage extends StatefulWidget {
   final int animeId;
@@ -68,13 +72,37 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
   }
 
   Future<void> _loadDetails() async {
-    ExtensionService().preloadMappings(widget.animeId);
+    final mappingsFuture = ExtensionService().getMappings(widget.animeId);
     try {
       final data = await _anilistService.fetchAnimeDetails(widget.animeId);
+      final mappings = await mappingsFuture;
+
       if (mounted) {
         // Merge episodes list
         final List<dynamic> streaming = data['streamingEpisodes'] ?? [];
-        final int totalCount = data['episodes'] ?? streaming.length;
+        int totalCount = data['episodes'] ?? 
+            (data['nextAiringEpisode'] != null 
+                ? (data['nextAiringEpisode']['episode'] as int) - 1 
+                : streaming.length);
+
+        Map<String, dynamic> aniZipEpisodes = {};
+        if (mappings != null && mappings['episodes'] != null) {
+          aniZipEpisodes = mappings['episodes'] as Map<String, dynamic>;
+          final List<int> epKeys = aniZipEpisodes.keys
+              .map((k) => int.tryParse(k) ?? 0)
+              .where((k) => k > 0)
+              .toList();
+          if (epKeys.isNotEmpty) {
+            final maxEp = epKeys.reduce(max);
+            if (maxEp > totalCount) {
+              totalCount = maxEp;
+            }
+          }
+        }
+        
+        if (totalCount < streaming.length) {
+          totalCount = streaming.length;
+        }
 
         // Map streaming episodes by their parsed episode number
         final Map<int, dynamic> streamingMap = {};
@@ -87,15 +115,36 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
 
         final List<dynamic> merged = [];
         for (var i = 1; i <= totalCount; i++) {
+          final epKey = i.toString();
+          final zipEp = aniZipEpisodes[epKey] as Map<String, dynamic>?;
+
+          final String zipTitle = zipEp?['title']?['en'] ?? zipEp?['title']?['x-jat'] ?? zipEp?['title']?['ja'] ?? '';
+          final String zipThumb = zipEp?['image'] ?? '';
+          final String zipOverview = zipEp?['overview'] ?? zipEp?['summary'] ?? '';
+          final String zipAirDate = zipEp?['airDate'] ?? zipEp?['airdate'] ?? '';
+
           if (streamingMap.containsKey(i)) {
-            merged.add(streamingMap[i]);
+            final streamEp = streamingMap[i];
+            merged.add({
+              'title': streamEp['title'] ?? (zipTitle.isNotEmpty ? zipTitle : 'Episode $i'),
+              'thumbnail': (streamEp['thumbnail'] != null && streamEp['thumbnail'].isNotEmpty) 
+                  ? streamEp['thumbnail'] 
+                  : zipThumb,
+              'url': streamEp['url'] ?? '',
+              'site': streamEp['site'] ?? '',
+              'overview': zipOverview,
+              'airDate': zipAirDate,
+              'isPlaceholder': false,
+            });
           } else {
             merged.add({
-              'title': 'Episode $i',
-              'thumbnail': '',
+              'title': zipTitle.isNotEmpty ? zipTitle : 'Episode $i',
+              'thumbnail': zipThumb,
               'url': '',
               'site': '',
-              'isPlaceholder': true,
+              'overview': zipOverview,
+              'airDate': zipAirDate,
+              'isPlaceholder': zipTitle.isEmpty,
             });
           }
         }
@@ -146,6 +195,27 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
         if (mounted) {
           setState(() {
             _tmdbSeasons = seasons;
+            
+            int tmdbTotalCount = 0;
+            for (var season in seasons) {
+              tmdbTotalCount += season.episodeCount;
+            }
+            
+            if (tmdbTotalCount > _mergedEpisodes.length) {
+              final List<dynamic> expanded = List.from(_mergedEpisodes);
+              for (var i = _mergedEpisodes.length + 1; i <= tmdbTotalCount; i++) {
+                expanded.add({
+                  'title': 'Episode $i',
+                  'thumbnail': '',
+                  'url': '',
+                  'site': '',
+                  'overview': '',
+                  'airDate': '',
+                  'isPlaceholder': true,
+                });
+              }
+              _mergedEpisodes = expanded;
+            }
           });
           // Load episode details for the initial page
           await _loadTmdbEpisodesForPage(_activeEpisodePage);
@@ -432,52 +502,7 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
                                   _details!['title']?['native'] ?? '',
                                 ].where((t) => t.isNotEmpty).map((t) => t.toString()).toList();
 
-                                final double screenWidth = MediaQuery.of(context).size.width;
-                                final bool isMobileSheet = screenWidth < 650;
-
-                                showModalBottomSheet(
-                                  context: context,
-                                  isScrollControlled: true,
-                                  backgroundColor: Colors.transparent,
-                                  barrierColor: Colors.black54,
-                                  builder: (context) {
-                                    return Align(
-                                      alignment: Alignment.bottomCenter,
-                                      child: Container(
-                                        width: isMobileSheet ? double.infinity : 800.0,
-                                        height: MediaQuery.of(context).size.height * (isMobileSheet ? 0.8 : 0.65),
-                                        margin: isMobileSheet ? EdgeInsets.zero : const EdgeInsets.all(24.0),
-                                        decoration: BoxDecoration(
-                                          color: const Color(0xFF0C0C0E),
-                                          borderRadius: isMobileSheet
-                                              ? const BorderRadius.vertical(top: Radius.circular(16.0))
-                                              : BorderRadius.circular(12.0),
-                                          border: Border.all(color: Colors.white10, width: 1.0),
-                                          boxShadow: const [
-                                            BoxShadow(
-                                              color: Colors.black87,
-                                              blurRadius: 30,
-                                              spreadRadius: 2,
-                                            )
-                                          ],
-                                        ),
-                                        child: ClipRRect(
-                                          borderRadius: isMobileSheet
-                                              ? const BorderRadius.vertical(top: Radius.circular(15.0))
-                                              : BorderRadius.circular(11.0),
-                                          child: TorrentSelectorPanel(
-                                            anilistId: widget.animeId,
-                                            titles: titles,
-                                            episodeCount: _mergedEpisodes.length,
-                                            episodeNumber: epNum,
-                                            isMovie: (_details!['format']?.toString().toUpperCase() == 'MOVIE'),
-                                            media: _details,
-                                          ),
-                                        ),
-                                      ),
-                                    );
-                                  },
-                                );
+                                _onPlayPressed(epNum, titles);
                               },
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: Colors.white,
@@ -496,6 +521,113 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
               ),
             ),
           ),
+        );
+      },
+    );
+  }
+
+  void _onPlayPressed(int epNum, List<String> titles) {
+    final mapping = BatchMappingService().getMapping(widget.animeId, epNum);
+    if (mapping != null) {
+      showDialog(
+        context: context,
+        builder: (context) {
+          return AlertDialog(
+            backgroundColor: const Color(0xFF0F0F11),
+            title: const Text(
+              "Play Stream",
+              style: TextStyle(color: Colors.white, fontFamily: 'Outfit', fontSize: 16.0),
+            ),
+            content: Text(
+              "This episode is available in your active batch torrent:\n\n${mapping['torrentTitle']}\n\nDo you want to play it directly or search for another stream?",
+              style: const TextStyle(color: Colors.white70, fontSize: 13.0, height: 1.4),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  _openTorrentSelectorPanel(epNum, titles);
+                },
+                child: const Text("Search Streams", style: TextStyle(color: Colors.white70)),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  _startDirectPlayback(mapping, epNum);
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.white,
+                  foregroundColor: Colors.black,
+                ),
+                child: const Text("Play Direct", style: TextStyle(fontWeight: FontWeight.bold)),
+              ),
+            ],
+          );
+        },
+      );
+    } else {
+      _openTorrentSelectorPanel(epNum, titles);
+    }
+  }
+
+  void _openTorrentSelectorPanel(int epNum, List<String> titles) {
+    final double screenWidth = MediaQuery.of(context).size.width;
+    final bool isMobileSheet = screenWidth < 650;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black54,
+      builder: (context) {
+        return Align(
+          alignment: Alignment.bottomCenter,
+          child: Container(
+            width: isMobileSheet ? double.infinity : 800.0,
+            height: MediaQuery.of(context).size.height * (isMobileSheet ? 0.8 : 0.65),
+            margin: isMobileSheet ? EdgeInsets.zero : const EdgeInsets.all(24.0),
+            decoration: BoxDecoration(
+              color: const Color(0xFF0C0C0E),
+              borderRadius: isMobileSheet
+                  ? const BorderRadius.vertical(top: Radius.circular(16.0))
+                  : BorderRadius.circular(12.0),
+              border: Border.all(color: Colors.white10, width: 1.0),
+              boxShadow: const [
+                BoxShadow(
+                  color: Colors.black87,
+                  blurRadius: 30,
+                  spreadRadius: 2,
+                )
+              ],
+            ),
+            child: ClipRRect(
+              borderRadius: isMobileSheet
+                  ? const BorderRadius.vertical(top: Radius.circular(15.0))
+                  : BorderRadius.circular(11.0),
+              child: TorrentSelectorPanel(
+                anilistId: widget.animeId,
+                titles: titles,
+                episodeCount: _mergedEpisodes.length,
+                episodeNumber: epNum,
+                isMovie: (_details!['format']?.toString().toUpperCase() == 'MOVIE'),
+                media: _details,
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _startDirectPlayback(Map<String, dynamic> mapping, int epNum) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return _DirectPlaybackProgressDialog(
+          mapping: mapping,
+          episodeNumber: epNum,
+          parentContext: context,
         );
       },
     );
@@ -1701,3 +1833,203 @@ class _RecommendationTileState extends State<_RecommendationTile> {
     );
   }
 }
+
+class _DirectPlaybackProgressDialog extends StatefulWidget {
+  final Map<String, dynamic> mapping;
+  final int episodeNumber;
+  final BuildContext parentContext;
+
+  const _DirectPlaybackProgressDialog({
+    required this.mapping,
+    required this.episodeNumber,
+    required this.parentContext,
+  });
+
+  @override
+  State<_DirectPlaybackProgressDialog> createState() => _DirectPlaybackProgressDialogState();
+}
+
+class _DirectPlaybackProgressDialogState extends State<_DirectPlaybackProgressDialog> {
+  final TorrServerService _torrServerService = TorrServerService();
+  String _status = "Checking TorrServer status...";
+  bool _hasError = false;
+  String _errorMessage = "";
+  TorrentFile? _playingFile;
+  String? _playingHash;
+
+  @override
+  void initState() {
+    super.initState();
+    _startPlayback();
+  }
+
+  Future<void> _startPlayback() async {
+    try {
+      final bool online = await _torrServerService.ping();
+      if (!online) {
+        setState(() {
+          _status = "TorrServer starting up, waiting...";
+        });
+        await Future.delayed(const Duration(seconds: 2));
+        final bool retryOnline = await _torrServerService.ping();
+        if (!retryOnline) {
+          throw Exception("TorrServer is not running. Please restart the app.");
+        }
+      }
+
+      setState(() {
+        _status = "Adding torrent & loading file...";
+      });
+
+      final torrentInfo = await _torrServerService.addTorrent(
+        widget.mapping['torrentLink'],
+        title: widget.mapping['torrentTitle'] ?? 'Batch Torrent',
+      );
+
+      final fileIndex = widget.mapping['fileIndex'] as int;
+      final fileExists = torrentInfo.files.any((f) => f.index == fileIndex);
+      if (!fileExists) {
+        throw Exception("Mapped file index no longer exists in torrent.");
+      }
+
+      final file = torrentInfo.files.firstWhere((f) => f.index == fileIndex);
+
+      _playingFile = file;
+      _playingHash = torrentInfo.hash;
+
+      if (!mounted) return;
+
+      // Prebuffering phase inside the dialog
+      setState(() {
+        _status = "Preloading stream...";
+      });
+
+      await _torrServerService.preloadTorrentFile(torrentInfo.hash, file.index);
+
+      int secondsElapsed = 0;
+      bool isReady = false;
+      while (secondsElapsed < 20 && !isReady) {
+        await Future.delayed(const Duration(seconds: 1));
+        secondsElapsed++;
+        if (!mounted) return;
+
+        try {
+          final updatedInfo = await _torrServerService.getTorrent(torrentInfo.hash);
+          final speedMb = updatedInfo.downloadSpeed / (1024 * 1024);
+          setState(() {
+            _status = "Prebuffering stream...\n"
+                "${speedMb.toStringAsFixed(1)} MB/s • ${updatedInfo.activePeers} peers\n"
+                "State: ${updatedInfo.stat.isNotEmpty ? updatedInfo.stat : 'Buffering'}";
+          });
+
+          if (updatedInfo.statCode >= 5) {
+            isReady = true;
+          }
+        } catch (e) {
+          debugPrint("Error polling prebuffer: $e");
+        }
+      }
+
+      if (!mounted) return;
+      Navigator.of(context).pop(); // pop progress dialog
+      _navigateToPlayer(torrentInfo.hash, file);
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _hasError = true;
+          _errorMessage = e.toString().replaceAll("Exception: ", "");
+        });
+      }
+    }
+  }
+
+  void _navigateToPlayer(String hash, TorrentFile file) {
+    final streamUrl = _torrServerService.getStreamUrl(hash, file.index);
+    final fileName = file.path.split('/').last.split('\\').last;
+    
+    final navigator = Navigator.of(widget.parentContext);
+    navigator.push(
+      MaterialPageRoute(
+        builder: (context) => PlayerScreen(
+          streamUrl: streamUrl,
+          title: fileName.isNotEmpty ? fileName : file.name,
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      backgroundColor: const Color(0xFF0F0F11),
+      content: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 16.0),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (!_hasError) ...[
+              const CircularProgressIndicator(color: Colors.white),
+              const SizedBox(height: 20),
+              Text(
+                _status,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white70, fontSize: 14, fontFamily: 'Outfit', height: 1.4),
+              ),
+              if (_playingFile != null && _playingHash != null) ...[
+                const SizedBox(height: 16),
+                TextButton(
+                  onPressed: () {
+                    Navigator.of(context).pop(); // pop dialog
+                    _navigateToPlayer(_playingHash!, _playingFile!);
+                  },
+                  child: const Text("Skip Buffering", style: TextStyle(color: Colors.white54, fontSize: 12.0)),
+                ),
+              ],
+            ] else ...[
+              const Icon(Icons.error_outline, color: Colors.redAccent, size: 48),
+              const SizedBox(height: 16),
+              const Text(
+                "Direct Playback Failed",
+                style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                _errorMessage,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white54, fontSize: 12),
+              ),
+              const SizedBox(height: 20),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text("Close", style: TextStyle(color: Colors.white70)),
+                  ),
+                  const SizedBox(width: 8),
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.white,
+                      foregroundColor: Colors.black,
+                    ),
+                    onPressed: () {
+                      setState(() {
+                        _hasError = false;
+                        _errorMessage = "";
+                        _playingFile = null;
+                        _playingHash = null;
+                      });
+                      _startPlayback();
+                    },
+                    child: const Text("Retry"),
+                  ),
+                ],
+              )
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+

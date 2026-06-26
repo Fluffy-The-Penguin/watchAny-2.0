@@ -158,6 +158,33 @@ class ExtensionService extends ChangeNotifier {
     }
   }
 
+  Future<Map<String, dynamic>?> getMappings(int anilistId) async {
+    return _fetchMappings(anilistId);
+  }
+
+  static Future<JavascriptRuntime>? _runtimeLock;
+
+  static Future<JavascriptRuntime> _createRuntime() async {
+    final currentLock = _runtimeLock;
+    final completer = Completer<JavascriptRuntime>();
+    _runtimeLock = completer.future;
+    
+    if (currentLock != null) {
+      try {
+        await currentLock;
+      } catch (_) {}
+    }
+    
+    try {
+      final runtime = getJavascriptRuntime();
+      completer.complete(runtime);
+      return runtime;
+    } catch (e) {
+      completer.completeError(e);
+      rethrow;
+    }
+  }
+
   void _logError(String message) {
     try {
       final logFile = File('C:\\Users\\aryan\\OneDrive\\Documents\\watchAny 2.0\\extension_debug.log');
@@ -185,7 +212,7 @@ class ExtensionService extends ChangeNotifier {
     try {
       debugPrint('[ExtensionService] Warming up Javascript engine...');
       // Initialize a dummy JS runtime to trigger native libraries cold start setup
-      final runtime = getJavascriptRuntime();
+      final runtime = await _createRuntime();
       runtime.dispose();
       debugPrint('[ExtensionService] Javascript engine warmed up successfully.');
 
@@ -430,10 +457,18 @@ class ExtensionService extends ChangeNotifier {
     """;
     
     // Replace export default new class <Name> with globalThis.extension = new class <Name>
-    final transformedCode = code.replaceFirst(
+    var transformedCode = code.replaceFirst(
       RegExp(r'export\s+default\s+new\s+class\s*\w*'),
       'globalThis.extension = new class'
     );
+    
+    // Fix strict equality type mismatch bugs in extensions (e.g. String vs Int)
+    transformedCode = transformedCode
+        .replaceAll('=== tvdbEId', '== tvdbEId')
+        .replaceAll('=== tvdbId', '== tvdbId')
+        .replaceAll('=== anidbEid', '== anidbEid')
+        .replaceAll('=== episode', '== episode')
+        .replaceAll('=== anilistId', '== anilistId');
     
     return polyfills + "\n" + transformedCode;
   }
@@ -495,7 +530,7 @@ class ExtensionService extends ChangeNotifier {
       throw Exception('Extension code is not loaded/cached.');
     }
     
-    final JavascriptRuntime runtime = getJavascriptRuntime();
+    final JavascriptRuntime runtime = await _createRuntime();
     _setupRuntime(runtime);
     Timer? timer;
     try {
@@ -721,7 +756,7 @@ class ExtensionService extends ChangeNotifier {
     List<String>? exclusions,
     bool isMovie = false,
   }) async {
-    final JavascriptRuntime runtime = getJavascriptRuntime();
+    final JavascriptRuntime runtime = await _createRuntime();
     _setupRuntime(runtime);
     Timer? timer;
     try {

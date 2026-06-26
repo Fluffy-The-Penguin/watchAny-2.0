@@ -113,4 +113,14 @@ class TorrServerService {
   String getStreamUrl(String hash, int fileIndex) {
     return '$_baseUrl/stream?link=$hash&index=${fileIndex + 1}&play';
   }
+
+  /// Triggers a prebuffer/preload for a specific file index in the torrent.
+  Future<void> preloadTorrentFile(String hash, int fileIndex) async {
+    try {
+      final uri = Uri.parse('$_baseUrl/stream?link=$hash&index=${fileIndex + 1}&preload');
+      await http.get(uri).timeout(const Duration(seconds: 3));
+    } catch (_) {
+      // Ignore network errors/timeouts since preloading is non-blocking on the server
+    }
+  }
 }

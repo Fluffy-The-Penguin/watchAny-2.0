@@ -73,7 +73,14 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
 
     Map<String, dynamic> response;
 
-    if (category == 'popular') {
+    if (category == 'trending') {
+      response = await _anilistService.search(
+        page: page,
+        perPage: 12,
+        type: 'ANIME',
+        sort: 'TRENDING_DESC',
+      );
+    } else if (category == 'popular') {
       response = await _anilistService.search(
         page: page,
         perPage: 12,
@@ -176,6 +183,14 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const SizedBox(height: 24.0),
+              if (_trending.isNotEmpty)
+                _RailwayTrack(
+                  title: 'Trending Now',
+                  initialItems: _trending,
+                  onLoadMore: (page) => _loadMoreCategoryData(category: 'trending', page: page),
+                  navigationState: widget.navigationState,
+                ),
+
               if (_popularThisSeason.isNotEmpty)
                 _RailwayTrack(
                   title: 'Popular This Season',
