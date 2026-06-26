@@ -596,6 +596,7 @@ class _RailwayTrackState extends State<_RailwayTrack> {
     if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 250) {
       _loadNextPage();
     }
+    setState(() {});
   }
 
   Future<void> _loadNextPage() async {
@@ -632,6 +633,14 @@ class _RailwayTrackState extends State<_RailwayTrack> {
 
   @override
   Widget build(BuildContext context) {
+    final double screenWidth = MediaQuery.of(context).size.width;
+    final bool isMobile = screenWidth < 650;
+
+    final bool showLeft = _scrollController.hasClients && _scrollController.offset > 10.0;
+    final bool showRight = !_scrollController.hasClients 
+        ? _items.length > 4 
+        : (_scrollController.offset < _scrollController.position.maxScrollExtent - 10.0);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -647,38 +656,102 @@ class _RailwayTrackState extends State<_RailwayTrack> {
             ),
           ),
         ),
-        SizedBox(
-          height: 235.0,
-          child: ListView.builder(
-            controller: _scrollController,
-            scrollDirection: Axis.horizontal,
-            itemCount: _items.length + (_hasMore ? 1 : 0),
-            itemBuilder: (context, index) {
-              if (index == _items.length) {
-                // Return loading placeholder card at the end of the track
-                return Container(
-                  width: 140.0,
-                  margin: const EdgeInsets.only(right: 14.0),
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.01),
-                    borderRadius: BorderRadius.circular(6.0),
-                    border: Border.all(color: Colors.white10),
-                  ),
-                  child: const CircularProgressIndicator(
-                    color: Colors.white30,
-                    strokeWidth: 2.0,
-                  ),
-                );
-              }
+        Stack(
+          children: [
+            SizedBox(
+              height: 235.0,
+              child: ListView.builder(
+                controller: _scrollController,
+                scrollDirection: Axis.horizontal,
+                itemCount: _items.length + (_hasMore ? 1 : 0),
+                itemBuilder: (context, index) {
+                  if (index == _items.length) {
+                    // Return loading placeholder card at the end of the track
+                    return Container(
+                      width: 140.0,
+                      margin: const EdgeInsets.only(right: 14.0),
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.01),
+                        borderRadius: BorderRadius.circular(6.0),
+                        border: Border.all(color: Colors.white10),
+                      ),
+                      child: const CircularProgressIndicator(
+                        color: Colors.white30,
+                        strokeWidth: 2.0,
+                      ),
+                    );
+                  }
 
-              final animeItem = _items[index];
-              return _AnimeCard(
-                anime: animeItem,
-                onTap: () => widget.navigationState.selectAnime(animeItem['id']),
-              );
-            },
-          ),
+                  final animeItem = _items[index];
+                  return _AnimeCard(
+                    anime: animeItem,
+                    onTap: () => widget.navigationState.selectAnime(animeItem['id']),
+                  );
+                },
+              ),
+            ),
+            
+            // Scroll buttons (Desktop only)
+            if (!isMobile) ...[
+              // Left button
+              if (showLeft)
+                Positioned(
+                  left: 0,
+                  top: 0,
+                  bottom: 0,
+                  child: Center(
+                    child: Container(
+                      margin: const EdgeInsets.only(left: 4.0),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.7),
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white10),
+                      ),
+                      child: IconButton(
+                        icon: const Icon(Icons.chevron_left, color: Colors.white),
+                        onPressed: () {
+                          final double target = (_scrollController.offset - 400.0).clamp(0.0, _scrollController.position.maxScrollExtent);
+                          _scrollController.animateTo(
+                            target,
+                            duration: const Duration(milliseconds: 300),
+                            curve: Curves.easeInOut,
+                          );
+                        },
+                      ),
+                    ),
+                  ),
+                ),
+              // Right button
+              if (showRight)
+                Positioned(
+                  right: 0,
+                  top: 0,
+                  bottom: 0,
+                  child: Center(
+                    child: Container(
+                      margin: const EdgeInsets.only(right: 4.0),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.7),
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white10),
+                      ),
+                      child: IconButton(
+                        icon: const Icon(Icons.chevron_right, color: Colors.white),
+                        onPressed: () {
+                          final double target = (_scrollController.offset + 400.0).clamp(0.0, _scrollController.position.maxScrollExtent);
+                          _scrollController.animateTo(
+                            target,
+                            duration: const Duration(milliseconds: 300),
+                            curve: Curves.easeInOut,
+                          );
+                        },
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ],
         ),
       ],
     );
