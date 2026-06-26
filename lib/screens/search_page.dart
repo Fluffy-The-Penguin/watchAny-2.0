@@ -238,16 +238,18 @@ class _SearchPageState extends State<SearchPage> {
     required String valueText,
     required VoidCallback onTap,
     required bool isMobile,
+    bool? expand,
   }) {
+    final bool shouldExpand = expand ?? !isMobile;
     final Widget buttonContent = Padding(
-      padding: EdgeInsets.symmetric(horizontal: isMobile ? 0.0 : 4.0),
+      padding: EdgeInsets.symmetric(horizontal: (isMobile && !shouldExpand) ? 0.0 : 4.0),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
           onTap: onTap,
           borderRadius: BorderRadius.circular(8.0),
           child: Container(
-            width: isMobile ? 110.0 : null,
+            width: (isMobile && !shouldExpand) ? 110.0 : null,
             padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
             decoration: BoxDecoration(
               color: Colors.white.withValues(alpha: 0.03),
@@ -282,7 +284,7 @@ class _SearchPageState extends State<SearchPage> {
         ),
       ),
     );
-    return isMobile ? buttonContent : Expanded(child: buttonContent);
+    return shouldExpand ? Expanded(child: buttonContent) : buttonContent;
   }
 
   Widget _buildRow1(bool isMobile, List<String> years, List<String> seasons) {
@@ -439,6 +441,131 @@ class _SearchPageState extends State<SearchPage> {
   }
 
   Widget _buildMobileFilters(List<String> years, List<String> seasons, List<String> statuses, List<String> sortOptions) {
+    final List<Widget> mobileFilters = [
+      _buildFilterButton(
+        label: 'Genre',
+        valueText: _selectedGenres.isEmpty 
+            ? 'ALL' 
+            : (_selectedGenres.length == 1 ? _selectedGenres.first : '${_selectedGenres.length} selected'),
+        onTap: _showMultiSelectGenres,
+        isMobile: true,
+        expand: true,
+      ),
+      _buildFilterButton(
+        label: 'Year',
+        valueText: _selectedYear,
+        onTap: () => _showSingleSelectDialog(
+          title: 'Select Year',
+          options: years,
+          selected: _selectedYear,
+          onChanged: (val) => setState(() => _selectedYear = val),
+        ),
+        isMobile: true,
+        expand: true,
+      ),
+      if (widget.mode == AppMode.anime)
+        _buildFilterButton(
+          label: 'Season',
+          valueText: _selectedSeason,
+          onTap: () => _showSingleSelectDialog(
+            title: 'Select Season',
+            options: seasons,
+            selected: _selectedSeason,
+            onChanged: (val) => setState(() => _selectedSeason = val),
+          ),
+          isMobile: true,
+          expand: true,
+        ),
+      _buildFilterButton(
+        label: 'Format',
+        valueText: _selectedFormats.isEmpty 
+            ? 'ALL' 
+            : (_selectedFormats.length == 1 ? _selectedFormats.first : '${_selectedFormats.length} selected'),
+        onTap: _showMultiSelectFormats,
+        isMobile: true,
+        expand: true,
+      ),
+      if (widget.mode != AppMode.movies)
+        _buildFilterButton(
+          label: 'Status',
+          valueText: _selectedStatus,
+          onTap: () => _showSingleSelectDialog(
+            title: 'Select Status',
+            options: statuses,
+            selected: _selectedStatus,
+            onChanged: (val) => setState(() => _selectedStatus = val),
+          ),
+          isMobile: true,
+          expand: true,
+        ),
+      _buildFilterButton(
+        label: 'Sorting',
+        valueText: _availableSortings[_selectedSorting] ?? 'Popularity',
+        onTap: () => _showSingleSelectDialog(
+          title: 'Select Sorting',
+          options: sortOptions.map((key) => _availableSortings[key]!).toList(),
+          selected: _availableSortings[_selectedSorting]!,
+          onChanged: (displayVal) {
+            final key = _availableSortings.entries
+                .firstWhere((entry) => entry.value == displayVal)
+                .key;
+            setState(() => _selectedSorting = key);
+          },
+        ),
+        isMobile: true,
+        expand: true,
+      ),
+    ];
+
+    final Widget resetButton = OutlinedButton.icon(
+      style: OutlinedButton.styleFrom(
+        foregroundColor: Colors.white70,
+        side: const BorderSide(color: Colors.white10),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
+        minimumSize: const Size(double.infinity, 38),
+        padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
+      ),
+      onPressed: _clearFilters,
+      icon: const Icon(Icons.refresh, size: 14),
+      label: const Text('Reset', style: TextStyle(fontSize: 12.0, fontFamily: 'Outfit', fontWeight: FontWeight.w600)),
+    );
+
+    List<Widget> filterRows = [];
+    for (int i = 0; i < mobileFilters.length; i += 2) {
+      if (i + 1 < mobileFilters.length) {
+        filterRows.add(
+          Row(
+            children: [
+              mobileFilters[i],
+              const SizedBox(width: 8.0),
+              mobileFilters[i + 1],
+            ],
+          ),
+        );
+      } else {
+        filterRows.add(
+          Row(
+            children: [
+              mobileFilters[i],
+              const SizedBox(width: 8.0),
+              Expanded(child: resetButton),
+            ],
+          ),
+        );
+      }
+      filterRows.add(const SizedBox(height: 8.0));
+    }
+
+    if (mobileFilters.length % 2 == 0) {
+      filterRows.add(
+        Row(
+          children: [
+            Expanded(child: resetButton),
+          ],
+        ),
+      );
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -482,96 +609,8 @@ class _SearchPageState extends State<SearchPage> {
             ),
           ],
         ),
-        const SizedBox(height: 10.0),
-        Wrap(
-          spacing: 8.0,
-          runSpacing: 8.0,
-          alignment: WrapAlignment.start,
-          children: [
-            _buildFilterButton(
-              label: 'Genre',
-              valueText: _selectedGenres.isEmpty 
-                  ? 'ALL' 
-                  : (_selectedGenres.length == 1 ? _selectedGenres.first : '${_selectedGenres.length} selected'),
-              onTap: _showMultiSelectGenres,
-              isMobile: true,
-            ),
-            _buildFilterButton(
-              label: 'Year',
-              valueText: _selectedYear,
-              onTap: () => _showSingleSelectDialog(
-                title: 'Select Year',
-                options: years,
-                selected: _selectedYear,
-                onChanged: (val) => setState(() => _selectedYear = val),
-              ),
-              isMobile: true,
-            ),
-            if (widget.mode == AppMode.anime)
-              _buildFilterButton(
-                label: 'Season',
-                valueText: _selectedSeason,
-                onTap: () => _showSingleSelectDialog(
-                  title: 'Select Season',
-                  options: seasons,
-                  selected: _selectedSeason,
-                  onChanged: (val) => setState(() => _selectedSeason = val),
-                ),
-                isMobile: true,
-              ),
-            _buildFilterButton(
-              label: 'Format',
-              valueText: _selectedFormats.isEmpty 
-                  ? 'ALL' 
-                  : (_selectedFormats.length == 1 ? _selectedFormats.first : '${_selectedFormats.length} selected'),
-              onTap: _showMultiSelectFormats,
-              isMobile: true,
-            ),
-            if (widget.mode != AppMode.movies)
-              _buildFilterButton(
-                label: 'Status',
-                valueText: _selectedStatus,
-                onTap: () => _showSingleSelectDialog(
-                  title: 'Select Status',
-                  options: statuses,
-                  selected: _selectedStatus,
-                  onChanged: (val) => setState(() => _selectedStatus = val),
-                ),
-                isMobile: true,
-              ),
-            _buildFilterButton(
-              label: 'Sorting',
-              valueText: _availableSortings[_selectedSorting] ?? 'Popularity',
-              onTap: () => _showSingleSelectDialog(
-                title: 'Select Sorting',
-                options: sortOptions.map((key) => _availableSortings[key]!).toList(),
-                selected: _availableSortings[_selectedSorting]!,
-                onChanged: (displayVal) {
-                  final key = _availableSortings.entries
-                      .firstWhere((entry) => entry.value == displayVal)
-                      .key;
-                  setState(() => _selectedSorting = key);
-                },
-              ),
-              isMobile: true,
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4.0),
-              child: OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.white70,
-                  side: const BorderSide(color: Colors.white10),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
-                  minimumSize: const Size(0, 38),
-                  padding: const EdgeInsets.symmetric(horizontal: 12.0),
-                ),
-                onPressed: _clearFilters,
-                icon: const Icon(Icons.refresh, size: 14),
-                label: const Text('Reset', style: TextStyle(fontSize: 12.0, fontFamily: 'Outfit')),
-              ),
-            ),
-          ],
-        ),
+        const SizedBox(height: 12.0),
+        ...filterRows,
       ],
     );
   }
