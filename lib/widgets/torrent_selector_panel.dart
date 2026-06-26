@@ -574,11 +574,14 @@ class _PlaybackProgressDialogState extends State<_PlaybackProgressDialog> {
     final streamUrl = _torrServerService.getStreamUrl(hash, file.index);
     final fileName = file.path.split('/').last.split('\\').last;
 
-    // Pop the bottom sheet (parent context) so we return directly to details page when player closes
-    Navigator.of(widget.parentContext).pop();
+    // Capture the navigator state BEFORE we pop the parent context
+    final navigator = Navigator.of(widget.parentContext);
 
-    // Push the player screen
-    Navigator.of(widget.parentContext).push(
+    // Pop the bottom sheet so we return directly to details page when player closes
+    navigator.pop();
+
+    // Push the player screen using the captured navigator which remains safely mounted
+    navigator.push(
       MaterialPageRoute(
         builder: (context) => PlayerScreen(
           streamUrl: streamUrl,
