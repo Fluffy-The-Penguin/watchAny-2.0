@@ -240,7 +240,7 @@ class _SearchPageState extends State<SearchPage> {
     required bool isMobile,
   }) {
     final Widget buttonContent = Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4.0),
+      padding: EdgeInsets.symmetric(horizontal: isMobile ? 0.0 : 4.0),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
@@ -436,6 +436,144 @@ class _SearchPageState extends State<SearchPage> {
     return isMobile 
         ? SingleChildScrollView(scrollDirection: Axis.horizontal, child: rowContent) 
         : rowContent;
+  }
+
+  Widget _buildMobileFilters(List<String> years, List<String> seasons, List<String> statuses, List<String> sortOptions) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Container(
+                height: 38.0,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.03),
+                  borderRadius: BorderRadius.circular(8.0),
+                  border: Border.all(color: Colors.white10),
+                ),
+                child: TextField(
+                  controller: _searchController,
+                  style: const TextStyle(color: Colors.white, fontSize: 13.0, fontFamily: 'Outfit'),
+                  decoration: InputDecoration(
+                    hintText: widget.mode == AppMode.manga
+                        ? 'Search manga...'
+                        : (widget.mode == AppMode.movies ? 'Search movies & series...' : 'Search anime...'),
+                    hintStyle: const TextStyle(color: Colors.white24, fontSize: 13.0),
+                    prefixIcon: const Icon(Icons.search, color: Colors.white38, size: 16),
+                    border: InputBorder.none,
+                    contentPadding: const EdgeInsets.symmetric(vertical: 8.0),
+                  ),
+                  onSubmitted: (_) => _performSearch(),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8.0),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.white,
+                foregroundColor: Colors.black,
+                padding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 12.0),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
+                minimumSize: const Size(0, 38),
+              ),
+              onPressed: () => _performSearch(),
+              child: const Icon(Icons.send, size: 14),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10.0),
+        Wrap(
+          spacing: 8.0,
+          runSpacing: 8.0,
+          alignment: WrapAlignment.start,
+          children: [
+            _buildFilterButton(
+              label: 'Genre',
+              valueText: _selectedGenres.isEmpty 
+                  ? 'ALL' 
+                  : (_selectedGenres.length == 1 ? _selectedGenres.first : '${_selectedGenres.length} selected'),
+              onTap: _showMultiSelectGenres,
+              isMobile: true,
+            ),
+            _buildFilterButton(
+              label: 'Year',
+              valueText: _selectedYear,
+              onTap: () => _showSingleSelectDialog(
+                title: 'Select Year',
+                options: years,
+                selected: _selectedYear,
+                onChanged: (val) => setState(() => _selectedYear = val),
+              ),
+              isMobile: true,
+            ),
+            if (widget.mode == AppMode.anime)
+              _buildFilterButton(
+                label: 'Season',
+                valueText: _selectedSeason,
+                onTap: () => _showSingleSelectDialog(
+                  title: 'Select Season',
+                  options: seasons,
+                  selected: _selectedSeason,
+                  onChanged: (val) => setState(() => _selectedSeason = val),
+                ),
+                isMobile: true,
+              ),
+            _buildFilterButton(
+              label: 'Format',
+              valueText: _selectedFormats.isEmpty 
+                  ? 'ALL' 
+                  : (_selectedFormats.length == 1 ? _selectedFormats.first : '${_selectedFormats.length} selected'),
+              onTap: _showMultiSelectFormats,
+              isMobile: true,
+            ),
+            if (widget.mode != AppMode.movies)
+              _buildFilterButton(
+                label: 'Status',
+                valueText: _selectedStatus,
+                onTap: () => _showSingleSelectDialog(
+                  title: 'Select Status',
+                  options: statuses,
+                  selected: _selectedStatus,
+                  onChanged: (val) => setState(() => _selectedStatus = val),
+                ),
+                isMobile: true,
+              ),
+            _buildFilterButton(
+              label: 'Sorting',
+              valueText: _availableSortings[_selectedSorting] ?? 'Popularity',
+              onTap: () => _showSingleSelectDialog(
+                title: 'Select Sorting',
+                options: sortOptions.map((key) => _availableSortings[key]!).toList(),
+                selected: _availableSortings[_selectedSorting]!,
+                onChanged: (displayVal) {
+                  final key = _availableSortings.entries
+                      .firstWhere((entry) => entry.value == displayVal)
+                      .key;
+                  setState(() => _selectedSorting = key);
+                },
+              ),
+              isMobile: true,
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4.0),
+              child: OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.white70,
+                  side: const BorderSide(color: Colors.white10),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
+                  minimumSize: const Size(0, 38),
+                  padding: const EdgeInsets.symmetric(horizontal: 12.0),
+                ),
+                onPressed: _clearFilters,
+                icon: const Icon(Icons.refresh, size: 14),
+                label: const Text('Reset', style: TextStyle(fontSize: 12.0, fontFamily: 'Outfit')),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
   }
 
   void _showMultiSelectGenres() {
@@ -650,18 +788,20 @@ class _SearchPageState extends State<SearchPage> {
         child: Column(
           children: [
             // Custom top bar spacing to clear floating titlebar
-            const SizedBox(height: 50.0),
+            SizedBox(height: isMobile ? 0.0 : 50.0),
 
             // Top Section: Inputs and Double Row Filters
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-              child: Column(
-                children: [
-                  _buildRow1(isMobile, years, seasons),
-                  const SizedBox(height: 8.0),
-                  _buildRow2(isMobile, statuses, sortOptions),
-                ],
-              ),
+              child: isMobile
+                  ? _buildMobileFilters(years, seasons, statuses, sortOptions)
+                  : Column(
+                      children: [
+                        _buildRow1(isMobile, years, seasons),
+                        const SizedBox(height: 8.0),
+                        _buildRow2(isMobile, statuses, sortOptions),
+                      ],
+                    ),
             ),
 
             const Divider(color: Colors.white10, height: 1.0),
