@@ -6,6 +6,7 @@ import 'home_page.dart';
 import 'search_page.dart';
 import 'library_page.dart';
 import 'anime_details_page.dart';
+import 'settings_page.dart';
 
 class ShellLayout extends StatelessWidget {
   final NavigationState navigationState;
@@ -23,6 +24,8 @@ class ShellLayout extends StatelessWidget {
         return SearchPage(key: ValueKey('search_$mode'), mode: mode);
       case TabPage.library:
         return LibraryPage(key: ValueKey('library_$mode'), mode: mode);
+      case TabPage.settings:
+        return SettingsPage(key: ValueKey('settings_$mode'));
       case TabPage.schedule:
         return Center(
           key: ValueKey('schedule_$mode'),

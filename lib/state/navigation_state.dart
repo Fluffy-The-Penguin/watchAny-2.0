@@ -11,6 +11,7 @@ enum TabPage {
   search,
   library,
   schedule,
+  settings,
 }
 
 class NavigationState extends ChangeNotifier {

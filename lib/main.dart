@@ -1,10 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:window_manager/window_manager.dart';
+import 'package:media_kit/media_kit.dart';
+import 'services/torrserver_manager.dart';
+import 'services/extension_service.dart';
 import 'state/navigation_state.dart';
 import 'screens/shell_layout.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  
+  // Initialize MediaKit
+  MediaKit.ensureInitialized();
+  
+  // Initialize ExtensionService early to load local extensions on startup
+  ExtensionService().init();
+  
+  // Start TorrServer sidecar
+  TorrServerManager.start();
   
   // Initialize the window manager
   await windowManager.ensureInitialized();
@@ -35,6 +47,30 @@ class MyApp extends StatefulWidget {
 
 class _MyAppState extends State<MyApp> {
   final NavigationState _navigationState = NavigationState();
+
+  @override
+  void initState() {
+    super.initState();
+    _navigationState.addListener(_handleNavigationModeChange);
+    // Sync the TorrServer state with the initial navigation mode
+    _handleNavigationModeChange();
+  }
+
+  @override
+  void dispose() {
+    _navigationState.removeListener(_handleNavigationModeChange);
+    // Stop TorrServer when the app widget is disposed
+    TorrServerManager.stop();
+    super.dispose();
+  }
+
+  void _handleNavigationModeChange() {
+    if (_navigationState.currentMode == AppMode.anime || _navigationState.currentMode == AppMode.movies) {
+      TorrServerManager.start();
+    } else {
+      TorrServerManager.stop();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {

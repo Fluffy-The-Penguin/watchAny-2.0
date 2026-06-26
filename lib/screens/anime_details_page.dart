@@ -1,8 +1,10 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
 import '../services/anilist_service.dart';
+import '../services/extension_service.dart';
 import '../services/tmdb_service.dart';
 import '../state/navigation_state.dart';
+import '../widgets/torrent_selector_panel.dart';
 
 class AnimeDetailsPage extends StatefulWidget {
   final int animeId;
@@ -66,6 +68,7 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
   }
 
   Future<void> _loadDetails() async {
+    ExtensionService().preloadMappings(widget.animeId);
     try {
       final data = await _anilistService.fetchAnimeDetails(widget.animeId);
       if (mounted) {
@@ -420,7 +423,54 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
                               ),
                               onPressed: () {
                                 Navigator.pop(context);
-                                // Play action goes here
+
+                                if (_details == null) return;
+
+                                final titles = [
+                                  _details!['title']?['english'] ?? '',
+                                  _details!['title']?['romaji'] ?? '',
+                                  _details!['title']?['native'] ?? '',
+                                ].where((t) => t.isNotEmpty).map((t) => t.toString()).toList();
+
+                                showModalBottomSheet(
+                                  context: context,
+                                  isScrollControlled: true,
+                                  backgroundColor: Colors.transparent,
+                                  barrierColor: Colors.black54,
+                                  builder: (context) {
+                                    return Align(
+                                      alignment: Alignment.bottomCenter,
+                                      child: Container(
+                                        width: 800.0,
+                                        height: MediaQuery.of(context).size.height * 0.65,
+                                        margin: const EdgeInsets.all(24.0),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFF0C0C0E),
+                                          borderRadius: BorderRadius.circular(12.0),
+                                          border: Border.all(color: Colors.white10, width: 1.0),
+                                          boxShadow: const [
+                                            BoxShadow(
+                                              color: Colors.black87,
+                                              blurRadius: 30,
+                                              spreadRadius: 2,
+                                            )
+                                          ],
+                                        ),
+                                        child: ClipRRect(
+                                          borderRadius: BorderRadius.circular(11.0),
+                                          child: TorrentSelectorPanel(
+                                            anilistId: widget.animeId,
+                                            titles: titles,
+                                            episodeCount: _mergedEpisodes.length,
+                                            episodeNumber: epNum,
+                                            isMovie: (_details!['format']?.toString().toUpperCase() == 'MOVIE'),
+                                            media: _details,
+                                          ),
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                );
                               },
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: Colors.white,

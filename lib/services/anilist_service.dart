@@ -183,6 +183,11 @@ class AnilistService {
       query($id: Int) {
         Media(id: $id, type: ANIME) {
           id
+          startDate {
+            year
+            month
+            day
+          }
           title {
             romaji
             english
