@@ -84,6 +84,14 @@ class Sidebar extends StatelessWidget {
                   ),
                   const SizedBox(height: 8.0),
                   _SidebarItem(
+                    icon: Icons.download_for_offline,
+                    label: 'Downloads',
+                    isSelected: state.currentPage == TabPage.downloads,
+                    isExpanded: isExpanded,
+                    onTap: () => state.setPage(TabPage.downloads),
+                  ),
+                  const SizedBox(height: 8.0),
+                  _SidebarItem(
                     icon: Icons.settings,
                     label: 'Settings',
                     isSelected: state.currentPage == TabPage.settings,

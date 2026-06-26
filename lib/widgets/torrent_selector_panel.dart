@@ -1,11 +1,13 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import '../services/extension_service.dart';
 import '../services/torrserver_service.dart';
 import '../services/batch_mapping_service.dart';
 import '../models/torrent.dart';
-import '../screens/player_screen.dart';
+import '../services/download_service.dart';
+import '../state/player_state.dart';
 
 extension TorrentStreamExtension on TorrentStream {
   String get computedType {
@@ -651,35 +653,67 @@ class _TorrentSelectorPanelState extends State<TorrentSelectorPanel> {
                                     ],
                                   ),
                                 ),
-                                trailing: ElevatedButton(
-                                  onPressed: () {
-                                    showDialog(
-                                      context: context,
-                                      barrierDismissible: false,
-                                      builder: (dialogContext) {
-                                        return _PlaybackProgressDialog(
-                                          stream: stream,
-                                          parentContext: context,
-                                          anilistId: widget.anilistId,
-                                          episodeNumber: widget.episodeNumber,
-                                          titles: widget.titles,
-                                          episodeCount: widget.episodeCount,
-                                          isMovie: widget.isMovie,
-                                          media: widget.media,
-                                          episodes: widget.episodes,
-                                          tmdbEpisodesMap: widget.tmdbEpisodesMap,
-                                          onStreamSelected: widget.onStreamSelected,
+                                trailing: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    IconButton(
+                                      icon: const Icon(Icons.download, color: Colors.white70),
+                                      tooltip: 'Download stream',
+                                      onPressed: () {
+                                        showDialog(
+                                          context: context,
+                                          barrierDismissible: false,
+                                          builder: (dialogContext) {
+                                            return _PlaybackProgressDialog(
+                                              stream: stream,
+                                              parentContext: context,
+                                              anilistId: widget.anilistId,
+                                              episodeNumber: widget.episodeNumber,
+                                              titles: widget.titles,
+                                              episodeCount: widget.episodeCount,
+                                              isMovie: widget.isMovie,
+                                              media: widget.media,
+                                              episodes: widget.episodes,
+                                              tmdbEpisodesMap: widget.tmdbEpisodesMap,
+                                              onStreamSelected: widget.onStreamSelected,
+                                              isDownload: true,
+                                            );
+                                          },
                                         );
                                       },
-                                    );
-                                  },
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: Colors.white,
-                                    foregroundColor: Colors.black,
-                                    padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6.0)),
-                                  ),
-                                  child: const Text('Play', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12.0)),
+                                    ),
+                                    const SizedBox(width: 8.0),
+                                    ElevatedButton(
+                                      onPressed: () {
+                                        showDialog(
+                                          context: context,
+                                          barrierDismissible: false,
+                                          builder: (dialogContext) {
+                                            return _PlaybackProgressDialog(
+                                              stream: stream,
+                                              parentContext: context,
+                                              anilistId: widget.anilistId,
+                                              episodeNumber: widget.episodeNumber,
+                                              titles: widget.titles,
+                                              episodeCount: widget.episodeCount,
+                                              isMovie: widget.isMovie,
+                                              media: widget.media,
+                                              episodes: widget.episodes,
+                                              tmdbEpisodesMap: widget.tmdbEpisodesMap,
+                                              onStreamSelected: widget.onStreamSelected,
+                                            );
+                                          },
+                                        );
+                                      },
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: Colors.white,
+                                        foregroundColor: Colors.black,
+                                        padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6.0)),
+                                      ),
+                                      child: const Text('Play', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12.0)),
+                                    ),
+                                  ],
                                 ),
                               ),
                             );
@@ -716,6 +750,7 @@ class _PlaybackProgressDialog extends StatefulWidget {
   final List<dynamic>? episodes;
   final Map<int, dynamic>? tmdbEpisodesMap;
   final void Function(String streamUrl, String title)? onStreamSelected;
+  final bool isDownload;
 
   const _PlaybackProgressDialog({
     required this.stream,
@@ -729,6 +764,7 @@ class _PlaybackProgressDialog extends StatefulWidget {
     this.episodes,
     this.tmdbEpisodesMap,
     this.onStreamSelected,
+    this.isDownload = false,
   });
 
   @override
@@ -878,6 +914,37 @@ class _PlaybackProgressDialogState extends State<_PlaybackProgressDialog> {
         _playingFile = file;
         _playingHash = torrentInfo.hash;
 
+        if (widget.isDownload) {
+          final streamUrl = _torrServerService.getStreamUrl(torrentInfo.hash, file.index);
+          final fileName = file.path.split('/').last.split('\\').last;
+          final displayName = fileName.isNotEmpty ? fileName : file.name;
+          
+          await DownloadService().addDownloadTask(
+            hash: torrentInfo.hash,
+            fileIndex: file.index,
+            title: displayName,
+            streamUrl: streamUrl,
+            anilistId: widget.anilistId,
+            titles: widget.titles,
+            episodeCount: widget.episodeCount,
+            episodeNumber: widget.episodeNumber,
+            isMovie: widget.isMovie,
+            mediaJson: widget.media != null ? jsonEncode(widget.media) : null,
+            episodesJson: widget.episodes != null ? jsonEncode(widget.episodes) : null,
+            tmdbEpisodesMapJson: widget.tmdbEpisodesMap != null ? jsonEncode(widget.tmdbEpisodesMap!.map((k, v) => MapEntry(k.toString(), v))) : null,
+          );
+
+          if (!mounted) return;
+          Navigator.of(context).pop(); // pop progress dialog
+          ScaffoldMessenger.of(widget.parentContext).showSnackBar(
+            SnackBar(
+              content: Text('Added to downloads: $displayName', style: const TextStyle(fontFamily: 'Outfit')),
+              backgroundColor: Colors.green,
+            ),
+          );
+          return;
+        }
+
         // Prebuffering phase inside the dialog
         setState(() {
           _status = "Preloading stream...";
@@ -945,22 +1012,17 @@ class _PlaybackProgressDialogState extends State<_PlaybackProgressDialog> {
         navigator.pop();
       }
 
-      // Push the player screen using the captured navigator which remains safely mounted
-      navigator.push(
-        MaterialPageRoute(
-          builder: (context) => PlayerScreen(
-            streamUrl: streamUrl,
-            title: displayName,
-            anilistId: widget.anilistId,
-            titles: widget.titles,
-            episodeCount: widget.episodeCount,
-            episodeNumber: widget.episodeNumber,
-            isMovie: widget.isMovie,
-            media: widget.media,
-            episodes: widget.episodes,
-            tmdbEpisodesMap: widget.tmdbEpisodesMap,
-          ),
-        ),
+      PlayerState().startPlayback(
+        streamUrl: streamUrl,
+        title: displayName,
+        anilistId: widget.anilistId,
+        titles: widget.titles,
+        episodeCount: widget.episodeCount,
+        episodeNumber: widget.episodeNumber,
+        isMovie: widget.isMovie,
+        media: widget.media,
+        episodes: widget.episodes,
+        tmdbEpisodesMap: widget.tmdbEpisodesMap,
       );
     }
   }
@@ -971,9 +1033,9 @@ class _PlaybackProgressDialogState extends State<_PlaybackProgressDialog> {
       builder: (context) {
         return AlertDialog(
           backgroundColor: const Color(0xFF0F0F11),
-          title: const Text(
-            "Select File to Play",
-            style: TextStyle(color: Colors.white, fontFamily: 'Outfit', fontSize: 16.0),
+          title: Text(
+            widget.isDownload ? "Select File to Download" : "Select File to Play",
+            style: const TextStyle(color: Colors.white, fontFamily: 'Outfit', fontSize: 16.0),
           ),
           content: SizedBox(
             width: 400,
@@ -996,27 +1058,51 @@ class _PlaybackProgressDialogState extends State<_PlaybackProgressDialog> {
                   ),
                   onTap: () {
                     Navigator.of(context).pop(); // pop selection dialog
-                    // Show buffering progress dialog
-                    showDialog(
-                      context: widget.parentContext,
-                      barrierDismissible: false,
-                      builder: (dialogContext) {
-                        return _BufferingProgressDialog(
-                          hash: hash,
-                          file: file,
-                          parentContext: widget.parentContext,
-                          anilistId: widget.anilistId,
-                          episodeNumber: widget.episodeNumber,
-                          titles: widget.titles,
-                          episodeCount: widget.episodeCount,
-                          isMovie: widget.isMovie,
-                          media: widget.media,
-                          episodes: widget.episodes,
-                          tmdbEpisodesMap: widget.tmdbEpisodesMap,
-                          onStreamSelected: widget.onStreamSelected,
-                        );
-                      },
-                    );
+                    if (widget.isDownload) {
+                      final streamUrl = _torrServerService.getStreamUrl(hash, file.index);
+                      DownloadService().addDownloadTask(
+                        hash: hash,
+                        fileIndex: file.index,
+                        title: displayName,
+                        streamUrl: streamUrl,
+                        anilistId: widget.anilistId,
+                        titles: widget.titles,
+                        episodeCount: widget.episodeCount,
+                        episodeNumber: widget.episodeNumber,
+                        isMovie: widget.isMovie,
+                        mediaJson: widget.media != null ? jsonEncode(widget.media) : null,
+                        episodesJson: widget.episodes != null ? jsonEncode(widget.episodes) : null,
+                        tmdbEpisodesMapJson: widget.tmdbEpisodesMap != null ? jsonEncode(widget.tmdbEpisodesMap!.map((k, v) => MapEntry(k.toString(), v))) : null,
+                      );
+                      ScaffoldMessenger.of(widget.parentContext).showSnackBar(
+                        SnackBar(
+                          content: Text('Added to downloads: $displayName', style: const TextStyle(fontFamily: 'Outfit')),
+                          backgroundColor: Colors.green,
+                        ),
+                      );
+                    } else {
+                      // Show buffering progress dialog
+                      showDialog(
+                        context: widget.parentContext,
+                        barrierDismissible: false,
+                        builder: (dialogContext) {
+                          return _BufferingProgressDialog(
+                            hash: hash,
+                            file: file,
+                            parentContext: widget.parentContext,
+                            anilistId: widget.anilistId,
+                            episodeNumber: widget.episodeNumber,
+                            titles: widget.titles,
+                            episodeCount: widget.episodeCount,
+                            isMovie: widget.isMovie,
+                            media: widget.media,
+                            episodes: widget.episodes,
+                            tmdbEpisodesMap: widget.tmdbEpisodesMap,
+                            onStreamSelected: widget.onStreamSelected,
+                          );
+                        },
+                      );
+                    }
                   },
                 );
               },
@@ -1228,21 +1314,17 @@ class _BufferingProgressDialogState extends State<_BufferingProgressDialog> {
       // Pop the bottom sheet so we return directly to details page when player closes
       navigator.pop();
 
-      navigator.push(
-        MaterialPageRoute(
-          builder: (context) => PlayerScreen(
-            streamUrl: streamUrl,
-            title: displayName,
-            anilistId: widget.anilistId,
-            titles: widget.titles,
-            episodeCount: widget.episodeCount,
-            episodeNumber: widget.episodeNumber,
-            isMovie: widget.isMovie,
-            media: widget.media,
-            episodes: widget.episodes,
-            tmdbEpisodesMap: widget.tmdbEpisodesMap,
-          ),
-        ),
+      PlayerState().startPlayback(
+        streamUrl: streamUrl,
+        title: displayName,
+        anilistId: widget.anilistId,
+        titles: widget.titles,
+        episodeCount: widget.episodeCount,
+        episodeNumber: widget.episodeNumber,
+        isMovie: widget.isMovie,
+        media: widget.media,
+        episodes: widget.episodes,
+        tmdbEpisodesMap: widget.tmdbEpisodesMap,
       );
     }
   }

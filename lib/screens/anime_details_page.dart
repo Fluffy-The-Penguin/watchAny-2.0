@@ -585,12 +585,12 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
           child: Container(
             width: isMobileSheet ? double.infinity : 800.0,
             height: MediaQuery.of(context).size.height * (isMobileSheet ? 0.8 : 0.65),
-            margin: isMobileSheet ? EdgeInsets.zero : const EdgeInsets.all(24.0),
+            margin: isMobileSheet
+                ? EdgeInsets.zero
+                : const EdgeInsets.only(left: 24.0, right: 24.0, top: 24.0),
             decoration: BoxDecoration(
               color: const Color(0xFF0C0C0E),
-              borderRadius: isMobileSheet
-                  ? const BorderRadius.vertical(top: Radius.circular(16.0))
-                  : BorderRadius.circular(12.0),
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(16.0)),
               border: Border.all(color: Colors.white10, width: 1.0),
               boxShadow: const [
                 BoxShadow(
@@ -601,9 +601,7 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
               ],
             ),
             child: ClipRRect(
-              borderRadius: isMobileSheet
-                  ? const BorderRadius.vertical(top: Radius.circular(15.0))
-                  : BorderRadius.circular(11.0),
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(15.0)),
               child: TorrentSelectorPanel(
                 anilistId: widget.animeId,
                 titles: titles,

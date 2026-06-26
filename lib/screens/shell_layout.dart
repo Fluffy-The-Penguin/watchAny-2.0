@@ -1,13 +1,17 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import '../state/navigation_state.dart';
+import '../state/player_state.dart';
 import '../widgets/custom_title_bar.dart';
 import '../widgets/sidebar.dart';
+import '../widgets/mini_player.dart';
 import 'home_page.dart';
 import 'search_page.dart';
 import 'library_page.dart';
 import 'anime_details_page.dart';
 import 'settings_page.dart';
+import 'downloads_page.dart';
+import 'player_screen.dart';
 
 class ShellLayout extends StatelessWidget {
   final NavigationState navigationState;
@@ -25,6 +29,8 @@ class ShellLayout extends StatelessWidget {
         return SearchPage(key: ValueKey('search_$mode'), mode: mode, navigationState: navigationState);
       case TabPage.library:
         return LibraryPage(key: ValueKey('library_$mode'), mode: mode);
+      case TabPage.downloads:
+        return DownloadsPage(key: ValueKey('downloads_$mode'));
       case TabPage.settings:
         return SettingsPage(key: ValueKey('settings_$mode'));
       case TabPage.schedule:
@@ -52,6 +58,8 @@ class ShellLayout extends StatelessWidget {
         return 'Library';
       case TabPage.schedule:
         return 'Schedule';
+      case TabPage.downloads:
+        return 'Downloads';
       case TabPage.settings:
         return 'Settings';
     }
@@ -67,8 +75,10 @@ class ShellLayout extends StatelessWidget {
         return 2;
       case TabPage.schedule:
         return 3;
-      case TabPage.settings:
+      case TabPage.downloads:
         return 4;
+      case TabPage.settings:
+        return 5;
     }
   }
 
@@ -83,6 +93,8 @@ class ShellLayout extends StatelessWidget {
       case 3:
         return TabPage.schedule;
       case 4:
+        return TabPage.downloads;
+      case 5:
         return TabPage.settings;
       default:
         return TabPage.home;
@@ -148,7 +160,7 @@ class ShellLayout extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: navigationState,
+      listenable: Listenable.merge([navigationState, PlayerState()]),
       builder: (context, _) {
         final currentMode = navigationState.currentMode;
         final currentPage = navigationState.currentPage;
@@ -157,9 +169,13 @@ class ShellLayout extends StatelessWidget {
         final double screenWidth = MediaQuery.of(context).size.width;
         final bool isMobile = screenWidth < 650;
 
+        final playerState = PlayerState();
+        final showFullPlayer = playerState.isActive && !playerState.isMinimized;
+        final showMiniPlayer = playerState.isActive && playerState.isMinimized;
+
         return Scaffold(
           backgroundColor: Colors.black,
-          appBar: isMobile
+          appBar: isMobile && !showFullPlayer
               ? AppBar(
                   backgroundColor: Colors.black,
                   elevation: 0,
@@ -192,7 +208,7 @@ class ShellLayout extends StatelessWidget {
                   ],
                 )
               : null,
-          bottomNavigationBar: isMobile && selectedAnimeId == null
+          bottomNavigationBar: isMobile && selectedAnimeId == null && !showFullPlayer
               ? BottomNavigationBar(
                   backgroundColor: const Color(0xFF0F0F11),
                   selectedItemColor: Colors.white,
@@ -206,6 +222,7 @@ class ShellLayout extends StatelessWidget {
                     BottomNavigationBarItem(icon: Icon(Icons.search), label: 'Search'),
                     BottomNavigationBarItem(icon: Icon(Icons.video_library), label: 'Library'),
                     BottomNavigationBarItem(icon: Icon(Icons.calendar_today), label: 'Schedule'),
+                    BottomNavigationBarItem(icon: Icon(Icons.download_for_offline), label: 'Downloads'),
                     BottomNavigationBarItem(icon: Icon(Icons.settings), label: 'Settings'),
                   ],
                   onTap: (index) {
@@ -213,44 +230,85 @@ class ShellLayout extends StatelessWidget {
                   },
                 )
               : null,
-          body: Row(
-            children: [
-              // Left Sidebar (Desktop only)
-              if (!isMobile) Sidebar(state: navigationState),
-              
-              // Right Content Window (Stack containing full content and floating controls)
-              Expanded(
-                child: Stack(
+          body: PopScope(
+            canPop: !showFullPlayer,
+            onPopInvokedWithResult: (didPop, result) {
+              if (didPop) return;
+              if (showFullPlayer) {
+                playerState.minimize();
+              }
+            },
+            child: Stack(
+              children: [
+                // Main layout: Sidebar + Content Window
+                Row(
                   children: [
-                    // Main Content Window - takes full area
-                    Positioned.fill(
-                      child: Container(
-                        color: Colors.black,
-                        child: AnimatedSwitcher(
-                          duration: const Duration(milliseconds: 200),
-                          child: selectedAnimeId != null
-                              ? AnimeDetailsPage(
-                                  key: ValueKey('details_$selectedAnimeId'),
-                                  animeId: selectedAnimeId,
-                                  navigationState: navigationState,
-                                )
-                              : _buildContent(currentMode, currentPage),
-                        ),
+                    // Left Sidebar (Desktop only)
+                    if (!isMobile) Sidebar(state: navigationState),
+                    
+                    // Right Content Window (Stack containing full content and floating controls)
+                    Expanded(
+                      child: Stack(
+                        children: [
+                          // Main Content Window - takes full area
+                          Positioned.fill(
+                            child: Container(
+                              color: Colors.black,
+                              child: AnimatedSwitcher(
+                                duration: const Duration(milliseconds: 200),
+                                child: selectedAnimeId != null
+                                    ? AnimeDetailsPage(
+                                        key: ValueKey('details_$selectedAnimeId'),
+                                        animeId: selectedAnimeId,
+                                        navigationState: navigationState,
+                                      )
+                                    : _buildContent(currentMode, currentPage),
+                              ),
+                            ),
+                          ),
+                          
+                          // Floating Custom Title Bar (Desktop only)
+                          if (!isMobile && (Platform.isWindows || Platform.isMacOS || Platform.isLinux))
+                            const Positioned(
+                              top: 0,
+                              left: 0,
+                              right: 0,
+                              child: CustomTitleBar(),
+                            ),
+                        ],
                       ),
                     ),
-                    
-                    // Floating Custom Title Bar (Desktop only)
-                    if (!isMobile && (Platform.isWindows || Platform.isMacOS || Platform.isLinux))
-                      const Positioned(
-                        top: 0,
-                        left: 0,
-                        right: 0,
-                        child: CustomTitleBar(),
-                      ),
                   ],
                 ),
-              ),
-            ],
+                
+                // Full Screen Player Overlay
+                if (showFullPlayer)
+                  Positioned.fill(
+                    child: PlayerScreen(
+                      streamUrl: playerState.streamUrl!,
+                      title: playerState.title!,
+                      anilistId: playerState.anilistId,
+                      titles: playerState.titles,
+                      episodeCount: playerState.episodeCount,
+                      episodeNumber: playerState.episodeNumber,
+                      isMovie: playerState.isMovie,
+                      media: playerState.media,
+                      episodes: playerState.episodes,
+                      tmdbEpisodesMap: playerState.tmdbEpisodesMap,
+                    ),
+                  ),
+                
+                // Floating MiniPlayer Overlay
+                if (showMiniPlayer)
+                  Positioned(
+                    right: 16.0,
+                    bottom: 16.0,
+                    child: const SafeArea(
+                      child: MiniPlayer(),
+                    ),
+                  ),
+              ],
+            ),
           ),
         );
       },

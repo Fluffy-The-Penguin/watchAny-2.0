@@ -1,9 +1,12 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:media_kit/media_kit.dart';
+import 'package:flutter/services.dart';
+import 'package:media_kit/media_kit.dart' hide PlayerState;
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:window_manager/window_manager.dart';
 import '../widgets/torrent_selector_panel.dart';
+import '../services/download_service.dart';
+import '../state/player_state.dart';
 
 class PlayerScreen extends StatefulWidget {
   final String streamUrl;
@@ -36,28 +39,24 @@ class PlayerScreen extends StatefulWidget {
 }
 
 class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
-  late final Player player = Player();
-  late final VideoController controller = VideoController(player);
+  late final Player player = PlayerState().player!;
+  late final VideoController controller = PlayerState().controller!;
   bool _isMaximized = false;
 
   final LayerLink _layerLink = LayerLink();
   OverlayEntry? _overlayEntry;
+  DateTime? _lastClosedTime;
+  DateTime? _lastOpenedTime;
 
-  // Dynamically tracked state
-  late int _currentEpisodeNumber = widget.episodeNumber ?? 1;
-  late String _currentTitle = widget.title;
-  bool _isEpisodesExpanded = false;
-  final ScrollController _scrollController = ScrollController();
-  bool _isQualityEnhanced = false;
+  // Track settings open/close hover state
+  Duration _controlsHoverDuration = const Duration(seconds: 3);
+  final ValueNotifier<bool> _isQualityEnhancedNotifier = ValueNotifier<bool>(false);
 
   @override
   void initState() {
     super.initState();
     windowManager.addListener(this);
     _checkMaximizedState();
-    
-    // Play the provided URL
-    player.open(Media(widget.streamUrl));
   }
 
   @override
@@ -65,8 +64,16 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
     _overlayEntry?.remove();
     _overlayEntry = null;
     windowManager.removeListener(this);
-    _scrollController.dispose();
-    player.dispose();
+    
+    // Ensure we exit fullscreen if the player is closed/disposed
+    PlayerState().exitFullscreen();
+    windowManager.isFullScreen().then((isFullScreen) {
+      if (isFullScreen) {
+        windowManager.setFullScreen(false);
+      }
+    }).catchError((_) {});
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: SystemUiOverlay.values);
+
     super.dispose();
   }
 
@@ -100,62 +107,73 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
   }
 
   void _toggleSettingsMenu() {
+    final now = DateTime.now();
     if (_overlayEntry != null) {
+      if (_lastOpenedTime != null &&
+          now.difference(_lastOpenedTime!) < const Duration(milliseconds: 200)) {
+        return;
+      }
       _hideSettingsMenu();
     } else {
+      if (_lastClosedTime != null &&
+          now.difference(_lastClosedTime!) < const Duration(milliseconds: 200)) {
+        return;
+      }
       _showSettingsMenu();
     }
   }
 
   void _hideSettingsMenu() {
+    if (_overlayEntry == null) return;
     _overlayEntry?.remove();
     _overlayEntry = null;
+    _lastClosedTime = DateTime.now();
+    setState(() {
+      _controlsHoverDuration = const Duration(seconds: 3);
+    });
   }
 
   void _showSettingsMenu() {
+    _lastOpenedTime = DateTime.now();
+    setState(() {
+      _controlsHoverDuration = const Duration(days: 1);
+    });
     _overlayEntry = OverlayEntry(
       builder: (context) {
         return Stack(
           children: [
             // Tap outside to close
-            GestureDetector(
-              behavior: HitTestBehavior.translucent,
-              onTap: _hideSettingsMenu,
-              child: Container(
-                color: Colors.transparent,
-              ),
+            ModalBarrier(
+              dismissible: true,
+              onDismiss: _hideSettingsMenu,
+              color: Colors.transparent,
             ),
             Positioned(
+              right: 24.0,
+              bottom: 72.0,
               width: 280.0,
-              child: CompositedTransformFollower(
-                link: _layerLink,
-                showWhenUnlinked: false,
-                targetAnchor: Alignment.topRight,
-                followerAnchor: Alignment.bottomRight,
-                offset: const Offset(0.0, -12.0),
-                child: Material(
-                  elevation: 8.0,
-                  color: const Color(0xFF0F0F11),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12.0),
-                    side: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
-                  ),
-                  child: _SettingsOverlayCard(
-                    player: player,
-                    onClose: _hideSettingsMenu,
-                    isQualityEnhanced: _isQualityEnhanced,
-                    onToggleQualityEnhanced: _toggleQualityEnhancement,
-                    anilistId: widget.anilistId,
-                    titles: widget.titles,
-                    episodeCount: widget.episodeCount,
-                    episodeNumber: _currentEpisodeNumber,
-                    isMovie: widget.isMovie,
-                    media: widget.media,
-                    onOpenTorrentPanel: () {
-                      _hideSettingsMenu();
-                      _openTorrentSelectorPanel();
-                    },
-                  ),
+              child: Material(
+                elevation: 8.0,
+                color: const Color(0xFF0F0F11),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12.0),
+                  side: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+                ),
+                child: _SettingsOverlayCard(
+                  player: player,
+                  onClose: _hideSettingsMenu,
+                  isQualityEnhancedNotifier: _isQualityEnhancedNotifier,
+                  onToggleQualityEnhanced: _toggleQualityEnhancement,
+                  anilistId: widget.anilistId,
+                  titles: widget.titles,
+                  episodeCount: widget.episodeCount,
+                  episodeNumber: PlayerState().episodeNumber ?? widget.episodeNumber ?? 1,
+                  isMovie: widget.isMovie,
+                  media: widget.media,
+                  onOpenTorrentPanel: () {
+                    _hideSettingsMenu();
+                    _openTorrentSelectorPanel();
+                  },
                 ),
               ),
             ),
@@ -167,17 +185,28 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
   }
 
   Future<void> _toggleQualityEnhancement() async {
-    setState(() {
-      _isQualityEnhanced = !_isQualityEnhanced;
-    });
+    _isQualityEnhancedNotifier.value = !_isQualityEnhancedNotifier.value;
     try {
-      await (player.platform as dynamic).setProperty('deband', _isQualityEnhanced ? 'yes' : 'no');
+      final nativePlayer = player.platform as NativePlayer;
+      if (_isQualityEnhancedNotifier.value) {
+        // Add sharpening + debanding filters
+        await nativePlayer.setProperty('deband', 'yes');
+        await nativePlayer.setProperty('deband-iterations', '4');
+        await nativePlayer.setProperty('deband-threshold', '48');
+        await nativePlayer.setProperty('deband-range', '16');
+        await nativePlayer.command(
+          ['vf', 'add', '@enhance:lavfi=[unsharp=lx=5:ly=5:la=0.3:cx=5:cy=5:ca=0.3]'],
+        );
+      } else {
+        await nativePlayer.setProperty('deband', 'no');
+        await nativePlayer.command(['vf', 'remove', '@enhance']);
+      }
     } catch (_) {}
   }
 
   void _openTorrentSelectorPanel({int? epNum}) {
     if (widget.anilistId == null) return;
-    final targetEpNum = epNum ?? _currentEpisodeNumber;
+    final targetEpNum = epNum ?? PlayerState().episodeNumber ?? widget.episodeNumber ?? 1;
     final double screenWidth = MediaQuery.of(context).size.width;
     final bool isMobileSheet = screenWidth < 650;
 
@@ -192,12 +221,12 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
           child: Container(
             width: isMobileSheet ? double.infinity : 800.0,
             height: MediaQuery.of(context).size.height * (isMobileSheet ? 0.8 : 0.65),
-            margin: isMobileSheet ? EdgeInsets.zero : const EdgeInsets.all(24.0),
+            margin: isMobileSheet
+                ? EdgeInsets.zero
+                : const EdgeInsets.only(left: 24.0, right: 24.0, top: 24.0),
             decoration: BoxDecoration(
               color: const Color(0xFF0C0C0E),
-              borderRadius: isMobileSheet
-                  ? const BorderRadius.vertical(top: Radius.circular(16.0))
-                  : BorderRadius.circular(12.0),
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(16.0)),
               border: Border.all(color: Colors.white10, width: 1.0),
               boxShadow: const [
                 BoxShadow(
@@ -208,9 +237,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
               ],
             ),
             child: ClipRRect(
-              borderRadius: isMobileSheet
-                  ? const BorderRadius.vertical(top: Radius.circular(15.0))
-                  : BorderRadius.circular(11.0),
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(15.0)),
               child: TorrentSelectorPanel(
                 anilistId: widget.anilistId!,
                 titles: widget.titles ?? [],
@@ -221,11 +248,11 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
                 episodes: widget.episodes,
                 tmdbEpisodesMap: widget.tmdbEpisodesMap,
                 onStreamSelected: (String streamUrl, String title) {
-                  player.open(Media(streamUrl));
-                  setState(() {
-                    _currentTitle = title;
-                    _currentEpisodeNumber = targetEpNum;
-                  });
+                  PlayerState().updateActiveEpisode(
+                    streamUrl: streamUrl,
+                    title: title,
+                    episodeNumber: targetEpNum,
+                  );
                   Navigator.of(context).pop();
                 },
               ),
@@ -247,73 +274,173 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
     return cleaned.isNotEmpty ? cleaned : title;
   }
 
-  Widget _buildUnderPlayerEpisodeList() {
+
+
+  void _openEpisodesPanel() {
+    _hideSettingsMenu();
+    if (widget.episodes == null || widget.episodes!.isEmpty) return;
     final double screenWidth = MediaQuery.of(context).size.width;
-    final bool isMobile = screenWidth < 650;
-    
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        GridView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: isMobile ? 2 : 4,
-            crossAxisSpacing: 12.0,
-            mainAxisSpacing: 12.0,
-            childAspectRatio: 1.45,
+    final bool isMobileSheet = screenWidth < 650;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black54,
+      builder: (context) {
+        return Align(
+          alignment: Alignment.bottomCenter,
+          child: Container(
+            width: isMobileSheet ? double.infinity : 800.0,
+            height: MediaQuery.of(context).size.height * (isMobileSheet ? 0.7 : 0.55),
+            margin: isMobileSheet
+                ? EdgeInsets.zero
+                : const EdgeInsets.only(left: 24.0, right: 24.0, top: 24.0),
+            decoration: BoxDecoration(
+              color: const Color(0xFF0C0C0E),
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(16.0)),
+              border: Border.all(color: Colors.white10, width: 1.0),
+              boxShadow: const [
+                BoxShadow(
+                  color: Colors.black87,
+                  blurRadius: 30,
+                  spreadRadius: 2,
+                )
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        "Episodes List",
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 16.0,
+                          fontWeight: FontWeight.bold,
+                          fontFamily: 'Outfit',
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close, color: Colors.white70),
+                        onPressed: () => Navigator.of(context).pop(),
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(color: Colors.white10, height: 1),
+                Expanded(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.all(16.0),
+                    child: GridView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: isMobileSheet ? 2 : 4,
+                        crossAxisSpacing: 12.0,
+                        mainAxisSpacing: 12.0,
+                        childAspectRatio: 1.45,
+                      ),
+                      itemCount: widget.episodes!.length,
+                      itemBuilder: (context, index) {
+                        final ep = widget.episodes![index];
+                        final String epTitle = ep['title'] ?? '';
+                        final String thumbnail = ep['thumbnail'] ?? '';
+                        final int epNum = ep['isPlaceholder'] == true ? (index + 1) : _extractEpNum(epTitle, index + 1);
+                        final String cleanTitle = ep['isPlaceholder'] == true ? epTitle : _cleanEpTitle(epTitle);
+                        
+                        // Check TMDB overrides
+                        final tmdbEp = widget.tmdbEpisodesMap?[epNum];
+                        final String finalTitle = tmdbEp?['name'] ?? cleanTitle;
+                        final String finalThumbnail = tmdbEp?['still_path'] ?? thumbnail;
+                                            final isPlaying = (PlayerState().episodeNumber ?? widget.episodeNumber ?? 1) == epNum;
+                        
+                        return GestureDetector(
+                          onTap: () {
+                            Navigator.of(context).pop(); // Close bottom sheet
+                            if (!isPlaying) {
+                              DownloadTask? downloadedTask;
+                              try {
+                                downloadedTask = DownloadService().tasks.firstWhere(
+                                  (t) => t.anilistId == widget.anilistId &&
+                                         t.episodeNumber == epNum &&
+                                         t.status == DownloadStatus.completed,
+                                );
+                              } catch (_) {}
+ 
+                              if (downloadedTask != null) {
+                                PlayerState().updateActiveEpisode(
+                                  streamUrl: downloadedTask.savePath,
+                                  title: downloadedTask.title,
+                                  episodeNumber: epNum,
+                                );
+                              } else {
+                                _openTorrentSelectorPanel(epNum: epNum);
+                              }
+                            }
+                          },
+                          child: _PlayerEpisodeCard(
+                            epNum: epNum,
+                            title: finalTitle,
+                            thumbnail: finalThumbnail,
+                            isPlaying: isPlaying,
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
-          itemCount: widget.episodes!.length,
-          itemBuilder: (context, index) {
-            final ep = widget.episodes![index];
-            final String epTitle = ep['title'] ?? '';
-            final String thumbnail = ep['thumbnail'] ?? '';
-            final int epNum = ep['isPlaceholder'] == true ? (index + 1) : _extractEpNum(epTitle, index + 1);
-            final String cleanTitle = ep['isPlaceholder'] == true ? epTitle : _cleanEpTitle(epTitle);
-            
-            // Check TMDB overrides
-            final tmdbEp = widget.tmdbEpisodesMap?[epNum];
-            final String finalTitle = tmdbEp?['name'] ?? cleanTitle;
-            final String finalThumbnail = tmdbEp?['still_path'] ?? thumbnail;
-            
-            final isPlaying = _currentEpisodeNumber == epNum;
-            
-            return GestureDetector(
-              onTap: () {
-                if (!isPlaying) {
-                  _openTorrentSelectorPanel(epNum: epNum);
-                }
-              },
-              child: _PlayerEpisodeCard(
-                epNum: epNum,
-                title: finalTitle,
-                thumbnail: finalThumbnail,
-                isPlaying: isPlaying,
-              ),
-            );
-          },
-        ),
-      ],
+        );
+      },
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    // 1. Desktop custom controls theme configuration
+    return ListenableBuilder(
+      listenable: PlayerState(),
+      builder: (context, _) {
+        final playerState = PlayerState();
+        final currentTitle = playerState.title ?? widget.title;
+
+        // 1. Desktop custom controls theme configuration
     final desktopTheme = MaterialDesktopVideoControlsTheme(
       normal: MaterialDesktopVideoControlsThemeData(
+        controlsHoverDuration: _controlsHoverDuration,
         bottomButtonBar: [
           const MaterialDesktopPlayOrPauseButton(),
           const MaterialDesktopVolumeButton(),
-          const MaterialPositionIndicator(),
+          const MaterialDesktopPositionIndicator(),
           const Spacer(),
-          // Quality Enhancement Button
-          MaterialDesktopCustomButton(
-            onPressed: _toggleQualityEnhancement,
-            icon: Icon(
-              Icons.auto_awesome,
-              color: _isQualityEnhanced ? Colors.amber : Colors.white38,
+          if (widget.episodes != null && widget.episodes!.isNotEmpty)
+            MaterialDesktopCustomButton(
+              onPressed: _openEpisodesPanel,
+              icon: const Icon(
+                Icons.keyboard_arrow_up,
+                color: Colors.white,
+              ),
             ),
+          if (widget.episodes != null && widget.episodes!.isNotEmpty)
+            const Spacer(),
+          // Quality Enhancement Button
+          ValueListenableBuilder<bool>(
+            valueListenable: _isQualityEnhancedNotifier,
+            builder: (context, isEnhanced, _) {
+              return MaterialDesktopCustomButton(
+                onPressed: _toggleQualityEnhancement,
+                icon: Icon(
+                  Icons.auto_awesome,
+                  color: isEnhanced ? Colors.amber : Colors.white38,
+                ),
+              );
+            },
           ),
           // Subtitles On/Off Button (CC)
           MaterialDesktopCustomButton(
@@ -321,7 +448,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
               final isOff = player.state.track.subtitle.id == 'no';
               if (isOff) {
                 final firstTrack = player.state.tracks.subtitle.firstWhere(
-                  (t) => t.id != 'no',
+                  (t) => t.id != 'no' && t.id != 'auto',
                   orElse: () => player.state.tracks.subtitle.first,
                 );
                 player.setSubtitleTrack(firstTrack);
@@ -341,6 +468,15 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
               },
             ),
           ),
+          // Change Stream Button
+          if (widget.anilistId != null)
+            MaterialDesktopCustomButton(
+              onPressed: () {
+                _hideSettingsMenu();
+                _openTorrentSelectorPanel();
+              },
+              icon: const Icon(Icons.swap_horizontal_circle, color: Colors.white),
+            ),
           // Settings Button with Target Link
           CompositedTransformTarget(
             link: _layerLink,
@@ -353,18 +489,34 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
         ],
       ),
       fullscreen: MaterialDesktopVideoControlsThemeData(
+        controlsHoverDuration: _controlsHoverDuration,
         bottomButtonBar: [
           const MaterialDesktopPlayOrPauseButton(),
           const MaterialDesktopVolumeButton(),
-          const MaterialPositionIndicator(),
+          const MaterialDesktopPositionIndicator(),
           const Spacer(),
-          // Quality Enhancement Button
-          MaterialDesktopCustomButton(
-            onPressed: _toggleQualityEnhancement,
-            icon: Icon(
-              Icons.auto_awesome,
-              color: _isQualityEnhanced ? Colors.amber : Colors.white38,
+          if (widget.episodes != null && widget.episodes!.isNotEmpty)
+            MaterialDesktopCustomButton(
+              onPressed: _openEpisodesPanel,
+              icon: const Icon(
+                Icons.keyboard_arrow_up,
+                color: Colors.white,
+              ),
             ),
+          if (widget.episodes != null && widget.episodes!.isNotEmpty)
+            const Spacer(),
+          // Quality Enhancement Button
+          ValueListenableBuilder<bool>(
+            valueListenable: _isQualityEnhancedNotifier,
+            builder: (context, isEnhanced, _) {
+              return MaterialDesktopCustomButton(
+                onPressed: _toggleQualityEnhancement,
+                icon: Icon(
+                  Icons.auto_awesome,
+                  color: isEnhanced ? Colors.amber : Colors.white38,
+                ),
+              );
+            },
           ),
           // Subtitles On/Off Button (CC)
           MaterialDesktopCustomButton(
@@ -372,7 +524,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
               final isOff = player.state.track.subtitle.id == 'no';
               if (isOff) {
                 final firstTrack = player.state.tracks.subtitle.firstWhere(
-                  (t) => t.id != 'no',
+                  (t) => t.id != 'no' && t.id != 'auto',
                   orElse: () => player.state.tracks.subtitle.first,
                 );
                 player.setSubtitleTrack(firstTrack);
@@ -392,6 +544,15 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
               },
             ),
           ),
+          // Change Stream Button
+          if (widget.anilistId != null)
+            MaterialDesktopCustomButton(
+              onPressed: () {
+                _hideSettingsMenu();
+                _openTorrentSelectorPanel();
+              },
+              icon: const Icon(Icons.swap_horizontal_circle, color: Colors.white),
+            ),
           // Settings Button with Target Link
           CompositedTransformTarget(
             link: _layerLink,
@@ -405,23 +566,65 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
       ),
       child: Video(
         controller: controller,
+        onEnterFullscreen: () async {
+          PlayerState().enterFullscreen();
+          await windowManager.setFullScreen(true);
+          await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+        },
+        onExitFullscreen: () async {
+          PlayerState().exitFullscreen();
+          await windowManager.setFullScreen(false);
+          await SystemChrome.setEnabledSystemUIMode(
+            SystemUiMode.manual,
+            overlays: SystemUiOverlay.values,
+          );
+        },
+        controls: (state) {
+          final bool isDesktop = [
+            TargetPlatform.windows,
+            TargetPlatform.linux,
+            TargetPlatform.macOS,
+          ].contains(Theme.of(state.context).platform);
+          return KeyedSubtree(
+            key: ValueKey(_overlayEntry != null),
+            child: isDesktop
+                ? MaterialDesktopVideoControls(state)
+                : MaterialVideoControls(state),
+          );
+        },
       ),
     );
 
     // 2. Mobile custom controls theme configuration (just in case)
     final mobileTheme = MaterialVideoControlsTheme(
       normal: MaterialVideoControlsThemeData(
+        controlsHoverDuration: _controlsHoverDuration,
         bottomButtonBar: [
           const MaterialPlayOrPauseButton(),
           const MaterialPositionIndicator(),
           const Spacer(),
-          // Quality Enhancement Button
-          MaterialCustomButton(
-            onPressed: _toggleQualityEnhancement,
-            icon: Icon(
-              Icons.auto_awesome,
-              color: _isQualityEnhanced ? Colors.amber : Colors.white38,
+          if (widget.episodes != null && widget.episodes!.isNotEmpty)
+            MaterialCustomButton(
+              onPressed: _openEpisodesPanel,
+              icon: const Icon(
+                Icons.keyboard_arrow_up,
+                color: Colors.white,
+              ),
             ),
+          if (widget.episodes != null && widget.episodes!.isNotEmpty)
+            const Spacer(),
+          // Quality Enhancement Button
+          ValueListenableBuilder<bool>(
+            valueListenable: _isQualityEnhancedNotifier,
+            builder: (context, isEnhanced, _) {
+              return MaterialCustomButton(
+                onPressed: _toggleQualityEnhancement,
+                icon: Icon(
+                  Icons.auto_awesome,
+                  color: isEnhanced ? Colors.amber : Colors.white38,
+                ),
+              );
+            },
           ),
           // Subtitles On/Off Button (CC)
           MaterialCustomButton(
@@ -429,7 +632,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
               final isOff = player.state.track.subtitle.id == 'no';
               if (isOff) {
                 final firstTrack = player.state.tracks.subtitle.firstWhere(
-                  (t) => t.id != 'no',
+                  (t) => t.id != 'no' && t.id != 'auto',
                   orElse: () => player.state.tracks.subtitle.first,
                 );
                 player.setSubtitleTrack(firstTrack);
@@ -449,6 +652,15 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
               },
             ),
           ),
+          // Change Stream Button
+          if (widget.anilistId != null)
+            MaterialCustomButton(
+              onPressed: () {
+                _hideSettingsMenu();
+                _openTorrentSelectorPanel();
+              },
+              icon: const Icon(Icons.swap_horizontal_circle, color: Colors.white),
+            ),
           CompositedTransformTarget(
             link: _layerLink,
             child: MaterialCustomButton(
@@ -460,17 +672,33 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
         ],
       ),
       fullscreen: MaterialVideoControlsThemeData(
+        controlsHoverDuration: _controlsHoverDuration,
         bottomButtonBar: [
           const MaterialPlayOrPauseButton(),
           const MaterialPositionIndicator(),
           const Spacer(),
-          // Quality Enhancement Button
-          MaterialCustomButton(
-            onPressed: _toggleQualityEnhancement,
-            icon: Icon(
-              Icons.auto_awesome,
-              color: _isQualityEnhanced ? Colors.amber : Colors.white38,
+          if (widget.episodes != null && widget.episodes!.isNotEmpty)
+            MaterialCustomButton(
+              onPressed: _openEpisodesPanel,
+              icon: const Icon(
+                Icons.keyboard_arrow_up,
+                color: Colors.white,
+              ),
             ),
+          if (widget.episodes != null && widget.episodes!.isNotEmpty)
+            const Spacer(),
+          // Quality Enhancement Button
+          ValueListenableBuilder<bool>(
+            valueListenable: _isQualityEnhancedNotifier,
+            builder: (context, isEnhanced, _) {
+              return MaterialCustomButton(
+                onPressed: _toggleQualityEnhancement,
+                icon: Icon(
+                  Icons.auto_awesome,
+                  color: isEnhanced ? Colors.amber : Colors.white38,
+                ),
+              );
+            },
           ),
           // Subtitles On/Off Button (CC)
           MaterialCustomButton(
@@ -478,7 +706,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
               final isOff = player.state.track.subtitle.id == 'no';
               if (isOff) {
                 final firstTrack = player.state.tracks.subtitle.firstWhere(
-                  (t) => t.id != 'no',
+                  (t) => t.id != 'no' && t.id != 'auto',
                   orElse: () => player.state.tracks.subtitle.first,
                 );
                 player.setSubtitleTrack(firstTrack);
@@ -498,6 +726,15 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
               },
             ),
           ),
+          // Change Stream Button
+          if (widget.anilistId != null)
+            MaterialCustomButton(
+              onPressed: () {
+                _hideSettingsMenu();
+                _openTorrentSelectorPanel();
+              },
+              icon: const Icon(Icons.swap_horizontal_circle, color: Colors.white),
+            ),
           CompositedTransformTarget(
             link: _layerLink,
             child: MaterialCustomButton(
@@ -516,7 +753,9 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
       appBar: AppBar(
         backgroundColor: Colors.black,
         elevation: 0,
+        toolbarHeight: 36.0,
         titleSpacing: 0,
+        actionsPadding: EdgeInsets.zero,
         title: GestureDetector(
           behavior: HitTestBehavior.translucent,
           onPanStart: (details) {
@@ -533,19 +772,30 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
           },
           child: Container(
             width: double.infinity,
-            height: 56.0, // standard AppBar height
+            height: 36.0,
             alignment: Alignment.centerLeft,
             child: Text(
-              _currentTitle,
+              currentTitle,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(color: Colors.white, fontSize: 15.0, fontFamily: 'Outfit', fontWeight: FontWeight.bold),
             ),
           ),
         ),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 18.0),
-          onPressed: () => Navigator.of(context).pop(),
+        leading: SizedBox(
+          width: 40.0,
+          height: 36.0,
+          child: IconButton(
+            padding: EdgeInsets.zero,
+            icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 16.0),
+            onPressed: () async {
+              final isFullScreen = await windowManager.isFullScreen();
+              if (isFullScreen) {
+                await windowManager.setFullScreen(false);
+              }
+              PlayerState().minimize();
+            },
+          ),
         ),
         actions: [
           // Minimize
@@ -582,94 +832,18 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
             hoverIconColor: Colors.white,
             iconSize: 16.0,
           ),
-          const SizedBox(width: 8),
         ],
       ),
-      body: SingleChildScrollView(
-        controller: _scrollController,
-        child: Column(
-          children: [
-            AspectRatio(
-              aspectRatio: 16 / 9,
-              child: mobileTheme,
-            ),
-            GestureDetector(
-              onTap: () {
-                setState(() {
-                  _isEpisodesExpanded = !_isEpisodesExpanded;
-                });
-                if (_isEpisodesExpanded) {
-                  _scrollController.animateTo(
-                    260.0,
-                    duration: const Duration(milliseconds: 300),
-                    curve: Curves.easeInOut,
-                  );
-                } else {
-                  _scrollController.animateTo(
-                    0.0,
-                    duration: const Duration(milliseconds: 300),
-                    curve: Curves.easeInOut,
-                  );
-                }
-              },
-              child: Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(vertical: 12.0),
-                decoration: const BoxDecoration(
-                  color: Color(0xFF0F0F11),
-                  border: Border(
-                    bottom: BorderSide(color: Colors.white10, width: 1.0),
-                  ),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      _isEpisodesExpanded ? "HIDE EPISODE LIST" : "SHOW EPISODE LIST",
-                      style: const TextStyle(
-                        color: Colors.white70,
-                        fontSize: 11.0,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 1.2,
-                        fontFamily: 'Outfit',
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Icon(
-                      _isEpisodesExpanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
-                      color: Colors.white70,
-                      size: 16.0,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            if (_isEpisodesExpanded && widget.episodes != null && widget.episodes!.isNotEmpty)
-              Container(
-                color: Colors.black,
-                padding: const EdgeInsets.all(16.0),
-                child: _buildUnderPlayerEpisodeList(),
-              )
-            else if (_isEpisodesExpanded)
-              Container(
-                height: 150,
-                alignment: Alignment.center,
-                child: const Text(
-                  "No episode list available for this media.",
-                  style: TextStyle(color: Colors.white38, fontSize: 13.0, fontFamily: 'Outfit'),
-                ),
-              ),
-          ],
-        ),
-      ),
+      body: mobileTheme,
+    );
+      },
     );
   }
 }
-
 class _SettingsOverlayCard extends StatefulWidget {
   final Player player;
   final VoidCallback onClose;
-  final bool isQualityEnhanced;
+  final ValueNotifier<bool> isQualityEnhancedNotifier;
   final VoidCallback onToggleQualityEnhanced;
   final int? anilistId;
   final List<String>? titles;
@@ -682,7 +856,7 @@ class _SettingsOverlayCard extends StatefulWidget {
   const _SettingsOverlayCard({
     required this.player,
     required this.onClose,
-    required this.isQualityEnhanced,
+    required this.isQualityEnhancedNotifier,
     required this.onToggleQualityEnhanced,
     this.anilistId,
     this.titles,
@@ -721,7 +895,13 @@ class _SettingsOverlayCardState extends State<_SettingsOverlayCard> {
   }
 
   String _getAudioTrackLabel(AudioTrack track) {
-    if (track.id == 'auto') return 'Auto';
+    if (track.id == 'auto') {
+      final actualTracks = widget.player.state.tracks.audio.where((t) => t.id != 'auto' && t.id != 'no').toList();
+      if (actualTracks.isNotEmpty) {
+        return 'Auto (${_getAudioTrackLabel(actualTracks.first)})';
+      }
+      return 'Auto';
+    }
     if (track.id == 'no') return 'Off';
     final parts = [
       track.title,
@@ -732,7 +912,13 @@ class _SettingsOverlayCardState extends State<_SettingsOverlayCard> {
   }
 
   String _getSubtitleTrackLabel(SubtitleTrack track) {
-    if (track.id == 'auto') return 'Auto';
+    if (track.id == 'auto') {
+      final actualTracks = widget.player.state.tracks.subtitle.where((t) => t.id != 'auto' && t.id != 'no').toList();
+      if (actualTracks.isNotEmpty) {
+        return 'Auto (${_getSubtitleTrackLabel(actualTracks.first)})';
+      }
+      return 'Auto';
+    }
     if (track.id == 'no') return 'Off';
     final parts = [
       track.title,
@@ -839,11 +1025,16 @@ class _SettingsOverlayCardState extends State<_SettingsOverlayCard> {
           title: const Text("Quality Enhancement", style: TextStyle(color: Colors.white, fontSize: 13.0, fontFamily: 'Outfit')),
           trailing: SizedBox(
             height: 24,
-            child: Switch(
-              value: widget.isQualityEnhanced,
-              activeColor: Colors.amber,
-              onChanged: (val) {
-                widget.onToggleQualityEnhanced();
+            child: ValueListenableBuilder<bool>(
+              valueListenable: widget.isQualityEnhancedNotifier,
+              builder: (context, isEnhanced, _) {
+                return Switch(
+                  value: isEnhanced,
+                  activeColor: Colors.amber,
+                  onChanged: (val) {
+                    widget.onToggleQualityEnhanced();
+                  },
+                );
               },
             ),
           ),
@@ -886,7 +1077,6 @@ class _SettingsOverlayCardState extends State<_SettingsOverlayCard> {
                 onTap: () async {
                   await widget.player.setRate(speed);
                   if (mounted) setState(() {});
-                  widget.onClose();
                 },
               );
             }).toList(),
@@ -898,7 +1088,7 @@ class _SettingsOverlayCardState extends State<_SettingsOverlayCard> {
 
   Widget _buildAudioMenu() {
     final currentAudio = widget.player.state.track.audio;
-    final audioTracks = widget.player.state.tracks.audio.where((t) => t.id != 'no').toList();
+    final audioTracks = widget.player.state.tracks.audio.where((t) => t.id != 'auto').toList();
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -926,7 +1116,6 @@ class _SettingsOverlayCardState extends State<_SettingsOverlayCard> {
                   onTap: () async {
                     await widget.player.setAudioTrack(track);
                     if (mounted) setState(() {});
-                    widget.onClose();
                   },
                 );
               },
@@ -938,7 +1127,7 @@ class _SettingsOverlayCardState extends State<_SettingsOverlayCard> {
 
   Widget _buildSubtitlesMenu() {
     final currentSubtitle = widget.player.state.track.subtitle;
-    final subtitleTracks = widget.player.state.tracks.subtitle.where((t) => t.id != 'no').toList();
+    final subtitleTracks = widget.player.state.tracks.subtitle.where((t) => t.id != 'auto').toList();
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -956,7 +1145,7 @@ class _SettingsOverlayCardState extends State<_SettingsOverlayCard> {
                   onTap: () async {
                     if (currentSubtitle.id == 'no') {
                       final firstTrack = widget.player.state.tracks.subtitle.firstWhere(
-                        (t) => t.id != 'no',
+                        (t) => t.id != 'no' && t.id != 'auto',
                         orElse: () => widget.player.state.tracks.subtitle.first,
                       );
                       await widget.player.setSubtitleTrack(firstTrack);
@@ -1040,7 +1229,6 @@ class _SettingsOverlayCardState extends State<_SettingsOverlayCard> {
                   onTap: () async {
                     await widget.player.setSubtitleTrack(track);
                     if (mounted) setState(() {});
-                    widget.onClose();
                   },
                 );
               },
@@ -1241,12 +1429,11 @@ class _PlayerTitleBarButtonState extends State<_PlayerTitleBarButton> {
         onTap: widget.onPressed,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 100),
-          width: 46.0,
-          height: 32.0,
+          width: 40.0,
+          height: 30.0,
           alignment: Alignment.center,
           decoration: BoxDecoration(
             color: _isHovering ? widget.hoverColor : Colors.transparent,
-            borderRadius: BorderRadius.circular(4.0),
           ),
           child: Icon(
             widget.icon,

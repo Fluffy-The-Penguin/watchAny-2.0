@@ -4,6 +4,7 @@ import 'package:window_manager/window_manager.dart';
 import 'package:media_kit/media_kit.dart';
 import 'services/torrserver_manager.dart';
 import 'services/extension_service.dart';
+import 'services/download_service.dart';
 import 'state/navigation_state.dart';
 import 'screens/shell_layout.dart';
 
@@ -22,6 +23,9 @@ void main() async {
   // Initialize MediaKit
   MediaKit.ensureInitialized();
   
+  // Initialize Download Service
+  await DownloadService().init();
+  
   // Initialize ExtensionService early to load local extensions on startup
   ExtensionService().init();
   
@@ -35,7 +39,7 @@ void main() async {
     size: Size(1280, 720),
     minimumSize: Size(360, 500),
     center: true,
-    backgroundColor: Colors.transparent,
+    backgroundColor: Colors.black,
     skipTaskbar: false,
     titleBarStyle: TitleBarStyle.hidden,
   );
