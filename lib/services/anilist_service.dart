@@ -1,0 +1,310 @@
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+
+class AnilistService {
+  static const String _endpoint = 'https://graphql.anilist.co';
+
+  // Get current season string for AniList API
+  static String getCurrentSeason(DateTime date) {
+    final month = date.month;
+    if (month == 12 || month == 1 || month == 2) {
+      return 'WINTER';
+    } else if (month >= 3 && month <= 5) {
+      return 'SPRING';
+    } else if (month >= 6 && month <= 8) {
+      return 'SUMMER';
+    } else {
+      return 'FALL';
+    }
+  }
+
+  // Fetch all dashboard categories in one query
+  Future<Map<String, dynamic>> fetchDashboardData() async {
+    final now = DateTime.now();
+    final season = getCurrentSeason(now);
+    final year = now.year;
+
+    const query = r'''
+      query($season: MediaSeason, $seasonYear: Int) {
+        trending: Page(page: 1, perPage: 8) {
+          media(sort: TRENDING_DESC, type: ANIME) {
+            id
+            title {
+              romaji
+              english
+              native
+            }
+            bannerImage
+            coverImage {
+              extraLarge
+              large
+            }
+            description
+            genres
+            averageScore
+            episodes
+            format
+          }
+        }
+        popularThisSeason: Page(page: 1, perPage: 12) {
+          media(sort: POPULARITY_DESC, type: ANIME, season: $season, seasonYear: $seasonYear) {
+            id
+            title {
+              romaji
+              english
+            }
+            coverImage {
+              large
+            }
+            averageScore
+            format
+            episodes
+          }
+        }
+        newlyReleased: Page(page: 1, perPage: 12) {
+          media(sort: TRENDING_DESC, type: ANIME, status: RELEASING) {
+            id
+            title {
+              romaji
+              english
+            }
+            coverImage {
+              large
+            }
+            averageScore
+            format
+            episodes
+          }
+        }
+        upcoming: Page(page: 1, perPage: 12) {
+          media(sort: POPULARITY_DESC, type: ANIME, status: NOT_YET_RELEASED) {
+            id
+            title {
+              romaji
+              english
+            }
+            coverImage {
+              large
+            }
+            format
+            episodes
+          }
+        }
+        action: Page(page: 1, perPage: 12) {
+          media(genre: "Action", sort: POPULARITY_DESC, type: ANIME) {
+            id
+            title {
+              romaji
+              english
+            }
+            coverImage {
+              large
+            }
+            averageScore
+          }
+        }
+        adventure: Page(page: 1, perPage: 12) {
+          media(genre: "Adventure", sort: POPULARITY_DESC, type: ANIME) {
+            id
+            title {
+              romaji
+              english
+            }
+            coverImage {
+              large
+            }
+            averageScore
+          }
+        }
+        romance: Page(page: 1, perPage: 12) {
+          media(genre: "Romance", sort: POPULARITY_DESC, type: ANIME) {
+            id
+            title {
+              romaji
+              english
+            }
+            coverImage {
+              large
+            }
+            averageScore
+          }
+        }
+        fantasy: Page(page: 1, perPage: 12) {
+          media(genre: "Fantasy", sort: POPULARITY_DESC, type: ANIME) {
+            id
+            title {
+              romaji
+              english
+            }
+            coverImage {
+              large
+            }
+            averageScore
+          }
+        }
+      }
+    ''';
+
+    final variables = {
+      'season': season,
+      'seasonYear': year,
+    };
+
+    try {
+      final response = await http.post(
+        Uri.parse(_endpoint),
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: jsonEncode({
+          'query': query,
+          'variables': variables,
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        final body = jsonDecode(response.body);
+        if (body['data'] != null) {
+          return body['data'] as Map<String, dynamic>;
+        }
+        throw Exception('GraphQL error: ${body['errors']}');
+      } else {
+        throw Exception('HTTP Request failed with status: ${response.statusCode}');
+      }
+    } catch (e) {
+      throw Exception('Failed to load AniList dashboard data: $e');
+    }
+  }
+
+  // Fetch detailed information for a single anime
+  Future<Map<String, dynamic>> fetchAnimeDetails(int id) async {
+    const query = r'''
+      query($id: Int) {
+        Media(id: $id, type: ANIME) {
+          id
+          title {
+            romaji
+            english
+            native
+          }
+          bannerImage
+          coverImage {
+            extraLarge
+            large
+          }
+          description
+          genres
+          averageScore
+          episodes
+          format
+          status
+          season
+          seasonYear
+          studios(isMain: true) {
+            nodes {
+              name
+            }
+          }
+          nextAiringEpisode {
+            episode
+            timeUntilAiring
+          }
+          streamingEpisodes {
+            title
+            thumbnail
+            url
+            site
+          }
+          characters(sort: ROLE, page: 1, perPage: 12) {
+            edges {
+              role
+              node {
+                id
+                name {
+                  full
+                }
+                image {
+                  large
+                }
+              }
+              voiceActors(language: JAPANESE) {
+                name {
+                  full
+                }
+                image {
+                  large
+                }
+              }
+            }
+          }
+          relations {
+            edges {
+              relationType
+              node {
+                id
+                type
+                format
+                title {
+                  romaji
+                  english
+                }
+                coverImage {
+                  large
+                }
+                status
+              }
+            }
+          }
+          recommendations(perPage: 6, sort: RATING_DESC) {
+            nodes {
+              mediaRecommendation {
+                id
+                type
+                format
+                title {
+                  romaji
+                  english
+                }
+                coverImage {
+                  large
+                }
+                averageScore
+              }
+            }
+          }
+        }
+      }
+    ''';
+
+    final variables = {
+      'id': id,
+    };
+
+    try {
+      final response = await http.post(
+        Uri.parse(_endpoint),
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: jsonEncode({
+          'query': query,
+          'variables': variables,
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        final body = jsonDecode(response.body);
+        if (body['data'] != null && body['data']['Media'] != null) {
+          return body['data']['Media'] as Map<String, dynamic>;
+        }
+        throw Exception('GraphQL error or Media not found: ${body['errors']}');
+      } else {
+        throw Exception('HTTP Request failed with status: ${response.statusCode}');
+      }
+    } catch (e) {
+      throw Exception('Failed to load anime details ($id): $e');
+    }
+  }
+}
