@@ -87,6 +87,9 @@ class TorrentSelectorPanel extends StatefulWidget {
   final int episodeNumber;
   final bool isMovie;
   final Map<String, dynamic>? media;
+  final List<dynamic>? episodes;
+  final Map<int, dynamic>? tmdbEpisodesMap;
+  final void Function(String streamUrl, String title)? onStreamSelected;
 
   const TorrentSelectorPanel({
     super.key,
@@ -96,6 +99,9 @@ class TorrentSelectorPanel extends StatefulWidget {
     required this.episodeNumber,
     this.isMovie = false,
     this.media,
+    this.episodes,
+    this.tmdbEpisodesMap,
+    this.onStreamSelected,
   });
 
   @override
@@ -656,6 +662,13 @@ class _TorrentSelectorPanelState extends State<TorrentSelectorPanel> {
                                           parentContext: context,
                                           anilistId: widget.anilistId,
                                           episodeNumber: widget.episodeNumber,
+                                          titles: widget.titles,
+                                          episodeCount: widget.episodeCount,
+                                          isMovie: widget.isMovie,
+                                          media: widget.media,
+                                          episodes: widget.episodes,
+                                          tmdbEpisodesMap: widget.tmdbEpisodesMap,
+                                          onStreamSelected: widget.onStreamSelected,
                                         );
                                       },
                                     );
@@ -696,12 +709,26 @@ class _PlaybackProgressDialog extends StatefulWidget {
   final BuildContext parentContext;
   final int anilistId;
   final int episodeNumber;
+  final List<String> titles;
+  final int episodeCount;
+  final bool isMovie;
+  final Map<String, dynamic>? media;
+  final List<dynamic>? episodes;
+  final Map<int, dynamic>? tmdbEpisodesMap;
+  final void Function(String streamUrl, String title)? onStreamSelected;
 
   const _PlaybackProgressDialog({
     required this.stream,
     required this.parentContext,
     required this.anilistId,
     required this.episodeNumber,
+    required this.titles,
+    required this.episodeCount,
+    required this.isMovie,
+    this.media,
+    this.episodes,
+    this.tmdbEpisodesMap,
+    this.onStreamSelected,
   });
 
   @override
@@ -905,24 +932,37 @@ class _PlaybackProgressDialogState extends State<_PlaybackProgressDialog> {
   void _navigateToPlayer(String hash, TorrentFile file, {bool shouldPopParent = true}) {
     final streamUrl = _torrServerService.getStreamUrl(hash, file.index);
     final fileName = file.path.split('/').last.split('\\').last;
+    final displayName = fileName.isNotEmpty ? fileName : file.name;
 
-    // Capture the navigator state BEFORE we pop the parent context
-    final navigator = Navigator.of(widget.parentContext);
+    if (widget.onStreamSelected != null) {
+      widget.onStreamSelected!(streamUrl, displayName);
+    } else {
+      // Capture the navigator state BEFORE we pop the parent context
+      final navigator = Navigator.of(widget.parentContext);
 
-    // Pop the bottom sheet so we return directly to details page when player closes
-    if (shouldPopParent) {
-      navigator.pop();
-    }
+      // Pop the bottom sheet so we return directly to details page when player closes
+      if (shouldPopParent) {
+        navigator.pop();
+      }
 
-    // Push the player screen using the captured navigator which remains safely mounted
-    navigator.push(
-      MaterialPageRoute(
-        builder: (context) => PlayerScreen(
-          streamUrl: streamUrl,
-          title: fileName.isNotEmpty ? fileName : file.name,
+      // Push the player screen using the captured navigator which remains safely mounted
+      navigator.push(
+        MaterialPageRoute(
+          builder: (context) => PlayerScreen(
+            streamUrl: streamUrl,
+            title: displayName,
+            anilistId: widget.anilistId,
+            titles: widget.titles,
+            episodeCount: widget.episodeCount,
+            episodeNumber: widget.episodeNumber,
+            isMovie: widget.isMovie,
+            media: widget.media,
+            episodes: widget.episodes,
+            tmdbEpisodesMap: widget.tmdbEpisodesMap,
+          ),
         ),
-      ),
-    );
+      );
+    }
   }
 
   void _showFileSelectionDialog(String hash, List<TorrentFile> files) {
@@ -965,6 +1005,15 @@ class _PlaybackProgressDialogState extends State<_PlaybackProgressDialog> {
                           hash: hash,
                           file: file,
                           parentContext: widget.parentContext,
+                          anilistId: widget.anilistId,
+                          episodeNumber: widget.episodeNumber,
+                          titles: widget.titles,
+                          episodeCount: widget.episodeCount,
+                          isMovie: widget.isMovie,
+                          media: widget.media,
+                          episodes: widget.episodes,
+                          tmdbEpisodesMap: widget.tmdbEpisodesMap,
+                          onStreamSelected: widget.onStreamSelected,
                         );
                       },
                     );
@@ -1065,11 +1114,29 @@ class _BufferingProgressDialog extends StatefulWidget {
   final String hash;
   final TorrentFile file;
   final BuildContext parentContext;
+  final int anilistId;
+  final int episodeNumber;
+  final List<String> titles;
+  final int episodeCount;
+  final bool isMovie;
+  final Map<String, dynamic>? media;
+  final List<dynamic>? episodes;
+  final Map<int, dynamic>? tmdbEpisodesMap;
+  final void Function(String streamUrl, String title)? onStreamSelected;
 
   const _BufferingProgressDialog({
     required this.hash,
     required this.file,
     required this.parentContext,
+    required this.anilistId,
+    required this.episodeNumber,
+    required this.titles,
+    required this.episodeCount,
+    required this.isMovie,
+    this.media,
+    this.episodes,
+    this.tmdbEpisodesMap,
+    this.onStreamSelected,
   });
 
   @override
@@ -1154,18 +1221,30 @@ class _BufferingProgressDialogState extends State<_BufferingProgressDialog> {
     final fileName = widget.file.path.split('/').last.split('\\').last;
     final displayName = fileName.isNotEmpty ? fileName : widget.file.name;
 
-    final navigator = Navigator.of(widget.parentContext);
-    // Pop the bottom sheet so we return directly to details page when player closes
-    navigator.pop();
+    if (widget.onStreamSelected != null) {
+      widget.onStreamSelected!(streamUrl, displayName);
+    } else {
+      final navigator = Navigator.of(widget.parentContext);
+      // Pop the bottom sheet so we return directly to details page when player closes
+      navigator.pop();
 
-    navigator.push(
-      MaterialPageRoute(
-        builder: (context) => PlayerScreen(
-          streamUrl: streamUrl,
-          title: displayName,
+      navigator.push(
+        MaterialPageRoute(
+          builder: (context) => PlayerScreen(
+            streamUrl: streamUrl,
+            title: displayName,
+            anilistId: widget.anilistId,
+            titles: widget.titles,
+            episodeCount: widget.episodeCount,
+            episodeNumber: widget.episodeNumber,
+            isMovie: widget.isMovie,
+            media: widget.media,
+            episodes: widget.episodes,
+            tmdbEpisodesMap: widget.tmdbEpisodesMap,
+          ),
         ),
-      ),
-    );
+      );
+    }
   }
 
   @override

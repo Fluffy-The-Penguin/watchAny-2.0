@@ -553,7 +553,7 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
               ElevatedButton(
                 onPressed: () {
                   Navigator.pop(context);
-                  _startDirectPlayback(mapping, epNum);
+                  _startDirectPlayback(mapping, epNum, titles);
                 },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.white,
@@ -611,6 +611,8 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
                 episodeNumber: epNum,
                 isMovie: (_details!['format']?.toString().toUpperCase() == 'MOVIE'),
                 media: _details,
+                episodes: _mergedEpisodes,
+                tmdbEpisodesMap: _tmdbEpisodesMap,
               ),
             ),
           ),
@@ -619,7 +621,7 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
     );
   }
 
-  void _startDirectPlayback(Map<String, dynamic> mapping, int epNum) {
+  void _startDirectPlayback(Map<String, dynamic> mapping, int epNum, List<String> titles) {
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -628,6 +630,13 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
           mapping: mapping,
           episodeNumber: epNum,
           parentContext: context,
+          anilistId: widget.animeId,
+          titles: titles,
+          episodeCount: _mergedEpisodes.length,
+          isMovie: (_details!['format']?.toString().toUpperCase() == 'MOVIE'),
+          media: _details,
+          episodes: _mergedEpisodes,
+          tmdbEpisodesMap: _tmdbEpisodesMap,
         );
       },
     );
@@ -1838,11 +1847,25 @@ class _DirectPlaybackProgressDialog extends StatefulWidget {
   final Map<String, dynamic> mapping;
   final int episodeNumber;
   final BuildContext parentContext;
+  final int anilistId;
+  final List<String> titles;
+  final int episodeCount;
+  final bool isMovie;
+  final Map<String, dynamic>? media;
+  final List<dynamic> episodes;
+  final Map<int, dynamic> tmdbEpisodesMap;
 
   const _DirectPlaybackProgressDialog({
     required this.mapping,
     required this.episodeNumber,
     required this.parentContext,
+    required this.anilistId,
+    required this.titles,
+    required this.episodeCount,
+    required this.isMovie,
+    this.media,
+    required this.episodes,
+    required this.tmdbEpisodesMap,
   });
 
   @override
@@ -1953,6 +1976,14 @@ class _DirectPlaybackProgressDialogState extends State<_DirectPlaybackProgressDi
         builder: (context) => PlayerScreen(
           streamUrl: streamUrl,
           title: fileName.isNotEmpty ? fileName : file.name,
+          anilistId: widget.anilistId,
+          titles: widget.titles,
+          episodeCount: widget.episodeCount,
+          episodeNumber: widget.episodeNumber,
+          isMovie: widget.isMovie,
+          media: widget.media,
+          episodes: widget.episodes,
+          tmdbEpisodesMap: widget.tmdbEpisodesMap,
         ),
       ),
     );
