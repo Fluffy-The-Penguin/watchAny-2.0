@@ -567,6 +567,8 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
         'format': _hasVideos ? 'SERIES' : 'MOVIE',
         'episodes': _hasVideos ? (_meta['videos']?.length ?? 1) : 1,
       },
+      episodes: _hasVideos ? _meta['videos'] : null,
+      titles: [mediaTitle],
     );
   }
 
