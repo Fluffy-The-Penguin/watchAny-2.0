@@ -91,8 +91,13 @@ class _MyAppState extends State<MyApp> with WindowListener {
 
   @override
   void onWindowClose() async {
+    try {
+      await windowManager.hide();
+    } catch (_) {}
     await TorrServerManager.stop();
-    await windowManager.destroy();
+    try {
+      await windowManager.destroy();
+    } catch (_) {}
   }
 
   void _handleNavigationModeChange() {
