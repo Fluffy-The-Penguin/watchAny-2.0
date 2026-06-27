@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/anilist_service.dart';
+import 'navigation_state.dart';
 
 class LibraryItem {
   final int id;
@@ -55,15 +56,32 @@ class LibraryState extends ChangeNotifier {
   LibraryState._internal();
 
   List<LibraryItem> _items = [];
-  int _notificationCount = 0;
-  bool _badgeCleared = false;
+  int _animeNotificationCount = 0;
+  int _mangaNotificationCount = 0;
+  int _moviesNotificationCount = 0;
+
+  bool _animeBadgeCleared = false;
+  bool _mangaBadgeCleared = false;
+  bool _moviesBadgeCleared = false;
 
   List<LibraryItem> get items => _items;
-  int get notificationCount => _badgeCleared ? 0 : _notificationCount;
 
-  void clearNotificationBadge() {
-    if (!_badgeCleared) {
-      _badgeCleared = true;
+  int getNotificationCount(AppMode mode) {
+    if (mode == AppMode.anime) return _animeBadgeCleared ? 0 : _animeNotificationCount;
+    if (mode == AppMode.manga) return _mangaBadgeCleared ? 0 : _mangaNotificationCount;
+    if (mode == AppMode.movies) return _moviesBadgeCleared ? 0 : _moviesNotificationCount;
+    return 0;
+  }
+
+  void clearNotificationBadge(AppMode mode) {
+    if (mode == AppMode.anime && !_animeBadgeCleared) {
+      _animeBadgeCleared = true;
+      notifyListeners();
+    } else if (mode == AppMode.manga && !_mangaBadgeCleared) {
+      _mangaBadgeCleared = true;
+      notifyListeners();
+    } else if (mode == AppMode.movies && !_moviesBadgeCleared) {
+      _moviesBadgeCleared = true;
       notifyListeners();
     }
   }
@@ -136,37 +154,83 @@ class LibraryState extends ChangeNotifier {
   }
 
   Future<void> updateNotificationCount() async {
-    final libraryAnime = _items.where((item) => item.mode == 'anime').toList();
-    if (libraryAnime.isEmpty) {
-      if (_notificationCount != 0) {
-        _notificationCount = 0;
-        _badgeCleared = false;
-        notifyListeners();
-      }
-      return;
-    }
-    
-    final ids = libraryAnime.map((item) => item.id).toList();
-    try {
-      final List<dynamic> details = await AnilistService().fetchLibraryDetails(ids);
-      int count = 0;
-      for (var media in details) {
-        final id = media['id'];
-        final localItem = libraryAnime.firstWhere((item) => item.id == id);
-        final int? nextEpisode = media['nextAiringEpisode']?['episode'];
-        final int totalEpisodes = media['episodes'] ?? 0;
-        final int latestReleased = nextEpisode != null ? (nextEpisode - 1) : totalEpisodes;
-        if (latestReleased > localItem.watchedEpisodes) {
-          count++;
+    // 1. ANIME
+    final animeItems = _items.where((item) => item.mode == 'anime').toList();
+    int animeCount = 0;
+    if (animeItems.isNotEmpty) {
+      final ids = animeItems.map((item) => item.id).toList();
+      try {
+        final details = await AnilistService().fetchLibraryDetails(ids, type: 'ANIME');
+        for (var media in details) {
+          final id = media['id'];
+          final localItem = animeItems.firstWhere((item) => item.id == id);
+          final int? nextEpisode = media['nextAiringEpisode']?['episode'];
+          final int totalEpisodes = media['episodes'] ?? 0;
+          final int latestReleased = nextEpisode != null ? (nextEpisode - 1) : totalEpisodes;
+          if (latestReleased > localItem.watchedEpisodes) {
+            animeCount++;
+          }
         }
-      }
-      if (_notificationCount != count) {
-        _notificationCount = count;
-        _badgeCleared = false; // Reset cleared flag since count changed
-        notifyListeners();
-      }
-    } catch (_) {
-      // ignore network errors for background update
+      } catch (_) {}
+    }
+
+    // 2. MANGA
+    final mangaItems = _items.where((item) => item.mode == 'manga').toList();
+    int mangaCount = 0;
+    if (mangaItems.isNotEmpty) {
+      final ids = mangaItems.map((item) => item.id).toList();
+      try {
+        final details = await AnilistService().fetchLibraryDetails(ids, type: 'MANGA');
+        for (var media in details) {
+          final id = media['id'];
+          final localItem = mangaItems.firstWhere((item) => item.id == id);
+          final int totalChapters = media['chapters'] ?? 0;
+          if (totalChapters > localItem.watchedEpisodes) {
+            mangaCount++;
+          }
+        }
+      } catch (_) {}
+    }
+
+    // 3. MOVIES
+    final movieItems = _items.where((item) => item.mode == 'movies').toList();
+    int movieCount = 0;
+    if (movieItems.isNotEmpty) {
+      final ids = movieItems.map((item) => item.id).toList();
+      try {
+        final details = await AnilistService().fetchLibraryDetails(ids, type: 'ANIME');
+        for (var media in details) {
+          final id = media['id'];
+          final localItem = movieItems.firstWhere((item) => item.id == id);
+          final int? nextEpisode = media['nextAiringEpisode']?['episode'];
+          final int totalEpisodes = media['episodes'] ?? 0;
+          final int latestReleased = nextEpisode != null ? (nextEpisode - 1) : totalEpisodes;
+          if (latestReleased > localItem.watchedEpisodes) {
+            movieCount++;
+          }
+        }
+      } catch (_) {}
+    }
+
+    bool changed = false;
+    if (_animeNotificationCount != animeCount) {
+      _animeNotificationCount = animeCount;
+      _animeBadgeCleared = false;
+      changed = true;
+    }
+    if (_mangaNotificationCount != mangaCount) {
+      _mangaNotificationCount = mangaCount;
+      _mangaBadgeCleared = false;
+      changed = true;
+    }
+    if (_moviesNotificationCount != movieCount) {
+      _moviesNotificationCount = movieCount;
+      _moviesBadgeCleared = false;
+      changed = true;
+    }
+
+    if (changed) {
+      notifyListeners();
     }
   }
 }

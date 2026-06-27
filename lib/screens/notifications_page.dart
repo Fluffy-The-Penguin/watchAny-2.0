@@ -4,10 +4,12 @@ import '../state/library_state.dart';
 import '../services/anilist_service.dart';
 
 class NotificationsPage extends StatefulWidget {
+  final AppMode mode;
   final NavigationState navigationState;
 
   const NotificationsPage({
     super.key,
+    required this.mode,
     required this.navigationState,
   });
 
@@ -24,7 +26,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
   @override
   void initState() {
     super.initState();
-    LibraryState().clearNotificationBadge();
+    LibraryState().clearNotificationBadge(widget.mode);
     _fetchNotifications();
   }
 
@@ -34,8 +36,14 @@ class _NotificationsPageState extends State<NotificationsPage> {
       _errorMessage = null;
     });
 
-    final libraryAnime = LibraryState().items.where((item) => item.mode == 'anime').toList();
-    if (libraryAnime.isEmpty) {
+    final String localModeStr = widget.mode == AppMode.manga
+        ? 'manga'
+        : (widget.mode == AppMode.movies ? 'movies' : 'anime');
+        
+    final String anilistTypeStr = widget.mode == AppMode.manga ? 'MANGA' : 'ANIME';
+
+    final libraryItems = LibraryState().items.where((item) => item.mode == localModeStr).toList();
+    if (libraryItems.isEmpty) {
       if (mounted) {
         setState(() {
           _notifications = [];
@@ -45,30 +53,42 @@ class _NotificationsPageState extends State<NotificationsPage> {
       return;
     }
 
-    final ids = libraryAnime.map((item) => item.id).toList();
+    final ids = libraryItems.map((item) => item.id).toList();
 
     try {
-      final List<dynamic> details = await _anilistService.fetchLibraryDetails(ids);
+      final List<dynamic> details = await _anilistService.fetchLibraryDetails(ids, type: anilistTypeStr);
       final List<Map<String, dynamic>> generated = [];
 
       for (var media in details) {
         final id = media['id'];
-        final localItem = libraryAnime.firstWhere((item) => item.id == id);
+        final localItem = libraryItems.firstWhere((item) => item.id == id);
 
-        // Determine latest released episode
+        // Determine latest released episode or chapter
         final int? nextEpisode = media['nextAiringEpisode']?['episode'];
         final int totalEpisodes = media['episodes'] ?? 0;
-        final int latestReleased = nextEpisode != null ? (nextEpisode - 1) : totalEpisodes;
+        final int totalChapters = media['chapters'] ?? 0;
+        
+        final int latestReleased = widget.mode == AppMode.manga
+            ? totalChapters
+            : (nextEpisode != null ? (nextEpisode - 1) : totalEpisodes);
 
         if (latestReleased > localItem.watchedEpisodes) {
           final int startNew = localItem.watchedEpisodes + 1;
           final int endNew = latestReleased;
 
           String message = '';
-          if (startNew == endNew) {
-            message = 'Episode $startNew is now available!';
+          if (widget.mode == AppMode.manga) {
+            if (startNew == endNew) {
+              message = 'Chapter $startNew is now available!';
+            } else {
+              message = 'Chapters $startNew-$endNew are now available!';
+            }
           } else {
-            message = 'Episodes $startNew-$endNew are now available!';
+            if (startNew == endNew) {
+              message = 'Episode $startNew is now available!';
+            } else {
+              message = 'Episodes $startNew-$endNew are now available!';
+            }
           }
 
           generated.add({

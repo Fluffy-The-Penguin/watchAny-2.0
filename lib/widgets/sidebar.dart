@@ -21,7 +21,7 @@ class Sidebar extends StatelessWidget {
     return ListenableBuilder(
       listenable: LibraryState(),
       builder: (context, child) {
-        final notifCount = LibraryState().notificationCount;
+        final notifCount = LibraryState().getNotificationCount(state.currentMode);
 
         return AnimatedContainer(
           duration: const Duration(milliseconds: 200),

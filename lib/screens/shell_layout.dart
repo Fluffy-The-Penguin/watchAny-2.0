@@ -35,7 +35,7 @@ class ShellLayout extends StatelessWidget {
       case TabPage.library:
         return LibraryPage(key: ValueKey('library_$mode'), mode: mode, navigationState: navigationState);
       case TabPage.downloads:
-        return DownloadsPage(key: ValueKey('downloads_$mode'));
+        return DownloadsPage(key: ValueKey('downloads_$mode'), mode: mode);
       case TabPage.settings:
         return SettingsPage(key: ValueKey('settings_$mode'));
       case TabPage.schedule:
@@ -44,9 +44,9 @@ class ShellLayout extends StatelessWidget {
           navigationState: navigationState,
         );
       case TabPage.history:
-        return HistoryPage(key: ValueKey('history_$mode'), navigationState: navigationState);
+        return HistoryPage(key: ValueKey('history_$mode'), mode: mode, navigationState: navigationState);
       case TabPage.notifications:
-        return NotificationsPage(key: ValueKey('notifications_$mode'), navigationState: navigationState);
+        return NotificationsPage(key: ValueKey('notifications_$mode'), mode: mode, navigationState: navigationState);
     }
   }
 
@@ -211,14 +211,14 @@ class ShellLayout extends StatelessWidget {
                         onPressed: () => _showSidebarPopup(
                           context: context,
                           title: 'History',
-                          content: _HistoryPopupContent(navigationState: navigationState),
+                          content: _HistoryPopupContent(mode: navigationState.currentMode, navigationState: navigationState),
                           onViewAll: () => navigationState.setPage(TabPage.history),
                         ),
                       ),
                       ListenableBuilder(
                         listenable: LibraryState(),
                         builder: (context, child) {
-                          final count = LibraryState().notificationCount;
+                          final count = LibraryState().getNotificationCount(navigationState.currentMode);
                           return IconButton(
                             icon: Stack(
                               clipBehavior: Clip.none,
@@ -254,11 +254,11 @@ class ShellLayout extends StatelessWidget {
                               ],
                             ),
                             onPressed: () {
-                              LibraryState().clearNotificationBadge();
+                              LibraryState().clearNotificationBadge(navigationState.currentMode);
                               _showSidebarPopup(
                                 context: context,
                                 title: 'Notifications',
-                                content: _NotificationsPopupContent(navigationState: navigationState),
+                                content: _NotificationsPopupContent(mode: navigationState.currentMode, navigationState: navigationState),
                                 onViewAll: () => navigationState.setPage(TabPage.notifications),
                               );
                             },
@@ -316,15 +316,15 @@ class ShellLayout extends StatelessWidget {
                         onHistoryTap: () => _showSidebarPopup(
                           context: context,
                           title: 'History',
-                          content: _HistoryPopupContent(navigationState: navigationState),
+                          content: _HistoryPopupContent(mode: navigationState.currentMode, navigationState: navigationState),
                           onViewAll: () => navigationState.setPage(TabPage.history),
                         ),
                         onNotificationsTap: () {
-                          LibraryState().clearNotificationBadge();
+                          LibraryState().clearNotificationBadge(navigationState.currentMode);
                           _showSidebarPopup(
                             context: context,
                             title: 'Notifications',
-                            content: _NotificationsPopupContent(navigationState: navigationState),
+                            content: _NotificationsPopupContent(mode: navigationState.currentMode, navigationState: navigationState),
                             onViewAll: () => navigationState.setPage(TabPage.notifications),
                           );
                         },
@@ -517,8 +517,9 @@ class ShellLayout extends StatelessWidget {
 }
 
 class _HistoryPopupContent extends StatefulWidget {
+  final AppMode mode;
   final NavigationState navigationState;
-  const _HistoryPopupContent({required this.navigationState});
+  const _HistoryPopupContent({required this.mode, required this.navigationState});
 
   @override
   State<_HistoryPopupContent> createState() => _HistoryPopupContentState();
@@ -536,9 +537,25 @@ class _HistoryPopupContentState extends State<_HistoryPopupContent> {
 
   Future<void> _load() async {
     final items = await PlayerState.getHistoryList();
+    
+    // Filter history items by active mode
+    final filtered = items.where((item) {
+      final media = item['media'] ?? {};
+      final itemMode = media['mode'];
+      final itemFormat = media['format'];
+      
+      if (widget.mode == AppMode.movies) {
+        return itemMode == 'movies' || itemFormat == 'MOVIE';
+      } else if (widget.mode == AppMode.anime) {
+        return itemMode == 'anime' || (itemMode == null && itemFormat != 'MOVIE');
+      } else {
+        return false;
+      }
+    }).toList();
+
     if (mounted) {
       setState(() {
-        _items = items.take(4).toList();
+        _items = filtered.take(4).toList();
         _isLoading = false;
       });
     }
@@ -627,8 +644,9 @@ class _HistoryPopupContentState extends State<_HistoryPopupContent> {
 }
 
 class _NotificationsPopupContent extends StatefulWidget {
+  final AppMode mode;
   final NavigationState navigationState;
-  const _NotificationsPopupContent({required this.navigationState});
+  const _NotificationsPopupContent({required this.mode, required this.navigationState});
 
   @override
   State<_NotificationsPopupContent> createState() => _NotificationsPopupContentState();
@@ -645,31 +663,49 @@ class _NotificationsPopupContentState extends State<_NotificationsPopupContent> 
   }
 
   Future<void> _load() async {
-    final libraryAnime = LibraryState().items.where((item) => item.mode == 'anime').toList();
-    if (libraryAnime.isEmpty) {
+    final String localModeStr = widget.mode == AppMode.manga
+        ? 'manga'
+        : (widget.mode == AppMode.movies ? 'movies' : 'anime');
+        
+    final String anilistTypeStr = widget.mode == AppMode.manga ? 'MANGA' : 'ANIME';
+
+    final libraryItems = LibraryState().items.where((item) => item.mode == localModeStr).toList();
+    if (libraryItems.isEmpty) {
       if (mounted) setState(() { _items = []; _isLoading = false; });
       return;
     }
 
-    final ids = libraryAnime.map((item) => item.id).toList();
+    final ids = libraryItems.map((item) => item.id).toList();
     try {
-      final List<dynamic> details = await AnilistService().fetchLibraryDetails(ids);
+      final List<dynamic> details = await AnilistService().fetchLibraryDetails(ids, type: anilistTypeStr);
       final List<Map<String, dynamic>> generated = [];
 
       for (var media in details) {
         final id = media['id'];
-        final localItem = libraryAnime.firstWhere((item) => item.id == id);
+        final localItem = libraryItems.firstWhere((item) => item.id == id);
+        
         final int? nextEpisode = media['nextAiringEpisode']?['episode'];
         final int totalEpisodes = media['episodes'] ?? 0;
-        final int latestReleased = nextEpisode != null ? (nextEpisode - 1) : totalEpisodes;
+        final int totalChapters = media['chapters'] ?? 0;
+        
+        final int latestReleased = widget.mode == AppMode.manga
+            ? totalChapters
+            : (nextEpisode != null ? (nextEpisode - 1) : totalEpisodes);
 
         if (latestReleased > localItem.watchedEpisodes) {
           final int startNew = localItem.watchedEpisodes + 1;
           final int endNew = latestReleased;
 
-          String message = startNew == endNew
-              ? 'Episode $startNew is out!'
-              : 'Episodes $startNew-$endNew are out!';
+          String message = '';
+          if (widget.mode == AppMode.manga) {
+            message = startNew == endNew
+                ? 'Chapter $startNew is out!'
+                : 'Chapters $startNew-$endNew are out!';
+          } else {
+            message = startNew == endNew
+                ? 'Episode $startNew is out!'
+                : 'Episodes $startNew-$endNew are out!';
+          }
 
           generated.add({
             'id': id,

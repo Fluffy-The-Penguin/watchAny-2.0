@@ -3,10 +3,12 @@ import '../state/navigation_state.dart';
 import '../state/player_state.dart';
 
 class HistoryPage extends StatefulWidget {
+  final AppMode mode;
   final NavigationState navigationState;
 
   const HistoryPage({
     super.key,
+    required this.mode,
     required this.navigationState,
   });
 
@@ -29,9 +31,25 @@ class _HistoryPageState extends State<HistoryPage> {
       _isLoading = true;
     });
     final items = await PlayerState.getHistoryList();
+    
+    // Filter history items by active mode
+    final filtered = items.where((item) {
+      final media = item['media'] ?? {};
+      final itemMode = media['mode'];
+      final itemFormat = media['format'];
+      
+      if (widget.mode == AppMode.movies) {
+        return itemMode == 'movies' || itemFormat == 'MOVIE';
+      } else if (widget.mode == AppMode.anime) {
+        return itemMode == 'anime' || (itemMode == null && itemFormat != 'MOVIE');
+      } else {
+        return false;
+      }
+    }).toList();
+
     if (mounted) {
       setState(() {
-        _historyItems = items;
+        _historyItems = filtered;
         _isLoading = false;
       });
     }

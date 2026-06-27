@@ -8,9 +8,11 @@ import '../services/torrserver_service.dart';
 import '../models/torrent.dart';
 import '../state/player_state.dart';
 import '../state/app_settings.dart';
+import '../state/navigation_state.dart';
 
 class DownloadsPage extends StatefulWidget {
-  const DownloadsPage({super.key});
+  final AppMode mode;
+  const DownloadsPage({super.key, required this.mode});
 
   @override
   State<DownloadsPage> createState() => _DownloadsPageState();
@@ -22,6 +24,16 @@ class _DownloadsPageState extends State<DownloadsPage> {
   DownloadsTab _activeTab = DownloadsTab.library;
   String? _selectedTaskId;
   final Set<String> _selectedTaskIds = {};
+
+  List<DownloadTask> get _tasks => DownloadService().tasks.where((t) {
+    if (widget.mode == AppMode.movies) {
+      return t.isMovie == true;
+    } else if (widget.mode == AppMode.anime) {
+      return t.isMovie != true;
+    } else {
+      return false;
+    }
+  }).toList();
 
   // Settings controllers
   late final TextEditingController _serverUrlController;
@@ -46,7 +58,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
     _downloadPathController = TextEditingController(text: AppSettings().downloadPath);
     
     // Auto-select first task if available
-    final tasks = DownloadService().tasks;
+    final tasks = _tasks;
     if (tasks.isNotEmpty) {
       _selectedTaskId = tasks.first.id;
     }
@@ -70,7 +82,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
 
   void _onDownloadTasksChanged() {
     if (mounted) {
-      final tasks = DownloadService().tasks;
+      final tasks = _tasks;
       if (_selectedTaskId == null && tasks.isNotEmpty) {
         setState(() {
           _selectedTaskId = tasks.first.id;
@@ -90,7 +102,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
 
   Future<void> _fetchActiveTorrentStats() async {
     if (_isFetchingStats) return;
-    final tasks = DownloadService().tasks;
+    final tasks = _tasks;
     if (tasks.isEmpty) {
       if (mounted) {
         setState(() {
@@ -446,7 +458,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
     return ListenableBuilder(
       listenable: DownloadService(),
       builder: (context, _) {
-        final allTasks = DownloadService().tasks;
+        final allTasks = _tasks;
         
         // Apply status filter
         List<DownloadTask> tasks = allTasks;
@@ -857,7 +869,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
 
   // --- 2. OVERVIEW TAB ---
   Widget _buildOverviewTab() {
-    final tasks = DownloadService().tasks;
+    final tasks = _tasks;
     DownloadTask? task;
     
     // Resolve selected task
@@ -1211,7 +1223,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
 
   // --- 3. FILES TAB ---
   Widget _buildFilesTab() {
-    final tasks = DownloadService().tasks;
+    final tasks = _tasks;
     DownloadTask? task;
     if (_selectedTaskId != null) {
       for (var t in tasks) {

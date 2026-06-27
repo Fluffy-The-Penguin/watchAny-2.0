@@ -552,13 +552,13 @@ class AnilistService {
     return allSchedules;
   }
 
-  Future<List<dynamic>> fetchLibraryDetails(List<int> ids) async {
+  Future<List<dynamic>> fetchLibraryDetails(List<int> ids, {String type = 'ANIME'}) async {
     if (ids.isEmpty) return [];
     
     const query = r'''
-      query($ids: [Int]) {
+      query($ids: [Int], $type: MediaType) {
         Page(page: 1, perPage: 50) {
-          media(id_in: $ids, type: ANIME) {
+          media(id_in: $ids, type: $type) {
             id
             title {
               romaji
@@ -569,6 +569,7 @@ class AnilistService {
             }
             status
             episodes
+            chapters
             nextAiringEpisode {
               episode
               airingAt
@@ -584,7 +585,10 @@ class AnilistService {
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'query': query,
-          'variables': {'ids': ids},
+          'variables': {
+            'ids': ids,
+            'type': type,
+          },
         }),
       );
       
