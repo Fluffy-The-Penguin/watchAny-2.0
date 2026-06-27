@@ -24,6 +24,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
   @override
   void initState() {
     super.initState();
+    LibraryState().clearNotificationBadge();
     _fetchNotifications();
   }
 

@@ -253,13 +253,15 @@ class ShellLayout extends StatelessWidget {
                                   ),
                               ],
                             ),
-                            tooltip: 'Notifications',
-                            onPressed: () => _showSidebarPopup(
-                              context: context,
-                              title: 'Notifications',
-                              content: _NotificationsPopupContent(navigationState: navigationState),
-                              onViewAll: () => navigationState.setPage(TabPage.notifications),
-                            ),
+                            onPressed: () {
+                              LibraryState().clearNotificationBadge();
+                              _showSidebarPopup(
+                                context: context,
+                                title: 'Notifications',
+                                content: _NotificationsPopupContent(navigationState: navigationState),
+                                onViewAll: () => navigationState.setPage(TabPage.notifications),
+                              );
+                            },
                           );
                         },
                       ),
@@ -317,12 +319,15 @@ class ShellLayout extends StatelessWidget {
                           content: _HistoryPopupContent(navigationState: navigationState),
                           onViewAll: () => navigationState.setPage(TabPage.history),
                         ),
-                        onNotificationsTap: () => _showSidebarPopup(
-                          context: context,
-                          title: 'Notifications',
-                          content: _NotificationsPopupContent(navigationState: navigationState),
-                          onViewAll: () => navigationState.setPage(TabPage.notifications),
-                        ),
+                        onNotificationsTap: () {
+                          LibraryState().clearNotificationBadge();
+                          _showSidebarPopup(
+                            context: context,
+                            title: 'Notifications',
+                            content: _NotificationsPopupContent(navigationState: navigationState),
+                            onViewAll: () => navigationState.setPage(TabPage.notifications),
+                          );
+                        },
                       ),
                     
                     // Right Content Window (Stack containing full content and floating controls)

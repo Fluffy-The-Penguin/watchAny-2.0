@@ -56,9 +56,17 @@ class LibraryState extends ChangeNotifier {
 
   List<LibraryItem> _items = [];
   int _notificationCount = 0;
+  bool _badgeCleared = false;
 
   List<LibraryItem> get items => _items;
-  int get notificationCount => _notificationCount;
+  int get notificationCount => _badgeCleared ? 0 : _notificationCount;
+
+  void clearNotificationBadge() {
+    if (!_badgeCleared) {
+      _badgeCleared = true;
+      notifyListeners();
+    }
+  }
 
   Future<void> init() async {
     final prefs = await SharedPreferences.getInstance();
@@ -132,6 +140,7 @@ class LibraryState extends ChangeNotifier {
     if (libraryAnime.isEmpty) {
       if (_notificationCount != 0) {
         _notificationCount = 0;
+        _badgeCleared = false;
         notifyListeners();
       }
       return;
@@ -153,6 +162,7 @@ class LibraryState extends ChangeNotifier {
       }
       if (_notificationCount != count) {
         _notificationCount = count;
+        _badgeCleared = false; // Reset cleared flag since count changed
         notifyListeners();
       }
     } catch (_) {
