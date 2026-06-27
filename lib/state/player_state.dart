@@ -47,6 +47,9 @@ class PlayerState extends ChangeNotifier {
   // Cache: key is "animeId_episodeNumber", value is PlaybackProgress
   final Map<String, PlaybackProgress> _progressCache = {};
 
+  bool _isSeeking = false;
+  bool _isLoadingMedia = false;
+
   // Getters
   Player? get player => _player;
   VideoController? get controller => _controller;
@@ -63,6 +66,8 @@ class PlayerState extends ChangeNotifier {
   dynamic get media => _media;
   List<dynamic>? get episodes => _episodes;
   Map<int, dynamic>? get tmdbEpisodesMap => _tmdbEpisodesMap;
+  bool get isSeeking => _isSeeking;
+  bool get isLoadingMedia => _isLoadingMedia;
 
   // Progress helpers
   PlaybackProgress? getProgress(int animeId, int episodeNumber) {
@@ -113,6 +118,8 @@ class PlayerState extends ChangeNotifier {
     _isActive = true;
     _isMinimized = false;
     _isFullscreen = false;
+    _isLoadingMedia = true;
+    _isSeeking = false;
 
     // Set up listeners for progress saving
     _currentPosition = Duration.zero;
@@ -148,10 +155,14 @@ class PlayerState extends ChangeNotifier {
       StreamSubscription<Duration>? tempSub;
       tempSub = _player!.stream.duration.listen((dur) {
         if (dur.inMilliseconds > 0) {
-          _resumePlayback(anilistId, episodeNumber);
           tempSub?.cancel();
+          _isLoadingMedia = false;
+          _resumePlayback(anilistId, episodeNumber);
         }
       });
+    } else {
+      _isLoadingMedia = false;
+      _isSeeking = false;
     }
 
     _saveMediaMetadata();
@@ -343,9 +354,13 @@ class PlayerState extends ChangeNotifier {
     if (pos != null && dur != null) {
       final ratio = pos / dur;
       if (ratio < 0.90) {
+        _isSeeking = true;
+        notifyListeners();
         await _player?.seek(Duration(milliseconds: pos));
       }
     }
+    _isSeeking = false;
+    notifyListeners();
   }
 
   void _checkCompletion(int id, int ep, int pos, int dur) {

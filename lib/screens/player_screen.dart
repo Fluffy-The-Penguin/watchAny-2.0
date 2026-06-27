@@ -600,7 +600,8 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
             stream: player.stream.buffering,
             builder: (context, snapshot) {
               final isBuffering = snapshot.data ?? player.state.buffering;
-              if (isBuffering) {
+              final showLoader = playerState.isLoadingMedia || playerState.isSeeking || isBuffering;
+              if (showLoader) {
                 return Container(
                   color: Colors.black45,
                   child: const Center(
