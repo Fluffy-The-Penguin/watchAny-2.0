@@ -564,58 +564,34 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
           const MaterialDesktopFullscreenButton(),
         ],
       ),
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          Video(
-            controller: controller,
-            onEnterFullscreen: () async {
-              PlayerState().enterFullscreen();
-              await windowManager.setFullScreen(true);
-              await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-            },
-            onExitFullscreen: () async {
-              PlayerState().exitFullscreen();
-              await windowManager.setFullScreen(false);
-              await SystemChrome.setEnabledSystemUIMode(
-                SystemUiMode.manual,
-                overlays: SystemUiOverlay.values,
-              );
-            },
-            controls: (state) {
-              final bool isDesktop = [
-                TargetPlatform.windows,
-                TargetPlatform.linux,
-                TargetPlatform.macOS,
-              ].contains(Theme.of(state.context).platform);
-              return KeyedSubtree(
-                key: ValueKey(_overlayEntry != null),
-                child: isDesktop
-                    ? MaterialDesktopVideoControls(state)
-                    : MaterialVideoControls(state),
-              );
-            },
-          ),
-          StreamBuilder<bool>(
-            stream: player.stream.buffering,
-            builder: (context, snapshot) {
-              final isBuffering = snapshot.data ?? player.state.buffering;
-              final showLoader = playerState.isLoadingMedia || playerState.isSeeking || isBuffering;
-              if (showLoader) {
-                return Container(
-                  color: Colors.black45,
-                  child: const Center(
-                    child: CircularProgressIndicator(
-                      color: Colors.white,
-                      strokeWidth: 3.0,
-                    ),
-                  ),
-                );
-              }
-              return const SizedBox.shrink();
-            },
-          ),
-        ],
+      child: Video(
+        controller: controller,
+        onEnterFullscreen: () async {
+          PlayerState().enterFullscreen();
+          await windowManager.setFullScreen(true);
+          await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+        },
+        onExitFullscreen: () async {
+          PlayerState().exitFullscreen();
+          await windowManager.setFullScreen(false);
+          await SystemChrome.setEnabledSystemUIMode(
+            SystemUiMode.manual,
+            overlays: SystemUiOverlay.values,
+          );
+        },
+        controls: (state) {
+          final bool isDesktop = [
+            TargetPlatform.windows,
+            TargetPlatform.linux,
+            TargetPlatform.macOS,
+          ].contains(Theme.of(state.context).platform);
+          return KeyedSubtree(
+            key: ValueKey(_overlayEntry != null),
+            child: isDesktop
+                ? MaterialDesktopVideoControls(state)
+                : MaterialVideoControls(state),
+          );
+        },
       ),
     );
 
