@@ -109,6 +109,16 @@ class PlayerState extends ChangeNotifier {
     _tmdbEpisodesMap = tmdbEpisodesMap;
 
     _player = Player();
+
+    try {
+      final nativePlayer = _player!.platform as NativePlayer;
+      nativePlayer.setProperty('hr-seek', 'no');
+      nativePlayer.setProperty('demuxer-max-bytes', '52428800'); // 50MB max bytes cache
+      nativePlayer.setProperty('demuxer-readahead-secs', '20'); // 20s readahead
+    } catch (e) {
+      debugPrint('[PlayerState] Error setting player performance options: $e');
+    }
+
     _controller = VideoController(
       _player!,
       configuration: VideoControllerConfiguration(

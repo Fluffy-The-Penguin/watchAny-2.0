@@ -414,6 +414,10 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
     final desktopTheme = MaterialDesktopVideoControlsTheme(
       normal: MaterialDesktopVideoControlsThemeData(
         controlsHoverDuration: _controlsHoverDuration,
+        seekBarBufferColor: Colors.white24,
+        seekBarPositionColor: Colors.amber,
+        seekBarColor: Colors.white12,
+        seekBarThumbColor: Colors.amber,
         bottomButtonBar: [
           const MaterialDesktopPlayOrPauseButton(),
           const MaterialDesktopVolumeButton(),
@@ -490,6 +494,10 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
       ),
       fullscreen: MaterialDesktopVideoControlsThemeData(
         controlsHoverDuration: _controlsHoverDuration,
+        seekBarBufferColor: Colors.white24,
+        seekBarPositionColor: Colors.amber,
+        seekBarColor: Colors.white12,
+        seekBarThumbColor: Colors.amber,
         bottomButtonBar: [
           const MaterialDesktopPlayOrPauseButton(),
           const MaterialDesktopVolumeButton(),
@@ -599,6 +607,10 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
     final mobileTheme = MaterialVideoControlsTheme(
       normal: MaterialVideoControlsThemeData(
         controlsHoverDuration: _controlsHoverDuration,
+        seekBarBufferColor: Colors.white24,
+        seekBarPositionColor: Colors.amber,
+        seekBarColor: Colors.white12,
+        seekBarThumbColor: Colors.amber,
         bottomButtonBar: [
           const MaterialPlayOrPauseButton(),
           const MaterialPositionIndicator(),
@@ -673,6 +685,10 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
       ),
       fullscreen: MaterialVideoControlsThemeData(
         controlsHoverDuration: _controlsHoverDuration,
+        seekBarBufferColor: Colors.white24,
+        seekBarPositionColor: Colors.amber,
+        seekBarColor: Colors.white12,
+        seekBarThumbColor: Colors.amber,
         bottomButtonBar: [
           const MaterialPlayOrPauseButton(),
           const MaterialPositionIndicator(),
