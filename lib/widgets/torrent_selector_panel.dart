@@ -664,10 +664,11 @@ class _TorrentSelectorPanelState extends State<TorrentSelectorPanel> {
                                           context: context,
                                           barrierDismissible: false,
                                           builder: (dialogContext) {
-                                            return _PlaybackProgressDialog(
+                                            return PlaybackProgressDialog(
                                               stream: stream,
                                               parentContext: context,
                                               anilistId: widget.anilistId,
+                                              movieId: null,
                                               episodeNumber: widget.episodeNumber,
                                               titles: widget.titles,
                                               episodeCount: widget.episodeCount,
@@ -689,10 +690,11 @@ class _TorrentSelectorPanelState extends State<TorrentSelectorPanel> {
                                           context: context,
                                           barrierDismissible: false,
                                           builder: (dialogContext) {
-                                            return _PlaybackProgressDialog(
+                                            return PlaybackProgressDialog(
                                               stream: stream,
                                               parentContext: context,
                                               anilistId: widget.anilistId,
+                                              movieId: null,
                                               episodeNumber: widget.episodeNumber,
                                               titles: widget.titles,
                                               episodeCount: widget.episodeCount,
@@ -738,10 +740,11 @@ class _TorrentSelectorPanelState extends State<TorrentSelectorPanel> {
   }
 }
 
-class _PlaybackProgressDialog extends StatefulWidget {
+class PlaybackProgressDialog extends StatefulWidget {
   final TorrentStream stream;
   final BuildContext parentContext;
   final int anilistId;
+  final String? movieId;
   final int episodeNumber;
   final List<String> titles;
   final int episodeCount;
@@ -752,10 +755,12 @@ class _PlaybackProgressDialog extends StatefulWidget {
   final void Function(String streamUrl, String title)? onStreamSelected;
   final bool isDownload;
 
-  const _PlaybackProgressDialog({
+  const PlaybackProgressDialog({
+    super.key,
     required this.stream,
     required this.parentContext,
     required this.anilistId,
+    this.movieId,
     required this.episodeNumber,
     required this.titles,
     required this.episodeCount,
@@ -768,10 +773,10 @@ class _PlaybackProgressDialog extends StatefulWidget {
   });
 
   @override
-  State<_PlaybackProgressDialog> createState() => _PlaybackProgressDialogState();
+  State<PlaybackProgressDialog> createState() => PlaybackProgressDialogState();
 }
 
-class _PlaybackProgressDialogState extends State<_PlaybackProgressDialog> {
+class PlaybackProgressDialogState extends State<PlaybackProgressDialog> {
   final TorrServerService _torrServerService = TorrServerService();
   String _status = "Checking TorrServer status...";
   bool _hasError = false;
@@ -1004,10 +1009,8 @@ class _PlaybackProgressDialogState extends State<_PlaybackProgressDialog> {
     if (widget.onStreamSelected != null) {
       widget.onStreamSelected!(streamUrl, displayName);
     } else {
-      // Capture the navigator state BEFORE we pop the parent context
       final navigator = Navigator.of(widget.parentContext);
 
-      // Pop the bottom sheet so we return directly to details page when player closes
       if (shouldPopParent) {
         navigator.pop();
       }
@@ -1016,6 +1019,7 @@ class _PlaybackProgressDialogState extends State<_PlaybackProgressDialog> {
         streamUrl: streamUrl,
         title: displayName,
         anilistId: widget.anilistId,
+        movieId: widget.movieId,
         titles: widget.titles,
         episodeCount: widget.episodeCount,
         episodeNumber: widget.episodeNumber,
@@ -1086,11 +1090,12 @@ class _PlaybackProgressDialogState extends State<_PlaybackProgressDialog> {
                         context: widget.parentContext,
                         barrierDismissible: false,
                         builder: (dialogContext) {
-                          return _BufferingProgressDialog(
+                          return BufferingProgressDialog(
                             hash: hash,
                             file: file,
                             parentContext: widget.parentContext,
                             anilistId: widget.anilistId,
+                            movieId: widget.movieId,
                             episodeNumber: widget.episodeNumber,
                             titles: widget.titles,
                             episodeCount: widget.episodeCount,
@@ -1196,11 +1201,12 @@ class _PlaybackProgressDialogState extends State<_PlaybackProgressDialog> {
   }
 }
 
-class _BufferingProgressDialog extends StatefulWidget {
+class BufferingProgressDialog extends StatefulWidget {
   final String hash;
   final TorrentFile file;
   final BuildContext parentContext;
   final int anilistId;
+  final String? movieId;
   final int episodeNumber;
   final List<String> titles;
   final int episodeCount;
@@ -1210,11 +1216,12 @@ class _BufferingProgressDialog extends StatefulWidget {
   final Map<int, dynamic>? tmdbEpisodesMap;
   final void Function(String streamUrl, String title)? onStreamSelected;
 
-  const _BufferingProgressDialog({
+  const BufferingProgressDialog({
     required this.hash,
     required this.file,
     required this.parentContext,
     required this.anilistId,
+    this.movieId,
     required this.episodeNumber,
     required this.titles,
     required this.episodeCount,
@@ -1226,10 +1233,10 @@ class _BufferingProgressDialog extends StatefulWidget {
   });
 
   @override
-  State<_BufferingProgressDialog> createState() => _BufferingProgressDialogState();
+  State<BufferingProgressDialog> createState() => BufferingProgressDialogState();
 }
 
-class _BufferingProgressDialogState extends State<_BufferingProgressDialog> {
+class BufferingProgressDialogState extends State<BufferingProgressDialog> {
   final TorrServerService _torrServerService = TorrServerService();
   String _status = "Initializing buffering...";
   bool _hasError = false;
@@ -1301,7 +1308,7 @@ class _BufferingProgressDialogState extends State<_BufferingProgressDialog> {
 
   void _launchPlayer() {
     if (!mounted) return;
-    Navigator.of(context).pop(); // pop this buffering dialog
+    Navigator.of(context).pop();
 
     final streamUrl = _torrServerService.getStreamUrl(widget.hash, widget.file.index);
     final fileName = widget.file.path.split('/').last.split('\\').last;
@@ -1311,13 +1318,13 @@ class _BufferingProgressDialogState extends State<_BufferingProgressDialog> {
       widget.onStreamSelected!(streamUrl, displayName);
     } else {
       final navigator = Navigator.of(widget.parentContext);
-      // Pop the bottom sheet so we return directly to details page when player closes
       navigator.pop();
 
       PlayerState().startPlayback(
         streamUrl: streamUrl,
         title: displayName,
         anilistId: widget.anilistId,
+        movieId: widget.movieId,
         titles: widget.titles,
         episodeCount: widget.episodeCount,
         episodeNumber: widget.episodeNumber,

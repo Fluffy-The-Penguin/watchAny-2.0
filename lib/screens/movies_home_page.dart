@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import '../state/navigation_state.dart';
 import '../services/stremio_addon_service.dart';
 import '../state/player_state.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class MoviesHomePage extends StatefulWidget {
   final NavigationState navigationState;
@@ -19,6 +20,7 @@ class MoviesHomePage extends StatefulWidget {
 
 class _MoviesHomePageState extends State<MoviesHomePage> {
   bool _isLoading = true;
+  bool _isFetching = true;
   List<Map<String, dynamic>> _catalogRows = [];
   Map<String, dynamic>? _featuredItem;
 
@@ -32,6 +34,9 @@ class _MoviesHomePageState extends State<MoviesHomePage> {
     if (!mounted) return;
     setState(() {
       _isLoading = true;
+      _isFetching = true;
+      _catalogRows = [];
+      _featuredItem = null;
     });
 
     final addonService = StremioAddonService();
@@ -41,59 +46,109 @@ class _MoviesHomePageState extends State<MoviesHomePage> {
         .where((a) => a.isEnabled && a.resources.contains('catalog'))
         .toList();
 
-    List<Map<String, dynamic>> loadedRows = [];
-    Map<String, dynamic>? featured;
+    if (enabledCatalogAddons.isEmpty) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _isFetching = false;
+        });
+      }
+      return;
+    }
 
-    final List<Future<void>> tasks = [];
+    final prefs = await SharedPreferences.getInstance();
+    final List<String> selectedAddons = prefs.getStringList('stremio_homepage_selected_addons') ?? [];
 
-    for (final addon in enabledCatalogAddons) {
-      for (final cat in addon.catalogs) {
+    List<StremioAddon> targetAddons = [];
+    if (selectedAddons.isNotEmpty) {
+      for (final addonId in selectedAddons) {
+        final addonObj = enabledCatalogAddons.firstWhere(
+          (a) => a.id == addonId,
+          orElse: () => StremioAddon(id: '', name: '', version: '', description: '', url: '', icon: '', types: [], resources: [], catalogs: []),
+        );
+        if (addonObj.id.isNotEmpty) {
+          targetAddons.add(addonObj);
+        }
+      }
+    } else {
+      targetAddons = enabledCatalogAddons.take(5).toList();
+    }
+
+    if (mounted) {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+
+    final List<Future<void>> fetchTasks = [];
+
+    for (final addon in targetAddons) {
+      final List<String> selectedCatalogs = prefs.getStringList('stremio_homepage_selected_catalogs_${addon.id}') ?? [];
+
+      List<dynamic> targetCatalogs = [];
+      if (selectedCatalogs.isNotEmpty) {
+        for (final catId in selectedCatalogs) {
+          final catObj = addon.catalogs.firstWhere(
+            (c) => c['id'] == catId,
+            orElse: () => <String, dynamic>{},
+          );
+          if (catObj.isNotEmpty) {
+            targetCatalogs.add(catObj);
+          }
+        }
+      } else {
+        targetCatalogs = addon.catalogs.take(5).toList();
+      }
+
+      for (final cat in targetCatalogs) {
         final type = cat['type'] ?? 'movie';
         final id = cat['id'] ?? '';
         final name = cat['name'] ?? addon.name;
 
-        tasks.add(() async {
+        final task = () async {
           try {
             final catalogUrl = '${addon.url.replaceAll('/manifest.json', '')}/catalog/$type/$id.json';
-            final response = await http.get(Uri.parse(catalogUrl)).timeout(const Duration(seconds: 5));
+            final response = await http.get(Uri.parse(catalogUrl)).timeout(const Duration(seconds: 8));
 
             if (response.statusCode == 200) {
               final data = jsonDecode(response.body);
               final List metas = data['metas'] ?? [];
-              if (metas.isNotEmpty) {
-                loadedRows.add({
-                  'addonName': addon.name,
-                  'catalogName': name,
-                  'type': type,
-                  'items': metas,
-                });
+              if (metas.isNotEmpty && mounted) {
+                setState(() {
+                  _catalogRows = List.from(_catalogRows)
+                    ..add({
+                      'addonName': addon.name,
+                      'catalogName': name,
+                      'type': type,
+                      'items': metas,
+                    });
 
-                if (featured == null) {
-                  for (final item in metas) {
-                    if (item['background'] != null && item['background'].toString().isNotEmpty) {
-                      featured = item;
-                      break;
+                  if (_featuredItem == null) {
+                    for (final item in metas) {
+                      if (item['background'] != null && item['background'].toString().isNotEmpty) {
+                        _featuredItem = item;
+                        break;
+                      }
                     }
                   }
-                }
+                });
               }
             }
           } catch (e) {
             debugPrint('Error loading catalog $name from ${addon.name}: $e');
           }
-        }());
+        }();
+        fetchTasks.add(task);
       }
     }
 
-    if (tasks.isNotEmpty) {
-      await Future.wait(tasks);
+    if (fetchTasks.isNotEmpty) {
+      await Future.wait(fetchTasks);
     }
 
     if (mounted) {
       setState(() {
-        _catalogRows = loadedRows;
-        _featuredItem = featured ?? (_catalogRows.isNotEmpty && _catalogRows[0]['items'].isNotEmpty ? _catalogRows[0]['items'][0] : null);
-        _isLoading = false;
+        _isFetching = false;
       });
     }
   }
@@ -204,15 +259,33 @@ class _MoviesHomePageState extends State<MoviesHomePage> {
 
               // 3. Dynamic Catalog Railways
               if (_catalogRows.isEmpty)
-                const Center(
-                  child: Padding(
-                    padding: EdgeInsets.symmetric(vertical: 64.0),
-                    child: Text(
-                      'No content rows returned by enabled addons.',
-                      style: TextStyle(color: Colors.white38),
+                if (_isFetching)
+                  const Center(
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(vertical: 64.0),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          CircularProgressIndicator(color: Colors.white, strokeWidth: 2.0),
+                          SizedBox(height: 16.0),
+                          Text(
+                            'Loading catalogs...',
+                            style: TextStyle(color: Colors.white38, fontSize: 13.0, fontFamily: 'Outfit'),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                )
+                  )
+                else
+                  const Center(
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(vertical: 64.0),
+                      child: Text(
+                        'No content rows returned by enabled addons.',
+                        style: TextStyle(color: Colors.white38),
+                      ),
+                    ),
+                  )
               else
                 Padding(
                   padding: const EdgeInsets.only(bottom: 48.0),
@@ -223,12 +296,14 @@ class _MoviesHomePageState extends State<MoviesHomePage> {
                     itemCount: _catalogRows.length,
                     itemBuilder: (context, index) {
                       final row = _catalogRows[index];
-                      return Padding(
-                        padding: const EdgeInsets.only(top: 12.0),
-                        child: _MovieRailwayTrack(
-                          title: '${row['catalogName']} (${row['addonName']})',
-                          items: row['items'],
-                          navigationState: widget.navigationState,
+                      return FadeInWidget(
+                        child: Padding(
+                          padding: const EdgeInsets.only(top: 12.0),
+                          child: _MovieRailwayTrack(
+                            title: '${row['catalogName']} (${row['addonName']})',
+                            items: row['items'],
+                            navigationState: widget.navigationState,
+                          ),
                         ),
                       );
                     },
@@ -619,6 +694,53 @@ class _MovieCardState extends State<_MovieCard> {
           ),
         ),
       ),
+    );
+  }
+}
+
+class FadeInWidget extends StatefulWidget {
+  final Widget child;
+  final Duration duration;
+
+  const FadeInWidget({
+    super.key,
+    required this.child,
+    this.duration = const Duration(milliseconds: 500),
+  });
+
+  @override
+  State<FadeInWidget> createState() => _FadeInWidgetState();
+}
+
+class _FadeInWidgetState extends State<FadeInWidget> with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final Animation<double> _animation;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: widget.duration,
+    );
+    _animation = CurvedAnimation(
+      parent: _controller,
+      curve: Curves.easeIn,
+    );
+    _controller.forward();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: _animation,
+      child: widget.child,
     );
   }
 }

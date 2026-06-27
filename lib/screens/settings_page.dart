@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../services/extension_service.dart';
 import '../services/stremio_addon_service.dart';
 import '../state/app_settings.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -1298,9 +1299,224 @@ class _SettingsPageState extends State<SettingsPage> {
                   );
                 },
               ),
+            const StremioHomepageConfigPanel(),
           ],
         );
       },
+    );
+  }
+}
+
+class StremioHomepageConfigPanel extends StatefulWidget {
+  const StremioHomepageConfigPanel({super.key});
+
+  @override
+  State<StremioHomepageConfigPanel> createState() => _StremioHomepageConfigPanelState();
+}
+
+class _StremioHomepageConfigPanelState extends State<StremioHomepageConfigPanel> {
+  List<String> _selectedAddons = [];
+  Map<String, List<String>> _selectedCatalogs = {};
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadConfig();
+  }
+
+  Future<void> _loadConfig() async {
+    final prefs = await SharedPreferences.getInstance();
+    final addons = prefs.getStringList('stremio_homepage_selected_addons') ?? [];
+    
+    final Map<String, List<String>> catalogs = {};
+    for (final addonId in addons) {
+      catalogs[addonId] = prefs.getStringList('stremio_homepage_selected_catalogs_$addonId') ?? [];
+    }
+
+    setState(() {
+      _selectedAddons = addons;
+      _selectedCatalogs = catalogs;
+      _loading = false;
+    });
+  }
+
+  Future<void> _saveConfig() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList('stremio_homepage_selected_addons', _selectedAddons);
+    for (final addonId in _selectedCatalogs.keys) {
+      await prefs.setStringList(
+        'stremio_homepage_selected_catalogs_$addonId',
+        _selectedCatalogs[addonId] ?? [],
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 24.0),
+        child: Center(child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.0)),
+      );
+    }
+
+    final addonService = StremioAddonService();
+    final catalogAddons = addonService.addons
+        .where((a) => a.isEnabled && a.resources.contains('catalog'))
+        .toList();
+
+    if (catalogAddons.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 32.0),
+        const Row(
+          children: [
+            Icon(Icons.layers_outlined, color: Colors.white70, size: 20.0),
+            SizedBox(width: 8.0),
+            Text(
+              'Homepage Catalogs Setup',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 15.0,
+                fontWeight: FontWeight.bold,
+                fontFamily: 'Outfit',
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8.0),
+        const Text(
+          'Choose up to 5 addons and 5 catalogs per addon to show on your Movies/TV homepage (max 25 railways). If none selected, first 5 enabled addons are shown by default.',
+          style: TextStyle(color: Colors.white38, fontSize: 12.0),
+        ),
+        const SizedBox(height: 16.0),
+        ListView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: catalogAddons.length,
+          itemBuilder: (context, index) {
+            final addon = catalogAddons[index];
+            final bool isSelected = _selectedAddons.contains(addon.id);
+            final addonCatalogs = addon.catalogs;
+
+            return Container(
+              margin: const EdgeInsets.only(bottom: 12.0),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.01),
+                border: Border.all(color: isSelected ? Colors.amber.withValues(alpha: 0.3) : Colors.white10),
+                borderRadius: BorderRadius.circular(8.0),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  CheckboxListTile(
+                    title: Text(
+                      addon.name,
+                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13.0),
+                    ),
+                    subtitle: Text(
+                      '${addonCatalogs.length} catalogs available',
+                      style: const TextStyle(color: Colors.white38, fontSize: 11.0),
+                    ),
+                    activeColor: Colors.amber,
+                    checkColor: Colors.black,
+                    value: isSelected,
+                    onChanged: (val) {
+                      setState(() {
+                        if (val == true) {
+                          if (_selectedAddons.length >= 5) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('You can select a maximum of 5 addons for the homepage.'),
+                                backgroundColor: Colors.redAccent,
+                              ),
+                            );
+                            return;
+                          }
+                          _selectedAddons.add(addon.id);
+                          _selectedCatalogs[addon.id] = [];
+                        } else {
+                          _selectedAddons.remove(addon.id);
+                          _selectedCatalogs.remove(addon.id);
+                        }
+                        _saveConfig();
+                      });
+                    },
+                  ),
+                  if (isSelected) ...[
+                    const Divider(color: Colors.white10, height: 1),
+                    Padding(
+                      padding: const EdgeInsets.all(12.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Select Catalogs (max 5):',
+                            style: TextStyle(color: Colors.white54, fontSize: 11.0, fontWeight: FontWeight.bold),
+                          ),
+                          const SizedBox(height: 8.0),
+                          Wrap(
+                            spacing: 8.0,
+                            runSpacing: 8.0,
+                            children: [
+                              for (final cat in addonCatalogs) () {
+                                final String catId = cat['id'] ?? '';
+                                final String catName = cat['name'] ?? catId;
+                                final List<String> currentSelected = _selectedCatalogs[addon.id] ?? [];
+                                final bool isCatSelected = currentSelected.contains(catId);
+
+                                return FilterChip(
+                                  label: Text(
+                                    catName,
+                                    style: TextStyle(
+                                      color: isCatSelected ? Colors.black : Colors.white70,
+                                      fontSize: 10.5,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  selected: isCatSelected,
+                                  selectedColor: Colors.amber,
+                                  checkmarkColor: Colors.black,
+                                  backgroundColor: Colors.white.withValues(alpha: 0.05),
+                                  onSelected: (selected) {
+                                    setState(() {
+                                      if (selected) {
+                                        if (currentSelected.length >= 5) {
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            const SnackBar(
+                                              content: Text('You can select a maximum of 5 catalogs per addon.'),
+                                              backgroundColor: Colors.redAccent,
+                                            ),
+                                          );
+                                          return;
+                                        }
+                                        currentSelected.add(catId);
+                                      } else {
+                                        currentSelected.remove(catId);
+                                      }
+                                      _selectedCatalogs[addon.id] = currentSelected;
+                                      _saveConfig();
+                                    });
+                                  },
+                                );
+                              }(),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            );
+          },
+        ),
+      ],
     );
   }
 }

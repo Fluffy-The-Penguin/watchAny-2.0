@@ -6,6 +6,8 @@ import '../services/stremio_addon_service.dart';
 import '../state/player_state.dart';
 import '../state/library_state.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../services/extension_service.dart';
+import '../widgets/torrent_selector_panel.dart';
 
 class MovieDetailsPage extends StatefulWidget {
   final String movieId; // Format: "type:imdbId" (e.g. "movie:tt11378946")
@@ -280,67 +282,268 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16.0)),
       ),
+      isScrollControlled: true,
       builder: (context) {
-        return SafeArea(
-          child: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Text(
-                  'Select Stream ${episode != null ? " - Episode $episode" : ""}',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontFamily: 'Outfit',
-                    fontSize: 16.0,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-              const Divider(color: Colors.white10, height: 1),
-              Expanded(
-                child: ListView.builder(
-                  itemCount: streams.length,
-                  itemBuilder: (context, index) {
-                    final stream = streams[index];
-                    final String name = stream['name'] ?? stream['addonName'] ?? 'Unknown Stream';
-                    final String title = stream['title'] ?? 'No stream details.';
-
-                    return ListTile(
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 8.0),
-                      title: Text(
-                        name,
-                        style: const TextStyle(color: Colors.amber, fontWeight: FontWeight.bold, fontSize: 14.0),
-                      ),
-                      subtitle: Padding(
-                        padding: const EdgeInsets.only(top: 4.0),
-                        child: Text(
-                          title,
-                          style: const TextStyle(color: Colors.white70, fontSize: 12.0),
+        return DraggableScrollableSheet(
+          initialChildSize: 0.65,
+          minChildSize: 0.4,
+          maxChildSize: 0.9,
+          expand: false,
+          builder: (context, scrollController) {
+            return SafeArea(
+              child: Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 16.0, horizontal: 20.0),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'Select Stream ${episode != null ? " - Episode $episode" : ""}',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontFamily: 'Outfit',
+                            fontSize: 16.0,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
-                      ),
-                      onTap: () {
-                        Navigator.pop(context);
-                        _playStream(stream, episode);
+                        Text(
+                          '${streams.length} links found',
+                          style: const TextStyle(color: Colors.white38, fontSize: 12.0),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Divider(color: Colors.white10, height: 1),
+                  Expanded(
+                    child: ListView.builder(
+                      controller: scrollController,
+                      padding: const EdgeInsets.all(16.0),
+                      itemCount: streams.length,
+                      itemBuilder: (context, index) {
+                        final stream = streams[index];
+                        final String name = stream['name'] ?? stream['addonName'] ?? 'Stremio Addon';
+                        final String rawTitle = stream['title'] ?? 'No details.';
+                        final String cleanTitle = _cleanStreamTitle(rawTitle);
+                        final tags = _getStreamTags(rawTitle);
+                        final size = _getStreamSize(stream);
+                        final seeders = _getStreamSeeders(stream);
+
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 10.0),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.02),
+                            borderRadius: BorderRadius.circular(8.0),
+                            border: Border.all(color: Colors.white10),
+                          ),
+                          child: ListTile(
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                            title: Text(
+                              cleanTitle,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 13.0,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            subtitle: Padding(
+                              padding: const EdgeInsets.only(top: 8.0),
+                              child: Wrap(
+                                spacing: 8.0,
+                                runSpacing: 4.0,
+                                crossAxisAlignment: WrapCrossAlignment.center,
+                                children: [
+                                  // Provider badge
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6.0, vertical: 2.0),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white10,
+                                      borderRadius: BorderRadius.circular(4.0),
+                                    ),
+                                    child: Text(
+                                      name.split('\n').first.toUpperCase(),
+                                      style: const TextStyle(color: Colors.white60, fontSize: 8.5, fontWeight: FontWeight.bold),
+                                    ),
+                                  ),
+                                  // Size
+                                  if (size.isNotEmpty)
+                                    Text(
+                                      size,
+                                      style: const TextStyle(color: Colors.white54, fontSize: 11.0),
+                                    ),
+                                  // Seeders
+                                  if (seeders > 0)
+                                    Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const Icon(Icons.arrow_upward, color: Colors.green, size: 13.0),
+                                        const SizedBox(width: 2.0),
+                                        Text(
+                                          '$seeders',
+                                          style: const TextStyle(color: Colors.green, fontSize: 11.0, fontWeight: FontWeight.bold),
+                                        ),
+                                      ],
+                                    ),
+                                  // Resolution Tags
+                                  ...tags.map((tag) {
+                                    final is4K = tag == '4K';
+                                    final isFHD = tag == '1080p';
+                                    return Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 6.0, vertical: 2.0),
+                                      decoration: BoxDecoration(
+                                        color: is4K
+                                            ? Colors.amber.withValues(alpha: 0.15)
+                                            : isFHD
+                                                ? Colors.blue.withValues(alpha: 0.15)
+                                                : Colors.white.withValues(alpha: 0.08),
+                                        borderRadius: BorderRadius.circular(4.0),
+                                      ),
+                                      child: Text(
+                                        tag,
+                                        style: TextStyle(
+                                          color: is4K
+                                              ? Colors.amber[400]
+                                              : isFHD
+                                                  ? Colors.blue[400]
+                                                  : Colors.white70,
+                                          fontSize: 8.5,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    );
+                                  }),
+                                ],
+                              ),
+                            ),
+                            trailing: ElevatedButton(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.amber,
+                                foregroundColor: Colors.black,
+                                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6.0)),
+                              ),
+                              onPressed: () {
+                                Navigator.pop(context);
+                                _playStream(stream, episode);
+                              },
+                              child: const Text('Play', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12.0)),
+                            ),
+                          ),
+                        );
                       },
-                    );
-                  },
-                ),
+                    ),
+                  ),
+                ],
               ),
-            ],
-          ),
+            );
+          },
         );
       },
     );
   }
 
+  String _cleanStreamTitle(String title) {
+    final lines = title.split('\n');
+    if (lines.isNotEmpty) {
+      return lines[0].trim();
+    }
+    return title;
+  }
+
+  List<String> _getStreamTags(String title) {
+    final List<String> tags = [];
+    final t = title.toLowerCase();
+    if (t.contains('2160p') || t.contains('4k') || t.contains('uhd')) tags.add('4K');
+    else if (t.contains('1080p') || t.contains('fhd')) tags.add('1080p');
+    else if (t.contains('720p') || t.contains('hd')) tags.add('720p');
+    else if (t.contains('480p') || t.contains('sd')) tags.add('480p');
+
+    if (t.contains('hdr')) tags.add('HDR');
+    if (t.contains('dv') || t.contains('dolby vision')) tags.add('DV');
+    if (t.contains('dual') || t.contains('dual-audio') || t.contains('multi')) tags.add('Dual Audio');
+    return tags;
+  }
+
+  String _getStreamSize(dynamic stream) {
+    if (stream['size'] != null) {
+      final sizeBytes = int.tryParse(stream['size'].toString()) ?? 0;
+      if (sizeBytes > 0) {
+        final gb = sizeBytes / (1024 * 1024 * 1024);
+        if (gb >= 1) return '${gb.toStringAsFixed(1)} GB';
+        final mb = sizeBytes / (1024 * 1024);
+        return '${mb.toStringAsFixed(0)} MB';
+      }
+    }
+    final title = stream['title']?.toString() ?? '';
+    final match = RegExp(r'\b(\d+(?:\.\d+)?\s*(?:GB|MB))\b', caseSensitive: false).firstMatch(title);
+    return match?.group(1) ?? '';
+  }
+
+  int _getStreamSeeders(dynamic stream) {
+    if (stream['seeders'] != null) {
+      return int.tryParse(stream['seeders'].toString()) ?? 0;
+    }
+    final title = stream['title']?.toString() ?? '';
+    final match = RegExp(r'(?:👤|seeders:?\s*)(\d+)\b', caseSensitive: false).firstMatch(title);
+    if (match != null) {
+      return int.tryParse(match.group(1)!) ?? 0;
+    }
+    return 0;
+  }
+
   void _playStream(dynamic stream, int? episode) {
-    String streamUrl = stream['url'] ?? '';
-    if (streamUrl.isEmpty && stream['infoHash'] != null) {
+    if (stream['infoHash'] != null) {
       final String hash = stream['infoHash'];
-      final int fileIdx = stream['fileIdx'] ?? 0;
-      streamUrl = 'http://127.0.0.1:8090/stream?link=$hash&index=${fileIdx + 1}&play';
+      final String name = stream['name'] ?? stream['addonName'] ?? 'Torrent Stream';
+      final String title = stream['title'] ?? name;
+
+      final torrentStream = TorrentStream(
+        title: title,
+        link: 'magnet:?xt=urn:btih:$hash',
+        seeders: _getStreamSeeders(stream),
+        leechers: 0,
+        downloads: 0,
+        hash: hash,
+        size: stream['size'] != null ? (int.tryParse(stream['size'].toString()) ?? 0) : 0,
+        accuracy: 'high',
+        type: _type,
+        extensionName: stream['addonName'] ?? 'Stremio Addon',
+      );
+
+      final mediaTitle = _meta['name'] ?? 'Media';
+      final int parsedIntId = _parseImdbIdToInt(_realId);
+
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) {
+          return PlaybackProgressDialog(
+            stream: torrentStream,
+            parentContext: context,
+            anilistId: parsedIntId,
+            movieId: _realId,
+            episodeNumber: episode ?? 1,
+            titles: [mediaTitle],
+            episodeCount: _hasVideos ? (_meta['videos']?.length ?? 1) : 1,
+            isMovie: !_hasVideos,
+            media: {
+              'id': _realId,
+              'title': mediaTitle,
+              'coverImage': _meta['poster'] ?? '',
+              'averageScore': double.tryParse(_meta['imdbRating']?.toString() ?? '0') ?? 0.0,
+              'format': _hasVideos ? 'SERIES' : 'MOVIE',
+              'episodes': _hasVideos ? (_meta['videos']?.length ?? 1) : 1,
+            },
+            episodes: _hasVideos ? _meta['videos'] : null,
+          );
+        },
+      );
+      return;
     }
 
+    String streamUrl = stream['url'] ?? '';
     if (streamUrl.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Invalid stream URL.')),
