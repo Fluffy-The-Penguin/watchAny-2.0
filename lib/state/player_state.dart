@@ -135,10 +135,13 @@ class PlayerState extends ChangeNotifier {
     });
 
     // Start playing
-    _player!.open(Media(streamUrl));
+    _player!.open(Media(streamUrl)).then((_) {
+      if (anilistId != null && episodeNumber != null) {
+        _resumePlayback(anilistId, episodeNumber);
+      }
+    });
 
     if (anilistId != null && episodeNumber != null) {
-      _resumePlayback(anilistId, episodeNumber);
       _addToHistory(anilistId, episodeNumber);
       SharedPreferences.getInstance().then((prefs) {
         prefs.setString('playback_stream_${anilistId}_$episodeNumber', streamUrl);
