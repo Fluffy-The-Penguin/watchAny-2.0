@@ -44,43 +44,49 @@ class _MoviesHomePageState extends State<MoviesHomePage> {
     List<Map<String, dynamic>> loadedRows = [];
     Map<String, dynamic>? featured;
 
+    final List<Future<void>> tasks = [];
+
     for (final addon in enabledCatalogAddons) {
       for (final cat in addon.catalogs) {
         final type = cat['type'] ?? 'movie';
         final id = cat['id'] ?? '';
         final name = cat['name'] ?? addon.name;
 
-        // Fetch catalog items from the addon endpoint
-        try {
-          final catalogUrl = '${addon.url.replaceAll('/manifest.json', '')}/catalog/$type/$id.json';
-          final response = await http.get(Uri.parse(catalogUrl)).timeout(const Duration(seconds: 8));
+        tasks.add(() async {
+          try {
+            final catalogUrl = '${addon.url.replaceAll('/manifest.json', '')}/catalog/$type/$id.json';
+            final response = await http.get(Uri.parse(catalogUrl)).timeout(const Duration(seconds: 5));
 
-          if (response.statusCode == 200) {
-            final data = jsonDecode(response.body);
-            final List metas = data['metas'] ?? [];
-            if (metas.isNotEmpty) {
-              loadedRows.add({
-                'addonName': addon.name,
-                'catalogName': name,
-                'type': type,
-                'items': metas,
-              });
+            if (response.statusCode == 200) {
+              final data = jsonDecode(response.body);
+              final List metas = data['metas'] ?? [];
+              if (metas.isNotEmpty) {
+                loadedRows.add({
+                  'addonName': addon.name,
+                  'catalogName': name,
+                  'type': type,
+                  'items': metas,
+                });
 
-              // Set the first high-rated movie/series with a background image as the featured item
-              if (featured == null) {
-                for (final item in metas) {
-                  if (item['background'] != null && item['background'].toString().isNotEmpty) {
-                    featured = item;
-                    break;
+                if (featured == null) {
+                  for (final item in metas) {
+                    if (item['background'] != null && item['background'].toString().isNotEmpty) {
+                      featured = item;
+                      break;
+                    }
                   }
                 }
               }
             }
+          } catch (e) {
+            debugPrint('Error loading catalog $name from ${addon.name}: $e');
           }
-        } catch (e) {
-          debugPrint('Error loading catalog $name from ${addon.name}: $e');
-        }
+        }());
       }
+    }
+
+    if (tasks.isNotEmpty) {
+      await Future.wait(tasks);
     }
 
     if (mounted) {
