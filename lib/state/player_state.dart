@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
@@ -140,6 +141,8 @@ class PlayerState extends ChangeNotifier {
       _resumePlayback(anilistId, episodeNumber);
     }
 
+    _saveMediaMetadata();
+
     notifyListeners();
   }
 
@@ -228,10 +231,77 @@ class PlayerState extends ChangeNotifier {
       SharedPreferences.getInstance().then((prefs) {
         prefs.setInt('playback_pos_$key', pos);
         prefs.setInt('playback_dur_$key', dur);
+        prefs.setInt('continue_watching_timestamp_$id', DateTime.now().millisecondsSinceEpoch);
+        prefs.setInt('continue_watching_last_ep_$id', ep);
       });
 
       _checkCompletion(id, ep, pos, dur);
     }
+  }
+
+  void _saveMediaMetadata() {
+    final id = _anilistId;
+    final med = _media;
+    if (id != null && med != null && med is Map) {
+      final lightweightMedia = {
+        'id': id,
+        'title': med['title'],
+        'coverImage': med['coverImage'],
+        'averageScore': med['averageScore'],
+        'format': med['format'],
+        'episodes': med['episodes'] ?? _episodeCount,
+      };
+      SharedPreferences.getInstance().then((prefs) {
+        prefs.setString('continue_watching_metadata_$id', jsonEncode(lightweightMedia));
+      });
+    }
+  }
+
+  static Future<List<dynamic>> getContinueWatchingList() async {
+    final prefs = await SharedPreferences.getInstance();
+    final keys = prefs.getKeys();
+    
+    // Find all continue watching metadata keys: continue_watching_metadata_${anilistId}
+    final metadataKeys = keys.where((k) => k.startsWith('continue_watching_metadata_')).toList();
+    
+    final List<Map<String, dynamic>> items = [];
+    
+    for (final key in metadataKeys) {
+      final animeIdStr = key.replaceFirst('continue_watching_metadata_', '');
+      final animeId = int.tryParse(animeIdStr);
+      if (animeId == null) continue;
+      
+      // Find the last episode they were watching
+      final timestamp = prefs.getInt('continue_watching_timestamp_$animeId') ?? 0;
+      final lastEp = prefs.getInt('continue_watching_last_ep_$animeId') ?? 1;
+      
+      // Fetch progress for this episode
+      final pos = prefs.getInt('playback_pos_${animeId}_$lastEp');
+      final dur = prefs.getInt('playback_dur_${animeId}_$lastEp');
+      
+      if (pos != null && dur != null) {
+        final ratio = pos / dur;
+        // Only include if they watched less than 90%
+        if (ratio > 0.001 && ratio < 0.90) {
+          final metadataJson = prefs.getString(key);
+          if (metadataJson != null) {
+            try {
+              final mediaMap = jsonDecode(metadataJson) as Map<String, dynamic>;
+              items.add({
+                'media': mediaMap,
+                'timestamp': timestamp,
+              });
+            } catch (_) {}
+          }
+        }
+      }
+    }
+    
+    // Sort items by timestamp descending (most recently watched first)
+    items.sort((a, b) => (b['timestamp'] as int).compareTo(a['timestamp'] as int));
+    
+    // Return only the media maps
+    return items.map((item) => item['media']).toList();
   }
 
   Future<void> _resumePlayback(int animeId, int episodeNumber) async {

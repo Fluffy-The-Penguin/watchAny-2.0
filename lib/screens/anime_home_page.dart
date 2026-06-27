@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../services/anilist_service.dart';
 import '../state/navigation_state.dart';
+import '../state/player_state.dart';
 import '../widgets/smooth_scroll_area.dart';
 
 class AnimeHomePage extends StatefulWidget {
@@ -185,6 +186,25 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                ListenableBuilder(
+                  listenable: PlayerState(),
+                  builder: (context, _) {
+                    return FutureBuilder<List<dynamic>>(
+                      future: PlayerState.getContinueWatchingList(),
+                      builder: (context, snapshot) {
+                        if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                          return const SizedBox.shrink();
+                        }
+                        return _RailwayTrack(
+                          title: 'Continue Watching',
+                          initialItems: snapshot.data!,
+                          onLoadMore: (page) async => const [],
+                          navigationState: widget.navigationState,
+                        );
+                      },
+                    );
+                  },
+                ),
                 const SizedBox(height: 24.0),
                 if (_trending.isNotEmpty)
                   _RailwayTrack(
@@ -593,15 +613,28 @@ class _RailwayTrack extends StatefulWidget {
 
 class _RailwayTrackState extends State<_RailwayTrack> {
   final ScrollController _scrollController = ScrollController();
-  late final List<dynamic> _items = List.from(widget.initialItems);
+  late List<dynamic> _items = List.from(widget.initialItems);
   int _currentPage = 1;
   bool _isLoadingMore = false;
-  bool _hasMore = true;
+  late bool _hasMore = widget.title != 'Continue Watching';
 
   @override
   void initState() {
     super.initState();
     _scrollController.addListener(_onScroll);
+  }
+
+  @override
+  void didUpdateWidget(covariant _RailwayTrack oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.initialItems != oldWidget.initialItems) {
+      setState(() {
+        _items = List.from(widget.initialItems);
+        _currentPage = 1;
+        _isLoadingMore = false;
+        _hasMore = widget.title != 'Continue Watching';
+      });
+    }
   }
 
   @override
