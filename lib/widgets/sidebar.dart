@@ -3,10 +3,14 @@ import '../state/navigation_state.dart';
 
 class Sidebar extends StatelessWidget {
   final NavigationState state;
+  final VoidCallback? onHistoryTap;
+  final VoidCallback? onNotificationsTap;
 
   const Sidebar({
     super.key,
     required this.state,
+    this.onHistoryTap,
+    this.onNotificationsTap,
   });
 
   @override
@@ -89,6 +93,22 @@ class Sidebar extends StatelessWidget {
                     isSelected: state.currentPage == TabPage.downloads,
                     isExpanded: isExpanded,
                     onTap: () => state.setPage(TabPage.downloads),
+                  ),
+                  const SizedBox(height: 8.0),
+                  _SidebarItem(
+                    icon: Icons.history,
+                    label: 'History',
+                    isSelected: state.currentPage == TabPage.history,
+                    isExpanded: isExpanded,
+                    onTap: onHistoryTap ?? () => state.setPage(TabPage.history),
+                  ),
+                  const SizedBox(height: 8.0),
+                  _SidebarItem(
+                    icon: Icons.notifications,
+                    label: 'Notifications',
+                    isSelected: state.currentPage == TabPage.notifications,
+                    isExpanded: isExpanded,
+                    onTap: onNotificationsTap ?? () => state.setPage(TabPage.notifications),
                   ),
                   const SizedBox(height: 8.0),
                   _SidebarItem(

@@ -135,74 +135,138 @@ class _SchedulePageState extends State<SchedulePage> {
     );
   }
 
-  Widget _buildHeader() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
-      decoration: BoxDecoration(
-        color: const Color(0xFF0F0F11),
-        borderRadius: BorderRadius.circular(12.0),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
-      ),
-      child: Row(
+  Widget _buildHeader(bool isMobile) {
+    if (isMobile) {
+      return Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          _buildNavButton(
-            icon: Icons.chevron_left,
-            onTap: _prevMonth,
-          ),
-          Column(
-            mainAxisSize: MainAxisSize.min,
+          Row(
             children: [
+              _buildNavButton(icon: Icons.chevron_left, onTap: _prevMonth),
+              const SizedBox(width: 12.0),
               Text(
                 _months[_selectedMonth.month - 1],
                 style: const TextStyle(
                   color: Colors.white,
-                  fontSize: 18.0,
+                  fontSize: 16.0,
                   fontWeight: FontWeight.bold,
                   fontFamily: 'Outfit',
                 ),
               ),
-              const SizedBox(height: 4.0),
-              Row(
-                mainAxisSize: MainAxisSize.min,
+              const SizedBox(width: 12.0),
+              _buildNavButton(icon: Icons.chevron_right, onTap: _nextMonth),
+            ],
+          ),
+          _buildMyListToggle(),
+        ],
+      );
+    }
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        const Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Airing Calendar',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 24.0,
+                fontWeight: FontWeight.bold,
+                fontFamily: 'Outfit',
+              ),
+            ),
+            SizedBox(height: 4.0),
+            Text(
+              'View upcoming episodes and their air times for the current season.',
+              style: TextStyle(
+                color: Colors.white38,
+                fontSize: 13.0,
+                fontFamily: 'Outfit',
+              ),
+            ),
+          ],
+        ),
+        Row(
+          children: [
+            _buildMyListToggle(),
+            const SizedBox(width: 20.0),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 4.0, vertical: 4.0),
+              decoration: BoxDecoration(
+                color: const Color(0xFF0F0F11),
+                borderRadius: BorderRadius.circular(10.0),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
+              ),
+              child: Row(
                 children: [
-                  SizedBox(
-                    height: 20,
-                    width: 32,
-                    child: FittedBox(
-                      fit: BoxFit.fill,
-                      child: Switch(
-                        value: _myListOnly,
-                        onChanged: (val) {
-                          setState(() {
-                            _myListOnly = val;
-                          });
-                        },
-                        activeColor: Colors.white,
-                        activeTrackColor: Colors.white30,
-                        inactiveThumbColor: Colors.white38,
-                        inactiveTrackColor: Colors.white.withValues(alpha: 0.05),
+                  _buildNavButton(icon: Icons.chevron_left, onTap: _prevMonth),
+                  Container(
+                    constraints: const BoxConstraints(minWidth: 100.0),
+                    alignment: Alignment.center,
+                    child: Text(
+                      '${_months[_selectedMonth.month - 1]} ${_selectedMonth.year}',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 14.0,
+                        fontWeight: FontWeight.bold,
+                        fontFamily: 'Outfit',
                       ),
                     ),
                   ),
-                  const SizedBox(width: 6.0),
-                  const Text(
-                    'My list',
-                    style: TextStyle(
-                      color: Colors.white70,
-                      fontSize: 12.0,
-                      fontFamily: 'Outfit',
-                    ),
-                  ),
+                  _buildNavButton(icon: Icons.chevron_right, onTap: _nextMonth),
                 ],
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMyListToggle() {
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFF0F0F11),
+        borderRadius: BorderRadius.circular(10.0),
+        border: Border.all(
+          color: _myListOnly 
+              ? const Color(0xFF3A86FF).withValues(alpha: 0.3) 
+              : Colors.white.withValues(alpha: 0.05)
+        ),
+      ),
+      child: InkWell(
+        onTap: () {
+          setState(() {
+            _myListOnly = !_myListOnly;
+          });
+        },
+        borderRadius: BorderRadius.circular(10.0),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                _myListOnly ? Icons.bookmark : Icons.bookmark_border,
+                color: _myListOnly ? const Color(0xFF3A86FF) : Colors.white54,
+                size: 14.0,
+              ),
+              const SizedBox(width: 6.0),
+              Text(
+                'My List Only',
+                style: TextStyle(
+                  color: _myListOnly ? Colors.white : Colors.white54,
+                  fontSize: 12.0,
+                  fontWeight: _myListOnly ? FontWeight.bold : FontWeight.normal,
+                  fontFamily: 'Outfit',
+                ),
               ),
             ],
           ),
-          _buildNavButton(
-            icon: Icons.chevron_right,
-            onTap: _nextMonth,
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -859,42 +923,12 @@ class _SchedulePageState extends State<SchedulePage> {
                     // Spacing to clear floating custom title bar on desktop
                     SizedBox(height: isMobile ? 8.0 : 58.0),
 
-                    // Top Airing Calendar Title (Desktop/Widescreen Only)
-                    if (!isMobile)
-                      const Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 20.0, vertical: 8.0),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Airing Calendar',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 24.0,
-                                fontWeight: FontWeight.bold,
-                                fontFamily: 'Outfit',
-                              ),
-                            ),
-                            SizedBox(height: 4.0),
-                            Text(
-                              'View upcoming episodes and their air times for the current season.',
-                              style: TextStyle(
-                                color: Colors.white38,
-                                fontSize: 13.0,
-                                fontFamily: 'Outfit',
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-
-                    // Month Navigation Header
                     Padding(
                       padding: EdgeInsets.symmetric(
                         horizontal: isMobile ? 12.0 : 20.0,
-                        vertical: 8.0,
+                        vertical: 12.0,
                       ),
-                      child: _buildHeader(),
+                      child: _buildHeader(isMobile),
                     ),
 
                     // Main Content Section

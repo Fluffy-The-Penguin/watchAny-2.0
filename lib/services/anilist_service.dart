@@ -551,4 +551,50 @@ class AnilistService {
 
     return allSchedules;
   }
+
+  Future<List<dynamic>> fetchLibraryDetails(List<int> ids) async {
+    if (ids.isEmpty) return [];
+    
+    const query = r'''
+      query($ids: [Int]) {
+        Page(page: 1, perPage: 50) {
+          media(id_in: $ids, type: ANIME) {
+            id
+            title {
+              romaji
+              english
+            }
+            coverImage {
+              large
+            }
+            status
+            episodes
+            nextAiringEpisode {
+              episode
+              airingAt
+            }
+          }
+        }
+      }
+    ''';
+    
+    try {
+      final response = await http.post(
+        Uri.parse(_endpoint),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'query': query,
+          'variables': {'ids': ids},
+        }),
+      );
+      
+      if (response.statusCode == 200) {
+        final body = jsonDecode(response.body);
+        return body['data']?['Page']?['media'] ?? [];
+      }
+    } catch (e) {
+      // ignore
+    }
+    return [];
+  }
 }

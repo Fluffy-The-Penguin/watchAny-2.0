@@ -2,6 +2,8 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import '../state/navigation_state.dart';
 import '../state/player_state.dart';
+import '../state/library_state.dart';
+import '../services/anilist_service.dart';
 import '../widgets/custom_title_bar.dart';
 import '../widgets/sidebar.dart';
 import '../widgets/mini_player.dart';
@@ -13,6 +15,8 @@ import 'settings_page.dart';
 import 'downloads_page.dart';
 import 'player_screen.dart';
 import 'schedule_page.dart';
+import 'history_page.dart';
+import 'notifications_page.dart';
 
 class ShellLayout extends StatelessWidget {
   final NavigationState navigationState;
@@ -39,6 +43,10 @@ class ShellLayout extends StatelessWidget {
           key: ValueKey('schedule_$mode'),
           navigationState: navigationState,
         );
+      case TabPage.history:
+        return HistoryPage(key: ValueKey('history_$mode'), navigationState: navigationState);
+      case TabPage.notifications:
+        return NotificationsPage(key: ValueKey('notifications_$mode'), navigationState: navigationState);
     }
   }
 
@@ -54,25 +62,25 @@ class ShellLayout extends StatelessWidget {
         return 'Schedule';
       case TabPage.downloads:
         return 'Downloads';
+      case TabPage.history:
+        return 'Watch History';
+      case TabPage.notifications:
+        return 'Notifications';
       case TabPage.settings:
         return 'Settings';
     }
   }
 
-  int _getTabIndex(TabPage page) {
+
+  int _getTabIndexMobile(TabPage page) {
     switch (page) {
-      case TabPage.home:
-        return 0;
-      case TabPage.search:
-        return 1;
-      case TabPage.library:
-        return 2;
-      case TabPage.schedule:
-        return 3;
-      case TabPage.downloads:
-        return 4;
-      case TabPage.settings:
-        return 5;
+      case TabPage.home: return 0;
+      case TabPage.search: return 1;
+      case TabPage.library: return 2;
+      case TabPage.schedule: return 3;
+      case TabPage.downloads: return 4;
+      case TabPage.settings: return 5;
+      default: return 0;
     }
   }
 
@@ -89,6 +97,10 @@ class ShellLayout extends StatelessWidget {
       case 4:
         return TabPage.downloads;
       case 5:
+        return TabPage.history;
+      case 6:
+        return TabPage.notifications;
+      case 7:
         return TabPage.settings;
       default:
         return TabPage.home;
@@ -192,13 +204,33 @@ class ShellLayout extends StatelessWidget {
                         )
                       : null,
                   actions: [
-                    // Mode Selector Button for Mobile
-                    if (selectedAnimeId == null)
+                    if (selectedAnimeId == null) ...[
+                      IconButton(
+                        icon: const Icon(Icons.history, color: Colors.white70),
+                        tooltip: 'History',
+                        onPressed: () => _showSidebarPopup(
+                          context: context,
+                          title: 'History',
+                          content: _HistoryPopupContent(navigationState: navigationState),
+                          onViewAll: () => navigationState.setPage(TabPage.history),
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.notifications, color: Colors.white70),
+                        tooltip: 'Notifications',
+                        onPressed: () => _showSidebarPopup(
+                          context: context,
+                          title: 'Notifications',
+                          content: _NotificationsPopupContent(navigationState: navigationState),
+                          onViewAll: () => navigationState.setPage(TabPage.notifications),
+                        ),
+                      ),
                       IconButton(
                         icon: const Icon(Icons.swap_horiz, color: Colors.white70),
                         tooltip: 'Switch Mode',
                         onPressed: () => _showMobileModeSelector(context),
                       ),
+                    ],
                   ],
                 )
               : null,
@@ -207,7 +239,7 @@ class ShellLayout extends StatelessWidget {
                   backgroundColor: const Color(0xFF0F0F11),
                   selectedItemColor: Colors.white,
                   unselectedItemColor: Colors.white30,
-                  currentIndex: _getTabIndex(currentPage),
+                  currentIndex: _getTabIndexMobile(currentPage),
                   type: BottomNavigationBarType.fixed,
                   selectedLabelStyle: const TextStyle(fontFamily: 'Outfit', fontSize: 11),
                   unselectedLabelStyle: const TextStyle(fontFamily: 'Outfit', fontSize: 11),
@@ -220,7 +252,7 @@ class ShellLayout extends StatelessWidget {
                     BottomNavigationBarItem(icon: Icon(Icons.settings), label: 'Settings'),
                   ],
                   onTap: (index) {
-                    navigationState.setPage(_getTabPageFromIndex(index));
+                    navigationState.setPage(_getTabPageFromIndex(index == 5 ? 7 : index));
                   },
                 )
               : null,
@@ -238,7 +270,22 @@ class ShellLayout extends StatelessWidget {
                 Row(
                   children: [
                     // Left Sidebar (Desktop only)
-                    if (!isMobile) Sidebar(state: navigationState),
+                    if (!isMobile)
+                      Sidebar(
+                        state: navigationState,
+                        onHistoryTap: () => _showSidebarPopup(
+                          context: context,
+                          title: 'History',
+                          content: _HistoryPopupContent(navigationState: navigationState),
+                          onViewAll: () => navigationState.setPage(TabPage.history),
+                        ),
+                        onNotificationsTap: () => _showSidebarPopup(
+                          context: context,
+                          title: 'Notifications',
+                          content: _NotificationsPopupContent(navigationState: navigationState),
+                          onViewAll: () => navigationState.setPage(TabPage.notifications),
+                        ),
+                      ),
                     
                     // Right Content Window (Stack containing full content and floating controls)
                     Expanded(
@@ -304,6 +351,322 @@ class ShellLayout extends StatelessWidget {
               ],
             ),
           ),
+        );
+      },
+    );
+  }
+
+  void _showSidebarPopup({
+    required BuildContext context,
+    required String title,
+    required Widget content,
+    required VoidCallback onViewAll,
+  }) {
+    showDialog(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: 0.4),
+      builder: (context) {
+        final double screenWidth = MediaQuery.of(context).size.width;
+        final bool isMobile = screenWidth < 650;
+        
+        return Stack(
+          children: [
+            Positioned(
+              left: isMobile ? 16.0 : 68.0,
+              right: isMobile ? 16.0 : null,
+              top: isMobile ? null : 180.0,
+              bottom: isMobile ? 80.0 : null,
+              child: Material(
+                color: Colors.transparent,
+                child: Container(
+                  width: isMobile ? screenWidth - 32.0 : 320.0,
+                  height: 340.0,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF0F0F11),
+                    borderRadius: BorderRadius.circular(12.0),
+                    border: Border.all(color: Colors.white.withValues(alpha: 0.1), width: 1.0),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.85),
+                        blurRadius: 16.0,
+                        spreadRadius: 4.0,
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              title,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 14.0,
+                                fontWeight: FontWeight.bold,
+                                fontFamily: 'Outfit',
+                              ),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.close, color: Colors.white54, size: 16.0),
+                              onPressed: () => Navigator.pop(context),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Container(height: 1.0, color: Colors.white.withValues(alpha: 0.05)),
+                      Expanded(child: content),
+                      Container(height: 1.0, color: Colors.white.withValues(alpha: 0.05)),
+                      InkWell(
+                        onTap: () {
+                          Navigator.pop(context);
+                          onViewAll();
+                        },
+                        child: Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(vertical: 12.0),
+                          alignment: Alignment.center,
+                          child: Text(
+                            title == 'History' ? 'View Full History' : 'See All Notifications',
+                            style: const TextStyle(
+                              color: Color(0xFF3A86FF),
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12.0,
+                              fontFamily: 'Outfit',
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _HistoryPopupContent extends StatefulWidget {
+  final NavigationState navigationState;
+  const _HistoryPopupContent({required this.navigationState});
+
+  @override
+  State<_HistoryPopupContent> createState() => _HistoryPopupContentState();
+}
+
+class _HistoryPopupContentState extends State<_HistoryPopupContent> {
+  bool _isLoading = true;
+  List<Map<String, dynamic>> _items = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final items = await PlayerState.getHistoryList();
+    if (mounted) {
+      setState(() {
+        _items = items.take(4).toList();
+        _isLoading = false;
+      });
+    }
+  }
+
+  String _formatEpisodeRanges(List<int> episodes) {
+    if (episodes.isEmpty) return 'None';
+    final sorted = List<int>.from(episodes)..sort();
+    final List<String> parts = [];
+    int start = sorted[0];
+    int end = sorted[0];
+    for (int i = 1; i < sorted.length; i++) {
+      if (sorted[i] == end + 1) {
+        end = sorted[i];
+      } else {
+        if (start == end) {
+          parts.add('$start');
+        } else {
+          parts.add('$start-$end');
+        }
+        start = sorted[i];
+        end = sorted[i];
+      }
+    }
+    if (start == end) {
+      parts.add('$start');
+    } else {
+      parts.add('$start-$end');
+    }
+    return parts.join(', ');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.0));
+    }
+    if (_items.isEmpty) {
+      return const Center(child: Text('No watch history found', style: TextStyle(color: Colors.white38, fontSize: 12.0)));
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 4.0),
+      itemCount: _items.length,
+      itemBuilder: (context, index) {
+        final item = _items[index];
+        final media = item['media'] ?? {};
+        final title = media['title'] ?? 'Untitled';
+        final cover = media['coverImage'] ?? '';
+        final eps = item['episodes'] as List<int>;
+
+        return ListTile(
+          dense: true,
+          contentPadding: const EdgeInsets.symmetric(vertical: 4.0, horizontal: 4.0),
+          leading: ClipRRect(
+            borderRadius: BorderRadius.circular(4.0),
+            child: SizedBox(
+              width: 32.0,
+              height: 46.0,
+              child: cover.isNotEmpty ? Image.network(cover, fit: BoxFit.cover) : Container(color: Colors.grey[950]),
+            ),
+          ),
+          title: Text(
+            title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12.0),
+          ),
+          subtitle: Text(
+            'Episodes: ${_formatEpisodeRanges(eps)}',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: Color(0xFF3A86FF), fontSize: 10.5),
+          ),
+          onTap: () {
+            Navigator.pop(context);
+            widget.navigationState.selectAnime(item['id']);
+          },
+        );
+      },
+    );
+  }
+}
+
+class _NotificationsPopupContent extends StatefulWidget {
+  final NavigationState navigationState;
+  const _NotificationsPopupContent({required this.navigationState});
+
+  @override
+  State<_NotificationsPopupContent> createState() => _NotificationsPopupContentState();
+}
+
+class _NotificationsPopupContentState extends State<_NotificationsPopupContent> {
+  bool _isLoading = true;
+  List<Map<String, dynamic>> _items = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final libraryAnime = LibraryState().items.where((item) => item.mode == 'anime').toList();
+    if (libraryAnime.isEmpty) {
+      if (mounted) setState(() { _items = []; _isLoading = false; });
+      return;
+    }
+
+    final ids = libraryAnime.map((item) => item.id).toList();
+    try {
+      final List<dynamic> details = await AnilistService().fetchLibraryDetails(ids);
+      final List<Map<String, dynamic>> generated = [];
+
+      for (var media in details) {
+        final id = media['id'];
+        final localItem = libraryAnime.firstWhere((item) => item.id == id);
+        final int? nextEpisode = media['nextAiringEpisode']?['episode'];
+        final int totalEpisodes = media['episodes'] ?? 0;
+        final int latestReleased = nextEpisode != null ? (nextEpisode - 1) : totalEpisodes;
+
+        if (latestReleased > localItem.watchedEpisodes) {
+          final int startNew = localItem.watchedEpisodes + 1;
+          final int endNew = latestReleased;
+
+          String message = startNew == endNew
+              ? 'Episode $startNew is out!'
+              : 'Episodes $startNew-$endNew are out!';
+
+          generated.add({
+            'id': id,
+            'title': media['title']?['english'] ?? media['title']?['romaji'] ?? 'Untitled',
+            'cover': media['coverImage']?['large'] ?? '',
+            'message': message,
+          });
+        }
+      }
+
+      if (mounted) {
+        setState(() {
+          _items = generated.take(4).toList();
+          _isLoading = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() { _isLoading = false; });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.0));
+    }
+    if (_items.isEmpty) {
+      return const Center(child: Text('All caught up!', style: TextStyle(color: Colors.white38, fontSize: 12.0)));
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 4.0),
+      itemCount: _items.length,
+      itemBuilder: (context, index) {
+        final item = _items[index];
+        final title = item['title'];
+        final cover = item['cover'];
+        final message = item['message'];
+
+        return ListTile(
+          dense: true,
+          contentPadding: const EdgeInsets.symmetric(vertical: 4.0, horizontal: 4.0),
+          leading: ClipRRect(
+            borderRadius: BorderRadius.circular(4.0),
+            child: SizedBox(
+              width: 32.0,
+              height: 46.0,
+              child: cover.isNotEmpty ? Image.network(cover, fit: BoxFit.cover) : Container(color: Colors.grey[950]),
+            ),
+          ),
+          title: Text(
+            title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12.0),
+          ),
+          subtitle: Text(
+            message,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: Color(0xFF2EC4B6), fontSize: 10.5),
+          ),
+          onTap: () {
+            Navigator.pop(context);
+            widget.navigationState.selectAnime(item['id']);
+          },
         );
       },
     );

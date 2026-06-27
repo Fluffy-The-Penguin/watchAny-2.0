@@ -12,6 +12,8 @@ enum TabPage {
   library,
   schedule,
   downloads,
+  history,
+  notifications,
   settings,
 }
 

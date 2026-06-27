@@ -139,6 +139,7 @@ class PlayerState extends ChangeNotifier {
 
     if (anilistId != null && episodeNumber != null) {
       _resumePlayback(anilistId, episodeNumber);
+      _addToHistory(anilistId, episodeNumber);
       SharedPreferences.getInstance().then((prefs) {
         prefs.setString('playback_stream_${anilistId}_$episodeNumber', streamUrl);
         prefs.setString('playback_title_${anilistId}_$episodeNumber', title);
@@ -209,6 +210,7 @@ class PlayerState extends ChangeNotifier {
     if (_anilistId != null) {
       final id = _anilistId!;
       _resumePlayback(id, episodeNumber);
+      _addToHistory(id, episodeNumber);
       SharedPreferences.getInstance().then((prefs) {
         prefs.setString('playback_stream_${id}_$episodeNumber', streamUrl);
         prefs.setString('playback_title_${id}_$episodeNumber', title);
@@ -376,5 +378,61 @@ class PlayerState extends ChangeNotifier {
     _player?.dispose();
     _player = null;
     _controller = null;
+  }
+
+  void _addToHistory(int anilistId, int episodeNumber) async {
+    final prefs = await SharedPreferences.getInstance();
+    final String key = 'watched_episodes_$anilistId';
+    List<String> list = prefs.getStringList(key) ?? [];
+    final String epStr = episodeNumber.toString();
+    if (!list.contains(epStr)) {
+      list.add(epStr);
+      await prefs.setStringList(key, list);
+    }
+    await prefs.setInt('history_last_watched_timestamp_$anilistId', DateTime.now().millisecondsSinceEpoch);
+  }
+
+  static Future<List<Map<String, dynamic>>> getHistoryList() async {
+    final prefs = await SharedPreferences.getInstance();
+    final List<Map<String, dynamic>> history = [];
+    
+    final keys = prefs.getKeys();
+    for (var key in keys) {
+      if (key.startsWith('watched_episodes_')) {
+        final idStr = key.replaceFirst('watched_episodes_', '');
+        final int? id = int.tryParse(idStr);
+        if (id == null) continue;
+        
+        final metadataStr = prefs.getString('continue_watching_metadata_$id');
+        if (metadataStr == null) continue;
+        
+        try {
+          final metadata = jsonDecode(metadataStr);
+          final timestamp = prefs.getInt('history_last_watched_timestamp_$id') ?? 0;
+          final List<String> epStrs = prefs.getStringList(key) ?? [];
+          final List<int> eps = epStrs.map((e) => int.parse(e)).toList();
+          
+          history.add({
+            'id': id,
+            'media': metadata,
+            'episodes': eps,
+            'timestamp': timestamp,
+          });
+        } catch (_) {}
+      }
+    }
+    
+    history.sort((a, b) => b['timestamp'].compareTo(a['timestamp']));
+    return history;
+  }
+
+  static Future<void> clearHistory() async {
+    final prefs = await SharedPreferences.getInstance();
+    final keys = prefs.getKeys();
+    for (var key in keys) {
+      if (key.startsWith('watched_episodes_') || key.startsWith('history_last_watched_timestamp_')) {
+        await prefs.remove(key);
+      }
+    }
   }
 }
