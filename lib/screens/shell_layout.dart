@@ -585,8 +585,12 @@ class _HistoryPopupContentState extends State<_HistoryPopupContent> {
       itemBuilder: (context, index) {
         final item = _items[index];
         final media = item['media'] ?? {};
-        final title = media['title'] ?? 'Untitled';
-        final cover = media['coverImage'] ?? '';
+        final title = media['title'] is Map
+            ? (media['title']['english'] ?? media['title']['romaji'] ?? 'Untitled')
+            : (media['title'] ?? 'Untitled');
+        final cover = media['coverImage'] is Map
+            ? (media['coverImage']['large'] ?? media['coverImage']['extraLarge'] ?? '')
+            : (media['coverImage'] ?? '');
         final eps = item['episodes'] as List<int>;
 
         return ListTile(

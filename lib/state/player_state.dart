@@ -252,16 +252,28 @@ class PlayerState extends ChangeNotifier {
 
   void _saveMediaMetadata() {
     final id = _anilistId;
-    final med = _media;
-    if (id != null && med != null && med is Map) {
-      final lightweightMedia = {
-        'id': id,
-        'title': med['title'],
-        'coverImage': med['coverImage'],
-        'averageScore': med['averageScore'],
-        'format': med['format'],
-        'episodes': med['episodes'] ?? _episodeCount,
-      };
+    if (id != null) {
+      final med = _media;
+      Map<String, dynamic> lightweightMedia;
+      if (med != null && med is Map) {
+        lightweightMedia = {
+          'id': id,
+          'title': med['title'],
+          'coverImage': med['coverImage'],
+          'averageScore': med['averageScore'],
+          'format': med['format'],
+          'episodes': med['episodes'] ?? _episodeCount,
+        };
+      } else {
+        lightweightMedia = {
+          'id': id,
+          'title': _title ?? 'Anime #$id',
+          'coverImage': '',
+          'averageScore': 0.0,
+          'format': (_isMovie == true) ? 'MOVIE' : 'TV',
+          'episodes': _episodeCount,
+        };
+      }
       SharedPreferences.getInstance().then((prefs) {
         prefs.setString('continue_watching_metadata_$id', jsonEncode(lightweightMedia));
       });

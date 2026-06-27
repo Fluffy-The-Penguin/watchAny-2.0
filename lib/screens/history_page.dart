@@ -218,8 +218,12 @@ class _HistoryPageState extends State<HistoryPage> {
                           itemBuilder: (context, index) {
                             final item = _historyItems[index];
                             final media = item['media'] ?? {};
-                            final title = media['title'] ?? 'Untitled';
-                            final coverUrl = media['coverImage'] ?? '';
+                            final title = media['title'] is Map
+                                ? (media['title']['english'] ?? media['title']['romaji'] ?? 'Untitled')
+                                : (media['title'] ?? 'Untitled');
+                            final coverUrl = media['coverImage'] is Map
+                                ? (media['coverImage']['large'] ?? media['coverImage']['extraLarge'] ?? '')
+                                : (media['coverImage'] ?? '');
                             final format = media['format'] ?? '';
                             final episodes = item['episodes'] as List<int>;
                             final timeAgo = _formatTimeAgo(item['timestamp']);
