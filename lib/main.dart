@@ -55,6 +55,7 @@ void main() async {
   windowManager.waitUntilReadyToShow(windowOptions, () async {
     await windowManager.show();
     await windowManager.focus();
+    await windowManager.setPreventClose(true);
   });
 
   runApp(const MyApp());
@@ -67,12 +68,13 @@ class MyApp extends StatefulWidget {
   State<MyApp> createState() => _MyAppState();
 }
 
-class _MyAppState extends State<MyApp> {
+class _MyAppState extends State<MyApp> with WindowListener {
   final NavigationState _navigationState = NavigationState();
 
   @override
   void initState() {
     super.initState();
+    windowManager.addListener(this);
     _navigationState.addListener(_handleNavigationModeChange);
     // Sync the TorrServer state with the initial navigation mode
     _handleNavigationModeChange();
@@ -80,10 +82,17 @@ class _MyAppState extends State<MyApp> {
 
   @override
   void dispose() {
+    windowManager.removeListener(this);
     _navigationState.removeListener(_handleNavigationModeChange);
     // Stop TorrServer when the app widget is disposed
     TorrServerManager.stop();
     super.dispose();
+  }
+
+  @override
+  void onWindowClose() async {
+    await TorrServerManager.stop();
+    await windowManager.destroy();
   }
 
   void _handleNavigationModeChange() {
