@@ -5,6 +5,7 @@ import '../state/navigation_state.dart';
 import '../services/stremio_addon_service.dart';
 import '../state/player_state.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'movies_details_page.dart';
 
 class MoviesHomePage extends StatefulWidget {
   final NavigationState navigationState;
@@ -417,6 +418,10 @@ class _MoviesHomePageState extends State<MoviesHomePage> {
               // Play/Watch Details Buttons
               ElevatedButton.icon(
                 onPressed: () {
+                  if (_featuredItem != null) {
+                    MovieMetadataCache.placeholders[id] = Map<String, dynamic>.from(_featuredItem!);
+                    MovieMetadataCache.placeholders['$type:$id'] = Map<String, dynamic>.from(_featuredItem!);
+                  }
                   widget.navigationState.selectMovie('$type:$id');
                 },
                 icon: const Icon(Icons.info_outline, color: Colors.black, size: 18.0),
@@ -496,6 +501,8 @@ class _MovieRailwayTrackState extends State<_MovieRailwayTrack> {
                     onTap: () {
                       final type = item['type'] ?? 'movie';
                       final id = item['id'] ?? '';
+                      MovieMetadataCache.placeholders[id] = Map<String, dynamic>.from(item);
+                      MovieMetadataCache.placeholders['$type:$id'] = Map<String, dynamic>.from(item);
                       widget.navigationState.selectMovie('$type:$id');
                     },
                   );

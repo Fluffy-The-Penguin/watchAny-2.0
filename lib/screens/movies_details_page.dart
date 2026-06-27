@@ -9,6 +9,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../services/extension_service.dart';
 import '../widgets/torrent_selector_panel.dart';
 
+class MovieMetadataCache {
+  static final Map<String, Map<String, dynamic>> placeholders = {};
+}
+
 class MovieDetailsPage extends StatefulWidget {
   final String movieId; // Format: "type:imdbId" (e.g. "movie:tt11378946")
   final NavigationState navigationState;
@@ -45,6 +49,10 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
   void initState() {
     super.initState();
     _parseId();
+    final cached = MovieMetadataCache.placeholders[_realId] ?? MovieMetadataCache.placeholders[widget.movieId];
+    if (cached != null) {
+      _meta = Map<String, dynamic>.from(cached);
+    }
     _loadMetadata();
   }
 
@@ -110,6 +118,12 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
     }
 
     if (metaData == null) {
+      if (_meta.isNotEmpty) {
+        metaData = Map<String, dynamic>.from(_meta);
+      }
+    }
+
+    if (metaData == null) {
       setState(() {
         _error = 'Failed to load movie details. Check internet or addon connection.';
         _isLoading = false;
@@ -118,13 +132,25 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
     }
 
     // Process seasons and episodes if it's a TV series or playlist
-    final bool hasVideos = metaData['videos'] != null && (metaData['videos'] as List).isNotEmpty;
+    var videosList = metaData['videos'] != null ? List<dynamic>.from(metaData['videos']) : [];
+    if (videosList.isEmpty && (metaData['type'] == 'series' || metaData['type'] == 'SERIES')) {
+      videosList = [
+        {
+          'id': '$_realId:1:1',
+          'episode': 1,
+          'season': 1,
+          'title': 'Episode 1',
+        }
+      ];
+      metaData['videos'] = videosList;
+    }
+
+    final bool hasVideos = videosList.isNotEmpty;
     if (hasVideos) {
-      final List videos = metaData['videos'];
       final Map<int, List<dynamic>> grouped = {};
       final Set<int> seasonNums = {};
 
-      for (final video in videos) {
+      for (final video in videosList) {
         final int s = video['season'] ?? 1;
         seasonNums.add(s);
         grouped.putIfAbsent(s, () => []).add(video);
@@ -146,11 +172,11 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
     final int parsedIntId = _parseImdbIdToInt(_realId);
     final lightweightMedia = {
       'id': _realId,
-      'title': metaData['name'] ?? 'Untitled',
-      'coverImage': metaData['poster'] ?? '',
+      'title': metaData['name'] ?? metaData['title'] ?? 'Untitled',
+      'coverImage': metaData['poster'] ?? metaData['coverImage'] ?? '',
       'averageScore': double.tryParse(metaData['imdbRating']?.toString() ?? '0') ?? 0.0,
       'format': hasVideos ? 'SERIES' : 'MOVIE',
-      'episodes': hasVideos ? (metaData['videos']?.length ?? 1) : 1,
+      'episodes': hasVideos ? videosList.length : 1,
     };
 
     final prefs = await SharedPreferences.getInstance();
@@ -512,7 +538,7 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
         extensionName: stream['addonName'] ?? 'Stremio Addon',
       );
 
-      final mediaTitle = _meta['name'] ?? 'Media';
+      final mediaTitle = _meta['name'] ?? _meta['title'] ?? 'Media';
       final int parsedIntId = _parseImdbIdToInt(_realId);
 
       showDialog(
@@ -531,7 +557,7 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
             media: {
               'id': _realId,
               'title': mediaTitle,
-              'coverImage': _meta['poster'] ?? '',
+              'coverImage': _meta['poster'] ?? _meta['coverImage'] ?? '',
               'averageScore': double.tryParse(_meta['imdbRating']?.toString() ?? '0') ?? 0.0,
               'format': _hasVideos ? 'SERIES' : 'MOVIE',
               'episodes': _hasVideos ? (_meta['videos']?.length ?? 1) : 1,
@@ -551,7 +577,7 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
       return;
     }
 
-    final mediaTitle = _meta['name'] ?? 'Media';
+    final mediaTitle = _meta['name'] ?? _meta['title'] ?? 'Media';
 
     PlayerState().startPlayback(
       streamUrl: streamUrl,
@@ -562,7 +588,7 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
       media: {
         'id': _realId,
         'title': mediaTitle,
-        'coverImage': _meta['poster'] ?? '',
+        'coverImage': _meta['poster'] ?? _meta['coverImage'] ?? '',
         'averageScore': double.tryParse(_meta['imdbRating']?.toString() ?? '0') ?? 0.0,
         'format': _hasVideos ? 'SERIES' : 'MOVIE',
         'episodes': _hasVideos ? (_meta['videos']?.length ?? 1) : 1,
@@ -604,9 +630,9 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
       );
     }
 
-    final background = _meta['background'] ?? _meta['poster'] ?? '';
-    final poster = _meta['poster'] ?? '';
-    final title = _meta['name'] ?? 'Untitled';
+    final background = _meta['background'] ?? _meta['poster'] ?? _meta['coverImage'] ?? '';
+    final poster = _meta['poster'] ?? _meta['coverImage'] ?? '';
+    final title = _meta['name'] ?? _meta['title'] ?? 'Untitled';
     final description = _meta['description'] ?? 'No description available.';
     final rating = _meta['imdbRating']?.toString();
     final releaseInfo = _meta['releaseInfo']?.toString();
