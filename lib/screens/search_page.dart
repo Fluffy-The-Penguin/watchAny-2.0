@@ -27,6 +27,16 @@ class _SearchPageState extends State<SearchPage> {
   List<dynamic> _results = [];
   int _currentPage = 1;
   bool _hasNextPage = false;
+  bool _showMobileFilters = false;
+
+  bool get _hasActiveFilters {
+    return _selectedGenres.isNotEmpty ||
+        _selectedYear != 'ALL' ||
+        _selectedSeason != 'ALL' ||
+        _selectedFormats.isNotEmpty ||
+        _selectedStatus != 'ALL' ||
+        _selectedSorting != 'POPULARITY_DESC';
+  }
 
   // Filter States
   List<String> _selectedGenres = [];
@@ -607,10 +617,46 @@ class _SearchPageState extends State<SearchPage> {
               onPressed: () => _performSearch(),
               child: const Icon(Icons.send, size: 14),
             ),
+            const SizedBox(width: 8.0),
+            Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: () => setState(() => _showMobileFilters = !_showMobileFilters),
+                borderRadius: BorderRadius.circular(8.0),
+                child: Container(
+                  height: 38.0,
+                  width: 38.0,
+                  decoration: BoxDecoration(
+                    color: _hasActiveFilters 
+                        ? Colors.white.withValues(alpha: 0.12) 
+                        : Colors.white.withValues(alpha: 0.03),
+                    borderRadius: BorderRadius.circular(8.0),
+                    border: Border.all(
+                      color: _hasActiveFilters ? Colors.white30 : Colors.white10,
+                    ),
+                  ),
+                  child: Icon(
+                    Icons.tune,
+                    color: _hasActiveFilters ? Colors.white : Colors.white70,
+                    size: 16.0,
+                  ),
+                ),
+              ),
+            ),
           ],
         ),
-        const SizedBox(height: 12.0),
-        ...filterRows,
+        AnimatedCrossFade(
+          firstChild: const SizedBox.shrink(),
+          secondChild: Padding(
+            padding: const EdgeInsets.only(top: 12.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: filterRows,
+            ),
+          ),
+          crossFadeState: _showMobileFilters ? CrossFadeState.showSecond : CrossFadeState.showFirst,
+          duration: const Duration(milliseconds: 200),
+        ),
       ],
     );
   }

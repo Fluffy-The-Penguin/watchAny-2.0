@@ -162,6 +162,7 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
 
         // Trigger TMDB mapping
         _initTmdbMapping();
+        _loadPlaybackProgress();
       }
     } catch (e) {
       if (mounted) {
@@ -171,6 +172,18 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
         });
       }
     }
+  }
+
+  Future<void> _loadPlaybackProgress() async {
+    if (_mergedEpisodes.isEmpty) return;
+    final List<int> epNums = [];
+    for (var i = 0; i < _mergedEpisodes.length; i++) {
+      final ep = _mergedEpisodes[i];
+      final String epTitle = ep['title'] ?? '';
+      final int epNum = ep['isPlaceholder'] == true ? (i + 1) : _extractEpNum(epTitle, i + 1);
+      epNums.add(epNum);
+    }
+    await PlayerState().loadProgressForAnime(widget.animeId, epNums);
   }
 
   Future<void> _initTmdbMapping() async {
@@ -222,6 +235,7 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
               _mergedEpisodes = expanded;
             }
           });
+          _loadPlaybackProgress();
           // Load episode details for the initial page
           await _loadTmdbEpisodesForPage(_activeEpisodePage);
         }
@@ -1627,6 +1641,7 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
             final String finalSite = site;
 
             return _EpisodeCard(
+              animeId: widget.animeId,
               epNum: epNum,
               title: finalTitle,
               thumbnail: finalThumbnail,
@@ -1685,6 +1700,7 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
 }
 
 class _EpisodeCard extends StatefulWidget {
+  final int animeId;
   final int epNum;
   final String title;
   final String thumbnail;
@@ -1692,6 +1708,7 @@ class _EpisodeCard extends StatefulWidget {
   final VoidCallback onTap;
 
   const _EpisodeCard({
+    required this.animeId,
     required this.epNum,
     required this.title,
     required this.thumbnail,
@@ -1708,140 +1725,183 @@ class _EpisodeCardState extends State<_EpisodeCard> {
 
   @override
   Widget build(BuildContext context) {
-    return MouseRegion(
-      onEnter: (_) => setState(() => _isHovered = true),
-      onExit: (_) => setState(() => _isHovered = false),
-      child: GestureDetector(
-        onTap: widget.onTap,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Image area
-            Expanded(
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 150),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(6.0),
-                  border: Border.all(
-                    color: _isHovered ? Colors.white30 : Colors.white10,
-                    width: 1.0,
-                  ),
-                  boxShadow: _isHovered
-                      ? [
-                          BoxShadow(
-                            color: Colors.white.withValues(alpha: 0.05),
-                            blurRadius: 6.0,
-                            spreadRadius: 1.0,
-                          )
-                        ]
-                      : [],
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(5.0),
-                  child: Stack(
-                    children: [
-                      // Thumbnail image
-                      Positioned.fill(
-                        child: AnimatedScale(
-                          scale: _isHovered ? 1.05 : 1.0,
-                          duration: const Duration(milliseconds: 150),
-                          child: widget.thumbnail.isNotEmpty
-                              ? Image.network(
-                                  widget.thumbnail,
-                                  fit: BoxFit.cover,
-                                  cacheWidth: 320, // Optimize episode thumbnail caching (width is ~160px)
-                                  loadingBuilder: (context, child, progress) {
-                                    if (progress == null) return child;
-                                    return Container(color: Colors.grey[950]);
-                                  },
-                                  errorBuilder: (context, error, stackTrace) =>
-                                      _buildEpisodePlaceholder(),
-                                )
-                              : _buildEpisodePlaceholder(),
-                        ),
-                      ),
-                      
-                      // Play Icon overlay
-                      Positioned.fill(
-                        child: AnimatedOpacity(
-                          opacity: _isHovered ? 1.0 : 0.0,
-                          duration: const Duration(milliseconds: 150),
-                          child: Container(
-                            color: Colors.black.withValues(alpha: 0.4),
-                            child: const Center(
-                              child: CircleAvatar(
-                                  radius: 18.0,
-                                  backgroundColor: Colors.white,
-                                  child: Icon(Icons.play_arrow, color: Colors.black, size: 20.0),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
+    return ListenableBuilder(
+      listenable: PlayerState(),
+      builder: (context, _) {
+        final progress = PlayerState().getProgress(widget.animeId, widget.epNum);
+        final double ratio = progress != null && progress.duration > 0
+            ? (progress.position / progress.duration).clamp(0.0, 1.0)
+            : 0.0;
+        final bool isWatched = ratio >= 0.90;
 
-                      // Episode Number Badge (Top-Left)
-                      Positioned(
-                        top: 8.0,
-                        left: 8.0,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6.0, vertical: 3.0),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: 0.75),
-                            borderRadius: BorderRadius.circular(4.0),
-                          ),
-                          child: Text(
-                            'EP ${widget.epNum}',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 9.0,
-                              fontWeight: FontWeight.bold,
-                            ),
+        return MouseRegion(
+          onEnter: (_) => setState(() => _isHovered = true),
+          onExit: (_) => setState(() => _isHovered = false),
+          child: GestureDetector(
+            onTap: widget.onTap,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Image area
+                Expanded(
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 150),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(6.0),
+                      border: Border.all(
+                        color: _isHovered ? Colors.white30 : Colors.white10,
+                        width: 1.0,
+                      ),
+                      boxShadow: _isHovered
+                          ? [
+                              BoxShadow(
+                                color: Colors.white.withValues(alpha: 0.05),
+                                blurRadius: 6.0,
+                                spreadRadius: 1.0,
+                              )
+                            ]
+                          : [],
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(5.0),
+                      child: ColorFiltered(
+                        colorFilter: isWatched
+                            ? const ColorFilter.matrix(<double>[
+                                0.2126, 0.7152, 0.0722, 0, 0,
+                                0.2126, 0.7152, 0.0722, 0, 0,
+                                0.2126, 0.7152, 0.0722, 0, 0,
+                                0,      0,      0,      1, 0,
+                              ])
+                            : const ColorFilter.mode(Colors.transparent, BlendMode.multiply),
+                        child: Opacity(
+                          opacity: isWatched ? 0.5 : 1.0,
+                          child: Stack(
+                            children: [
+                              // Thumbnail image
+                              Positioned.fill(
+                                child: AnimatedScale(
+                                  scale: _isHovered ? 1.05 : 1.0,
+                                  duration: const Duration(milliseconds: 150),
+                                  child: widget.thumbnail.isNotEmpty
+                                      ? Image.network(
+                                          widget.thumbnail,
+                                          fit: BoxFit.cover,
+                                          cacheWidth: 320, // Optimize episode thumbnail caching (width is ~160px)
+                                          loadingBuilder: (context, child, progress) {
+                                            if (progress == null) return child;
+                                            return Container(color: Colors.grey[950]);
+                                          },
+                                          errorBuilder: (context, error, stackTrace) =>
+                                              _buildEpisodePlaceholder(),
+                                        )
+                                      : _buildEpisodePlaceholder(),
+                                ),
+                              ),
+                              
+                              // Play Icon overlay
+                              Positioned.fill(
+                                child: AnimatedOpacity(
+                                  opacity: _isHovered ? 1.0 : 0.0,
+                                  duration: const Duration(milliseconds: 150),
+                                  child: Container(
+                                    color: Colors.black.withValues(alpha: 0.4),
+                                    child: const Center(
+                                      child: CircleAvatar(
+                                        radius: 18.0,
+                                        backgroundColor: Colors.white,
+                                        child: Icon(Icons.play_arrow, color: Colors.black, size: 20.0),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+
+                              // Episode Number Badge (Top-Left)
+                              Positioned(
+                                top: 8.0,
+                                left: 8.0,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6.0, vertical: 3.0),
+                                  decoration: BoxDecoration(
+                                    color: Colors.black.withValues(alpha: 0.75),
+                                    borderRadius: BorderRadius.circular(4.0),
+                                  ),
+                                  child: Text(
+                                    'EP ${widget.epNum}',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 9.0,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                              ),
+
+                              // Site badge (Bottom-Right)
+                              if (widget.site.isNotEmpty)
+                                Positioned(
+                                  bottom: 6.0,
+                                  right: 6.0,
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 5.0, vertical: 2.0),
+                                    decoration: BoxDecoration(
+                                      color: Colors.black.withValues(alpha: 0.65),
+                                      borderRadius: BorderRadius.circular(3.0),
+                                    ),
+                                    child: Text(
+                                      widget.site,
+                                      style: const TextStyle(
+                                        color: Colors.white70,
+                                        fontSize: 8.5,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+
+                              // Progress Bar overlay
+                              if (ratio > 0)
+                                Positioned(
+                                  left: 0,
+                                  right: 0,
+                                  bottom: 0,
+                                  height: 3.5,
+                                  child: Container(
+                                    color: Colors.white24,
+                                    alignment: Alignment.centerLeft,
+                                    child: FractionallySizedBox(
+                                      widthFactor: ratio,
+                                      child: Container(
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                            ],
                           ),
                         ),
                       ),
-
-                      // Site badge (Bottom-Right)
-                      if (widget.site.isNotEmpty)
-                        Positioned(
-                          bottom: 6.0,
-                          right: 6.0,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 5.0, vertical: 2.0),
-                            decoration: BoxDecoration(
-                              color: Colors.black.withValues(alpha: 0.65),
-                              borderRadius: BorderRadius.circular(3.0),
-                            ),
-                            child: Text(
-                              widget.site,
-                              style: const TextStyle(
-                                color: Colors.white70,
-                                fontSize: 8.5,
-                              ),
-                            ),
-                          ),
-                        ),
-                    ],
+                    ),
                   ),
                 ),
-              ),
+                const SizedBox(height: 6.0),
+                
+                // Episode Title under card
+                Text(
+                  widget.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: _isHovered ? Colors.white : Colors.white70,
+                    fontSize: 12.0,
+                    fontWeight: FontWeight.w500,
+                    fontFamily: 'Outfit',
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 6.0),
-            
-            // Episode Title under card
-            Text(
-              widget.title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: _isHovered ? Colors.white : Colors.white70,
-                fontSize: 12.0,
-                fontWeight: FontWeight.w500,
-                fontFamily: 'Outfit',
-              ),
-            ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 

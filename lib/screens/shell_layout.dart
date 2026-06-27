@@ -12,6 +12,7 @@ import 'anime_details_page.dart';
 import 'settings_page.dart';
 import 'downloads_page.dart';
 import 'player_screen.dart';
+import 'schedule_page.dart';
 
 class ShellLayout extends StatelessWidget {
   final NavigationState navigationState;
@@ -34,16 +35,9 @@ class ShellLayout extends StatelessWidget {
       case TabPage.settings:
         return SettingsPage(key: ValueKey('settings_$mode'));
       case TabPage.schedule:
-        return Center(
+        return SchedulePage(
           key: ValueKey('schedule_$mode'),
-          child: const Text(
-            'Schedule Screen (Coming Soon)',
-            style: TextStyle(
-              color: Colors.white38,
-              fontSize: 16.0,
-              fontFamily: 'Outfit',
-            ),
-          ),
+          navigationState: navigationState,
         );
     }
   }

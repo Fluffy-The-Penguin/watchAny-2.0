@@ -468,4 +468,87 @@ class AnilistService {
       throw Exception('Failed to load AniList multiple media ($ids): $e');
     }
   }
+
+  // Fetch airing schedule within a time range (Epoch seconds)
+  Future<List<dynamic>> fetchAiringSchedule(int startTimestamp, int endTimestamp) async {
+    List<dynamic> allSchedules = [];
+    int page = 1;
+    bool hasNextPage = true;
+
+    const query = r'''
+      query($start: Int, $end: Int, $page: Int) {
+        Page(page: $page, perPage: 100) {
+          pageInfo {
+            hasNextPage
+          }
+          airingSchedules(airingAt_greater: $start, airingAt_lesser: $end, sort: TIME) {
+            id
+            airingAt
+            episode
+            mediaId
+            media {
+              id
+              title {
+                romaji
+                english
+                native
+              }
+              coverImage {
+                extraLarge
+                large
+              }
+              bannerImage
+              genres
+              averageScore
+              episodes
+              format
+              description
+            }
+          }
+        }
+      }
+    ''';
+
+    while (hasNextPage) {
+      final variables = {
+        'start': startTimestamp,
+        'end': endTimestamp,
+        'page': page,
+      };
+
+      try {
+        final response = await http.post(
+          Uri.parse(_endpoint),
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          },
+          body: jsonEncode({
+            'query': query,
+            'variables': variables,
+          }),
+        );
+
+        if (response.statusCode == 200) {
+          final body = jsonDecode(response.body);
+          if (body['data'] != null && body['data']['Page'] != null) {
+            final pageData = body['data']['Page'];
+            final schedules = pageData['airingSchedules'] as List<dynamic>;
+            allSchedules.addAll(schedules);
+            hasNextPage = pageData['pageInfo']['hasNextPage'] == true;
+            page++;
+            if (page > 10) break; // Avoid infinite loops
+          } else {
+            throw Exception('GraphQL error: ${body['errors']}');
+          }
+        } else {
+          throw Exception('HTTP Request failed with status: ${response.statusCode}');
+        }
+      } catch (e) {
+        throw Exception('Failed to load airing schedules: $e');
+      }
+    }
+
+    return allSchedules;
+  }
 }
