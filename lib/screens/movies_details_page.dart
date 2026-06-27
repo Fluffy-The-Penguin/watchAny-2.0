@@ -56,6 +56,8 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
     }
   }
 
+  bool get _hasVideos => _meta['videos'] != null && (_meta['videos'] as List).isNotEmpty;
+
   Future<void> _loadMetadata() async {
     setState(() {
       _isLoading = true;
@@ -113,8 +115,9 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
       return;
     }
 
-    // Process seasons and episodes if it's a TV series
-    if (_type == 'series' && metaData['videos'] != null) {
+    // Process seasons and episodes if it's a TV series or playlist
+    final bool hasVideos = metaData['videos'] != null && (metaData['videos'] as List).isNotEmpty;
+    if (hasVideos) {
       final List videos = metaData['videos'];
       final Map<int, List<dynamic>> grouped = {};
       final Set<int> seasonNums = {};
@@ -144,8 +147,8 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
       'title': metaData['name'] ?? 'Untitled',
       'coverImage': metaData['poster'] ?? '',
       'averageScore': double.tryParse(metaData['imdbRating']?.toString() ?? '0') ?? 0.0,
-      'format': _type == 'movie' ? 'MOVIE' : 'SERIES',
-      'episodes': _type == 'movie' ? 1 : (metaData['videos']?.length ?? 1),
+      'format': hasVideos ? 'SERIES' : 'MOVIE',
+      'episodes': hasVideos ? (metaData['videos']?.length ?? 1) : 1,
     };
 
     final prefs = await SharedPreferences.getInstance();
@@ -173,7 +176,7 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
       final ratio = pos / dur;
       if (ratio >= 0.90) {
         finished = true;
-        if (_type == 'series' && _episodesBySeason.containsKey(_selectedSeason)) {
+        if (_hasVideos && _episodesBySeason.containsKey(_selectedSeason)) {
           final totalCount = _meta['videos']?.length ?? 1;
           if (lastEp < totalCount) {
             targetEp = lastEp + 1;
@@ -186,7 +189,7 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
     final savedTitle = prefs.getString('playback_title_${_realId}_$targetEp');
 
     final List<int> allEpNums = [];
-    if (_type == 'series' && _meta['videos'] != null) {
+    if (_hasVideos && _meta['videos'] != null) {
       for (final video in _meta['videos']) {
         final int epNum = video['episode'] ?? 1;
         allEpNums.add(epNum);
@@ -352,14 +355,14 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
       title: episode != null ? '$mediaTitle - Episode $episode' : mediaTitle,
       movieId: _realId,
       episodeNumber: episode ?? 1,
-      isMovie: _type == 'movie',
+      isMovie: !_hasVideos,
       media: {
         'id': _realId,
         'title': mediaTitle,
         'coverImage': _meta['poster'] ?? '',
         'averageScore': double.tryParse(_meta['imdbRating']?.toString() ?? '0') ?? 0.0,
-        'format': _type == 'movie' ? 'MOVIE' : 'SERIES',
-        'episodes': _type == 'movie' ? 1 : (_meta['videos']?.length ?? 1),
+        'format': _hasVideos ? 'SERIES' : 'MOVIE',
+        'episodes': _hasVideos ? (_meta['videos']?.length ?? 1) : 1,
       },
     );
   }
@@ -478,11 +481,11 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
                                 LibraryState().saveItem(
                                   id: parsedIntId,
                                   mode: 'movies',
-                                  format: _type == 'movie' ? 'MOVIE' : 'SERIES',
+                                  format: _hasVideos ? 'SERIES' : 'MOVIE',
                                   libraryStatus: 'planning',
                                   rating: double.tryParse(rating ?? '0') ?? 0.0,
                                   watchedEpisodes: 0,
-                                  totalEpisodes: _type == 'movie' ? 1 : (_meta['videos']?.length ?? 1),
+                                  totalEpisodes: _hasVideos ? (_meta['videos']?.length ?? 1) : 1,
                                 );
                               }
                             },
@@ -587,7 +590,7 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      if (_type == 'movie') ...[
+                      if (!_hasVideos) ...[
                         if (_hasCheckedContinue && _continueStreamUrl != null)
                           ElevatedButton.icon(
                             onPressed: () {
@@ -608,7 +611,7 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
                               );
                             },
                             icon: const Icon(Icons.play_arrow, color: Colors.black, size: 24.0),
-                            label: const Text('Resume Movie', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 16.0)),
+                            label: const Text('Resume Video', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 16.0)),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Colors.amber,
                               padding: const EdgeInsets.symmetric(horizontal: 32.0, vertical: 16.0),
@@ -621,7 +624,7 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
                           ElevatedButton.icon(
                             onPressed: () => _fetchStreamsAndPlay(),
                             icon: const Icon(Icons.play_arrow, color: Colors.black, size: 24.0),
-                            label: const Text('Play Movie', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 16.0)),
+                            label: const Text('Play Video', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 16.0)),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Colors.amber,
                               padding: const EdgeInsets.symmetric(horizontal: 32.0, vertical: 16.0),
@@ -630,7 +633,7 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
                               ),
                             ),
                           ),
-                      ] else if (_type == 'series' && _hasCheckedContinue) ...[
+                      ] else if (_hasVideos && _hasCheckedContinue) ...[
                         ElevatedButton.icon(
                           onPressed: () {
                             if (_continueStreamUrl != null && _continueStreamUrl!.isNotEmpty) {
@@ -694,8 +697,8 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
                   ),
                 ),
 
-                // 3. Episodes / Seasons Section (TV Series only)
-                if (_type == 'series') ...[
+                // 3. Episodes / Seasons Section (TV Series or playlists)
+                if (_hasVideos) ...[
                   const SizedBox(height: 32.0),
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 24.0),
@@ -711,27 +714,28 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
                             fontFamily: 'Outfit',
                           ),
                         ),
-                        // Season Selector Dropdown
-                        DropdownButton<int>(
-                          value: _selectedSeason,
-                          dropdownColor: const Color(0xFF0F0F11),
-                          underline: const SizedBox.shrink(),
-                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
-                          items: [
-                            for (final s in _seasons)
-                              DropdownMenuItem(
-                                value: s,
-                                child: Text('Season $s'),
-                              ),
-                          ],
-                          onChanged: (val) {
-                            if (val != null) {
-                              setState(() {
-                                _selectedSeason = val;
-                              });
-                            }
-                          },
-                        ),
+                        // Only show Season Selector Dropdown if there are multiple seasons
+                        if (_seasons.length > 1)
+                          DropdownButton<int>(
+                            value: _selectedSeason,
+                            dropdownColor: const Color(0xFF0F0F11),
+                            underline: const SizedBox.shrink(),
+                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                            items: [
+                              for (final s in _seasons)
+                                DropdownMenuItem(
+                                  value: s,
+                                  child: Text('Season $s'),
+                                ),
+                            ],
+                            onChanged: (val) {
+                              if (val != null) {
+                                setState(() {
+                                  _selectedSeason = val;
+                                });
+                              }
+                            },
+                          ),
                       ],
                     ),
                   ),
