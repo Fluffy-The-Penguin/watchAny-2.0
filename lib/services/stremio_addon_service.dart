@@ -13,6 +13,7 @@ class StremioAddon {
   final List<String> types;
   final List<String> resources;
   final List<Map<String, dynamic>> catalogs;
+  final List<String> idPrefixes;
   bool isEnabled;
 
   StremioAddon({
@@ -25,6 +26,7 @@ class StremioAddon {
     required this.types,
     required this.resources,
     required this.catalogs,
+    required this.idPrefixes,
     this.isEnabled = true,
   });
 
@@ -38,6 +40,7 @@ class StremioAddon {
         'types': types,
         'resources': resources,
         'catalogs': catalogs,
+        'idPrefixes': idPrefixes,
         'isEnabled': isEnabled,
       };
 
@@ -54,6 +57,7 @@ class StremioAddon {
       catalogs: List<Map<String, dynamic>>.from(
         (json['catalogs'] as List?)?.map((c) => Map<String, dynamic>.from(c)) ?? [],
       ),
+      idPrefixes: List<String>.from(json['idPrefixes'] ?? []),
       isEnabled: json['isEnabled'] ?? true,
     );
   }
@@ -162,6 +166,7 @@ class StremioAddonService extends ChangeNotifier {
         catalogs: List<Map<String, dynamic>>.from(
           (manifest['catalogs'] as List?)?.map((c) => Map<String, dynamic>.from(c)) ?? [],
         ),
+        idPrefixes: List<String>.from(manifest['idPrefixes'] ?? []),
       );
 
       addons.add(newAddon);

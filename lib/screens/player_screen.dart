@@ -892,26 +892,36 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
     List<dynamic> allStreams = [];
     final String type = PlayerState().isMovie == true ? 'movie' : 'series';
 
+    final List<Future<List<dynamic>>> streamFutures = [];
     for (final addon in enabledStreamAddons) {
       if (addon.types.contains(type)) {
-        try {
-          final streamUrl = '${addon.url.replaceAll('/manifest.json', '')}/stream/$type/$targetId.json';
-          final response = await http.get(Uri.parse(streamUrl)).timeout(const Duration(seconds: 8));
+        if (addon.idPrefixes.isNotEmpty && !addon.idPrefixes.any((prefix) => targetId.startsWith(prefix))) {
+          continue;
+        }
+        streamFutures.add(() async {
+          try {
+            final streamUrl = '${addon.url.replaceAll('/manifest.json', '')}/stream/$type/$targetId.json';
+            final response = await http.get(Uri.parse(streamUrl)).timeout(const Duration(seconds: 8));
 
-          if (response.statusCode == 200) {
-            final data = jsonDecode(response.body);
-            final List streams = data['streams'] ?? [];
-            for (final s in streams) {
-              allStreams.add({
+            if (response.statusCode == 200) {
+              final data = jsonDecode(response.body);
+              final List streams = data['streams'] ?? [];
+              return streams.map((s) => {
                 ...s,
                 'addonName': addon.name,
-              });
+              }).toList();
             }
+          } catch (e) {
+            debugPrint('Error loading stream from ${addon.name}: $e');
           }
-        } catch (e) {
-          debugPrint('Error loading stream from ${addon.name}: $e');
-        }
+          return [];
+        }());
       }
+    }
+
+    final streamResults = await Future.wait(streamFutures);
+    for (final res in streamResults) {
+      allStreams.addAll(res);
     }
 
     if (mounted) {

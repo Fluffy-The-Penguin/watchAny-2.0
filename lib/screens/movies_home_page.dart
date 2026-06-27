@@ -65,7 +65,7 @@ class _MoviesHomePageState extends State<MoviesHomePage> {
       for (final addonId in selectedAddons) {
         final addonObj = enabledCatalogAddons.firstWhere(
           (a) => a.id == addonId,
-          orElse: () => StremioAddon(id: '', name: '', version: '', description: '', url: '', icon: '', types: [], resources: [], catalogs: []),
+          orElse: () => StremioAddon(id: '', name: '', version: '', description: '', url: '', icon: '', types: [], resources: [], catalogs: [], idPrefixes: []),
         );
         if (addonObj.id.isNotEmpty) {
           targetAddons.add(addonObj);

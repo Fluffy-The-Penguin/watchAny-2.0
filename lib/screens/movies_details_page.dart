@@ -83,21 +83,34 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
 
     Map<String, dynamic>? metaData;
 
-    // Fetch meta from user-installed addons
+    // Fetch meta from user-installed addons in parallel
+    final List<Future<Map<String, dynamic>?>> metaFutures = [];
     for (final addon in enabledMetaAddons) {
-      try {
-        final metaUrl = '${addon.url.replaceAll('/manifest.json', '')}/meta/$_type/$_realId.json';
-        final response = await http.get(Uri.parse(metaUrl)).timeout(const Duration(seconds: 8));
-
-        if (response.statusCode == 200) {
-          final data = jsonDecode(response.body);
-          if (data['meta'] != null) {
-            metaData = Map<String, dynamic>.from(data['meta']);
-            break;
+      if (addon.idPrefixes.isNotEmpty && !addon.idPrefixes.any((prefix) => _realId.startsWith(prefix))) {
+        continue;
+      }
+      metaFutures.add(() async {
+        try {
+          final metaUrl = '${addon.url.replaceAll('/manifest.json', '')}/meta/$_type/$_realId.json';
+          final response = await http.get(Uri.parse(metaUrl)).timeout(const Duration(seconds: 8));
+          if (response.statusCode == 200) {
+            final data = jsonDecode(response.body);
+            if (data['meta'] != null) {
+              return Map<String, dynamic>.from(data['meta']);
+            }
           }
+        } catch (e) {
+          debugPrint('Error loading meta from ${addon.name}: $e');
         }
-      } catch (e) {
-        debugPrint('Error loading meta from ${addon.name}: $e');
+        return null;
+      }());
+    }
+
+    final metaResults = await Future.wait(metaFutures);
+    for (final res in metaResults) {
+      if (res != null) {
+        metaData = res;
+        break;
       }
     }
 
@@ -262,24 +275,34 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
 
     List<dynamic> allStreams = [];
 
+    final List<Future<List<dynamic>>> streamFutures = [];
     for (final addon in enabledStreamAddons) {
-      try {
-        final streamUrl = '${addon.url.replaceAll('/manifest.json', '')}/stream/$_type/$targetId.json';
-        final response = await http.get(Uri.parse(streamUrl)).timeout(const Duration(seconds: 8));
+      if (addon.idPrefixes.isNotEmpty && !addon.idPrefixes.any((prefix) => targetId.startsWith(prefix))) {
+        continue;
+      }
+      streamFutures.add(() async {
+        try {
+          final streamUrl = '${addon.url.replaceAll('/manifest.json', '')}/stream/$_type/$targetId.json';
+          final response = await http.get(Uri.parse(streamUrl)).timeout(const Duration(seconds: 8));
 
-        if (response.statusCode == 200) {
-          final data = jsonDecode(response.body);
-          final List streams = data['streams'] ?? [];
-          for (final s in streams) {
-            allStreams.add({
+          if (response.statusCode == 200) {
+            final data = jsonDecode(response.body);
+            final List streams = data['streams'] ?? [];
+            return streams.map((s) => {
               ...s,
               'addonName': addon.name,
-            });
+            }).toList();
           }
+        } catch (e) {
+          debugPrint('Error loading stream from ${addon.name}: $e');
         }
-      } catch (e) {
-        debugPrint('Error loading stream from ${addon.name}: $e');
-      }
+        return [];
+      }());
+    }
+
+    final streamResults = await Future.wait(streamFutures);
+    for (final res in streamResults) {
+      allStreams.addAll(res);
     }
 
     if (mounted) {
