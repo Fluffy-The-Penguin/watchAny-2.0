@@ -33,6 +33,12 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
   List<int> _seasons = [];
   Map<int, List<dynamic>> _episodesBySeason = {};
 
+  int _continueEpisode = 1;
+  bool _continueEpisodeFinished = false;
+  String? _continueStreamUrl;
+  String? _continueStreamTitle;
+  bool _hasCheckedContinue = false;
+
   @override
   void initState() {
     super.initState();
@@ -149,6 +155,54 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
     if (mounted) {
       setState(() {
         _meta = metaData!;
+      });
+      await _loadPlaybackProgress();
+    }
+  }
+
+  Future<void> _loadPlaybackProgress() async {
+    final prefs = await SharedPreferences.getInstance();
+    
+    final lastEp = prefs.getInt('continue_watching_last_ep_$_realId') ?? 1;
+    final pos = prefs.getInt('playback_pos_${_realId}_$lastEp');
+    final dur = prefs.getInt('playback_dur_${_realId}_$lastEp');
+
+    int targetEp = lastEp;
+    bool finished = false;
+    if (pos != null && dur != null) {
+      final ratio = pos / dur;
+      if (ratio >= 0.90) {
+        finished = true;
+        if (_type == 'series' && _episodesBySeason.containsKey(_selectedSeason)) {
+          final totalCount = _meta['videos']?.length ?? 1;
+          if (lastEp < totalCount) {
+            targetEp = lastEp + 1;
+          }
+        }
+      }
+    }
+
+    final savedStream = prefs.getString('playback_stream_${_realId}_$targetEp');
+    final savedTitle = prefs.getString('playback_title_${_realId}_$targetEp');
+
+    final List<int> allEpNums = [];
+    if (_type == 'series' && _meta['videos'] != null) {
+      for (final video in _meta['videos']) {
+        final int epNum = video['episode'] ?? 1;
+        allEpNums.add(epNum);
+      }
+    } else {
+      allEpNums.add(1);
+    }
+    await PlayerState().loadProgressForAnime(_realId, allEpNums);
+
+    if (mounted) {
+      setState(() {
+        _continueEpisode = targetEp;
+        _continueEpisodeFinished = finished;
+        _continueStreamUrl = savedStream;
+        _continueStreamTitle = savedTitle;
+        _hasCheckedContinue = true;
         _isLoading = false;
       });
     }
@@ -533,11 +587,85 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      if (_type == 'movie')
+                      if (_type == 'movie') ...[
+                        if (_hasCheckedContinue && _continueStreamUrl != null)
+                          ElevatedButton.icon(
+                            onPressed: () {
+                              PlayerState().startPlayback(
+                                streamUrl: _continueStreamUrl!,
+                                title: _continueStreamTitle ?? title,
+                                movieId: _realId,
+                                episodeNumber: 1,
+                                isMovie: true,
+                                media: {
+                                  'id': _realId,
+                                  'title': title,
+                                  'coverImage': poster,
+                                  'averageScore': double.tryParse(rating ?? '0') ?? 0.0,
+                                  'format': 'MOVIE',
+                                  'episodes': 1,
+                                },
+                              );
+                            },
+                            icon: const Icon(Icons.play_arrow, color: Colors.black, size: 24.0),
+                            label: const Text('Resume Movie', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 16.0)),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.amber,
+                              padding: const EdgeInsets.symmetric(horizontal: 32.0, vertical: 16.0),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8.0),
+                              ),
+                            ),
+                          )
+                        else
+                          ElevatedButton.icon(
+                            onPressed: () => _fetchStreamsAndPlay(),
+                            icon: const Icon(Icons.play_arrow, color: Colors.black, size: 24.0),
+                            label: const Text('Play Movie', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 16.0)),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.amber,
+                              padding: const EdgeInsets.symmetric(horizontal: 32.0, vertical: 16.0),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8.0),
+                              ),
+                            ),
+                          ),
+                      ] else if (_type == 'series' && _hasCheckedContinue) ...[
                         ElevatedButton.icon(
-                          onPressed: () => _fetchStreamsAndPlay(),
+                          onPressed: () {
+                            if (_continueStreamUrl != null && _continueStreamUrl!.isNotEmpty) {
+                              PlayerState().startPlayback(
+                                streamUrl: _continueStreamUrl!,
+                                title: _continueStreamTitle ?? '$title - Episode $_continueEpisode',
+                                movieId: _realId,
+                                episodeNumber: _continueEpisode,
+                                isMovie: false,
+                                media: {
+                                  'id': _realId,
+                                  'title': title,
+                                  'coverImage': poster,
+                                  'averageScore': double.tryParse(rating ?? '0') ?? 0.0,
+                                  'format': 'SERIES',
+                                  'episodes': _meta['videos']?.length ?? 1,
+                                },
+                              );
+                            } else {
+                              final List videos = _meta['videos'] as List? ?? [];
+                              final epObj = videos.firstWhere(
+                                (v) => v['episode'] == _continueEpisode,
+                                orElse: () => null,
+                              );
+                              final epId = epObj?['id'] ?? '$_realId:$_selectedSeason:$_continueEpisode';
+                              _fetchStreamsAndPlay(episode: _continueEpisode, episodeId: epId);
+                            }
+                          },
                           icon: const Icon(Icons.play_arrow, color: Colors.black, size: 24.0),
-                          label: const Text('Play Movie', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 16.0)),
+                          label: Text(
+                            _continueEpisode == 1 && !_continueEpisodeFinished && _continueStreamUrl == null
+                                ? 'Start Watching'
+                                : 'Continue Ep $_continueEpisode',
+                            style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 16.0),
+                          ),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.amber,
                             padding: const EdgeInsets.symmetric(horizontal: 32.0, vertical: 16.0),
@@ -546,6 +674,7 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
                             ),
                           ),
                         ),
+                      ],
                       const SizedBox(height: 20.0),
                       const Text(
                         'Synopsis',
@@ -610,70 +739,34 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
                   // Episode Grid
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 24.0),
-                    child: GridView.builder(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 2,
-                        crossAxisSpacing: 14.0,
-                        mainAxisSpacing: 14.0,
-                        childAspectRatio: 2.2,
-                      ),
-                      itemCount: _episodesBySeason[_selectedSeason]?.length ?? 0,
-                      itemBuilder: (context, index) {
-                        final ep = _episodesBySeason[_selectedSeason]![index];
-                        final String epTitle = ep['title'] ?? 'Episode ${ep['episode']}';
-                        final String id = ep['id'] ?? '';
-                        final int epNum = ep['episode'] ?? (index + 1);
-
-                        return GestureDetector(
-                          onTap: () => _fetchStreamsAndPlay(episode: epNum, episodeId: id),
-                          child: Container(
-                            decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.02),
-                              borderRadius: BorderRadius.circular(8.0),
-                              border: Border.all(color: Colors.white10),
-                            ),
-                            padding: const EdgeInsets.all(12.0),
-                            child: Row(
-                              children: [
-                                Container(
-                                  width: 32.0,
-                                  height: 32.0,
-                                  decoration: BoxDecoration(
-                                    color: Colors.amber.withValues(alpha: 0.1),
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: Center(
-                                    child: Text(
-                                      '$epNum',
-                                      style: const TextStyle(color: Colors.amber, fontWeight: FontWeight.bold, fontSize: 13.0),
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 14.0),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      Text(
-                                        epTitle,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13.0),
-                                      ),
-                                      const SizedBox(height: 2.0),
-                                      const Text(
-                                        'Play Episode',
-                                        style: TextStyle(color: Colors.white38, fontSize: 11.0),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        final bool isMobile = constraints.maxWidth < 650;
+                        return GridView.builder(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: isMobile ? 2 : 3,
+                            crossAxisSpacing: 14.0,
+                            mainAxisSpacing: 14.0,
+                            childAspectRatio: 1.25,
                           ),
+                          itemCount: _episodesBySeason[_selectedSeason]?.length ?? 0,
+                          itemBuilder: (context, index) {
+                            final ep = _episodesBySeason[_selectedSeason]![index];
+                            final String epTitle = ep['title'] ?? ep['name'] ?? 'Episode ${ep['episode']}';
+                            final String id = ep['id'] ?? '';
+                            final int epNum = ep['episode'] ?? (index + 1);
+                            final String thumbnail = ep['thumbnail'] ?? ep['still_path'] ?? '';
+
+                            return _MovieEpisodeCard(
+                              movieId: _realId,
+                              epNum: epNum,
+                              title: epTitle,
+                              thumbnail: thumbnail,
+                              onTap: () => _fetchStreamsAndPlay(episode: epNum, episodeId: id),
+                            );
+                          },
                         );
                       },
                     ),
@@ -684,6 +777,195 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
             ),
           );
         },
+      ),
+    );
+  }
+}
+
+class _MovieEpisodeCard extends StatefulWidget {
+  final String movieId;
+  final int epNum;
+  final String title;
+  final String thumbnail;
+  final VoidCallback onTap;
+
+  const _MovieEpisodeCard({
+    required this.movieId,
+    required this.epNum,
+    required this.title,
+    required this.thumbnail,
+    required this.onTap,
+  });
+
+  @override
+  State<_MovieEpisodeCard> createState() => _MovieEpisodeCardState();
+}
+
+class _MovieEpisodeCardState extends State<_MovieEpisodeCard> {
+  bool _isHovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: PlayerState(),
+      builder: (context, _) {
+        final progress = PlayerState().getProgress(widget.movieId, widget.epNum);
+        final double ratio = progress != null && progress.duration > 0
+            ? (progress.position / progress.duration).clamp(0.0, 1.0)
+            : 0.0;
+        final bool isWatched = ratio >= 0.90;
+
+        return MouseRegion(
+          onEnter: (_) => setState(() => _isHovered = true),
+          onExit: (_) => setState(() => _isHovered = false),
+          child: GestureDetector(
+            onTap: widget.onTap,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 150),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(6.0),
+                      border: Border.all(
+                        color: _isHovered ? Colors.white30 : Colors.white10,
+                        width: 1.0,
+                      ),
+                      boxShadow: _isHovered
+                          ? [
+                              BoxShadow(
+                                color: Colors.white.withValues(alpha: 0.05),
+                                blurRadius: 6.0,
+                                spreadRadius: 1.0,
+                              )
+                            ]
+                          : [],
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(5.0),
+                      child: ColorFiltered(
+                        colorFilter: isWatched
+                            ? const ColorFilter.matrix(<double>[
+                                0.2126, 0.7152, 0.0722, 0, 0,
+                                0.2126, 0.7152, 0.0722, 0, 0,
+                                0.2126, 0.7152, 0.0722, 0, 0,
+                                0,      0,      0,      1, 0,
+                              ])
+                            : const ColorFilter.mode(Colors.transparent, BlendMode.multiply),
+                        child: Opacity(
+                          opacity: isWatched ? 0.5 : 1.0,
+                          child: Stack(
+                            children: [
+                              Positioned.fill(
+                                child: AnimatedScale(
+                                  scale: _isHovered ? 1.05 : 1.0,
+                                  duration: const Duration(milliseconds: 150),
+                                  child: widget.thumbnail.isNotEmpty
+                                      ? Image.network(
+                                          widget.thumbnail,
+                                          fit: BoxFit.cover,
+                                          cacheWidth: 320,
+                                          errorBuilder: (context, error, stackTrace) =>
+                                              _buildPlaceholder(),
+                                        )
+                                      : _buildPlaceholder(),
+                                ),
+                              ),
+                              Positioned.fill(
+                                child: AnimatedOpacity(
+                                  opacity: _isHovered ? 1.0 : 0.0,
+                                  duration: const Duration(milliseconds: 150),
+                                  child: Container(
+                                    color: Colors.black.withValues(alpha: 0.4),
+                                    child: const Center(
+                                      child: CircleAvatar(
+                                        radius: 18.0,
+                                        backgroundColor: Colors.white,
+                                        child: Icon(Icons.play_arrow, color: Colors.black, size: 20.0),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              Positioned(
+                                top: 8.0,
+                                left: 8.0,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6.0, vertical: 3.0),
+                                  decoration: BoxDecoration(
+                                    color: Colors.black87,
+                                    borderRadius: BorderRadius.circular(4.0),
+                                    border: Border.all(color: Colors.white10),
+                                  ),
+                                  child: Text(
+                                    'EP ${widget.epNum}',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 10.0,
+                                      fontWeight: FontWeight.bold,
+                                      fontFamily: 'Outfit',
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              if (ratio > 0.0 && ratio < 0.90)
+                                Positioned(
+                                  left: 0,
+                                  right: 0,
+                                  bottom: 0,
+                                  height: 3.5,
+                                  child: Container(
+                                    color: Colors.white24,
+                                    alignment: Alignment.centerLeft,
+                                    child: FractionallySizedBox(
+                                      widthFactor: ratio,
+                                      child: Container(
+                                        color: Colors.amber,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 6.0),
+                Text(
+                  widget.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
+                    fontFamily: 'Outfit',
+                  ),
+                ),
+                const SizedBox(height: 2.0),
+                Text(
+                  'Episode ${widget.epNum}',
+                  style: const TextStyle(
+                    color: Colors.white38,
+                    fontSize: 10.5,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildPlaceholder() {
+    return Container(
+      color: Colors.grey[950],
+      child: const Center(
+        child: Icon(Icons.play_circle_outline, color: Colors.white24, size: 28.0),
       ),
     );
   }

@@ -68,14 +68,14 @@ class PlayerState extends ChangeNotifier {
   Map<int, dynamic>? get tmdbEpisodesMap => _tmdbEpisodesMap;
 
   // Progress helpers
-  PlaybackProgress? getProgress(int animeId, int episodeNumber) {
-    return _progressCache['${animeId}_$episodeNumber'];
+  PlaybackProgress? getProgress(dynamic id, int episodeNumber) {
+    return _progressCache['${id}_$episodeNumber'];
   }
 
-  Future<void> loadProgressForAnime(int animeId, List<int> episodeNumbers) async {
+  Future<void> loadProgressForAnime(dynamic id, List<int> episodeNumbers) async {
     final prefs = await SharedPreferences.getInstance();
     for (final epNum in episodeNumbers) {
-      final key = '${animeId}_$epNum';
+      final key = '${id}_$epNum';
       final pos = prefs.getInt('playback_pos_$key');
       final dur = prefs.getInt('playback_dur_$key');
       if (pos != null && dur != null) {
