@@ -139,6 +139,10 @@ class PlayerState extends ChangeNotifier {
 
     if (anilistId != null && episodeNumber != null) {
       _resumePlayback(anilistId, episodeNumber);
+      SharedPreferences.getInstance().then((prefs) {
+        prefs.setString('playback_stream_${anilistId}_$episodeNumber', streamUrl);
+        prefs.setString('playback_title_${anilistId}_$episodeNumber', title);
+      });
     }
 
     _saveMediaMetadata();
@@ -203,7 +207,12 @@ class PlayerState extends ChangeNotifier {
     _player?.open(Media(streamUrl));
 
     if (_anilistId != null) {
-      _resumePlayback(_anilistId!, episodeNumber);
+      final id = _anilistId!;
+      _resumePlayback(id, episodeNumber);
+      SharedPreferences.getInstance().then((prefs) {
+        prefs.setString('playback_stream_${id}_$episodeNumber', streamUrl);
+        prefs.setString('playback_title_${id}_$episodeNumber', title);
+      });
     }
 
     notifyListeners();

@@ -1,6 +1,7 @@
 import 'dart:math';
 import 'dart:io';
 import 'dart:convert';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/material.dart';
 import '../services/anilist_service.dart';
 import '../services/extension_service.dart';
@@ -48,6 +49,13 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
   List<TmdbSeasonInfo> _tmdbSeasons = [];
   final Map<int, Map<String, dynamic>> _tmdbEpisodesMap = {};
   bool _isTmdbLoading = false;
+
+  // Continue watching state
+  int _continueEpisode = 1;
+  bool _continueEpisodeFinished = false;
+  String? _continueStreamUrl;
+  String? _continueStreamTitle;
+  bool _hasCheckedContinue = false;
 
   @override
   void initState() {
@@ -184,6 +192,102 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
       epNums.add(epNum);
     }
     await PlayerState().loadProgressForAnime(widget.animeId, epNums);
+
+    // Determine the Continue Watching details
+    final prefs = await SharedPreferences.getInstance();
+    final int lastEp = prefs.getInt('continue_watching_last_ep_${widget.animeId}') ?? 1;
+    final pos = prefs.getInt('playback_pos_${widget.animeId}_$lastEp');
+    final dur = prefs.getInt('playback_dur_${widget.animeId}_$lastEp');
+
+    int targetEp = lastEp;
+    bool finished = false;
+    if (pos != null && dur != null) {
+      final ratio = pos / dur;
+      if (ratio >= 0.90) {
+        finished = true;
+        if (lastEp < _mergedEpisodes.length) {
+          targetEp = lastEp + 1;
+        }
+      }
+    }
+
+    final savedStream = prefs.getString('playback_stream_${widget.animeId}_$targetEp');
+    final savedTitle = prefs.getString('playback_title_${widget.animeId}_$targetEp');
+
+    if (mounted) {
+      setState(() {
+        _continueEpisode = targetEp;
+        _continueEpisodeFinished = finished;
+        _continueStreamUrl = savedStream;
+        _continueStreamTitle = savedTitle;
+        _hasCheckedContinue = true;
+      });
+    }
+  }
+
+  Widget _buildContinueButton(bool isMobile) {
+    if (!_hasCheckedContinue) return const SizedBox.shrink();
+    
+    final labelText = _continueEpisode == 1 && !_continueEpisodeFinished && _continueStreamUrl == null
+        ? 'Start Watching'
+        : 'Continue Ep $_continueEpisode';
+        
+    return Padding(
+      padding: const EdgeInsets.only(top: 16.0),
+      child: Row(
+        mainAxisAlignment: isMobile ? MainAxisAlignment.center : MainAxisAlignment.start,
+        children: [
+          ElevatedButton.icon(
+            icon: const Icon(Icons.play_arrow, color: Colors.black, size: 20.0),
+            label: Text(
+              labelText,
+              style: const TextStyle(
+                color: Colors.black, 
+                fontWeight: FontWeight.bold, 
+                fontFamily: 'Outfit',
+                fontSize: 13.5,
+              ),
+            ),
+            onPressed: _onContinuePressed,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 12.0),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8.0),
+              ),
+              elevation: 4.0,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _onContinuePressed() {
+    if (_details == null) return;
+    
+    final titles = [
+      _details!['title']?['english'] ?? '',
+      _details!['title']?['romaji'] ?? '',
+      _details!['title']?['native'] ?? '',
+    ].where((t) => t.isNotEmpty).map((t) => t.toString()).toList();
+    
+    if (_continueStreamUrl != null && _continueStreamUrl!.isNotEmpty) {
+      PlayerState().startPlayback(
+        streamUrl: _continueStreamUrl!,
+        title: _continueStreamTitle ?? 'Episode $_continueEpisode',
+        anilistId: widget.animeId,
+        titles: titles,
+        episodeCount: _mergedEpisodes.length,
+        episodeNumber: _continueEpisode,
+        isMovie: (_details!['format']?.toString().toUpperCase() == 'MOVIE'),
+        media: _details,
+        episodes: _mergedEpisodes,
+        tmdbEpisodesMap: _tmdbEpisodesMap,
+      );
+    } else {
+      _onPlayPressed(_continueEpisode, titles);
+    }
   }
 
   Future<void> _initTmdbMapping() async {
@@ -1119,6 +1223,7 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
                                                   fontFamily: 'Outfit',
                                                 ),
                                               ),
+                                              _buildContinueButton(false),
                                             ],
                                             const SizedBox(height: 12.0),
 
@@ -1726,13 +1831,17 @@ class _EpisodeCardState extends State<_EpisodeCard> {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: PlayerState(),
+      listenable: Listenable.merge([PlayerState(), DownloadService()]),
       builder: (context, _) {
         final progress = PlayerState().getProgress(widget.animeId, widget.epNum);
         final double ratio = progress != null && progress.duration > 0
             ? (progress.position / progress.duration).clamp(0.0, 1.0)
             : 0.0;
         final bool isWatched = ratio >= 0.90;
+        final isDownloaded = DownloadService().tasks.any((t) =>
+            t.anilistId == widget.animeId &&
+            t.episodeNumber == widget.epNum &&
+            t.status == DownloadStatus.completed);
 
         return MouseRegion(
           onEnter: (_) => setState(() => _isHovered = true),
@@ -1836,6 +1945,23 @@ class _EpisodeCardState extends State<_EpisodeCard> {
                                   ),
                                 ),
                               ),
+                              if (isDownloaded)
+                                Positioned(
+                                  top: 8.0,
+                                  right: 8.0,
+                                  child: Container(
+                                    padding: const EdgeInsets.all(4.0),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF2EC4B6).withValues(alpha: 0.85),
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: const Icon(
+                                      Icons.download_done,
+                                      color: Colors.white,
+                                      size: 11.0,
+                                    ),
+                                  ),
+                                ),
 
                               // Site badge (Bottom-Right)
                               if (widget.site.isNotEmpty)

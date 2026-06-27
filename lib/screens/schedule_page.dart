@@ -28,10 +28,6 @@ class _SchedulePageState extends State<SchedulePage> {
   // Grouped schedules by day of month (1 to 31)
   Map<int, List<dynamic>> _schedulesByDay = {};
 
-  // Hover states for the poster overlay card
-  Map<String, dynamic>? _hoveredMedia;
-  Rect? _hoverCardRect;
-
   static const List<String> _months = [
     'January', 'February', 'March', 'April', 'May', 'June',
     'July', 'August', 'September', 'October', 'November', 'December'
@@ -100,29 +96,6 @@ class _SchedulePageState extends State<SchedulePage> {
       _selectedDay = 1;
     });
     _fetchSchedule();
-  }
-
-  void _onItemHover(BuildContext itemContext, Map<String, dynamic> media) {
-    final RenderBox? box = itemContext.findRenderObject() as RenderBox?;
-    if (box != null) {
-      final position = box.localToGlobal(Offset.zero);
-      // Convert global position to page-local position
-      final RenderBox? pageBox = _pageKey.currentContext?.findRenderObject() as RenderBox?;
-      if (pageBox != null) {
-        final localPos = pageBox.globalToLocal(position);
-        setState(() {
-          _hoveredMedia = media;
-          _hoverCardRect = Rect.fromLTWH(localPos.dx, localPos.dy, box.size.width, box.size.height);
-        });
-      }
-    }
-  }
-
-  void _onItemLeave() {
-    setState(() {
-      _hoveredMedia = null;
-      _hoverCardRect = null;
-    });
   }
 
   String _getWeekdayAbbreviation(int weekday) {
@@ -285,73 +258,314 @@ class _SchedulePageState extends State<SchedulePage> {
           }).toList()
         : daySchedules;
 
-    final bool showMore = filteredSchedules.length > 5;
-    final int displayCount = showMore ? 5 : filteredSchedules.length;
+    final bool showMore = filteredSchedules.length > 3;
+    final int displayCount = showMore ? 3 : filteredSchedules.length;
     final List<dynamic> displayedSchedules = filteredSchedules.take(displayCount).toList();
 
-    return Container(
-      decoration: BoxDecoration(
-        border: Border(
-          right: BorderSide(color: Colors.white.withValues(alpha: 0.05), width: 0.5),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => _showDayDetailsDialog(dayNumber),
+        child: Container(
+          decoration: BoxDecoration(
+            color: _selectedDay == dayNumber && _selectedMonth.month == DateTime.now().month && _selectedMonth.year == DateTime.now().year
+                ? Colors.white.withValues(alpha: 0.02)
+                : Colors.transparent,
+            border: Border(
+              right: BorderSide(color: Colors.white.withValues(alpha: 0.05), width: 0.5),
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(left: 8.0, top: 8.0, bottom: 4.0),
+                child: Text(
+                  '$dayNumber',
+                  style: TextStyle(
+                    color: (dayNumber == DateTime.now().day && _selectedMonth.month == DateTime.now().month && _selectedMonth.year == DateTime.now().year)
+                        ? const Color(0xFF3A86FF)
+                        : Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13.0,
+                    fontFamily: 'Outfit',
+                  ),
+                ),
+              ),
+              Expanded(
+                child: ListView.builder(
+                  padding: const EdgeInsets.symmetric(horizontal: 4.0),
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: displayedSchedules.length + (showMore ? 1 : 0),
+                  itemBuilder: (context, itemIndex) {
+                    if (itemIndex == displayedSchedules.length) {
+                      final moreCount = filteredSchedules.length - 3;
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 2.0, horizontal: 4.0),
+                        child: Text(
+                          '+ $moreCount more...',
+                          style: const TextStyle(
+                            color: Colors.white38,
+                            fontSize: 9.0,
+                            fontFamily: 'Outfit',
+                            fontStyle: FontStyle.italic,
+                          ),
+                        ),
+                      );
+                    }
+
+                    final schedule = displayedSchedules[itemIndex];
+                    final media = schedule['media'] ?? {};
+                    final title = media['title']?['english'] ?? media['title']?['romaji'] ?? 'Untitled';
+                    final int airingAt = schedule['airingAt'];
+                    final DateTime airTime = DateTime.fromMillisecondsSinceEpoch(airingAt * 1000);
+                    final String timeStr = '${airTime.hour.toString().padLeft(2, '0')}:${airTime.minute.toString().padLeft(2, '0')}';
+                    final mediaId = schedule['mediaId'];
+                    final isSaved = LibraryState().isSaved(mediaId, 'anime');
+
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 2.0, horizontal: 4.0),
+                      child: Row(
+                        children: [
+                          if (isSaved) ...[
+                            Container(
+                              width: 4,
+                              height: 4,
+                              decoration: const BoxDecoration(
+                                color: Color(0xFF3A86FF),
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                            const SizedBox(width: 4.0),
+                          ],
+                          Expanded(
+                            child: Text(
+                              title,
+                              style: const TextStyle(
+                                color: Colors.white70,
+                                fontSize: 10.0,
+                                fontFamily: 'Outfit',
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          const SizedBox(width: 4.0),
+                          Text(
+                            timeStr,
+                            style: const TextStyle(
+                              color: Colors.white24,
+                              fontSize: 9.0,
+                              fontFamily: 'Outfit',
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
         ),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.only(left: 8.0, top: 8.0, bottom: 4.0),
-            child: Text(
-              '$dayNumber',
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-                fontSize: 13.0,
-                fontFamily: 'Outfit',
-              ),
-            ),
+    );
+  }
+
+  void _showDayDetailsDialog(int dayNumber) {
+    final DateTime targetDate = DateTime(_selectedMonth.year, _selectedMonth.month, dayNumber);
+    final String dateString = '${_months[targetDate.month - 1]} ${targetDate.day}, ${targetDate.year}';
+    final List<dynamic> daySchedules = _schedulesByDay[dayNumber] ?? [];
+    
+    final List<dynamic> filteredSchedules = _myListOnly
+        ? daySchedules.where((schedule) {
+            final mediaId = schedule['mediaId'];
+            return LibraryState().isSaved(mediaId, 'anime');
+          }).toList()
+        : daySchedules;
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF0F0F11),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16.0),
+            side: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
           ),
-          Expanded(
-            child: ListView.builder(
-              padding: const EdgeInsets.symmetric(horizontal: 4.0),
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: displayedSchedules.length + (showMore ? 1 : 0),
-              itemBuilder: (context, itemIndex) {
-                if (itemIndex == displayedSchedules.length) {
-                  final moreCount = filteredSchedules.length - 5;
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 4.0, horizontal: 4.0),
-                    child: Text(
-                      '+ $moreCount more...',
-                      style: const TextStyle(
-                        color: Colors.white38,
-                        fontSize: 10.0,
-                        fontFamily: 'Outfit',
-                        fontStyle: FontStyle.italic,
-                      ),
+          titlePadding: const EdgeInsets.all(20.0),
+          contentPadding: const EdgeInsets.only(left: 20.0, right: 20.0, bottom: 20.0),
+          title: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Airing on $dateString',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 16.0,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: 'Outfit',
                     ),
-                  );
-                }
-
-                final schedule = displayedSchedules[itemIndex];
-                final mediaId = schedule['mediaId'];
-                final isSaved = LibraryState().isSaved(mediaId, 'anime');
-
-                return _ScheduleItemWidget(
-                  key: ValueKey('sched_item_${schedule['id']}'),
-                  schedule: schedule,
-                  isSavedInLibrary: isSaved,
-                  onHoverEnter: (itemContext, media) => _onItemHover(itemContext, media),
-                  onHoverExit: _onItemLeave,
-                  onTap: () {
-                    widget.navigationState.selectAnime(mediaId);
-                  },
-                );
-              },
-            ),
+                  ),
+                  const SizedBox(height: 4.0),
+                  Text(
+                    '${_getWeekdayAbbreviation(targetDate.weekday)} • ${filteredSchedules.length} episodes',
+                    style: const TextStyle(
+                      color: Colors.white38,
+                      fontSize: 12.0,
+                      fontFamily: 'Outfit',
+                    ),
+                  ),
+                ],
+              ),
+              IconButton(
+                icon: const Icon(Icons.close, color: Colors.white70),
+                onPressed: () => Navigator.pop(context),
+              ),
+            ],
           ),
-        ],
-      ),
+          content: SizedBox(
+            width: 550.0,
+            child: filteredSchedules.isEmpty
+                ? Container(
+                    padding: const EdgeInsets.symmetric(vertical: 40.0),
+                    alignment: Alignment.center,
+                    child: const Text(
+                      'No airing episodes found.',
+                      style: TextStyle(color: Colors.white38, fontFamily: 'Outfit'),
+                    ),
+                  )
+                : ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxHeight: MediaQuery.of(context).size.height * 0.6,
+                    ),
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: filteredSchedules.length,
+                      itemBuilder: (context, index) {
+                        final schedule = filteredSchedules[index];
+                        final media = schedule['media'] ?? {};
+                        final title = media['title']?['english'] ?? media['title']?['romaji'] ?? 'Untitled';
+                        final int episode = schedule['episode'] ?? 1;
+                        final int airingAt = schedule['airingAt'];
+                        final DateTime airTime = DateTime.fromMillisecondsSinceEpoch(airingAt * 1000);
+                        final String timeStr = '${airTime.hour.toString().padLeft(2, '0')}:${airTime.minute.toString().padLeft(2, '0')}';
+                        final coverUrl = media['coverImage']?['large'] ?? '';
+                        final double? rating = media['averageScore'] != null
+                            ? (media['averageScore'] as num).toDouble() / 10
+                            : null;
+                        final genres = (media['genres'] as List<dynamic>?)?.take(3).join(', ') ?? '';
+
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 12.0),
+                          padding: const EdgeInsets.all(10.0),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.02),
+                            borderRadius: BorderRadius.circular(10.0),
+                            border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
+                          ),
+                          child: InkWell(
+                            onTap: () {
+                              Navigator.pop(context); // Close dialog
+                              widget.navigationState.selectAnime(media['id']);
+                            },
+                            child: Row(
+                              children: [
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(6.0),
+                                  child: SizedBox(
+                                    width: 48.0,
+                                    height: 68.0,
+                                    child: coverUrl.isNotEmpty
+                                        ? Image.network(
+                                            coverUrl,
+                                            fit: BoxFit.cover,
+                                            errorBuilder: (context, error, stackTrace) =>
+                                                Container(color: Colors.grey[950]),
+                                          )
+                                        : Container(color: Colors.grey[950]),
+                                  ),
+                                ),
+                                const SizedBox(width: 12.0),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        title,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 13.0,
+                                          fontFamily: 'Outfit',
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4.0),
+                                      Text(
+                                        'Episode $episode • $timeStr',
+                                        style: const TextStyle(
+                                          color: Color(0xFF3A86FF),
+                                          fontSize: 11.5,
+                                          fontWeight: FontWeight.w600,
+                                          fontFamily: 'Outfit',
+                                        ),
+                                      ),
+                                      if (genres.isNotEmpty) ...[
+                                        const SizedBox(height: 4.0),
+                                        Text(
+                                          genres,
+                                          style: const TextStyle(
+                                            color: Colors.white38,
+                                            fontSize: 10.5,
+                                            fontFamily: 'Outfit',
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                                if (rating != null) ...[
+                                  const SizedBox(width: 12.0),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6.0, vertical: 3.0),
+                                    decoration: BoxDecoration(
+                                      color: Colors.amber.withValues(alpha: 0.1),
+                                      borderRadius: BorderRadius.circular(4.0),
+                                      border: Border.all(color: Colors.amber.withValues(alpha: 0.2)),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const Icon(Icons.star, color: Colors.amber, size: 10.0),
+                                        const SizedBox(width: 4.0),
+                                        Text(
+                                          rating.toStringAsFixed(1),
+                                          style: const TextStyle(
+                                            color: Colors.amber,
+                                            fontSize: 10.0,
+                                            fontWeight: FontWeight.bold,
+                                            fontFamily: 'Outfit',
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+          ),
+        );
+      },
     );
   }
 
@@ -392,61 +606,6 @@ class _SchedulePageState extends State<SchedulePage> {
     );
   }
 
-  Widget _buildHoverCard() {
-    if (_hoveredMedia == null || _hoverCardRect == null) {
-      return const SizedBox.shrink();
-    }
-
-    final coverUrl = _hoveredMedia!['coverImage']?['extraLarge'] ??
-        _hoveredMedia!['coverImage']?['large'] ??
-        '';
-    
-    const double cardWidth = 180.0;
-    const double cardHeight = 260.0;
-
-    final double left = _hoverCardRect!.left + _hoverCardRect!.width / 2 - cardWidth / 2;
-    final double top = _hoverCardRect!.top + _hoverCardRect!.height / 2 - cardHeight / 2;
-
-    final double screenWidth = MediaQuery.of(context).size.width;
-    double clampedLeft = left;
-    if (clampedLeft < 16.0) clampedLeft = 16.0;
-    if (clampedLeft + cardWidth > screenWidth - 16.0) {
-      clampedLeft = screenWidth - cardWidth - 16.0;
-    }
-
-    return Positioned(
-      left: clampedLeft,
-      top: top,
-      child: IgnorePointer(
-        child: Container(
-          width: cardWidth,
-          height: cardHeight,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12.0),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.12), width: 1.0),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.85),
-                blurRadius: 20.0,
-                spreadRadius: 6.0,
-              ),
-            ],
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(11.0),
-            child: coverUrl.isNotEmpty
-                ? Image.network(
-                    coverUrl,
-                    fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) =>
-                        Container(color: Colors.grey[950]),
-                  )
-                : Container(color: Colors.grey[950]),
-          ),
-        ),
-      ),
-    );
-  }
 
   // Mobile views
   Widget _buildMobileDaySelector() {
@@ -687,16 +846,15 @@ class _SchedulePageState extends State<SchedulePage> {
     final bool isMobile = screenWidth < 650;
 
     return Scaffold(
+      key: _pageKey,
       backgroundColor: Colors.black,
-      body: ListenableBuilder(
-        listenable: LibraryState(),
-        builder: (context, _) {
+      body: LayoutBuilder(
+        builder: (context, constraints) {
           return SafeArea(
             child: Stack(
-              key: _pageKey,
               children: [
                 Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     // Spacing to clear floating custom title bar on desktop
                     SizedBox(height: isMobile ? 8.0 : 58.0),
@@ -797,111 +955,10 @@ class _SchedulePageState extends State<SchedulePage> {
                   ],
                 ),
 
-                // Hover Card Overlay
-                if (!isMobile) _buildHoverCard(),
               ],
             ),
           );
         }
-      ),
-    );
-  }
-}
-
-class _ScheduleItemWidget extends StatefulWidget {
-  final Map<String, dynamic> schedule;
-  final bool isSavedInLibrary;
-  final Function(BuildContext, Map<String, dynamic>) onHoverEnter;
-  final VoidCallback onHoverExit;
-  final VoidCallback onTap;
-
-  const _ScheduleItemWidget({
-    super.key,
-    required this.schedule,
-    required this.isSavedInLibrary,
-    required this.onHoverEnter,
-    required this.onHoverExit,
-    required this.onTap,
-  });
-
-  @override
-  State<_ScheduleItemWidget> createState() => _ScheduleItemWidgetState();
-}
-
-class _ScheduleItemWidgetState extends State<_ScheduleItemWidget> {
-  bool _isHovered = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final media = widget.schedule['media'] ?? {};
-    final title = media['title']?['english'] ?? media['title']?['romaji'] ?? 'Untitled';
-    final int episode = widget.schedule['episode'] ?? 1;
-    final int airingAt = widget.schedule['airingAt'];
-    final DateTime airTime = DateTime.fromMillisecondsSinceEpoch(airingAt * 1000);
-    final String timeStr = '${airTime.hour.toString().padLeft(2, '0')}:${airTime.minute.toString().padLeft(2, '0')}';
-
-    return MouseRegion(
-      onEnter: (event) {
-        setState(() => _isHovered = true);
-        widget.onHoverEnter(context, media);
-      },
-      onExit: (_) {
-        setState(() => _isHovered = false);
-        widget.onHoverExit();
-      },
-      child: GestureDetector(
-        onTap: widget.onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 3.0, horizontal: 6.0),
-          decoration: BoxDecoration(
-            color: _isHovered ? Colors.white.withValues(alpha: 0.06) : Colors.transparent,
-            borderRadius: BorderRadius.circular(4.0),
-          ),
-          child: Row(
-            children: [
-              if (widget.isSavedInLibrary) ...[
-                Container(
-                  width: 5,
-                  height: 5,
-                  decoration: const BoxDecoration(
-                    color: Color(0xFF3A86FF),
-                    shape: BoxShape.circle,
-                  ),
-                ),
-                const SizedBox(width: 5.0),
-              ],
-              Expanded(
-                child: Text(
-                  title,
-                  style: TextStyle(
-                    color: _isHovered ? Colors.white : Colors.white70,
-                    fontSize: 11.0,
-                    fontFamily: 'Outfit',
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              const SizedBox(width: 6.0),
-              Text(
-                '#$episode',
-                style: const TextStyle(
-                  color: Colors.white38,
-                  fontSize: 10.0,
-                  fontFamily: 'Outfit',
-                ),
-              ),
-              const SizedBox(width: 6.0),
-              Text(
-                timeStr,
-                style: const TextStyle(
-                  color: Colors.white24,
-                  fontSize: 10.0,
-                  fontFamily: 'Outfit',
-                ),
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }
