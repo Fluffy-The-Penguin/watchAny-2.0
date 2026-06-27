@@ -84,6 +84,41 @@ class LibraryState extends ChangeNotifier {
       _moviesBadgeCleared = true;
       notifyListeners();
     }
+    acknowledgeNotifications(mode);
+  }
+
+  Future<void> acknowledgeNotifications(AppMode mode) async {
+    final String localModeStr = mode == AppMode.manga
+        ? 'manga'
+        : (mode == AppMode.movies ? 'movies' : 'anime');
+    final String anilistTypeStr = mode == AppMode.manga ? 'MANGA' : 'ANIME';
+    
+    final libraryItems = _items.where((item) => item.mode == localModeStr).toList();
+    if (libraryItems.isEmpty) return;
+    
+    final ids = libraryItems.map((item) => item.id).toList();
+    try {
+      final details = await AnilistService().fetchLibraryDetails(ids, type: anilistTypeStr);
+      final prefs = await SharedPreferences.getInstance();
+      
+      for (var media in details) {
+        final id = media['id'];
+        final localItem = libraryItems.firstWhere((item) => item.id == id);
+        
+        final int? nextEpisode = media['nextAiringEpisode']?['episode'];
+        final int totalEpisodes = media['episodes'] ?? 0;
+        final int totalChapters = media['chapters'] ?? 0;
+        
+        final int latestReleased = mode == AppMode.manga
+            ? totalChapters
+            : (nextEpisode != null ? (nextEpisode - 1) : totalEpisodes);
+            
+        if (latestReleased > localItem.watchedEpisodes) {
+          await prefs.setInt('notif_acknowledged_${localModeStr}_$id', latestReleased);
+        }
+      }
+      await updateNotificationCount();
+    } catch (_) {}
   }
 
   Future<void> init() async {
@@ -154,6 +189,8 @@ class LibraryState extends ChangeNotifier {
   }
 
   Future<void> updateNotificationCount() async {
+    final prefs = await SharedPreferences.getInstance();
+
     // 1. ANIME
     final animeItems = _items.where((item) => item.mode == 'anime').toList();
     int animeCount = 0;
@@ -167,7 +204,12 @@ class LibraryState extends ChangeNotifier {
           final int? nextEpisode = media['nextAiringEpisode']?['episode'];
           final int totalEpisodes = media['episodes'] ?? 0;
           final int latestReleased = nextEpisode != null ? (nextEpisode - 1) : totalEpisodes;
-          if (latestReleased > localItem.watchedEpisodes) {
+          
+          int ackEp = prefs.getInt('notif_acknowledged_anime_$id') ?? localItem.watchedEpisodes;
+          if (ackEp < localItem.watchedEpisodes) {
+            ackEp = localItem.watchedEpisodes;
+          }
+          if (latestReleased > ackEp) {
             animeCount++;
           }
         }
@@ -185,7 +227,12 @@ class LibraryState extends ChangeNotifier {
           final id = media['id'];
           final localItem = mangaItems.firstWhere((item) => item.id == id);
           final int totalChapters = media['chapters'] ?? 0;
-          if (totalChapters > localItem.watchedEpisodes) {
+          
+          int ackEp = prefs.getInt('notif_acknowledged_manga_$id') ?? localItem.watchedEpisodes;
+          if (ackEp < localItem.watchedEpisodes) {
+            ackEp = localItem.watchedEpisodes;
+          }
+          if (totalChapters > ackEp) {
             mangaCount++;
           }
         }
@@ -205,7 +252,12 @@ class LibraryState extends ChangeNotifier {
           final int? nextEpisode = media['nextAiringEpisode']?['episode'];
           final int totalEpisodes = media['episodes'] ?? 0;
           final int latestReleased = nextEpisode != null ? (nextEpisode - 1) : totalEpisodes;
-          if (latestReleased > localItem.watchedEpisodes) {
+          
+          int ackEp = prefs.getInt('notif_acknowledged_movies_$id') ?? localItem.watchedEpisodes;
+          if (ackEp < localItem.watchedEpisodes) {
+            ackEp = localItem.watchedEpisodes;
+          }
+          if (latestReleased > ackEp) {
             movieCount++;
           }
         }
