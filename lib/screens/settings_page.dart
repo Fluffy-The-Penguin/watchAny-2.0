@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/extension_service.dart';
+import '../services/stremio_addon_service.dart';
 import '../state/app_settings.dart';
 
 class SettingsPage extends StatefulWidget {
@@ -13,9 +14,11 @@ class _SettingsPageState extends State<SettingsPage> {
   final ExtensionService _extensionService = ExtensionService();
   final TextEditingController _repoUrlController = TextEditingController();
   final TextEditingController _repoNameController = TextEditingController();
+  final TextEditingController _stremioUrlController = TextEditingController();
   
-  int _activeCategoryIndex = 0; // 0: Extensions, 1: General
+  int _activeCategoryIndex = 0; // 0: Extensions, 1: Addons, 2: General
   bool _isLoading = false;
+  bool _isInstallingAddon = false;
   
   // Track testing status for extensions by ID: 'idle', 'testing', 'success', 'error'
   final Map<String, String> _testStatus = {};
@@ -33,6 +36,7 @@ class _SettingsPageState extends State<SettingsPage> {
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
     await _extensionService.init();
+    await StremioAddonService().init();
     if (mounted) {
       setState(() => _isLoading = false);
     }
@@ -42,6 +46,7 @@ class _SettingsPageState extends State<SettingsPage> {
   void dispose() {
     _repoUrlController.dispose();
     _repoNameController.dispose();
+    _stremioUrlController.dispose();
     super.dispose();
   }
 
@@ -129,6 +134,7 @@ class _SettingsPageState extends State<SettingsPage> {
   Widget _buildSidebar() {
     final categories = [
       {'title': 'Extensions', 'icon': Icons.extension},
+      {'title': 'Movies/TV Addons', 'icon': Icons.movie_filter},
       {'title': 'General', 'icon': Icons.settings_applications},
     ];
 
@@ -845,6 +851,7 @@ class _SettingsPageState extends State<SettingsPage> {
   Widget _buildTopCategoryBar() {
     final categories = [
       {'title': 'Extensions', 'icon': Icons.extension},
+      {'title': 'Addons', 'icon': Icons.movie_filter},
       {'title': 'General', 'icon': Icons.settings_applications},
     ];
 
@@ -945,6 +952,8 @@ class _SettingsPageState extends State<SettingsPage> {
             const SizedBox(height: 24.0),
             _buildExtensionsSection(isMobile),
           ] else if (_activeCategoryIndex == 1) ...[
+            _buildStremioAddonsSection(isMobile),
+          ] else if (_activeCategoryIndex == 2) ...[
             _buildGeneralSection(),
           ],
         ],
@@ -975,6 +984,323 @@ class _SettingsPageState extends State<SettingsPage> {
                 ],
               ),
       ),
+    );
+  }
+  Future<void> _installStremioAddon() async {
+    final url = _stremioUrlController.text.trim();
+    if (url.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a manifest URL.')),
+      );
+      return;
+    }
+
+    setState(() {
+      _isInstallingAddon = true;
+    });
+
+    try {
+      await StremioAddonService().installAddon(url);
+      _stremioUrlController.clear();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Stremio Addon installed successfully.')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to install addon: ${e.toString().replaceAll('Exception: ', '')}')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isInstallingAddon = false;
+        });
+      }
+    }
+  }
+
+  Widget _buildStremioAddonsSection(bool isMobile) {
+    return ListenableBuilder(
+      listenable: StremioAddonService(),
+      builder: (context, _) {
+        final addonService = StremioAddonService();
+        final addons = addonService.addons;
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Stremio Addons',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 18.0,
+                fontWeight: FontWeight.bold,
+                fontFamily: 'Outfit',
+              ),
+            ),
+            const SizedBox(height: 8.0),
+            const Text(
+              'Install custom Stremio manifest URLs (e.g. from stremio-addons.net) to stream movies & TV shows.',
+              style: TextStyle(color: Colors.white54, fontSize: 13.0),
+            ),
+            const SizedBox(height: 16.0),
+
+            // URL input and Install button
+            isMobile
+                ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      TextField(
+                        controller: _stremioUrlController,
+                        style: const TextStyle(color: Colors.white, fontSize: 14.0),
+                        decoration: InputDecoration(
+                          labelText: 'Stremio Addon Manifest URL',
+                          labelStyle: const TextStyle(color: Colors.white38),
+                          filled: true,
+                          fillColor: Colors.white.withValues(alpha: 0.03),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8.0),
+                            borderSide: const BorderSide(color: Colors.white10),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8.0),
+                            borderSide: const BorderSide(color: Colors.white10),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8.0),
+                            borderSide: const BorderSide(color: Colors.white38),
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 14.0),
+                        ),
+                      ),
+                      const SizedBox(height: 12.0),
+                      ElevatedButton.icon(
+                        icon: _isInstallingAddon
+                            ? const SizedBox(
+                                width: 16.0,
+                                height: 16.0,
+                                child: CircularProgressIndicator(color: Colors.black, strokeWidth: 2.0),
+                              )
+                            : const Icon(Icons.add, color: Colors.black, size: 18),
+                        label: const Text('Install Addon', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                        onPressed: _isInstallingAddon ? null : _installStremioAddon,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 16.0),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8.0),
+                          ),
+                        ),
+                      ),
+                    ],
+                  )
+                : Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _stremioUrlController,
+                          style: const TextStyle(color: Colors.white, fontSize: 14.0),
+                          decoration: InputDecoration(
+                            labelText: 'Stremio Addon Manifest URL',
+                            labelStyle: const TextStyle(color: Colors.white38),
+                            filled: true,
+                            fillColor: Colors.white.withValues(alpha: 0.03),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8.0),
+                              borderSide: const BorderSide(color: Colors.white10),
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8.0),
+                              borderSide: const BorderSide(color: Colors.white10),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8.0),
+                              borderSide: const BorderSide(color: Colors.white38),
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 14.0),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12.0),
+                      ElevatedButton.icon(
+                        icon: _isInstallingAddon
+                            ? const SizedBox(
+                                width: 16.0,
+                                height: 16.0,
+                                child: CircularProgressIndicator(color: Colors.black, strokeWidth: 2.0),
+                              )
+                            : const Icon(Icons.add, color: Colors.black, size: 18),
+                        label: const Text('Install Addon', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                        onPressed: _isInstallingAddon ? null : _installStremioAddon,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8.0),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+            const SizedBox(height: 24.0),
+            Container(height: 1.0, color: Colors.white10),
+            const SizedBox(height: 24.0),
+
+            // Installed Addons List
+            if (addons.isEmpty)
+              const Center(
+                child: Padding(
+                  padding: EdgeInsets.symmetric(vertical: 48.0),
+                  child: Text(
+                    'No Stremio Addons installed yet.',
+                    style: TextStyle(color: Colors.white38, fontSize: 14.0),
+                  ),
+                ),
+              )
+            else
+              ListView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: addons.length,
+                itemBuilder: (context, index) {
+                  final addon = addons[index];
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 12.0),
+                    padding: const EdgeInsets.all(16.0),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.02),
+                      borderRadius: BorderRadius.circular(8.0),
+                      border: Border.all(color: Colors.white10),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Addon Icon / Logo
+                        Container(
+                          width: 48.0,
+                          height: 48.0,
+                          decoration: BoxDecoration(
+                            color: Colors.white10,
+                            borderRadius: BorderRadius.circular(6.0),
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(6.0),
+                            child: addon.icon.isNotEmpty
+                                ? Image.network(
+                                    addon.icon,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (_, __, ___) => const Icon(Icons.movie, color: Colors.white38),
+                                  )
+                                : const Icon(Icons.movie, color: Colors.white38),
+                          ),
+                        ),
+                        const SizedBox(width: 16.0),
+
+                        // Addon Details
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Text(
+                                    addon.name,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 15.0,
+                                      fontWeight: FontWeight.bold,
+                                      fontFamily: 'Outfit',
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8.0),
+                                  Text(
+                                    'v${addon.version}',
+                                    style: const TextStyle(color: Colors.white38, fontSize: 11.0),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 4.0),
+                              Text(
+                                addon.description.isNotEmpty ? addon.description : 'No description provided.',
+                                style: const TextStyle(color: Colors.white70, fontSize: 13.0),
+                              ),
+                              const SizedBox(height: 8.0),
+                              // Chips for resources & types
+                              Wrap(
+                                spacing: 6.0,
+                                runSpacing: 6.0,
+                                children: [
+                                  for (final type in addon.types)
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 2.0),
+                                      decoration: BoxDecoration(
+                                        color: Colors.amber.withValues(alpha: 0.1),
+                                        borderRadius: BorderRadius.circular(4.0),
+                                        border: Border.all(color: Colors.amber.withValues(alpha: 0.3)),
+                                      ),
+                                      child: Text(
+                                        type,
+                                        style: const TextStyle(color: Colors.amber, fontSize: 10.0, fontWeight: FontWeight.bold),
+                                      ),
+                                    ),
+                                  for (final res in addon.resources)
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 2.0),
+                                      decoration: BoxDecoration(
+                                        color: Colors.white.withValues(alpha: 0.05),
+                                        borderRadius: BorderRadius.circular(4.0),
+                                        border: Border.all(color: Colors.white10),
+                                      ),
+                                      child: Text(
+                                        res,
+                                        style: const TextStyle(color: Colors.white70, fontSize: 10.0),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 16.0),
+
+                        // Switch and Delete
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Transform.scale(
+                              scale: 0.8,
+                              child: Switch(
+                                value: addon.isEnabled,
+                                activeColor: Colors.white,
+                                activeTrackColor: Colors.white24,
+                                inactiveThumbColor: Colors.white30,
+                                inactiveTrackColor: Colors.black26,
+                                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                onChanged: (val) {
+                                  addonService.toggleAddon(addon.id, val);
+                                },
+                              ),
+                            ),
+                            const SizedBox(height: 8.0),
+                            IconButton(
+                              icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20.0),
+                              onPressed: () {
+                                addonService.removeAddon(addon.id);
+                              },
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+          ],
+        );
+      },
     );
   }
 }
