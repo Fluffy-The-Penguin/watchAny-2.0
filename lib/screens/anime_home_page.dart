@@ -195,9 +195,15 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
                         if (!snapshot.hasData || snapshot.data!.isEmpty) {
                           return const SizedBox.shrink();
                         }
+                        final animeOnly = snapshot.data!
+                            .where((item) => int.tryParse(item['id']?.toString() ?? '') != null)
+                            .toList();
+                        if (animeOnly.isEmpty) {
+                          return const SizedBox.shrink();
+                        }
                         return _RailwayTrack(
                           title: 'Continue Watching',
-                          initialItems: snapshot.data!,
+                          initialItems: animeOnly,
                           onLoadMore: (page) async => const [],
                           navigationState: widget.navigationState,
                         );
@@ -828,10 +834,18 @@ class _AnimeCardState extends State<_AnimeCard> {
 
   @override
   Widget build(BuildContext context) {
-    final coverUrl = widget.anime['coverImage']?['large'] ?? '';
-    final title = widget.anime['title']?['english'] ?? widget.anime['title']?['romaji'] ?? 'Untitled';
+    final rawCover = widget.anime['coverImage'];
+    final coverUrl = (rawCover is Map) 
+        ? (rawCover['large'] ?? rawCover['extraLarge'] ?? '') 
+        : (rawCover?.toString() ?? '');
+
+    final rawTitle = widget.anime['title'];
+    final title = (rawTitle is Map) 
+        ? (rawTitle['english'] ?? rawTitle['romaji'] ?? rawTitle['native'] ?? 'Untitled') 
+        : (rawTitle?.toString() ?? 'Untitled');
+
     final double? rating = widget.anime['averageScore'] != null
-        ? (widget.anime['averageScore'] as num).toDouble()
+        ? double.tryParse(widget.anime['averageScore'].toString())
         : null;
     final String? format = widget.anime['format'];
     final int? episodes = widget.anime['episodes'];
