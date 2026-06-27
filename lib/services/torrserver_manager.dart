@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 
 class TorrServerManager {
   static Process? _process;
@@ -42,8 +43,35 @@ class TorrServerManager {
       });
 
       debugPrint('TorrServer started successfully!');
+      _applySettings();
     } catch (e) {
       debugPrint('Error starting TorrServer: $e');
+    }
+  }
+
+  static Future<void> _applySettings() async {
+    final String url = 'http://127.0.0.1:8090';
+    for (int i = 0; i < 15; i++) {
+      await Future.delayed(const Duration(milliseconds: 300));
+      try {
+        final response = await http.get(Uri.parse('$url/echo')).timeout(const Duration(seconds: 1));
+        if (response.statusCode == 200) {
+          debugPrint('TorrServer is online, applying fast cache/prebuffer settings...');
+          final setResponse = await http.post(
+            Uri.parse('$url/settings'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'action': 'set',
+              'sets': {
+                'CacheSize': 52428800,      // 50 MB Cache
+                'PrebufferSize': 8388608,    // 8 MB Prebuffer
+              }
+            }),
+          ).timeout(const Duration(seconds: 2));
+          debugPrint('TorrServer settings response: ${setResponse.statusCode} - ${setResponse.body}');
+          break;
+        }
+      } catch (_) {}
     }
   }
 
