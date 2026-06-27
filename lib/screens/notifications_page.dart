@@ -72,6 +72,14 @@ class _NotificationsPageState extends State<NotificationsPage> {
             ? totalChapters
             : (nextEpisode != null ? (nextEpisode - 1) : totalEpisodes);
 
+        final nextAiring = media['nextAiringEpisode'];
+        int releaseTime = 0;
+        if (nextAiring != null) {
+          releaseTime = (nextAiring['airingAt'] as int) - 604800;
+        } else {
+          releaseTime = media['updatedAt'] ?? 0;
+        }
+
         if (latestReleased > localItem.watchedEpisodes) {
           final int startNew = localItem.watchedEpisodes + 1;
           final int endNew = latestReleased;
@@ -100,9 +108,13 @@ class _NotificationsPageState extends State<NotificationsPage> {
             'latestReleased': latestReleased,
             'watchedCount': localItem.watchedEpisodes,
             'status': media['status'] ?? '',
+            'releaseTime': releaseTime,
           });
         }
       }
+
+      // Sort notifications by releaseTime descending (most recent first)
+      generated.sort((a, b) => (b['releaseTime'] as int).compareTo(a['releaseTime'] as int));
 
       if (mounted) {
         setState(() {
