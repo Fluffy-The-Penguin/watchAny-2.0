@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../services/anilist_service.dart';
 
 class LibraryItem {
   final int id;
@@ -54,8 +55,10 @@ class LibraryState extends ChangeNotifier {
   LibraryState._internal();
 
   List<LibraryItem> _items = [];
+  int _notificationCount = 0;
 
   List<LibraryItem> get items => _items;
+  int get notificationCount => _notificationCount;
 
   Future<void> init() async {
     final prefs = await SharedPreferences.getInstance();
@@ -69,6 +72,7 @@ class LibraryState extends ChangeNotifier {
       }
     }
     notifyListeners();
+    updateNotificationCount();
   }
 
   bool isSaved(int id, String mode) {
@@ -107,17 +111,52 @@ class LibraryState extends ChangeNotifier {
     
     notifyListeners();
     await _persist();
+    updateNotificationCount();
   }
 
   Future<void> removeItem(int id, String mode) async {
     _items.removeWhere((item) => item.id == id && item.mode == mode);
     notifyListeners();
     await _persist();
+    updateNotificationCount();
   }
 
   Future<void> _persist() async {
     final prefs = await SharedPreferences.getInstance();
     final String jsonString = jsonEncode(_items.map((item) => item.toJson()).toList());
     await prefs.setString('library_items', jsonString);
+  }
+
+  Future<void> updateNotificationCount() async {
+    final libraryAnime = _items.where((item) => item.mode == 'anime').toList();
+    if (libraryAnime.isEmpty) {
+      if (_notificationCount != 0) {
+        _notificationCount = 0;
+        notifyListeners();
+      }
+      return;
+    }
+    
+    final ids = libraryAnime.map((item) => item.id).toList();
+    try {
+      final List<dynamic> details = await AnilistService().fetchLibraryDetails(ids);
+      int count = 0;
+      for (var media in details) {
+        final id = media['id'];
+        final localItem = libraryAnime.firstWhere((item) => item.id == id);
+        final int? nextEpisode = media['nextAiringEpisode']?['episode'];
+        final int totalEpisodes = media['episodes'] ?? 0;
+        final int latestReleased = nextEpisode != null ? (nextEpisode - 1) : totalEpisodes;
+        if (latestReleased > localItem.watchedEpisodes) {
+          count++;
+        }
+      }
+      if (_notificationCount != count) {
+        _notificationCount = count;
+        notifyListeners();
+      }
+    } catch (_) {
+      // ignore network errors for background update
+    }
   }
 }

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../state/navigation_state.dart';
+import '../state/library_state.dart';
 
 class Sidebar extends StatelessWidget {
   final NavigationState state;
@@ -17,125 +18,133 @@ class Sidebar extends StatelessWidget {
   Widget build(BuildContext context) {
     final isExpanded = state.isSidebarExpanded;
 
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 200),
-      curve: Curves.easeInOut,
-      width: isExpanded ? 220.0 : 60.0,
-      color: Colors.black,
-      child: Container(
-        decoration: const BoxDecoration(
-          border: Border(
-            right: BorderSide(
-              color: Colors.white10,
-              width: 1.0,
-            ),
-          ),
-        ),
-        child: Column(
-          children: [
-            // Top: Sidebar Collapse/Expand Toggle
-            const SizedBox(height: 8.0),
-            Align(
-              alignment: isExpanded ? Alignment.centerRight : Alignment.center,
-              child: Padding(
-                padding: EdgeInsets.only(right: isExpanded ? 8.0 : 0.0),
-                child: IconButton(
-                  icon: Icon(
-                    isExpanded ? Icons.chevron_left : Icons.menu,
-                    color: Colors.white70,
-                  ),
-                  onPressed: state.toggleSidebar,
-                  tooltip: isExpanded ? 'Collapse' : 'Expand',
+    return ListenableBuilder(
+      listenable: LibraryState(),
+      builder: (context, child) {
+        final notifCount = LibraryState().notificationCount;
+
+        return AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeInOut,
+          width: isExpanded ? 220.0 : 60.0,
+          color: Colors.black,
+          child: Container(
+            decoration: const BoxDecoration(
+              border: Border(
+                right: BorderSide(
+                  color: Colors.white10,
+                  width: 1.0,
                 ),
               ),
             ),
-            const SizedBox(height: 24.0),
+            child: Column(
+              children: [
+                // Top: Sidebar Collapse/Expand Toggle
+                const SizedBox(height: 8.0),
+                Align(
+                  alignment: isExpanded ? Alignment.centerRight : Alignment.center,
+                  child: Padding(
+                    padding: EdgeInsets.only(right: isExpanded ? 8.0 : 0.0),
+                    child: IconButton(
+                      icon: Icon(
+                        isExpanded ? Icons.chevron_left : Icons.menu,
+                        color: Colors.white70,
+                      ),
+                      onPressed: state.toggleSidebar,
+                      tooltip: isExpanded ? 'Collapse' : 'Expand',
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 24.0),
 
-            // Navigation Items: Home, Search, Library
-            Expanded(
-              child: Column(
-                children: [
-                  _SidebarItem(
-                    icon: Icons.home_filled,
-                    label: 'Home',
-                    isSelected: state.currentPage == TabPage.home,
-                    isExpanded: isExpanded,
-                    onTap: () => state.setPage(TabPage.home),
+                // Navigation Items: Home, Search, Library
+                Expanded(
+                  child: Column(
+                    children: [
+                      _SidebarItem(
+                        icon: Icons.home_filled,
+                        label: 'Home',
+                        isSelected: state.currentPage == TabPage.home,
+                        isExpanded: isExpanded,
+                        onTap: () => state.setPage(TabPage.home),
+                      ),
+                      const SizedBox(height: 8.0),
+                      _SidebarItem(
+                        icon: Icons.search,
+                        label: 'Search',
+                        isSelected: state.currentPage == TabPage.search,
+                        isExpanded: isExpanded,
+                        onTap: () => state.setPage(TabPage.search),
+                      ),
+                      const SizedBox(height: 8.0),
+                      _SidebarItem(
+                        icon: Icons.video_library,
+                        label: 'Library',
+                        isSelected: state.currentPage == TabPage.library,
+                        isExpanded: isExpanded,
+                        onTap: () => state.setPage(TabPage.library),
+                      ),
+                      const SizedBox(height: 8.0),
+                      _SidebarItem(
+                        icon: Icons.calendar_today,
+                        label: 'Schedule',
+                        isSelected: state.currentPage == TabPage.schedule,
+                        isExpanded: isExpanded,
+                        onTap: () => state.setPage(TabPage.schedule),
+                      ),
+                      const SizedBox(height: 8.0),
+                      _SidebarItem(
+                        icon: Icons.download_for_offline,
+                        label: 'Downloads',
+                        isSelected: state.currentPage == TabPage.downloads,
+                        isExpanded: isExpanded,
+                        onTap: () => state.setPage(TabPage.downloads),
+                      ),
+                      const SizedBox(height: 8.0),
+                      _SidebarItem(
+                        icon: Icons.history,
+                        label: 'History',
+                        isSelected: state.currentPage == TabPage.history,
+                        isExpanded: isExpanded,
+                        onTap: onHistoryTap ?? () => state.setPage(TabPage.history),
+                      ),
+                      const SizedBox(height: 8.0),
+                      _SidebarItem(
+                        icon: Icons.notifications,
+                        label: 'Notifications',
+                        isSelected: state.currentPage == TabPage.notifications,
+                        isExpanded: isExpanded,
+                        badgeCount: notifCount,
+                        onTap: onNotificationsTap ?? () => state.setPage(TabPage.notifications),
+                      ),
+                      const SizedBox(height: 8.0),
+                      _SidebarItem(
+                        icon: Icons.settings,
+                        label: 'Settings',
+                        isSelected: state.currentPage == TabPage.settings,
+                        isExpanded: isExpanded,
+                        onTap: () => state.setPage(TabPage.settings),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 8.0),
-                  _SidebarItem(
-                    icon: Icons.search,
-                    label: 'Search',
-                    isSelected: state.currentPage == TabPage.search,
-                    isExpanded: isExpanded,
-                    onTap: () => state.setPage(TabPage.search),
-                  ),
-                  const SizedBox(height: 8.0),
-                  _SidebarItem(
-                    icon: Icons.video_library,
-                    label: 'Library',
-                    isSelected: state.currentPage == TabPage.library,
-                    isExpanded: isExpanded,
-                    onTap: () => state.setPage(TabPage.library),
-                  ),
-                  const SizedBox(height: 8.0),
-                  _SidebarItem(
-                    icon: Icons.calendar_today,
-                    label: 'Schedule',
-                    isSelected: state.currentPage == TabPage.schedule,
-                    isExpanded: isExpanded,
-                    onTap: () => state.setPage(TabPage.schedule),
-                  ),
-                  const SizedBox(height: 8.0),
-                  _SidebarItem(
-                    icon: Icons.download_for_offline,
-                    label: 'Downloads',
-                    isSelected: state.currentPage == TabPage.downloads,
-                    isExpanded: isExpanded,
-                    onTap: () => state.setPage(TabPage.downloads),
-                  ),
-                  const SizedBox(height: 8.0),
-                  _SidebarItem(
-                    icon: Icons.history,
-                    label: 'History',
-                    isSelected: state.currentPage == TabPage.history,
-                    isExpanded: isExpanded,
-                    onTap: onHistoryTap ?? () => state.setPage(TabPage.history),
-                  ),
-                  const SizedBox(height: 8.0),
-                  _SidebarItem(
-                    icon: Icons.notifications,
-                    label: 'Notifications',
-                    isSelected: state.currentPage == TabPage.notifications,
-                    isExpanded: isExpanded,
-                    onTap: onNotificationsTap ?? () => state.setPage(TabPage.notifications),
-                  ),
-                  const SizedBox(height: 8.0),
-                  _SidebarItem(
-                    icon: Icons.settings,
-                    label: 'Settings',
-                    isSelected: state.currentPage == TabPage.settings,
-                    isExpanded: isExpanded,
-                    onTap: () => state.setPage(TabPage.settings),
-                  ),
-                ],
-              ),
-            ),
+                ),
 
-            // Bottom-Left: Mode Selector
-            Padding(
-              padding: EdgeInsets.symmetric(
-                horizontal: isExpanded ? 12.0 : 6.0,
-                vertical: 16.0,
-              ),
-              child: _ModeSelector(
-                state: state,
-                isExpanded: isExpanded,
-              ),
+                // Bottom-Left: Mode Selector
+                Padding(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: isExpanded ? 12.0 : 6.0,
+                    vertical: 16.0,
+                  ),
+                  child: _ModeSelector(
+                    state: state,
+                    isExpanded: isExpanded,
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 }
@@ -145,6 +154,7 @@ class _SidebarItem extends StatefulWidget {
   final String label;
   final bool isSelected;
   final bool isExpanded;
+  final int badgeCount;
   final VoidCallback onTap;
 
   const _SidebarItem({
@@ -152,6 +162,7 @@ class _SidebarItem extends StatefulWidget {
     required this.label,
     required this.isSelected,
     required this.isExpanded,
+    this.badgeCount = 0,
     required this.onTap,
   });
 
@@ -188,10 +199,42 @@ class _SidebarItemState extends State<_SidebarItem> {
                   ? MainAxisAlignment.start
                   : MainAxisAlignment.center,
               children: [
-                Icon(
-                  widget.icon,
-                  color: widget.isSelected ? Colors.white : Colors.white54,
-                  size: 20.0,
+                Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Icon(
+                      widget.icon,
+                      color: widget.isSelected ? Colors.white : Colors.white54,
+                      size: 20.0,
+                    ),
+                    if (widget.badgeCount > 0)
+                      Positioned(
+                        right: -4,
+                        top: -4,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 4.0, vertical: 1.0),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF2EC4B6),
+                            borderRadius: BorderRadius.circular(10.0),
+                          ),
+                          constraints: const BoxConstraints(
+                            minWidth: 12.0,
+                            minHeight: 12.0,
+                          ),
+                          child: Center(
+                            child: Text(
+                              '${widget.badgeCount}',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 7.5,
+                                fontWeight: FontWeight.bold,
+                                fontFamily: 'Outfit',
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
                 if (widget.isExpanded) ...[
                   const SizedBox(width: 12.0),

@@ -215,15 +215,53 @@ class ShellLayout extends StatelessWidget {
                           onViewAll: () => navigationState.setPage(TabPage.history),
                         ),
                       ),
-                      IconButton(
-                        icon: const Icon(Icons.notifications, color: Colors.white70),
-                        tooltip: 'Notifications',
-                        onPressed: () => _showSidebarPopup(
-                          context: context,
-                          title: 'Notifications',
-                          content: _NotificationsPopupContent(navigationState: navigationState),
-                          onViewAll: () => navigationState.setPage(TabPage.notifications),
-                        ),
+                      ListenableBuilder(
+                        listenable: LibraryState(),
+                        builder: (context, child) {
+                          final count = LibraryState().notificationCount;
+                          return IconButton(
+                            icon: Stack(
+                              clipBehavior: Clip.none,
+                              children: [
+                                const Icon(Icons.notifications, color: Colors.white70),
+                                if (count > 0)
+                                  Positioned(
+                                    right: -2,
+                                    top: -2,
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 4.0, vertical: 1.0),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFF2EC4B6),
+                                        borderRadius: BorderRadius.circular(10.0),
+                                      ),
+                                      constraints: const BoxConstraints(
+                                        minWidth: 12.0,
+                                        minHeight: 12.0,
+                                      ),
+                                      child: Center(
+                                        child: Text(
+                                          '$count',
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 7.5,
+                                            fontWeight: FontWeight.bold,
+                                            fontFamily: 'Outfit',
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                            tooltip: 'Notifications',
+                            onPressed: () => _showSidebarPopup(
+                              context: context,
+                              title: 'Notifications',
+                              content: _NotificationsPopupContent(navigationState: navigationState),
+                              onViewAll: () => navigationState.setPage(TabPage.notifications),
+                            ),
+                          );
+                        },
                       ),
                       IconButton(
                         icon: const Icon(Icons.swap_horiz, color: Colors.white70),
@@ -362,90 +400,111 @@ class ShellLayout extends StatelessWidget {
     required Widget content,
     required VoidCallback onViewAll,
   }) {
-    showDialog(
+    showGeneralDialog(
       context: context,
+      barrierDismissible: true,
+      barrierLabel: 'Dismiss',
       barrierColor: Colors.black.withValues(alpha: 0.4),
-      builder: (context) {
+      transitionDuration: const Duration(milliseconds: 250),
+      pageBuilder: (context, animation, secondaryAnimation) {
+        return Container();
+      },
+      transitionBuilder: (context, animation, secondaryAnimation, child) {
         final double screenWidth = MediaQuery.of(context).size.width;
         final bool isMobile = screenWidth < 650;
         
-        return Stack(
-          children: [
-            Positioned(
-              left: isMobile ? 16.0 : 68.0,
-              right: isMobile ? 16.0 : null,
-              top: isMobile ? null : 180.0,
-              bottom: isMobile ? 80.0 : null,
-              child: Material(
-                color: Colors.transparent,
-                child: Container(
-                  width: isMobile ? screenWidth - 32.0 : 320.0,
-                  height: 340.0,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF0F0F11),
-                    borderRadius: BorderRadius.circular(12.0),
-                    border: Border.all(color: Colors.white.withValues(alpha: 0.1), width: 1.0),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.85),
-                        blurRadius: 16.0,
-                        spreadRadius: 4.0,
+        final slideTween = isMobile
+            ? Tween<Offset>(begin: const Offset(0.0, 0.15), end: Offset.zero)
+            : Tween<Offset>(begin: const Offset(-0.15, 0.0), end: Offset.zero);
+            
+        final curvedAnimation = CurvedAnimation(
+          parent: animation,
+          curve: Curves.easeOutCubic,
+        );
+
+        return FadeTransition(
+          opacity: curvedAnimation,
+          child: SlideTransition(
+            position: slideTween.animate(curvedAnimation),
+            child: Stack(
+              children: [
+                Positioned(
+                  left: isMobile ? 16.0 : 68.0,
+                  right: isMobile ? 16.0 : null,
+                  top: isMobile ? null : 180.0,
+                  bottom: isMobile ? 80.0 : null,
+                  child: Material(
+                    color: Colors.transparent,
+                    child: Container(
+                      width: isMobile ? screenWidth - 32.0 : 320.0,
+                      height: 340.0,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF0F0F11),
+                        borderRadius: BorderRadius.circular(12.0),
+                        border: Border.all(color: Colors.white.withValues(alpha: 0.1), width: 1.0),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.85),
+                            blurRadius: 16.0,
+                            spreadRadius: 4.0,
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              title,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 14.0,
-                                fontWeight: FontWeight.bold,
-                                fontFamily: 'Outfit',
-                              ),
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.close, color: Colors.white54, size: 16.0),
-                              onPressed: () => Navigator.pop(context),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Container(height: 1.0, color: Colors.white.withValues(alpha: 0.05)),
-                      Expanded(child: content),
-                      Container(height: 1.0, color: Colors.white.withValues(alpha: 0.05)),
-                      InkWell(
-                        onTap: () {
-                          Navigator.pop(context);
-                          onViewAll();
-                        },
-                        child: Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.symmetric(vertical: 12.0),
-                          alignment: Alignment.center,
-                          child: Text(
-                            title == 'History' ? 'View Full History' : 'See All Notifications',
-                            style: const TextStyle(
-                              color: Color(0xFF3A86FF),
-                              fontWeight: FontWeight.bold,
-                              fontSize: 12.0,
-                              fontFamily: 'Outfit',
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  title,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 14.0,
+                                    fontWeight: FontWeight.bold,
+                                    fontFamily: 'Outfit',
+                                  ),
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.close, color: Colors.white54, size: 16.0),
+                                  onPressed: () => Navigator.pop(context),
+                                ),
+                              ],
                             ),
                           ),
-                        ),
+                          Container(height: 1.0, color: Colors.white.withValues(alpha: 0.05)),
+                          Expanded(child: content),
+                          Container(height: 1.0, color: Colors.white.withValues(alpha: 0.05)),
+                          InkWell(
+                            onTap: () {
+                              Navigator.pop(context);
+                              onViewAll();
+                            },
+                            child: Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.symmetric(vertical: 12.0),
+                              alignment: Alignment.center,
+                              child: Text(
+                                title == 'History' ? 'View Full History' : 'See All Notifications',
+                                style: const TextStyle(
+                                  color: Color(0xFF3A86FF),
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12.0,
+                                  fontFamily: 'Outfit',
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
+                    ),
                   ),
                 ),
-              ),
+              ],
             ),
-          ],
+          ),
         );
       },
     );
