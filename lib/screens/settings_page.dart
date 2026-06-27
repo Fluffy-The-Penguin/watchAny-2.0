@@ -756,6 +756,26 @@ class _SettingsPageState extends State<SettingsPage> {
                 ),
               ),
             ),
+            const SizedBox(height: 16.0),
+
+            // ── Hardware Acceleration ──
+            _SettingsTile(
+              icon: Icons.speed,
+              title: 'Hardware Acceleration',
+              subtitle: 'Use GPU for video decoding and rendering to improve performance and reduce CPU usage.',
+              trailing: Transform.scale(
+                scale: 0.9,
+                child: Switch(
+                  value: AppSettings().hardwareAccelerationEnabled,
+                  activeColor: Colors.white,
+                  activeTrackColor: Colors.white24,
+                  inactiveThumbColor: Colors.white30,
+                  inactiveTrackColor: Colors.black26,
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  onChanged: (v) => AppSettings().setHardwareAccelerationEnabled(v),
+                ),
+              ),
+            ),
           ],
         );
       },

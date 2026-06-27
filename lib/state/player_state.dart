@@ -5,6 +5,7 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'library_state.dart';
+import 'app_settings.dart';
 
 class PlaybackProgress {
   final int position; // in milliseconds
@@ -108,7 +109,12 @@ class PlayerState extends ChangeNotifier {
     _tmdbEpisodesMap = tmdbEpisodesMap;
 
     _player = Player();
-    _controller = VideoController(_player!);
+    _controller = VideoController(
+      _player!,
+      configuration: VideoControllerConfiguration(
+        enableHardwareAcceleration: AppSettings().hardwareAccelerationEnabled,
+      ),
+    );
 
     _isActive = true;
     _isMinimized = false;

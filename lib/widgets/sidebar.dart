@@ -84,14 +84,16 @@ class Sidebar extends StatelessWidget {
                         isExpanded: isExpanded,
                         onTap: () => state.setPage(TabPage.library),
                       ),
-                      const SizedBox(height: 8.0),
-                      _SidebarItem(
-                        icon: Icons.calendar_today,
-                        label: 'Schedule',
-                        isSelected: state.currentPage == TabPage.schedule,
-                        isExpanded: isExpanded,
-                        onTap: () => state.setPage(TabPage.schedule),
-                      ),
+                      if (state.currentMode == AppMode.anime) ...[
+                        const SizedBox(height: 8.0),
+                        _SidebarItem(
+                          icon: Icons.calendar_today,
+                          label: 'Schedule',
+                          isSelected: state.currentPage == TabPage.schedule,
+                          isExpanded: isExpanded,
+                          onTap: () => state.setPage(TabPage.schedule),
+                        ),
+                      ],
                       const SizedBox(height: 8.0),
                       _SidebarItem(
                         icon: Icons.download_for_offline,

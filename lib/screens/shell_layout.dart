@@ -72,38 +72,70 @@ class ShellLayout extends StatelessWidget {
   }
 
 
-  int _getTabIndexMobile(TabPage page) {
-    switch (page) {
-      case TabPage.home: return 0;
-      case TabPage.search: return 1;
-      case TabPage.library: return 2;
-      case TabPage.schedule: return 3;
-      case TabPage.downloads: return 4;
-      case TabPage.settings: return 5;
-      default: return 0;
+  List<BottomNavigationBarItem> _buildBottomTabs(AppMode mode) {
+    if (mode == AppMode.anime) {
+      return const [
+        BottomNavigationBarItem(icon: Icon(Icons.home_filled), label: 'Home'),
+        BottomNavigationBarItem(icon: Icon(Icons.search), label: 'Search'),
+        BottomNavigationBarItem(icon: Icon(Icons.video_library), label: 'Library'),
+        BottomNavigationBarItem(icon: Icon(Icons.calendar_today), label: 'Schedule'),
+        BottomNavigationBarItem(icon: Icon(Icons.download_for_offline), label: 'Downloads'),
+        BottomNavigationBarItem(icon: Icon(Icons.settings), label: 'Settings'),
+      ];
+    } else {
+      return const [
+        BottomNavigationBarItem(icon: Icon(Icons.home_filled), label: 'Home'),
+        BottomNavigationBarItem(icon: Icon(Icons.search), label: 'Search'),
+        BottomNavigationBarItem(icon: Icon(Icons.video_library), label: 'Library'),
+        BottomNavigationBarItem(icon: Icon(Icons.download_for_offline), label: 'Downloads'),
+        BottomNavigationBarItem(icon: Icon(Icons.settings), label: 'Settings'),
+      ];
     }
   }
 
-  TabPage _getTabPageFromIndex(int index) {
-    switch (index) {
-      case 0:
-        return TabPage.home;
-      case 1:
-        return TabPage.search;
-      case 2:
-        return TabPage.library;
-      case 3:
-        return TabPage.schedule;
-      case 4:
-        return TabPage.downloads;
-      case 5:
-        return TabPage.history;
-      case 6:
-        return TabPage.notifications;
-      case 7:
-        return TabPage.settings;
-      default:
-        return TabPage.home;
+  int _getTabIndexMobile(TabPage page, AppMode mode) {
+    if (mode == AppMode.anime) {
+      switch (page) {
+        case TabPage.home: return 0;
+        case TabPage.search: return 1;
+        case TabPage.library: return 2;
+        case TabPage.schedule: return 3;
+        case TabPage.downloads: return 4;
+        case TabPage.settings: return 5;
+        default: return 0;
+      }
+    } else {
+      switch (page) {
+        case TabPage.home: return 0;
+        case TabPage.search: return 1;
+        case TabPage.library: return 2;
+        case TabPage.downloads: return 3;
+        case TabPage.settings: return 4;
+        default: return 0;
+      }
+    }
+  }
+
+  TabPage _getTabPageFromIndex(int index, AppMode mode) {
+    if (mode == AppMode.anime) {
+      switch (index) {
+        case 0: return TabPage.home;
+        case 1: return TabPage.search;
+        case 2: return TabPage.library;
+        case 3: return TabPage.schedule;
+        case 4: return TabPage.downloads;
+        case 5: return TabPage.settings;
+        default: return TabPage.home;
+      }
+    } else {
+      switch (index) {
+        case 0: return TabPage.home;
+        case 1: return TabPage.search;
+        case 2: return TabPage.library;
+        case 3: return TabPage.downloads;
+        case 4: return TabPage.settings;
+        default: return TabPage.home;
+      }
     }
   }
 
@@ -279,20 +311,13 @@ class ShellLayout extends StatelessWidget {
                   backgroundColor: const Color(0xFF0F0F11),
                   selectedItemColor: Colors.white,
                   unselectedItemColor: Colors.white30,
-                  currentIndex: _getTabIndexMobile(currentPage),
+                  currentIndex: _getTabIndexMobile(currentPage, currentMode),
                   type: BottomNavigationBarType.fixed,
                   selectedLabelStyle: const TextStyle(fontFamily: 'Outfit', fontSize: 11),
                   unselectedLabelStyle: const TextStyle(fontFamily: 'Outfit', fontSize: 11),
-                  items: const [
-                    BottomNavigationBarItem(icon: Icon(Icons.home_filled), label: 'Home'),
-                    BottomNavigationBarItem(icon: Icon(Icons.search), label: 'Search'),
-                    BottomNavigationBarItem(icon: Icon(Icons.video_library), label: 'Library'),
-                    BottomNavigationBarItem(icon: Icon(Icons.calendar_today), label: 'Schedule'),
-                    BottomNavigationBarItem(icon: Icon(Icons.download_for_offline), label: 'Downloads'),
-                    BottomNavigationBarItem(icon: Icon(Icons.settings), label: 'Settings'),
-                  ],
+                  items: _buildBottomTabs(currentMode),
                   onTap: (index) {
-                    navigationState.setPage(_getTabPageFromIndex(index == 5 ? 7 : index));
+                    navigationState.setPage(_getTabPageFromIndex(index, currentMode));
                   },
                 )
               : null,

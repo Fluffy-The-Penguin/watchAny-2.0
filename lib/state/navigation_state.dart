@@ -55,6 +55,9 @@ class NavigationState extends ChangeNotifier {
   }
 
   void setPage(TabPage page) {
+    if (page == TabPage.schedule && _currentMode != AppMode.anime) {
+      return;
+    }
     if (_selectedAnimeId != null) {
       _selectedAnimeId = null; // Exit details page when clicking a tab
     }
