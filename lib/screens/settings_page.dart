@@ -776,6 +776,60 @@ class _SettingsPageState extends State<SettingsPage> {
                 ),
               ),
             ),
+            const SizedBox(height: 16.0),
+
+            // ── Startup Section ──
+            _SettingsTile(
+              icon: Icons.start,
+              title: 'Default Startup Section',
+              subtitle: 'Select which section of the app opens automatically when launching.',
+              trailing: DropdownButton<String>(
+                value: AppSettings().startupModeStr,
+                dropdownColor: const Color(0xFF16161a),
+                style: const TextStyle(color: Colors.white, fontFamily: 'Outfit', fontSize: 14.0),
+                underline: const SizedBox.shrink(),
+                borderRadius: BorderRadius.circular(8.0),
+                items: const [
+                  DropdownMenuItem(value: 'anime', child: Text('Anime')),
+                  DropdownMenuItem(value: 'manga', child: Text('Manga')),
+                  DropdownMenuItem(value: 'movies', child: Text('Movies & Webseries')),
+                ],
+                onChanged: (val) {
+                  if (val != null) {
+                    AppSettings().setStartupModeStr(val);
+                  }
+                },
+              ),
+            ),
+            const SizedBox(height: 16.0),
+
+            // ── Startup Page ──
+            _SettingsTile(
+              icon: Icons.web_asset_outlined,
+              title: 'Default Startup Page',
+              subtitle: 'Select which page of the section loads first on launch.',
+              trailing: DropdownButton<String>(
+                value: AppSettings().startupPageStr,
+                dropdownColor: const Color(0xFF16161a),
+                style: const TextStyle(color: Colors.white, fontFamily: 'Outfit', fontSize: 14.0),
+                underline: const SizedBox.shrink(),
+                borderRadius: BorderRadius.circular(8.0),
+                items: [
+                  const DropdownMenuItem(value: 'home', child: Text('Home')),
+                  const DropdownMenuItem(value: 'search', child: Text('Search')),
+                  const DropdownMenuItem(value: 'library', child: Text('Library')),
+                  if (AppSettings().startupModeStr == 'anime')
+                    const DropdownMenuItem(value: 'schedule', child: Text('Schedule')),
+                  const DropdownMenuItem(value: 'downloads', child: Text('Downloads')),
+                  const DropdownMenuItem(value: 'settings', child: Text('Settings')),
+                ],
+                onChanged: (val) {
+                  if (val != null) {
+                    AppSettings().setStartupPageStr(val);
+                  }
+                },
+              ),
+            ),
           ],
         );
       },

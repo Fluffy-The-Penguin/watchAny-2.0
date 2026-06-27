@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'app_settings.dart';
 
 enum AppMode {
   anime,
@@ -27,6 +28,17 @@ class NavigationState extends ChangeNotifier {
     AppMode.manga: TabPage.home,
     AppMode.movies: TabPage.home,
   };
+
+  NavigationState() {
+    final savedMode = AppSettings().startupMode;
+    final savedPage = AppSettings().startupPage;
+    _currentMode = savedMode;
+    if (savedPage == TabPage.schedule && savedMode != AppMode.anime) {
+      _modePages[savedMode] = TabPage.home;
+    } else {
+      _modePages[savedMode] = savedPage;
+    }
+  }
 
   // Sidebar expanded/collapsed state (collapsed by default)
   bool _isSidebarExpanded = false;
