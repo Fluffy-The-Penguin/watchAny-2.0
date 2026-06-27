@@ -63,17 +63,9 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
         .where((a) => a.isEnabled && a.resources.contains('meta'))
         .toList();
 
-    if (enabledMetaAddons.isEmpty) {
-      setState(() {
-        _error = 'No metadata addons enabled. Please enable Cinemeta in Settings.';
-        _isLoading = false;
-      });
-      return;
-    }
-
     Map<String, dynamic>? metaData;
 
-    // Fetch meta from the first successful addon (Cinemeta by default)
+    // Fetch meta from user-installed addons
     for (final addon in enabledMetaAddons) {
       try {
         final metaUrl = '${addon.url.replaceAll('/manifest.json', '')}/meta/$_type/$_realId.json';
@@ -88,6 +80,22 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
         }
       } catch (e) {
         debugPrint('Error loading meta from ${addon.name}: $e');
+      }
+    }
+
+    // Fallback: If no metadata was resolved and it's a mainstream movie/series, query official public Cinemeta
+    if (metaData == null && (_type == 'movie' || _type == 'series')) {
+      try {
+        final fallbackUrl = 'https://v3-cinemeta.strem.io/meta/$_type/$_realId.json';
+        final response = await http.get(Uri.parse(fallbackUrl)).timeout(const Duration(seconds: 8));
+        if (response.statusCode == 200) {
+          final data = jsonDecode(response.body);
+          if (data['meta'] != null) {
+            metaData = Map<String, dynamic>.from(data['meta']);
+          }
+        }
+      } catch (e) {
+        debugPrint('Error loading metadata from public Cinemeta fallback: $e');
       }
     }
 
