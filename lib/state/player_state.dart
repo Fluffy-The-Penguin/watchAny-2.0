@@ -135,17 +135,22 @@ class PlayerState extends ChangeNotifier {
     });
 
     // Start playing
-    _player!.open(Media(streamUrl)).then((_) {
-      if (anilistId != null && episodeNumber != null) {
-        _resumePlayback(anilistId, episodeNumber);
-      }
-    });
+    _player!.open(Media(streamUrl));
 
     if (anilistId != null && episodeNumber != null) {
       _addToHistory(anilistId, episodeNumber);
       SharedPreferences.getInstance().then((prefs) {
         prefs.setString('playback_stream_${anilistId}_$episodeNumber', streamUrl);
         prefs.setString('playback_title_${anilistId}_$episodeNumber', title);
+      });
+
+      // Wait for a valid duration (media loaded) before seeking to resume position
+      StreamSubscription<Duration>? tempSub;
+      tempSub = _player!.stream.duration.listen((dur) {
+        if (dur.inMilliseconds > 0) {
+          _resumePlayback(anilistId, episodeNumber);
+          tempSub?.cancel();
+        }
       });
     }
 
