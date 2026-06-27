@@ -1,14 +1,19 @@
 import 'dart:math';
+import 'dart:io';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../services/anilist_service.dart';
 import '../services/extension_service.dart';
 import '../services/tmdb_service.dart';
 import '../services/batch_mapping_service.dart';
 import '../services/torrserver_service.dart';
+import '../services/download_service.dart';
 import '../screens/player_screen.dart';
 import '../state/navigation_state.dart';
+import '../state/player_state.dart';
 import '../widgets/torrent_selector_panel.dart';
 import '../models/torrent.dart';
+import '../state/library_state.dart';
 
 class AnimeDetailsPage extends StatefulWidget {
   final int animeId;
@@ -526,7 +531,88 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
     );
   }
 
+  void _playLocalFile(DownloadTask task) {
+    final file = File(task.savePath);
+    if (!file.existsSync()) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Local download file not found! It might have been deleted from storage.", style: TextStyle(fontFamily: 'Outfit')),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+      return;
+    }
+
+    PlayerState().startPlayback(
+      streamUrl: task.savePath,
+      title: task.title,
+      anilistId: task.anilistId,
+      titles: task.titles ?? const [],
+      episodeCount: task.episodeCount ?? 0,
+      episodeNumber: task.episodeNumber ?? 1,
+      isMovie: task.isMovie ?? false,
+      media: task.mediaJson != null ? jsonDecode(task.mediaJson!) : null,
+      episodes: task.episodesJson != null ? jsonDecode(task.episodesJson!) : null,
+      tmdbEpisodesMap: task.tmdbEpisodesMapJson != null 
+          ? (jsonDecode(task.tmdbEpisodesMapJson!) as Map<String, dynamic>).map((k, v) => MapEntry(int.parse(k), v))
+          : null,
+    );
+  }
+
   void _onPlayPressed(int epNum, List<String> titles) {
+    DownloadTask? downloadedTask;
+    for (var task in DownloadService().tasks) {
+      if (task.anilistId == widget.animeId &&
+          task.episodeNumber == epNum &&
+          task.status == DownloadStatus.completed) {
+        downloadedTask = task;
+        break;
+      }
+    }
+
+    if (downloadedTask != null) {
+      showDialog(
+        context: context,
+        builder: (context) {
+          return AlertDialog(
+            backgroundColor: const Color(0xFF0F0F11),
+            title: const Text(
+              "Play Downloaded Episode?",
+              style: TextStyle(color: Colors.white, fontFamily: 'Outfit', fontSize: 16.0, fontWeight: FontWeight.bold),
+            ),
+            content: Text(
+              "A downloaded version of Episode $epNum is available locally.\n\nWould you like to play the downloaded file offline or stream it online?",
+              style: const TextStyle(color: Colors.white70, fontSize: 13.0, fontFamily: 'Outfit', height: 1.4),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  _proceedToPlayFlow(epNum, titles);
+                },
+                child: const Text("Stream Online", style: TextStyle(color: Colors.white70)),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  _playLocalFile(downloadedTask!);
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.white,
+                  foregroundColor: Colors.black,
+                ),
+                child: const Text("Play Offline", style: TextStyle(fontWeight: FontWeight.bold)),
+              ),
+            ],
+          );
+        },
+      );
+    } else {
+      _proceedToPlayFlow(epNum, titles);
+    }
+  }
+
+  void _proceedToPlayFlow(int epNum, List<String> titles) {
     final mapping = BatchMappingService().getMapping(widget.animeId, epNum);
     if (mapping != null) {
       showDialog(
@@ -635,6 +721,31 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
           media: _details,
           episodes: _mergedEpisodes,
           tmdbEpisodesMap: _tmdbEpisodesMap,
+        );
+      },
+    );
+  }
+
+  void _showLibraryEditDialog(BuildContext context) {
+    final String modeStr = widget.navigationState.currentMode.name;
+    final savedItem = LibraryState().getItem(widget.animeId, modeStr);
+    final int? totalEpisodes = _details?['episodes'] ?? 
+        (_mergedEpisodes.isNotEmpty ? _mergedEpisodes.length : null);
+    final String titleStr = _details?['title']?['english'] ?? _details?['title']?['romaji'] ?? _details?['title']?['userPreferred'] ?? 'Anime Details';
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black54,
+      builder: (context) {
+        return _LibraryEditPanel(
+          animeId: widget.animeId,
+          modeStr: modeStr,
+          savedItem: savedItem,
+          totalEpisodes: totalEpisodes,
+          mediaTitle: titleStr,
+          details: _details,
         );
       },
     );
@@ -792,6 +903,26 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
                               ),
                             ),
                           ],
+                          const SizedBox(width: 16.0),
+                          ListenableBuilder(
+                            listenable: LibraryState(),
+                            builder: (context, _) {
+                              final String modeStr = widget.navigationState.currentMode.name;
+                              final bool isSaved = LibraryState().isSaved(widget.animeId, modeStr);
+                              return IconButton(
+                                icon: Icon(
+                                  isSaved ? Icons.bookmark : Icons.bookmark_border,
+                                  color: isSaved ? Colors.amber : Colors.white,
+                                  size: 18.0,
+                                ),
+                                onPressed: () => _showLibraryEditDialog(context),
+                                style: IconButton.styleFrom(
+                                  backgroundColor: Colors.black.withValues(alpha: 0.5),
+                                  padding: const EdgeInsets.all(10.0),
+                                ),
+                              );
+                            },
+                          ),
                         ],
                       ),
                     ),
@@ -2056,6 +2187,479 @@ class _DirectPlaybackProgressDialogState extends State<_DirectPlaybackProgressDi
               )
             ],
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _LibraryEditPanel extends StatefulWidget {
+  final int animeId;
+  final String modeStr;
+  final LibraryItem? savedItem;
+  final int? totalEpisodes;
+  final String mediaTitle;
+  final Map<String, dynamic>? details;
+
+  const _LibraryEditPanel({
+    required this.animeId,
+    required this.modeStr,
+    required this.savedItem,
+    required this.totalEpisodes,
+    required this.mediaTitle,
+    required this.details,
+  });
+
+  @override
+  State<_LibraryEditPanel> createState() => _LibraryEditPanelState();
+}
+
+class _LibraryEditPanelState extends State<_LibraryEditPanel> {
+  late String _activeStatus;
+  late double _activeRating;
+  late int _watchedEps;
+
+  late final TextEditingController _episodesController;
+  late final TextEditingController _scoreController;
+
+  @override
+  void initState() {
+    super.initState();
+    _activeStatus = widget.savedItem?.libraryStatus ?? 'watching';
+    _activeRating = widget.savedItem?.rating ?? 0.0;
+    _watchedEps = widget.savedItem?.watchedEpisodes ?? 0;
+
+    _episodesController = TextEditingController(text: '$_watchedEps');
+    _scoreController = TextEditingController(
+      text: _activeRating == 0.0 ? '' : _activeRating.toStringAsFixed(1),
+    );
+  }
+
+  @override
+  void dispose() {
+    _episodesController.dispose();
+    _scoreController.dispose();
+    super.dispose();
+  }
+
+  void _updateWatchedEpisodes(int val) {
+    final int clamped = val.clamp(0, widget.totalEpisodes ?? 99999);
+    setState(() {
+      _watchedEps = clamped;
+      _episodesController.text = '$clamped';
+    });
+  }
+
+  void _updateRating(double val) {
+    final double clamped = val.clamp(0.0, 10.0);
+    setState(() {
+      _activeRating = clamped;
+      _scoreController.text = clamped == 0.0 ? '' : clamped.toStringAsFixed(1);
+    });
+  }
+
+  Widget _buildStatusChip(String value, String label, IconData icon) {
+    final bool isSelected = _activeStatus == value;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () {
+        setState(() {
+          _activeStatus = value;
+          if (value == 'completed' && widget.totalEpisodes != null) {
+            _updateWatchedEpisodes(widget.totalEpisodes!);
+          }
+        });
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        decoration: BoxDecoration(
+          color: isSelected ? Colors.white : Colors.transparent,
+          borderRadius: BorderRadius.circular(6.0),
+          border: Border.all(
+            color: isSelected ? Colors.white : Colors.white10,
+            width: 1.0,
+          ),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              icon,
+              color: isSelected ? Colors.black : Colors.white70,
+              size: 18.0,
+            ),
+            const SizedBox(height: 4.0),
+            Text(
+              label,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: isSelected ? Colors.black : Colors.white70,
+                fontSize: 11.5,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                fontFamily: 'Outfit',
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final double screenWidth = MediaQuery.of(context).size.width;
+    final bool isMobileSheet = screenWidth < 650;
+
+    return Align(
+      alignment: Alignment.bottomCenter,
+      child: Container(
+        width: isMobileSheet ? double.infinity : 550.0,
+        margin: isMobileSheet
+            ? EdgeInsets.zero
+            : const EdgeInsets.only(left: 24.0, right: 24.0, top: 24.0),
+        decoration: BoxDecoration(
+          color: const Color(0xFF0F0F11),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(16.0)),
+          border: Border.all(color: Colors.white10, width: 1.0),
+          boxShadow: const [
+            BoxShadow(
+              color: Colors.black87,
+              blurRadius: 30,
+              spreadRadius: 2,
+            )
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(15.0)),
+          child: AnimatedSize(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeInOut,
+            child: Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(context).viewInsets.bottom,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Header
+                  Container(
+                    padding: EdgeInsets.symmetric(horizontal: 20.0, vertical: isMobileSheet ? 12.0 : 16.0),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.01),
+                      border: const Border(bottom: BorderSide(color: Colors.white10, width: 1.0)),
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Library Entry Settings',
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 15.0,
+                                  fontWeight: FontWeight.bold,
+                                  fontFamily: 'Outfit',
+                                ),
+                              ),
+                              const SizedBox(height: 2.0),
+                              Text(
+                                widget.mediaTitle,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(color: Colors.white38, fontSize: 11.0, fontFamily: 'Outfit'),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 8.0),
+                        IconButton(
+                          icon: const Icon(Icons.close, color: Colors.white54, size: 22),
+                          onPressed: () => Navigator.pop(context),
+                        ),
+                      ],
+                    ),
+                  ),
+                  
+                  // Body
+                  Padding(
+                    padding: const EdgeInsets.all(20.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // Status Selector
+                        const Text(
+                          'Status',
+                          style: TextStyle(color: Colors.white70, fontSize: 13.0, fontWeight: FontWeight.w600, fontFamily: 'Outfit'),
+                        ),
+                        const SizedBox(height: 8.0),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(6.0),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.03),
+                            borderRadius: BorderRadius.circular(8.0),
+                            border: Border.all(color: Colors.white10),
+                          ),
+                          child: GridView.count(
+                            crossAxisCount: isMobileSheet ? 2 : 4,
+                            shrinkWrap: true,
+                            physics: const NeverScrollableScrollPhysics(),
+                            mainAxisSpacing: 6.0,
+                            crossAxisSpacing: 6.0,
+                            childAspectRatio: isMobileSheet ? 2.5 : 2.0,
+                            children: [
+                              _buildStatusChip('watching', widget.modeStr == 'manga' ? 'Reading' : 'Watching', Icons.play_arrow),
+                              _buildStatusChip('planning', 'Planning', Icons.bookmark_border),
+                              _buildStatusChip('completed', 'Completed', Icons.done_all),
+                              _buildStatusChip('paused_dropped', 'Paused/Dropped', Icons.pause),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 20.0),
+                        
+                        // Episodes progress input with slider
+                        Container(
+                          padding: const EdgeInsets.all(16.0),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.03),
+                            borderRadius: BorderRadius.circular(8.0),
+                            border: Border.all(color: Colors.white10),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Text(
+                                        widget.modeStr == 'manga' ? 'Chapters Read' : 'Episodes Watched',
+                                        style: const TextStyle(color: Colors.white70, fontSize: 13.0, fontWeight: FontWeight.w600, fontFamily: 'Outfit'),
+                                      ),
+                                      const SizedBox(width: 8.0),
+                                      SizedBox(
+                                        width: 50.0,
+                                        height: 20.0,
+                                        child: TextField(
+                                          controller: _episodesController,
+                                          keyboardType: TextInputType.number,
+                                          textAlign: TextAlign.center,
+                                          style: const TextStyle(color: Colors.white, fontSize: 14.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                                          decoration: const InputDecoration(
+                                            isDense: true,
+                                            contentPadding: EdgeInsets.zero,
+                                            border: InputBorder.none,
+                                          ),
+                                          onChanged: (val) {
+                                            final int? parsed = int.tryParse(val);
+                                            if (parsed != null) {
+                                              final int clamped = parsed.clamp(0, widget.totalEpisodes ?? 99999);
+                                              setState(() {
+                                                _watchedEps = clamped;
+                                              });
+                                            }
+                                          },
+                                          onSubmitted: (val) {
+                                            final int? parsed = int.tryParse(val);
+                                            _updateWatchedEpisodes(parsed ?? _watchedEps);
+                                          },
+                                        ),
+                                      ),
+                                      if (widget.totalEpisodes != null)
+                                        Text(
+                                          ' / ${widget.totalEpisodes}',
+                                          style: const TextStyle(color: Colors.white38, fontSize: 14.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                                        ),
+                                    ],
+                                  ),
+                                  if (widget.totalEpisodes != null)
+                                    Text(
+                                      '${((widget.totalEpisodes! > 0 ? _watchedEps / widget.totalEpisodes! : 0.0) * 100).toStringAsFixed(0)}%',
+                                      style: const TextStyle(color: Colors.white38, fontSize: 12.0, fontFamily: 'Outfit'),
+                                    ),
+                                ],
+                              ),
+                              const SizedBox(height: 16.0),
+                              SliderTheme(
+                                data: SliderTheme.of(context).copyWith(
+                                  activeTrackColor: Colors.white,
+                                  inactiveTrackColor: Colors.white10,
+                                  thumbColor: Colors.white,
+                                  overlayColor: Colors.white.withValues(alpha: 0.1),
+                                  valueIndicatorColor: Colors.white,
+                                  valueIndicatorTextStyle: const TextStyle(color: Colors.black, fontFamily: 'Outfit'),
+                                ),
+                                child: Slider(
+                                  value: _watchedEps.toDouble(),
+                                  min: 0.0,
+                                  max: (widget.totalEpisodes ?? max(100, _watchedEps + 50)).toDouble(),
+                                  divisions: widget.totalEpisodes ?? (100 + _watchedEps),
+                                  label: '$_watchedEps',
+                                  onChanged: (val) {
+                                    _updateWatchedEpisodes(val.toInt());
+                                  },
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 20.0),
+                        
+                        // Rating Score input
+                        Container(
+                          padding: const EdgeInsets.all(16.0),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.03),
+                            borderRadius: BorderRadius.circular(8.0),
+                            border: Border.all(color: Colors.white10),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  const Text(
+                                    'Your Score',
+                                    style: TextStyle(color: Colors.white70, fontSize: 13.0, fontWeight: FontWeight.w600, fontFamily: 'Outfit'),
+                                  ),
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    crossAxisAlignment: CrossAxisAlignment.center,
+                                    children: [
+                                      const Icon(Icons.star, color: Colors.amber, size: 16.0),
+                                      const SizedBox(width: 4.0),
+                                      SizedBox(
+                                        width: 50.0,
+                                        height: 20.0,
+                                        child: TextField(
+                                          controller: _scoreController,
+                                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                          textAlign: TextAlign.right,
+                                          style: const TextStyle(color: Colors.amber, fontSize: 14.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                                          decoration: const InputDecoration(
+                                            isDense: true,
+                                            contentPadding: EdgeInsets.zero,
+                                            border: InputBorder.none,
+                                            hintText: '0.0',
+                                            hintStyle: TextStyle(color: Colors.white38),
+                                          ),
+                                          onChanged: (val) {
+                                            final double? parsed = double.tryParse(val);
+                                            if (parsed != null) {
+                                              final double clamped = parsed.clamp(0.0, 10.0);
+                                              setState(() {
+                                                _activeRating = clamped;
+                                              });
+                                            }
+                                          },
+                                          onSubmitted: (val) {
+                                            final double? parsed = double.tryParse(val);
+                                            _updateRating(parsed ?? _activeRating);
+                                          },
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 16.0),
+                              SliderTheme(
+                                data: SliderTheme.of(context).copyWith(
+                                  activeTrackColor: Colors.white,
+                                  inactiveTrackColor: Colors.white10,
+                                  thumbColor: Colors.white,
+                                  overlayColor: Colors.white.withValues(alpha: 0.1),
+                                  valueIndicatorColor: Colors.white,
+                                  valueIndicatorTextStyle: const TextStyle(color: Colors.black, fontFamily: 'Outfit'),
+                                ),
+                                child: Slider(
+                                  value: _activeRating,
+                                  min: 0.0,
+                                  max: 10.0,
+                                  divisions: 100,
+                                  label: _activeRating == 0.0 ? 'No Rating' : _activeRating.toStringAsFixed(1),
+                                  onChanged: _updateRating,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  
+                  // Footer
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
+                    decoration: const BoxDecoration(
+                      color: Color(0xFF0C0C0E),
+                      border: Border(top: BorderSide(color: Colors.white10, width: 1.0)),
+                    ),
+                    child: Row(
+                      children: [
+                        if (widget.savedItem != null)
+                          ElevatedButton.icon(
+                            icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 18.0),
+                            label: const Text('Remove', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold, fontFamily: 'Outfit')),
+                            onPressed: () async {
+                              await LibraryState().removeItem(widget.animeId, widget.modeStr);
+                              if (context.mounted) {
+                                Navigator.pop(context);
+                              }
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.redAccent.withValues(alpha: 0.1),
+                              elevation: 0,
+                              side: const BorderSide(color: Colors.redAccent, width: 1.0),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
+                              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+                            ),
+                          ),
+                        const Spacer(),
+                        TextButton(
+                          onPressed: () => Navigator.pop(context),
+                          child: const Text('Cancel', style: TextStyle(color: Colors.white38, fontFamily: 'Outfit', fontWeight: FontWeight.w600)),
+                        ),
+                        const SizedBox(width: 12.0),
+                        ElevatedButton(
+                          onPressed: () async {
+                            final String formatVal = widget.details?['format'] ?? '';
+                            final int finalWatchedEps = int.tryParse(_episodesController.text)?.clamp(0, widget.totalEpisodes ?? 99999) ?? _watchedEps;
+                            final double finalRating = double.tryParse(_scoreController.text)?.clamp(0.0, 10.0) ?? _activeRating;
+                            
+                            await LibraryState().saveItem(
+                              id: widget.animeId,
+                              mode: widget.modeStr,
+                              format: formatVal,
+                              libraryStatus: _activeStatus,
+                              rating: finalRating,
+                              watchedEpisodes: finalWatchedEps,
+                              totalEpisodes: widget.totalEpisodes,
+                            );
+                            if (context.mounted) {
+                              Navigator.pop(context);
+                            }
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.white,
+                            foregroundColor: Colors.black,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
+                            padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 12.0),
+                          ),
+                          child: const Text('Save Changes', style: TextStyle(fontWeight: FontWeight.bold, fontFamily: 'Outfit')),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
         ),
       ),
     );

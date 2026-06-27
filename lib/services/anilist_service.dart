@@ -410,4 +410,62 @@ class AnilistService {
       throw Exception('Search failed: $e');
     }
   }
+
+  // Fetch multiple media items by ID for the library page (real-time fetching)
+  Future<List<dynamic>> fetchMultipleMedia(List<int> ids, String type) async {
+    if (ids.isEmpty) return [];
+
+    const query = r'''
+      query($ids: [Int], $type: MediaType) {
+        Page(page: 1, perPage: 100) {
+          media(id_in: $ids, type: $type) {
+            id
+            title {
+              romaji
+              english
+              native
+            }
+            coverImage {
+              large
+            }
+            averageScore
+            format
+            episodes
+            status
+          }
+        }
+      }
+    ''';
+
+    final variables = {
+      'ids': ids,
+      'type': type,
+    };
+
+    try {
+      final response = await http.post(
+        Uri.parse(_endpoint),
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: jsonEncode({
+          'query': query,
+          'variables': variables,
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        final body = jsonDecode(response.body);
+        if (body['data'] != null && body['data']['Page'] != null) {
+          return body['data']['Page']['media'] as List<dynamic>;
+        }
+        throw Exception('GraphQL error: ${body['errors']}');
+      } else {
+        throw Exception('HTTP Request failed with status: ${response.statusCode}');
+      }
+    } catch (e) {
+      throw Exception('Failed to load AniList multiple media ($ids): $e');
+    }
+  }
 }

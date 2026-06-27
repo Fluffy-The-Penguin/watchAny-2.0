@@ -247,4 +247,117 @@ class TmdbService {
     }
     return [];
   }
+
+  // Fetch movie/TV show details by ID, mapping to the unified format expected by Details page
+  Future<Map<String, dynamic>?> fetchTmdbDetails(int id) async {
+    if (!isConfigured) return null;
+    
+    // 1. Try fetching as TV show first
+    try {
+      final tvUrl = '$_baseUrl/tv/$id?api_key=$tmdbApiKey';
+      final response = await http.get(Uri.parse(tvUrl));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return {
+          'id': id,
+          'title': {
+            'english': data['name'] ?? '',
+            'romaji': data['original_name'] ?? '',
+            'native': data['original_name'] ?? '',
+          },
+          'bannerImage': data['backdrop_path'] != null 
+              ? 'https://image.tmdb.org/t/p/original${data['backdrop_path']}' 
+              : '',
+          'coverImage': {
+            'large': data['poster_path'] != null 
+                ? 'https://image.tmdb.org/t/p/w500${data['poster_path']}' 
+                : '',
+          },
+          'description': data['overview'] ?? '',
+          'averageScore': (data['vote_average'] as num?) != null 
+              ? ((data['vote_average'] as num).toDouble() * 10).toInt()
+              : null,
+          'format': 'TV',
+          'status': data['status'] ?? '',
+          'genres': (data['genres'] as List?)?.map((g) => g['name'] as String).toList() ?? [],
+          'seasonYear': data['first_air_date'] != null && (data['first_air_date'] as String).isNotEmpty 
+              ? DateTime.tryParse(data['first_air_date'])?.year 
+              : null,
+          'isTv': true,
+        };
+      }
+    } catch (_) {}
+
+    // 2. Try fetching as Movie next
+    try {
+      final movieUrl = '$_baseUrl/movie/$id?api_key=$tmdbApiKey';
+      final response = await http.get(Uri.parse(movieUrl));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return {
+          'id': id,
+          'title': {
+            'english': data['title'] ?? '',
+            'romaji': data['original_title'] ?? '',
+            'native': data['original_title'] ?? '',
+          },
+          'bannerImage': data['backdrop_path'] != null 
+              ? 'https://image.tmdb.org/t/p/original${data['backdrop_path']}' 
+              : '',
+          'coverImage': {
+            'large': data['poster_path'] != null 
+                ? 'https://image.tmdb.org/t/p/w500${data['poster_path']}' 
+                : '',
+          },
+          'description': data['overview'] ?? '',
+          'averageScore': (data['vote_average'] as num?) != null 
+              ? ((data['vote_average'] as num).toDouble() * 10).toInt()
+              : null,
+          'format': 'MOVIE',
+          'status': data['status'] ?? '',
+          'genres': (data['genres'] as List?)?.map((g) => g['name'] as String).toList() ?? [],
+          'seasonYear': data['release_date'] != null && (data['release_date'] as String).isNotEmpty 
+              ? DateTime.tryParse(data['release_date'])?.year 
+              : null,
+          'isTv': false,
+        };
+      }
+    } catch (_) {}
+    
+    return null;
+  }
+
+  // Fetch basic movie/TV show details by ID for the library page (real-time fetching)
+  Future<Map<String, dynamic>?> fetchTmdbBasicDetails(int id, String format) async {
+    if (!isConfigured) return null;
+    final isMovie = format == 'MOVIE';
+    final searchType = isMovie ? 'movie' : 'tv';
+    final url = '$_baseUrl/$searchType/$id?api_key=$tmdbApiKey';
+    try {
+      final response = await http.get(Uri.parse(url));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return {
+          'id': id,
+          'title': {
+            'english': data[isMovie ? 'title' : 'name'] ?? '',
+            'romaji': data[isMovie ? 'original_title' : 'original_name'] ?? '',
+          },
+          'coverImage': {
+            'large': data['poster_path'] != null 
+                ? 'https://image.tmdb.org/t/p/w300${data['poster_path']}' 
+                : '',
+          },
+          'averageScore': (data['vote_average'] as num?) != null 
+              ? ((data['vote_average'] as num).toDouble() * 10).toInt()
+              : null,
+          'format': format,
+          'status': data['status'] ?? '',
+        };
+      }
+    } catch (e) {
+      debugPrint('Error fetching basic TMDB details for $id: $e');
+    }
+    return null;
+  }
 }

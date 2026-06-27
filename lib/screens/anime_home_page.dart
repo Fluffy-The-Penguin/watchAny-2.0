@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../services/anilist_service.dart';
 import '../state/navigation_state.dart';
+import '../widgets/smooth_scroll_area.dart';
 
 class AnimeHomePage extends StatefulWidget {
   final NavigationState navigationState;
@@ -165,103 +166,106 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
       );
     }
 
-    // Lazy load the vertical railway sections using ListView builder/recycling
-    return ListView(
-      padding: EdgeInsets.zero,
-      children: [
-        // 1. Hero Section (Fading Banner Carousel) - Localized State
-        if (_trending.isNotEmpty)
-          _HeroSection(
-            trending: _trending,
-            navigationState: widget.navigationState,
+    return SmoothScrollArea(
+      builder: (controller, physics) => ListView(
+        controller: controller,
+        physics: physics,
+        padding: EdgeInsets.zero,
+        children: [
+          // 1. Hero Section (Fading Banner Carousel) - Localized State
+          if (_trending.isNotEmpty)
+            _HeroSection(
+              trending: _trending,
+              navigationState: widget.navigationState,
+            ),
+
+          // 2. Content Railways (Horizontal tracks with load-more at the end)
+          Padding(
+            padding: const EdgeInsets.only(left: 20.0, right: 20.0, bottom: 40.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SizedBox(height: 24.0),
+                if (_trending.isNotEmpty)
+                  _RailwayTrack(
+                    title: 'Trending Now',
+                    initialItems: _trending,
+                    onLoadMore: (page) => _loadMoreCategoryData(category: 'trending', page: page),
+                    navigationState: widget.navigationState,
+                  ),
+
+                if (_popularThisSeason.isNotEmpty)
+                  _RailwayTrack(
+                    title: 'Popular This Season',
+                    initialItems: _popularThisSeason,
+                    onLoadMore: (page) => _loadMoreCategoryData(category: 'popular', page: page),
+                    navigationState: widget.navigationState,
+                  ),
+                
+                if (_newlyReleased.isNotEmpty)
+                  _RailwayTrack(
+                    title: 'Newly Released',
+                    initialItems: _newlyReleased,
+                    onLoadMore: (page) => _loadMoreCategoryData(category: 'newlyReleased', page: page),
+                    navigationState: widget.navigationState,
+                  ),
+                
+                if (_upcoming.isNotEmpty)
+                  _RailwayTrack(
+                    title: 'Upcoming Releases',
+                    initialItems: _upcoming,
+                    onLoadMore: (page) => _loadMoreCategoryData(category: 'upcoming', page: page),
+                    navigationState: widget.navigationState,
+                  ),
+
+                const SizedBox(height: 16.0),
+                const Text(
+                  'Genres',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 22.0,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: 'Outfit',
+                  ),
+                ),
+                const SizedBox(height: 12.0),
+
+                if (_action.isNotEmpty)
+                  _RailwayTrack(
+                    title: 'Action',
+                    initialItems: _action,
+                    onLoadMore: (page) => _loadMoreCategoryData(category: 'Action', page: page),
+                    navigationState: widget.navigationState,
+                  ),
+                
+                if (_adventure.isNotEmpty)
+                  _RailwayTrack(
+                    title: 'Adventure',
+                    initialItems: _adventure,
+                    onLoadMore: (page) => _loadMoreCategoryData(category: 'Adventure', page: page),
+                    navigationState: widget.navigationState,
+                  ),
+                
+                if (_romance.isNotEmpty)
+                  _RailwayTrack(
+                    title: 'Romance',
+                    initialItems: _romance,
+                    onLoadMore: (page) => _loadMoreCategoryData(category: 'Romance', page: page),
+                    navigationState: widget.navigationState,
+                  ),
+                
+                if (_fantasy.isNotEmpty)
+                  _RailwayTrack(
+                    title: 'Fantasy',
+                    initialItems: _fantasy,
+                    onLoadMore: (page) => _loadMoreCategoryData(category: 'Fantasy', page: page),
+                    navigationState: widget.navigationState,
+                  ),
+              ],
+            ),
           ),
-
-        // 2. Content Railways (Horizontal tracks with load-more at the end)
-        Padding(
-          padding: const EdgeInsets.only(left: 20.0, right: 20.0, bottom: 40.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const SizedBox(height: 24.0),
-              if (_trending.isNotEmpty)
-                _RailwayTrack(
-                  title: 'Trending Now',
-                  initialItems: _trending,
-                  onLoadMore: (page) => _loadMoreCategoryData(category: 'trending', page: page),
-                  navigationState: widget.navigationState,
-                ),
-
-              if (_popularThisSeason.isNotEmpty)
-                _RailwayTrack(
-                  title: 'Popular This Season',
-                  initialItems: _popularThisSeason,
-                  onLoadMore: (page) => _loadMoreCategoryData(category: 'popular', page: page),
-                  navigationState: widget.navigationState,
-                ),
-              
-              if (_newlyReleased.isNotEmpty)
-                _RailwayTrack(
-                  title: 'Newly Released',
-                  initialItems: _newlyReleased,
-                  onLoadMore: (page) => _loadMoreCategoryData(category: 'newlyReleased', page: page),
-                  navigationState: widget.navigationState,
-                ),
-              
-              if (_upcoming.isNotEmpty)
-                _RailwayTrack(
-                  title: 'Upcoming Releases',
-                  initialItems: _upcoming,
-                  onLoadMore: (page) => _loadMoreCategoryData(category: 'upcoming', page: page),
-                  navigationState: widget.navigationState,
-                ),
-
-              const SizedBox(height: 16.0),
-              const Text(
-                'Genres',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 22.0,
-                  fontWeight: FontWeight.bold,
-                  fontFamily: 'Outfit',
-                ),
-              ),
-              const SizedBox(height: 12.0),
-
-              if (_action.isNotEmpty)
-                _RailwayTrack(
-                  title: 'Action',
-                  initialItems: _action,
-                  onLoadMore: (page) => _loadMoreCategoryData(category: 'Action', page: page),
-                  navigationState: widget.navigationState,
-                ),
-              
-              if (_adventure.isNotEmpty)
-                _RailwayTrack(
-                  title: 'Adventure',
-                  initialItems: _adventure,
-                  onLoadMore: (page) => _loadMoreCategoryData(category: 'Adventure', page: page),
-                  navigationState: widget.navigationState,
-                ),
-              
-              if (_romance.isNotEmpty)
-                _RailwayTrack(
-                  title: 'Romance',
-                  initialItems: _romance,
-                  onLoadMore: (page) => _loadMoreCategoryData(category: 'Romance', page: page),
-                  navigationState: widget.navigationState,
-                ),
-              
-              if (_fantasy.isNotEmpty)
-                _RailwayTrack(
-                  title: 'Fantasy',
-                  initialItems: _fantasy,
-                  onLoadMore: (page) => _loadMoreCategoryData(category: 'Fantasy', page: page),
-                  navigationState: widget.navigationState,
-                ),
-            ],
-          ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

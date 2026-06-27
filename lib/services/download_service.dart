@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import '../state/app_settings.dart';
 
 enum DownloadStatus {
   queued,
@@ -178,8 +179,12 @@ class DownloadService extends ChangeNotifier {
       return;
     }
 
-    final homeDir = Platform.environment['USERPROFILE'] ?? Platform.environment['HOME'] ?? Directory.current.path;
-    final downloadsDir = Directory('$homeDir/Downloads/watchAny');
+    String baseDir = AppSettings().downloadPath;
+    if (baseDir.isEmpty) {
+      final homeDir = Platform.environment['USERPROFILE'] ?? Platform.environment['HOME'] ?? Directory.current.path;
+      baseDir = '$homeDir/Downloads/watchAny';
+    }
+    final downloadsDir = Directory(baseDir);
     if (!downloadsDir.existsSync()) {
       await downloadsDir.create(recursive: true);
     }

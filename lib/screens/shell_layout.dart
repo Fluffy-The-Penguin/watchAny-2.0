@@ -28,7 +28,7 @@ class ShellLayout extends StatelessWidget {
       case TabPage.search:
         return SearchPage(key: ValueKey('search_$mode'), mode: mode, navigationState: navigationState);
       case TabPage.library:
-        return LibraryPage(key: ValueKey('library_$mode'), mode: mode);
+        return LibraryPage(key: ValueKey('library_$mode'), mode: mode, navigationState: navigationState);
       case TabPage.downloads:
         return DownloadsPage(key: ValueKey('downloads_$mode'));
       case TabPage.settings:

@@ -6,6 +6,8 @@ import 'services/torrserver_manager.dart';
 import 'services/extension_service.dart';
 import 'services/download_service.dart';
 import 'state/navigation_state.dart';
+import 'state/app_settings.dart';
+import 'state/library_state.dart';
 import 'screens/shell_layout.dart';
 
 class MyCustomScrollBehavior extends MaterialScrollBehavior {
@@ -25,6 +27,12 @@ void main() async {
   
   // Initialize Download Service
   await DownloadService().init();
+  
+  // Load persisted app settings (smooth scroll etc.)
+  await AppSettings().init();
+  
+  // Initialize Library state
+  await LibraryState().init();
   
   // Initialize ExtensionService early to load local extensions on startup
   ExtensionService().init();

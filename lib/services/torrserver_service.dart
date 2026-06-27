@@ -3,24 +3,27 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../models/torrent.dart';
+import '../state/app_settings.dart';
 
 class TorrServerService {
-  String _baseUrl;
+  String? _customBaseUrl;
 
-  TorrServerService({String baseUrl = 'http://127.0.0.1:8090'})
-      : _baseUrl = baseUrl;
+  TorrServerService({String? baseUrl}) : _customBaseUrl = baseUrl;
 
-  String get baseUrl => _baseUrl;
+  String get baseUrl {
+    final url = _customBaseUrl ?? AppSettings().torrServerUrl;
+    return url.endsWith('/') ? url.substring(0, url.length - 1) : url;
+  }
 
   set baseUrl(String url) {
-    _baseUrl = url.endsWith('/') ? url.substring(0, url.length - 1) : url;
+    _customBaseUrl = url.endsWith('/') ? url.substring(0, url.length - 1) : url;
   }
 
   /// Checks if TorrServer is reachable.
   Future<bool> ping() async {
     try {
       final response = await http.get(
-        Uri.parse('$_baseUrl/echo'),
+        Uri.parse('$baseUrl/echo'),
       ).timeout(const Duration(seconds: 5));
       return response.statusCode == 200;
     } catch (_) {
@@ -30,7 +33,7 @@ class TorrServerService {
 
   /// Adds a torrent (magnet or .torrent URL), then polls until file metadata arrives.
   Future<TorrentInfo> addTorrent(String link, {String title = ''}) async {
-    final uri = Uri.parse('$_baseUrl/torrents');
+    final uri = Uri.parse('$baseUrl/torrents');
     final body = jsonEncode({
       'action': 'add',
       'link': link,
@@ -78,7 +81,7 @@ class TorrServerService {
 
   /// Fetches updated torrent info (including file list and status).
   Future<TorrentInfo> getTorrent(String hash) async {
-    final uri = Uri.parse('$_baseUrl/torrents');
+    final uri = Uri.parse('$baseUrl/torrents');
     final body = jsonEncode({'action': 'get', 'hash': hash});
 
     final response = await http.post(
@@ -97,7 +100,7 @@ class TorrServerService {
   /// Removes a torrent from TorrServer.
   Future<void> removeTorrent(String hash) async {
     try {
-      final uri = Uri.parse('$_baseUrl/torrents');
+      final uri = Uri.parse('$baseUrl/torrents');
       await http.post(
         uri,
         headers: {'Content-Type': 'application/json'},
@@ -111,13 +114,13 @@ class TorrServerService {
   /// Constructs the direct HTTP stream URL for a given file index.
   /// NOTE: TorrServer uses 1-based file indexing in the stream URL.
   String getStreamUrl(String hash, int fileIndex) {
-    return '$_baseUrl/stream?link=$hash&index=${fileIndex + 1}&play';
+    return '$baseUrl/stream?link=$hash&index=${fileIndex + 1}&play';
   }
 
   /// Triggers a prebuffer/preload for a specific file index in the torrent.
   Future<void> preloadTorrentFile(String hash, int fileIndex) async {
     try {
-      final uri = Uri.parse('$_baseUrl/stream?link=$hash&index=${fileIndex + 1}&preload');
+      final uri = Uri.parse('$baseUrl/stream?link=$hash&index=${fileIndex + 1}&preload');
       await http.get(uri).timeout(const Duration(seconds: 3));
     } catch (_) {
       // Ignore network errors/timeouts since preloading is non-blocking on the server

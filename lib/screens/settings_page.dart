@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/extension_service.dart';
+import '../state/app_settings.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -715,26 +716,57 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Widget _buildGeneralSection() {
-    return const Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'General Configuration',
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: 20.0,
-            fontWeight: FontWeight.bold,
-            fontFamily: 'Outfit',
-          ),
-        ),
-        SizedBox(height: 16.0),
-        Text(
-          'Under development. This will hold configuration values such as stream quality preferences, video player bindings (Media Kit), and local server settings.',
-          style: TextStyle(color: Colors.white54, fontSize: 14.0),
-        ),
-      ],
+    return ListenableBuilder(
+      listenable: AppSettings(),
+      builder: (context, _) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'General',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 20.0,
+                fontWeight: FontWeight.bold,
+                fontFamily: 'Outfit',
+              ),
+            ),
+            const SizedBox(height: 6.0),
+            const Text(
+              'App-wide behavior and interface preferences.',
+              style: TextStyle(color: Colors.white38, fontSize: 13.0),
+            ),
+            const SizedBox(height: 24.0),
+
+            // ── Smooth Scroll ──
+            _SettingsTile(
+              icon: Icons.touch_app_outlined,
+              title: 'Smooth Scrolling',
+              subtitle: 'Animate mouse-wheel scroll with easing instead of instant jumps.',
+              trailing: Transform.scale(
+                scale: 0.9,
+                child: Switch(
+                  value: AppSettings().smoothScrollEnabled,
+                  activeColor: Colors.white,
+                  activeTrackColor: Colors.white24,
+                  inactiveThumbColor: Colors.white30,
+                  inactiveTrackColor: Colors.black26,
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  onChanged: (v) => AppSettings().setSmoothScrollEnabled(v),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
+
+  Widget _buildDivider() => Container(
+        margin: const EdgeInsets.symmetric(vertical: 12.0),
+        height: 1.0,
+        color: Colors.white10,
+      );
 
   Widget _buildTopCategoryBar() {
     final categories = [
@@ -868,6 +900,62 @@ class _SettingsPageState extends State<SettingsPage> {
                   ),
                 ],
               ),
+      ),
+    );
+  }
+}
+
+/// A standard settings row with an icon, title, subtitle and a trailing widget.
+class _SettingsTile extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final Widget trailing;
+
+  const _SettingsTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.trailing,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 14.0),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.02),
+        borderRadius: BorderRadius.circular(8.0),
+        border: Border.all(color: Colors.white10),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: Colors.white38, size: 22.0),
+          const SizedBox(width: 16.0),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 14.0,
+                    fontWeight: FontWeight.w600,
+                    fontFamily: 'Outfit',
+                  ),
+                ),
+                const SizedBox(height: 2.0),
+                Text(
+                  subtitle,
+                  style: const TextStyle(color: Colors.white38, fontSize: 12.0),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 16.0),
+          trailing,
+        ],
       ),
     );
   }
