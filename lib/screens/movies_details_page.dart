@@ -50,7 +50,7 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
     final parts = widget.movieId.split(':');
     if (parts.length >= 2) {
       _type = parts[0];
-      _realId = parts[1];
+      _realId = widget.movieId.substring(_type.length + 1);
     } else {
       _realId = widget.movieId;
     }
