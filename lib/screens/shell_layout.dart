@@ -17,6 +17,7 @@ import 'player_screen.dart';
 import 'schedule_page.dart';
 import 'history_page.dart';
 import 'notifications_page.dart';
+import 'movies_details_page.dart';
 
 class ShellLayout extends StatelessWidget {
   final NavigationState navigationState;
@@ -365,13 +366,19 @@ class ShellLayout extends StatelessWidget {
                               color: Colors.black,
                               child: AnimatedSwitcher(
                                 duration: const Duration(milliseconds: 200),
-                                child: selectedAnimeId != null
+                                child: currentMode == AppMode.anime && selectedAnimeId != null
                                     ? AnimeDetailsPage(
                                         key: ValueKey('details_$selectedAnimeId'),
                                         animeId: selectedAnimeId,
                                         navigationState: navigationState,
                                       )
-                                    : _buildContent(currentMode, currentPage),
+                                    : currentMode == AppMode.movies && navigationState.selectedMovieId != null
+                                        ? MovieDetailsPage(
+                                            key: ValueKey('details_movie_${navigationState.selectedMovieId}'),
+                                            movieId: navigationState.selectedMovieId!,
+                                            navigationState: navigationState,
+                                          )
+                                        : _buildContent(currentMode, currentPage),
                               ),
                             ),
                           ),

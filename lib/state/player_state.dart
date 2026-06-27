@@ -29,6 +29,7 @@ class PlayerState extends ChangeNotifier {
   String? _streamUrl;
   String? _title;
   int? _anilistId;
+  String? _movieId;
   List<String>? _titles;
   int? _episodeCount;
   int? _episodeNumber;
@@ -57,6 +58,7 @@ class PlayerState extends ChangeNotifier {
   String? get streamUrl => _streamUrl;
   String? get title => _title;
   int? get anilistId => _anilistId;
+  String? get movieId => _movieId;
   List<String>? get titles => _titles;
   int? get episodeCount => _episodeCount;
   int? get episodeNumber => _episodeNumber;
@@ -87,6 +89,7 @@ class PlayerState extends ChangeNotifier {
     required String streamUrl,
     required String title,
     int? anilistId,
+    String? movieId,
     List<String>? titles,
     int? episodeCount,
     int? episodeNumber,
@@ -100,6 +103,7 @@ class PlayerState extends ChangeNotifier {
     _streamUrl = streamUrl;
     _title = title;
     _anilistId = anilistId;
+    _movieId = movieId;
     _titles = titles;
     _episodeCount = episodeCount;
     _episodeNumber = episodeNumber;
@@ -153,12 +157,13 @@ class PlayerState extends ChangeNotifier {
     // Start playing
     _player!.open(Media(streamUrl));
 
-    if (anilistId != null && episodeNumber != null) {
-      _resumePlayback(anilistId, episodeNumber);
-      _addToHistory(anilistId, episodeNumber);
+    final id = anilistId?.toString() ?? movieId;
+    if (id != null && episodeNumber != null) {
+      _resumePlayback(id, episodeNumber);
+      _addToHistory(id, episodeNumber);
       SharedPreferences.getInstance().then((prefs) {
-        prefs.setString('playback_stream_${anilistId}_$episodeNumber', streamUrl);
-        prefs.setString('playback_title_${anilistId}_$episodeNumber', title);
+        prefs.setString('playback_stream_${id}_$episodeNumber', streamUrl);
+        prefs.setString('playback_title_${id}_$episodeNumber', title);
       });
     }
 
@@ -223,8 +228,8 @@ class PlayerState extends ChangeNotifier {
 
     _player?.open(Media(streamUrl));
 
-    if (_anilistId != null) {
-      final id = _anilistId!;
+    final id = _anilistId?.toString() ?? _movieId;
+    if (id != null) {
       _resumePlayback(id, episodeNumber);
       _addToHistory(id, episodeNumber);
       SharedPreferences.getInstance().then((prefs) {
@@ -244,7 +249,7 @@ class PlayerState extends ChangeNotifier {
   }
 
   void _saveCurrentProgress() {
-    final id = _anilistId;
+    final id = _anilistId?.toString() ?? _movieId;
     final ep = _episodeNumber;
     final pos = _currentPosition.inMilliseconds;
     final dur = _currentDuration.inMilliseconds;
@@ -262,12 +267,14 @@ class PlayerState extends ChangeNotifier {
         prefs.setInt('continue_watching_last_ep_$id', ep);
       });
 
-      _checkCompletion(id, ep, pos, dur);
+      if (_anilistId != null) {
+        _checkCompletion(_anilistId!, ep, pos, dur);
+      }
     }
   }
 
   void _saveMediaMetadata() {
-    final id = _anilistId;
+    final id = _anilistId?.toString() ?? _movieId;
     if (id != null) {
       final med = _media;
       Map<String, dynamic> lightweightMedia;
@@ -283,7 +290,7 @@ class PlayerState extends ChangeNotifier {
       } else {
         lightweightMedia = {
           'id': id,
-          'title': _title ?? 'Anime #$id',
+          'title': _title ?? 'Media #$id',
           'coverImage': '',
           'averageScore': 0.0,
           'format': (_isMovie == true) ? 'MOVIE' : 'TV',
@@ -300,27 +307,19 @@ class PlayerState extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     final keys = prefs.getKeys();
     
-    // Find all continue watching metadata keys: continue_watching_metadata_${anilistId}
     final metadataKeys = keys.where((k) => k.startsWith('continue_watching_metadata_')).toList();
-    
     final List<Map<String, dynamic>> items = [];
     
     for (final key in metadataKeys) {
-      final animeIdStr = key.replaceFirst('continue_watching_metadata_', '');
-      final animeId = int.tryParse(animeIdStr);
-      if (animeId == null) continue;
+      final id = key.replaceFirst('continue_watching_metadata_', '');
+      final timestamp = prefs.getInt('continue_watching_timestamp_$id') ?? 0;
+      final lastEp = prefs.getInt('continue_watching_last_ep_$id') ?? 1;
       
-      // Find the last episode they were watching
-      final timestamp = prefs.getInt('continue_watching_timestamp_$animeId') ?? 0;
-      final lastEp = prefs.getInt('continue_watching_last_ep_$animeId') ?? 1;
-      
-      // Fetch progress for this episode
-      final pos = prefs.getInt('playback_pos_${animeId}_$lastEp');
-      final dur = prefs.getInt('playback_dur_${animeId}_$lastEp');
+      final pos = prefs.getInt('playback_pos_${id}_$lastEp');
+      final dur = prefs.getInt('playback_dur_${id}_$lastEp');
       
       if (pos != null && dur != null) {
         final ratio = pos / dur;
-        // Only include if they watched less than 90%
         if (ratio > 0.001 && ratio < 0.90) {
           final metadataJson = prefs.getString(key);
           if (metadataJson != null) {
@@ -336,15 +335,12 @@ class PlayerState extends ChangeNotifier {
       }
     }
     
-    // Sort items by timestamp descending (most recently watched first)
     items.sort((a, b) => (b['timestamp'] as int).compareTo(a['timestamp'] as int));
-    
-    // Return only the media maps
     return items.map((item) => item['media']).toList();
   }
 
-  Future<void> _resumePlayback(int animeId, int episodeNumber) async {
-    final key = '${animeId}_$episodeNumber';
+  Future<void> _resumePlayback(String id, int episodeNumber) async {
+    final key = '${id}_$episodeNumber';
     final prefs = await SharedPreferences.getInstance();
     final pos = prefs.getInt('playback_pos_$key');
     final dur = prefs.getInt('playback_dur_$key');
@@ -408,16 +404,16 @@ class PlayerState extends ChangeNotifier {
     _controller = null;
   }
 
-  void _addToHistory(int anilistId, int episodeNumber) async {
+  void _addToHistory(String id, int episodeNumber) async {
     final prefs = await SharedPreferences.getInstance();
-    final String key = 'watched_episodes_$anilistId';
+    final String key = 'watched_episodes_$id';
     List<String> list = prefs.getStringList(key) ?? [];
     final String epStr = episodeNumber.toString();
     if (!list.contains(epStr)) {
       list.add(epStr);
       await prefs.setStringList(key, list);
     }
-    await prefs.setInt('history_last_watched_timestamp_$anilistId', DateTime.now().millisecondsSinceEpoch);
+    await prefs.setInt('history_last_watched_timestamp_$id', DateTime.now().millisecondsSinceEpoch);
   }
 
   static Future<List<Map<String, dynamic>>> getHistoryList() async {
@@ -427,10 +423,7 @@ class PlayerState extends ChangeNotifier {
     final keys = prefs.getKeys();
     for (var key in keys) {
       if (key.startsWith('watched_episodes_')) {
-        final idStr = key.replaceFirst('watched_episodes_', '');
-        final int? id = int.tryParse(idStr);
-        if (id == null) continue;
-        
+        final id = key.replaceFirst('watched_episodes_', '');
         final metadataStr = prefs.getString('continue_watching_metadata_$id');
         if (metadataStr == null) continue;
         
@@ -438,7 +431,7 @@ class PlayerState extends ChangeNotifier {
           final metadata = jsonDecode(metadataStr);
           final timestamp = prefs.getInt('history_last_watched_timestamp_$id') ?? 0;
           final List<String> epStrs = prefs.getStringList(key) ?? [];
-          final List<int> eps = epStrs.map((e) => int.parse(e)).toList();
+          final List<int> eps = epStrs.map((e) => int.tryParse(e) ?? 0).toList();
           
           history.add({
             'id': id,

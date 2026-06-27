@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../state/navigation_state.dart';
 import 'anime_home_page.dart';
+import 'movies_home_page.dart';
 
 class HomePage extends StatelessWidget {
   final AppMode mode;
@@ -16,6 +17,9 @@ class HomePage extends StatelessWidget {
   Widget build(BuildContext context) {
     if (mode == AppMode.anime) {
       return AnimeHomePage(navigationState: navigationState);
+    }
+    if (mode == AppMode.movies) {
+      return MoviesHomePage(navigationState: navigationState);
     }
 
     String modeString = '';

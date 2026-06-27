@@ -46,15 +46,20 @@ class NavigationState extends ChangeNotifier {
   // Selected Anime ID for details screen navigation
   int? _selectedAnimeId;
 
+  // Selected Movie ID for details screen navigation
+  String? _selectedMovieId;
+
   AppMode get currentMode => _currentMode;
   TabPage get currentPage => _modePages[_currentMode] ?? TabPage.home;
   bool get isSidebarExpanded => _isSidebarExpanded;
   int? get selectedAnimeId => _selectedAnimeId;
+  String? get selectedMovieId => _selectedMovieId;
 
   void setMode(AppMode mode) {
     if (_currentMode != mode) {
       _currentMode = mode;
       _selectedAnimeId = null; // Clear details view when switching modes
+      _selectedMovieId = null;
       notifyListeners();
     }
   }
@@ -66,12 +71,22 @@ class NavigationState extends ChangeNotifier {
     }
   }
 
+  void selectMovie(String? id) {
+    if (_selectedMovieId != id) {
+      _selectedMovieId = id;
+      notifyListeners();
+    }
+  }
+
   void setPage(TabPage page) {
     if (page == TabPage.schedule && _currentMode != AppMode.anime) {
       return;
     }
     if (_selectedAnimeId != null) {
       _selectedAnimeId = null; // Exit details page when clicking a tab
+    }
+    if (_selectedMovieId != null) {
+      _selectedMovieId = null; // Exit movie details page when clicking a tab
     }
     if (_modePages[_currentMode] != page) {
       _modePages[_currentMode] = page;
