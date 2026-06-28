@@ -2776,7 +2776,7 @@ class _LibraryEditPanelState extends State<_LibraryEditPanel> {
                         // Custom Categories selection chips
                         Builder(
                           builder: (context) {
-                            final cats = LibraryState().categories.where((cat) => cat.mode == widget.modeStr).toList();
+                            final cats = LibraryState().categories;
                             if (cats.isEmpty) return const SizedBox.shrink();
                             return Column(
                               crossAxisAlignment: CrossAxisAlignment.start,

@@ -59,8 +59,7 @@ class _LibraryPageState extends State<LibraryPage> {
       _loadLibraryData();
 
       // Safeguard tab state
-      final modeStr = widget.mode.name;
-      final cats = LibraryState().categories.where((cat) => cat.mode == modeStr).toList();
+      final cats = LibraryState().categories;
       if (cats.isEmpty) {
         const validDefaultTabs = {'ALL', 'watching', 'planning', 'completed', 'paused_dropped', 'downloaded'};
         if (!validDefaultTabs.contains(_activeStatusTab)) {
@@ -154,7 +153,7 @@ class _LibraryPageState extends State<LibraryPage> {
 
     // 1. Filter by Status Tabs or Custom Category Tabs
     if (_activeStatusTab != 'ALL') {
-      final List<LibraryCategory> cats = LibraryState().categories.where((cat) => cat.mode == modeStr).toList();
+      final List<LibraryCategory> cats = LibraryState().categories;
       if (cats.isEmpty) {
         // Fallback to default status tabs filter
         if (_activeStatusTab == 'downloaded') {
@@ -515,7 +514,7 @@ class _LibraryPageState extends State<LibraryPage> {
                             child: ListenableBuilder(
                               listenable: LibraryState(),
                               builder: (context, _) {
-                                final cats = LibraryState().categories.where((cat) => cat.mode == modeStr).toList();
+                                final cats = LibraryState().categories;
                                 if (cats.isEmpty) {
                                   return const Padding(
                                     padding: EdgeInsets.all(24.0),
@@ -633,8 +632,7 @@ class _LibraryPageState extends State<LibraryPage> {
   }
 
   Widget _buildStatusTabs(bool isMobile) {
-    final String modeStr = widget.mode.name;
-    final List<LibraryCategory> cats = LibraryState().categories.where((cat) => cat.mode == modeStr).toList();
+    final List<LibraryCategory> cats = LibraryState().categories;
 
     final Map<String, String> tabs = {};
     if (cats.isEmpty) {

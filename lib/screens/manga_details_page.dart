@@ -781,7 +781,7 @@ class _MangaLibraryEditPanelState extends State<_MangaLibraryEditPanel> {
                         // Custom Categories chips selection
                         Builder(
                           builder: (context) {
-                            final cats = LibraryState().categories.where((cat) => cat.mode == 'manga').toList();
+                            final cats = LibraryState().categories;
                             if (cats.isEmpty) return const SizedBox.shrink();
                             return Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
