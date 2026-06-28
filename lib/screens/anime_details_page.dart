@@ -2441,52 +2441,7 @@ class _LibraryEditPanelState extends State<_LibraryEditPanel> {
     });
   }
 
-  Widget _buildStatusChip(String value, String label, IconData icon) {
-    final bool isSelected = _activeStatus == value;
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: () {
-        setState(() {
-          _activeStatus = value;
-          if (value == 'completed' && widget.totalEpisodes != null) {
-            _updateWatchedEpisodes(widget.totalEpisodes!);
-          }
-        });
-      },
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        decoration: BoxDecoration(
-          color: isSelected ? Colors.white : Colors.transparent,
-          borderRadius: BorderRadius.circular(6.0),
-          border: Border.all(
-            color: isSelected ? Colors.white : Colors.white10,
-            width: 1.0,
-          ),
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              icon,
-              color: isSelected ? Colors.black : Colors.white70,
-              size: 18.0,
-            ),
-            const SizedBox(height: 4.0),
-            Text(
-              label,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: isSelected ? Colors.black : Colors.white70,
-                fontSize: 11.5,
-                fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
-                fontFamily: 'Outfit',
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+
 
   @override
   Widget build(BuildContext context) {
@@ -2572,36 +2527,7 @@ class _LibraryEditPanelState extends State<_LibraryEditPanel> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        // Status Selector
-                        const Text(
-                          'Status',
-                          style: TextStyle(color: Colors.white70, fontSize: 13.0, fontWeight: FontWeight.w600, fontFamily: 'Outfit'),
-                        ),
-                        const SizedBox(height: 8.0),
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.all(6.0),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.03),
-                            borderRadius: BorderRadius.circular(8.0),
-                            border: Border.all(color: Colors.white10),
-                          ),
-                          child: GridView.count(
-                            crossAxisCount: isMobileSheet ? 2 : 4,
-                            shrinkWrap: true,
-                            physics: const NeverScrollableScrollPhysics(),
-                            mainAxisSpacing: 6.0,
-                            crossAxisSpacing: 6.0,
-                            childAspectRatio: isMobileSheet ? 2.5 : 2.0,
-                            children: [
-                              _buildStatusChip('watching', widget.modeStr == 'manga' ? 'Reading' : 'Watching', Icons.play_arrow),
-                              _buildStatusChip('planning', 'Planning', Icons.bookmark_border),
-                              _buildStatusChip('completed', 'Completed', Icons.done_all),
-                              _buildStatusChip('paused_dropped', 'Paused/Dropped', Icons.pause),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 20.0),
+
                         
                         // Episodes progress input with slider
                         Container(

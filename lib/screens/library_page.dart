@@ -4,6 +4,7 @@ import '../state/navigation_state.dart';
 import '../services/anilist_service.dart';
 import '../services/tmdb_service.dart';
 import '../services/download_service.dart';
+import '../services/suwayomi_service.dart';
 
 class LibraryPage extends StatefulWidget {
   final AppMode mode;
@@ -96,11 +97,14 @@ class _LibraryPageState extends State<LibraryPage> {
     try {
       List<dynamic> loadedMedia = [];
 
-      if (widget.mode == AppMode.anime || widget.mode == AppMode.manga) {
-        final mediaType = widget.mode == AppMode.anime ? 'ANIME' : 'MANGA';
+      if (widget.mode == AppMode.anime) {
         final ids = savedItems.map((item) => item.id).toList();
-        final rawList = await _anilistService.fetchMultipleMedia(ids, mediaType);
+        final rawList = await _anilistService.fetchMultipleMedia(ids, 'ANIME');
         loadedMedia = rawList;
+      } else if (widget.mode == AppMode.manga) {
+        final futures = savedItems.map((item) => SuwayomiService().getMangaDetails(item.id));
+        final results = await Future.wait(futures);
+        loadedMedia = results.whereType<Map<String, dynamic>>().toList();
       } else {
         // Movies/Series (TMDB)
         final futures = savedItems.map((item) => _tmdbService.fetchTmdbBasicDetails(item.id, item.format));
@@ -916,12 +920,20 @@ class _LibraryMediaCardState extends State<_LibraryMediaCard> {
 
   @override
   Widget build(BuildContext context) {
-    final coverUrl = widget.media['coverImage']?['large'] ?? '';
-    final title = widget.media['title']?['english'] ?? widget.media['title']?['romaji'] ?? 'Untitled';
-    final double? rating = widget.media['averageScore'] != null
-        ? (widget.media['averageScore'] as num).toDouble()
-        : null;
-    final String format = widget.media['format'] ?? '';
+    final String coverUrl = widget.mode == AppMode.manga
+        ? (widget.media['thumbnailUrl'] ?? '')
+        : (widget.media['coverImage']?['large'] ?? '');
+    final String title = widget.mode == AppMode.manga
+        ? (widget.media['title'] ?? 'Untitled')
+        : (widget.media['title']?['english'] ?? widget.media['title']?['romaji'] ?? 'Untitled');
+    final double? rating = widget.mode == AppMode.manga
+        ? null
+        : (widget.media['averageScore'] != null
+            ? (widget.media['averageScore'] as num).toDouble()
+            : null);
+    final String format = widget.mode == AppMode.manga
+        ? 'MANGA'
+        : (widget.media['format'] ?? '');
     final bool isMovie = format == 'MOVIE';
 
     // Retrieve user progress details from LibraryState

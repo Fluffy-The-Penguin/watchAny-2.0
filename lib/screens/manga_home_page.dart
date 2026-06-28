@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import '../services/suwayomi_manager.dart';
 import '../services/suwayomi_service.dart';
 import '../state/navigation_state.dart';
-import '../state/library_state.dart';
 import '../widgets/smooth_scroll_area.dart';
 
 class MangaHomePage extends StatefulWidget {
@@ -390,85 +389,7 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
 
             const SizedBox(height: 24.0),
 
-            // Continue Reading / Library Section
-            ListenableBuilder(
-              listenable: LibraryState(),
-              builder: (context, _) {
-                final mangaItems = LibraryState().items.where((item) => item.mode == 'manga').toList();
-                if (mangaItems.isEmpty) return const SizedBox.shrink();
 
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Bookmarked Manga',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 16.0,
-                        fontWeight: FontWeight.bold,
-                        fontFamily: 'Outfit',
-                      ),
-                    ),
-                    const SizedBox(height: 12.0),
-                    SizedBox(
-                      height: 190.0,
-                      child: ListView.builder(
-                        scrollDirection: Axis.horizontal,
-                        itemCount: mangaItems.length,
-                        itemBuilder: (context, index) {
-                          final item = mangaItems[index];
-                          // Note: For manga, the library item represents the local manga database ID
-                          return GestureDetector(
-                            onTap: () => widget.navigationState.selectManga(item.id.toString()),
-                            child: Container(
-                              width: 110.0,
-                              margin: const EdgeInsets.only(right: 12.0),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Expanded(
-                                    child: ClipRRect(
-                                      borderRadius: BorderRadius.circular(6.0),
-                                      child: Container(
-                                        color: Colors.white10,
-                                        child: Center(
-                                          child: Icon(Icons.book, color: Colors.white24, size: 32.0),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 6.0),
-                                  Text(
-                                    'Manga #${item.id}',
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 12.0,
-                                      fontFamily: 'Outfit',
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                  Text(
-                                    'Ch. ${item.watchedEpisodes}',
-                                    style: const TextStyle(
-                                      color: Color(0xFFFF9F1C),
-                                      fontSize: 11.0,
-                                      fontFamily: 'Outfit',
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                    const SizedBox(height: 24.0),
-                  ],
-                );
-              },
-            ),
 
             // Catalog Grid Title
             const Text(
