@@ -4,6 +4,7 @@ import '../services/stremio_addon_service.dart';
 import '../state/app_settings.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/suwayomi_manager.dart';
+import '../services/update_service.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -150,6 +151,7 @@ class _SettingsPageState extends State<SettingsPage> {
       {'title': 'Movies/TV Addons', 'icon': Icons.movie_filter},
       {'title': 'General', 'icon': Icons.settings_applications},
       {'title': 'Manga Settings', 'icon': Icons.book},
+      {'title': 'About', 'icon': Icons.info_outline},
     ];
 
     return Container(
@@ -867,7 +869,8 @@ class _SettingsPageState extends State<SettingsPage> {
       {'title': 'Extensions', 'icon': Icons.extension},
       {'title': 'Addons', 'icon': Icons.movie_filter},
       {'title': 'General', 'icon': Icons.settings_applications},
-      {'title': 'Manga Settings', 'icon': Icons.book},
+      {'title': 'Manga', 'icon': Icons.book},
+      {'title': 'About', 'icon': Icons.info_outline},
     ];
 
     return Container(
@@ -972,6 +975,8 @@ class _SettingsPageState extends State<SettingsPage> {
             _buildGeneralSection(),
           ] else if (_activeCategoryIndex == 3) ...[
             _buildMangaSettingsSection(isMobile),
+          ] else if (_activeCategoryIndex == 4) ...[
+            _buildAboutSection(),
           ],
         ],
       ),
@@ -1655,6 +1660,284 @@ class _SettingsPageState extends State<SettingsPage> {
           },
         ),
       ],
+    );
+  }
+
+  Widget _buildAboutSection() {
+    final updateService = UpdateService();
+    return ListenableBuilder(
+      listenable: updateService,
+      builder: (context, _) {
+        return SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 4.0, vertical: 8.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'About watchAny',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 18.0,
+                  fontWeight: FontWeight.bold,
+                  fontFamily: 'Outfit',
+                ),
+              ),
+              const SizedBox(height: 8.0),
+              const Text(
+                'Fully self-contained media center bundling streaming extensions, Stremio addon APIs, manga reader engines, and Torrent servers locally.',
+                style: TextStyle(color: Colors.white54, fontSize: 13.0),
+              ),
+              const SizedBox(height: 24.0),
+              
+              // App Info Card
+              Container(
+                padding: const EdgeInsets.all(20.0),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.02),
+                  borderRadius: BorderRadius.circular(10.0),
+                  border: Border.all(color: Colors.white10),
+                ),
+                child: Row(
+                  children: [
+                    // App Logo Mock
+                    Container(
+                      width: 64.0,
+                      height: 64.0,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.05),
+                        borderRadius: BorderRadius.circular(14.0),
+                        border: Border.all(color: Colors.white12),
+                      ),
+                      child: const Center(
+                        child: Icon(
+                          Icons.play_circle_filled,
+                          color: Colors.amber,
+                          size: 36.0,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 20.0),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'watchAny 2.0',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 16.0,
+                              fontWeight: FontWeight.bold,
+                              fontFamily: 'Outfit',
+                            ),
+                          ),
+                          const SizedBox(height: 4.0),
+                          const Text(
+                            'Version ${UpdateService.currentVersion}',
+                            style: TextStyle(
+                              color: Colors.white38,
+                              fontSize: 12.0,
+                              fontFamily: 'Outfit',
+                            ),
+                          ),
+                          const SizedBox(height: 2.0),
+                          const Text(
+                            'Bundled TorrServer: Local Binary (v1.3.0)',
+                            style: TextStyle(
+                              color: Colors.white24,
+                              fontSize: 11.0,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 24.0),
+
+              // Updates Section
+              const Text(
+                'Application Updates',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 14.0,
+                  fontWeight: FontWeight.bold,
+                  fontFamily: 'Outfit',
+                ),
+              ),
+              const SizedBox(height: 12.0),
+              
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(20.0),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.02),
+                  borderRadius: BorderRadius.circular(10.0),
+                  border: Border.all(color: Colors.white10),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (!updateService.hasChecked) ...[
+                      const Text(
+                        'Check for updates to ensure you have the latest features and security updates.',
+                        style: TextStyle(color: Colors.white70, fontSize: 13.0),
+                      ),
+                      const SizedBox(height: 16.0),
+                      ElevatedButton.icon(
+                        icon: updateService.isChecking
+                            ? const SizedBox(
+                                width: 14.0,
+                                height: 14.0,
+                                child: CircularProgressIndicator(color: Colors.black, strokeWidth: 2.0),
+                              )
+                            : const Icon(Icons.update, color: Colors.black, size: 16.0),
+                        label: const Text('Check for Updates', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                        onPressed: updateService.isChecking
+                            ? null
+                            : () async {
+                                final hasUpdate = await updateService.checkForUpdates();
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(hasUpdate
+                                          ? 'A new update (v${updateService.latestUpdate!.version}) is available!'
+                                          : 'watchAny is up to date!'),
+                                    ),
+                                  );
+                                }
+                              },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 12.0),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6.0)),
+                        ),
+                      ),
+                    ] else if (updateService.isChecking) ...[
+                      const Center(
+                        child: Padding(
+                          padding: EdgeInsets.symmetric(vertical: 16.0),
+                          child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.0),
+                        ),
+                      ),
+                    ] else if (updateService.hasUpdate) ...[
+                      Row(
+                        children: [
+                          const Icon(Icons.info, color: Colors.amber, size: 18.0),
+                          const SizedBox(width: 8.0),
+                          Text(
+                            'Update Available: v${updateService.latestUpdate!.version}',
+                            style: const TextStyle(
+                              color: Colors.amber,
+                              fontSize: 14.0,
+                              fontWeight: FontWeight.bold,
+                              fontFamily: 'Outfit',
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12.0),
+                      const Text(
+                        'Changelog:',
+                        style: TextStyle(color: Colors.white54, fontSize: 12.0, fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 6.0),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12.0),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.02),
+                          borderRadius: BorderRadius.circular(6.0),
+                        ),
+                        child: Text(
+                          updateService.latestUpdate!.changelog,
+                          style: const TextStyle(color: Colors.white70, fontSize: 12.0, height: 1.5, fontFamily: 'monospace'),
+                        ),
+                      ),
+                      const SizedBox(height: 16.0),
+                      if (updateService.isDownloading) ...[
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Downloading update installer...',
+                              style: TextStyle(color: Colors.white70, fontSize: 12.0, fontFamily: 'Outfit'),
+                            ),
+                            const SizedBox(height: 8.0),
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(2.0),
+                              child: LinearProgressIndicator(
+                                value: updateService.downloadProgress,
+                                backgroundColor: Colors.white10,
+                                valueColor: const AlwaysStoppedAnimation<Color>(Colors.amber),
+                                minHeight: 6.0,
+                              ),
+                            ),
+                            const SizedBox(height: 4.0),
+                            Text(
+                              '${(updateService.downloadProgress * 100).toStringAsFixed(1)}%',
+                              style: const TextStyle(color: Colors.white38, fontSize: 11.0, fontFamily: 'Outfit'),
+                            ),
+                          ],
+                        ),
+                      ] else ...[
+                        ElevatedButton.icon(
+                          icon: const Icon(Icons.download, color: Colors.black, size: 16.0),
+                          label: const Text('Update Now', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                          onPressed: () {
+                            updateService.startUpdate();
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.amber,
+                            padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 12.0),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6.0)),
+                          ),
+                        ),
+                      ],
+                    ] else ...[
+                      const Row(
+                        children: [
+                          Icon(Icons.check_circle, color: Colors.green, size: 18.0),
+                          const SizedBox(width: 8.0),
+                          Text(
+                            'Your application is up to date!',
+                            style: TextStyle(
+                              color: Colors.green,
+                              fontSize: 14.0,
+                              fontWeight: FontWeight.bold,
+                              fontFamily: 'Outfit',
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16.0),
+                      ElevatedButton.icon(
+                        icon: const Icon(Icons.refresh, color: Colors.black, size: 16.0),
+                        label: const Text('Check Again', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                        onPressed: () async {
+                          await updateService.checkForUpdates();
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 12.0),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6.0)),
+                        ),
+                      ),
+                    ],
+                    if (updateService.error != null) ...[
+                      const SizedBox(height: 12.0),
+                      Text(
+                        updateService.error!,
+                        style: const TextStyle(color: Colors.redAccent, fontSize: 12.0),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

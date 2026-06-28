@@ -15,6 +15,8 @@ class AppSettings extends ChangeNotifier {
   bool _hardwareAccelerationEnabled = true;
   String _startupModeStr = 'anime';
   String _startupPageStr = 'home';
+  bool _autoPlay = true;
+  bool _autoNext = true;
 
   bool get smoothScrollEnabled => _smoothScrollEnabled;
   String get torrServerUrl => _torrServerUrl;
@@ -22,6 +24,8 @@ class AppSettings extends ChangeNotifier {
   bool get hardwareAccelerationEnabled => _hardwareAccelerationEnabled;
   String get startupModeStr => _startupModeStr;
   String get startupPageStr => _startupPageStr;
+  bool get autoPlay => _autoPlay;
+  bool get autoNext => _autoNext;
 
   AppMode get startupMode {
     switch (_startupModeStr) {
@@ -50,7 +54,25 @@ class AppSettings extends ChangeNotifier {
     _hardwareAccelerationEnabled = prefs.getBool('hardware_acceleration') ?? true;
     _startupModeStr = prefs.getString('startup_mode') ?? 'anime';
     _startupPageStr = prefs.getString('startup_page') ?? 'home';
+    _autoPlay = prefs.getBool('auto_play') ?? true;
+    _autoNext = prefs.getBool('auto_next') ?? true;
     notifyListeners();
+  }
+
+  Future<void> setAutoPlay(bool value) async {
+    if (_autoPlay == value) return;
+    _autoPlay = value;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('auto_play', value);
+  }
+
+  Future<void> setAutoNext(bool value) async {
+    if (_autoNext == value) return;
+    _autoNext = value;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('auto_next', value);
   }
 
   Future<void> setSmoothScrollEnabled(bool value) async {

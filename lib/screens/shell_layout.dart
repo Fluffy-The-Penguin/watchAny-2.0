@@ -186,6 +186,7 @@ class ShellLayout extends StatelessWidget {
         final selectedAnimeId = navigationState.selectedAnimeId;
 
         final double screenWidth = MediaQuery.of(context).size.width;
+        final double screenHeight = MediaQuery.of(context).size.height;
         final bool isMobile = screenWidth < 650;
 
         final playerState = PlayerState();
@@ -371,20 +372,51 @@ class ShellLayout extends StatelessWidget {
                   ],
                 ),
                 
-                // Full Screen Player Overlay
-                if (showFullPlayer)
-                  Positioned.fill(
-                    child: PlayerScreen(
-                      streamUrl: playerState.streamUrl!,
-                      title: playerState.title!,
-                      anilistId: playerState.anilistId,
-                      titles: playerState.titles,
-                      episodeCount: playerState.episodeCount,
-                      episodeNumber: playerState.episodeNumber,
-                      isMovie: playerState.isMovie,
-                      media: playerState.media,
-                      episodes: playerState.episodes,
-                      tmdbEpisodesMap: playerState.tmdbEpisodesMap,
+                // Player Overlay (Full Screen & Mini Player)
+                if (playerState.isActive)
+                  AnimatedPositioned(
+                    key: const ValueKey('player_animated_container'),
+                    duration: const Duration(milliseconds: 350),
+                    curve: Curves.easeInOutCubic,
+                    left: playerState.isMinimized ? (screenWidth - 280.0 - 16.0) : 0.0,
+                    top: playerState.isMinimized ? (screenHeight - 158.0 - 16.0 - (isMobile ? 60.0 : 0.0)) : 0.0,
+                    width: playerState.isMinimized ? 280.0 : screenWidth,
+                    height: playerState.isMinimized ? 158.0 : screenHeight,
+                    child: Material(
+                      type: MaterialType.transparency,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          boxShadow: playerState.isMinimized ? const [
+                            BoxShadow(
+                              color: Colors.black54,
+                              blurRadius: 15.0,
+                              spreadRadius: 2.0,
+                              offset: Offset(0, 4),
+                            ),
+                          ] : null,
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(playerState.isMinimized ? 12.0 : 0.0),
+                          child: AnimatedSwitcher(
+                            duration: const Duration(milliseconds: 250),
+                            child: playerState.isMinimized
+                                ? const MiniPlayer(key: ValueKey('mini'))
+                                : PlayerScreen(
+                                    key: const ValueKey('full'),
+                                    streamUrl: playerState.streamUrl!,
+                                    title: playerState.title!,
+                                    anilistId: playerState.anilistId,
+                                    titles: playerState.titles,
+                                    episodeCount: playerState.episodeCount,
+                                    episodeNumber: playerState.episodeNumber,
+                                    isMovie: playerState.isMovie,
+                                    media: playerState.media,
+                                    episodes: playerState.episodes,
+                                    tmdbEpisodesMap: playerState.tmdbEpisodesMap,
+                                  ),
+                          ),
+                        ),
+                      ),
                     ),
                   ),
 
@@ -398,16 +430,6 @@ class ShellLayout extends StatelessWidget {
                       mangaTitle: navigationState.activeMangaTitle!,
                       chapters: navigationState.activeMangaChapters!,
                       navigationState: navigationState,
-                    ),
-                  ),
-
-                // Floating MiniPlayer Overlay
-                if (showMiniPlayer)
-                  Positioned(
-                    right: 16.0,
-                    bottom: 16.0,
-                    child: const SafeArea(
-                      child: MiniPlayer(),
                     ),
                   ),
               ],

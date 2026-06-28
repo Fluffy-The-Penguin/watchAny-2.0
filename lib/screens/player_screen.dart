@@ -12,6 +12,9 @@ import '../services/download_service.dart';
 import '../state/player_state.dart';
 import '../services/stremio_addon_service.dart';
 import '../services/extension_service.dart';
+import '../state/app_settings.dart';
+import '../services/torrserver_service.dart';
+import '../services/batch_mapping_service.dart';
 
 class PlayerScreen extends StatefulWidget {
   final String streamUrl;
@@ -56,16 +59,27 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
   // Track settings open/close hover state
   Duration _controlsHoverDuration = const Duration(seconds: 3);
   final ValueNotifier<bool> _isQualityEnhancedNotifier = ValueNotifier<bool>(false);
+  
+  final List<StreamSubscription> _subscriptions = [];
+  final TorrServerService _torrServerService = TorrServerService();
 
   @override
   void initState() {
     super.initState();
     windowManager.addListener(this);
     _checkMaximizedState();
+    _subscriptions.add(player.stream.completed.listen((completed) {
+      if (completed && AppSettings().autoNext) {
+        _playNextEpisode();
+      }
+    }));
   }
 
   @override
   void dispose() {
+    for (var sub in _subscriptions) {
+      sub.cancel();
+    }
     _overlayEntry?.remove();
     _overlayEntry = null;
     windowManager.removeListener(this);
@@ -207,6 +221,49 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
         await nativePlayer.command(['vf', 'remove', '@enhance']);
       }
     } catch (_) {}
+  }
+
+  void _playNextEpisode() async {
+    final playerState = PlayerState();
+    final currentEp = playerState.episodeNumber ?? widget.episodeNumber ?? 1;
+    final totalEps = playerState.episodeCount ?? widget.episodeCount ?? 0;
+    
+    if (widget.isMovie == true || (totalEps > 0 && currentEp >= totalEps)) {
+      // Movie or no next episode
+      return;
+    }
+    
+    final nextEp = currentEp + 1;
+    
+    if (widget.anilistId != null) {
+      // Anime mode (torrent batch check)
+      final mapping = BatchMappingService().getMapping(widget.anilistId!, nextEp);
+      if (mapping != null) {
+        final hash = mapping['torrentHash'] as String;
+        final fileIndex = mapping['fileIndex'] as int;
+        final torrentTitle = mapping['torrentTitle'] as String;
+        
+        final streamUrl = _torrServerService.getStreamUrl(hash, fileIndex);
+        final displayName = 'Episode $nextEp ($torrentTitle)';
+        
+        // Preload on TorrServer
+        try {
+          await _torrServerService.preloadTorrentFile(hash, fileIndex);
+        } catch (_) {}
+        
+        playerState.updateActiveEpisode(
+          streamUrl: streamUrl,
+          title: displayName,
+          episodeNumber: nextEp,
+        );
+      } else {
+        // Not mapped or not a batch torrent -> Open torrent panel for next episode
+        _openTorrentSelectorPanel(epNum: nextEp);
+      }
+    } else {
+      // Stremio / Movie Mode
+      _changeStremioEpisode(nextEp);
+    }
   }
 
   void _openTorrentSelectorPanel({int? epNum}) {
@@ -554,6 +611,11 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
         seekBarThumbColor: Colors.amber,
         bottomButtonBar: [
           const MaterialDesktopPlayOrPauseButton(),
+          if (widget.isMovie != true)
+            MaterialDesktopCustomButton(
+              onPressed: _playNextEpisode,
+              icon: const Icon(Icons.skip_next, color: Colors.white),
+            ),
           const MaterialDesktopVolumeButton(),
           const MaterialDesktopPositionIndicator(),
           const Spacer(),
@@ -634,6 +696,11 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
         seekBarThumbColor: Colors.amber,
         bottomButtonBar: [
           const MaterialDesktopPlayOrPauseButton(),
+          if (widget.isMovie != true)
+            MaterialDesktopCustomButton(
+              onPressed: _playNextEpisode,
+              icon: const Icon(Icons.skip_next, color: Colors.white),
+            ),
           const MaterialDesktopVolumeButton(),
           const MaterialDesktopPositionIndicator(),
           const Spacer(),
@@ -747,6 +814,11 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
         seekBarThumbColor: Colors.amber,
         bottomButtonBar: [
           const MaterialPlayOrPauseButton(),
+          if (widget.isMovie != true)
+            MaterialCustomButton(
+              onPressed: _playNextEpisode,
+              icon: const Icon(Icons.skip_next, color: Colors.white),
+            ),
           const MaterialPositionIndicator(),
           const Spacer(),
           if (widget.episodes != null && widget.episodes!.isNotEmpty)
@@ -825,6 +897,11 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
         seekBarThumbColor: Colors.amber,
         bottomButtonBar: [
           const MaterialPlayOrPauseButton(),
+          if (widget.isMovie != true)
+            MaterialCustomButton(
+              onPressed: _playNextEpisode,
+              icon: const Icon(Icons.skip_next, color: Colors.white),
+            ),
           const MaterialPositionIndicator(),
           const Spacer(),
           if (widget.episodes != null && widget.episodes!.isNotEmpty)
@@ -1525,20 +1602,41 @@ class _SettingsOverlayCardState extends State<_SettingsOverlayCard> {
           ),
           onTap: () => setState(() => _pageIndex = 3),
         ),
+
         ListTile(
           dense: true,
-          leading: const Icon(Icons.auto_awesome, color: Colors.amber, size: 18),
-          title: const Text("Quality Enhancement", style: TextStyle(color: Colors.white, fontSize: 13.0, fontFamily: 'Outfit')),
+          leading: const Icon(Icons.play_circle_outline, color: Colors.white70, size: 18),
+          title: const Text("Auto Play Streams", style: TextStyle(color: Colors.white, fontSize: 13.0, fontFamily: 'Outfit')),
           trailing: SizedBox(
             height: 24,
-            child: ValueListenableBuilder<bool>(
-              valueListenable: widget.isQualityEnhancedNotifier,
-              builder: (context, isEnhanced, _) {
+            child: ListenableBuilder(
+              listenable: AppSettings(),
+              builder: (context, _) {
                 return Switch(
-                  value: isEnhanced,
+                  value: AppSettings().autoPlay,
                   activeColor: Colors.amber,
                   onChanged: (val) {
-                    widget.onToggleQualityEnhanced();
+                    AppSettings().setAutoPlay(val);
+                  },
+                );
+              },
+            ),
+          ),
+        ),
+        ListTile(
+          dense: true,
+          leading: const Icon(Icons.skip_next, color: Colors.white70, size: 18),
+          title: const Text("Auto Play Next Episode", style: TextStyle(color: Colors.white, fontSize: 13.0, fontFamily: 'Outfit')),
+          trailing: SizedBox(
+            height: 24,
+            child: ListenableBuilder(
+              listenable: AppSettings(),
+              builder: (context, _) {
+                return Switch(
+                  value: AppSettings().autoNext,
+                  activeColor: Colors.amber,
+                  onChanged: (val) {
+                    AppSettings().setAutoNext(val);
                   },
                 );
               },

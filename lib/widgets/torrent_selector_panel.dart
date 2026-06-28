@@ -8,6 +8,8 @@ import '../services/batch_mapping_service.dart';
 import '../models/torrent.dart';
 import '../services/download_service.dart';
 import '../state/player_state.dart';
+import '../state/app_settings.dart';
+import 'package:flutter/gestures.dart';
 
 extension TorrentStreamExtension on TorrentStream {
   String get computedType {
@@ -131,51 +133,53 @@ class _TorrentSelectorPanelState extends State<TorrentSelectorPanel> {
   int? _selectedMaxSize; // null means 'All'
 
   // Auto-selection countdown state
-  Timer? _autoSelectTimer;
+  Timer? _smoothProgressTimer;
   Timer? _cooldownTimer;
-  Timer? _countdownVisualTimer;
-  int _countdownSecondsLeft = 10;
+  double _autoSelectProgress = 1.0;
+  final int _totalDurationMs = 10000;
+  int _elapsedMs = 0;
   bool _isAutoSelectActive = false;
 
   void _startAutoSelectCountdown() {
     _cancelAllTimers();
-    if (!mounted || widget.isFromPlayer || _processedStreams.isEmpty || _isLoading) return;
+    if (!mounted || _processedStreams.isEmpty || _isLoading) return;
+    if (!AppSettings().autoPlay) return;
     
     setState(() {
-      _countdownSecondsLeft = 10;
+      _autoSelectProgress = 1.0;
       _isAutoSelectActive = true;
+      _elapsedMs = 0;
     });
 
-    _countdownVisualTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+    const int intervalMs = 33; // ~30 fps for smooth animation
+    _smoothProgressTimer = Timer.periodic(const Duration(milliseconds: intervalMs), (timer) {
       if (!mounted) {
         timer.cancel();
         return;
       }
       setState(() {
-        if (_countdownSecondsLeft > 1) {
-          _countdownSecondsLeft--;
-        } else {
-          _countdownSecondsLeft = 0;
+        _elapsedMs += intervalMs;
+        if (_elapsedMs >= _totalDurationMs) {
+          _autoSelectProgress = 0.0;
           timer.cancel();
+          if (_processedStreams.isNotEmpty) {
+            final bestStream = _processedStreams.first;
+            _playStreamDirectly(bestStream);
+          }
+        } else {
+          _autoSelectProgress = 1.0 - (_elapsedMs / _totalDurationMs);
         }
       });
-    });
-
-    _autoSelectTimer = Timer(const Duration(seconds: 10), () {
-      if (!mounted || widget.isFromPlayer || _processedStreams.isEmpty || _isLoading) return;
-      // Auto-play the first stream
-      final bestStream = _processedStreams.first;
-      _playStreamDirectly(bestStream);
     });
   }
 
   void _handleUserActivity() {
-    if (widget.isFromPlayer || _streams.isEmpty || _isLoading) return;
+    if (_streams.isEmpty || _isLoading) return;
     
     if (_isAutoSelectActive) {
       setState(() {
         _isAutoSelectActive = false;
-        _countdownSecondsLeft = 10;
+        _autoSelectProgress = 1.0;
       });
       _cancelAllTimers();
       
@@ -191,9 +195,8 @@ class _TorrentSelectorPanelState extends State<TorrentSelectorPanel> {
   }
 
   void _cancelAllTimers() {
-    _autoSelectTimer?.cancel();
+    _smoothProgressTimer?.cancel();
     _cooldownTimer?.cancel();
-    _countdownVisualTimer?.cancel();
   }
 
   void _playStreamDirectly(TorrentStream stream) {
@@ -220,14 +223,23 @@ class _TorrentSelectorPanelState extends State<TorrentSelectorPanel> {
     );
   }
 
+  final ScrollController _scrollController = ScrollController();
+
   @override
   void initState() {
     super.initState();
+    _scrollController.addListener(_onScroll);
     _fetchStreams();
+  }
+
+  void _onScroll() {
+    _handleUserActivity();
   }
 
   @override
   void dispose() {
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
     _streamSubscription?.cancel();
     _excludeController.dispose();
     _cancelAllTimers();
@@ -287,7 +299,7 @@ class _TorrentSelectorPanelState extends State<TorrentSelectorPanel> {
           setState(() {
             _streams = results;
           });
-          if (!widget.isFromPlayer && _streams.isNotEmpty && !_isAutoSelectActive) {
+          if (_streams.isNotEmpty && !_isAutoSelectActive) {
             _startAutoSelectCountdown();
           }
         }
@@ -305,7 +317,7 @@ class _TorrentSelectorPanelState extends State<TorrentSelectorPanel> {
           setState(() {
             _isLoading = false;
           });
-          if (!widget.isFromPlayer && _streams.isNotEmpty && !_isAutoSelectActive) {
+          if (_streams.isNotEmpty && !_isAutoSelectActive) {
             _startAutoSelectCountdown();
           }
         }
@@ -320,6 +332,43 @@ class _TorrentSelectorPanelState extends State<TorrentSelectorPanel> {
     return ((bytes / pow(1024, i)).toStringAsFixed(decimals)) + ' ' + suffixes[i];
   }
 
+  Widget _buildDropdown<T>({
+    required String label,
+    required T value,
+    required List<DropdownMenuItem<T>> items,
+    required ValueChanged<T?> onChanged,
+  }) {
+    return Container(
+      height: 34.0,
+      padding: const EdgeInsets.symmetric(horizontal: 10.0),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.03),
+        borderRadius: BorderRadius.circular(6.0),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            '$label: ',
+            style: const TextStyle(color: Colors.white38, fontSize: 11.5, fontFamily: 'Outfit'),
+          ),
+          DropdownButtonHideUnderline(
+            child: DropdownButton<T>(
+              value: value,
+              isDense: true,
+              icon: const Icon(Icons.arrow_drop_down, color: Colors.white38, size: 16),
+              dropdownColor: const Color(0xFF0F0F11),
+              style: const TextStyle(color: Colors.white70, fontSize: 11.5, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+              items: items,
+              onChanged: onChanged,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildFilterRow(bool isMobile) {
     final resolutions = [
       {'label': 'All', 'value': null},
@@ -328,233 +377,34 @@ class _TorrentSelectorPanelState extends State<TorrentSelectorPanel> {
       {'label': '480p', 'value': '480'},
     ];
 
-    final qualitySelector = Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        const Text(
-          'Quality',
-          style: TextStyle(color: Colors.white38, fontSize: 11.0, fontFamily: 'Outfit'),
+    final exclusionsInput = TextField(
+      controller: _excludeController,
+      style: const TextStyle(color: Colors.white, fontSize: 11.5, fontFamily: 'Outfit'),
+      decoration: InputDecoration(
+        hintText: 'Add filter exclusions (comma separated)...',
+        hintStyle: const TextStyle(color: Colors.white24, fontSize: 11.5),
+        filled: true,
+        fillColor: Colors.white.withValues(alpha: 0.03),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(6.0),
+          borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
         ),
-        const SizedBox(width: 8.0),
-        Container(
-          height: 36.0,
-          padding: const EdgeInsets.symmetric(horizontal: 10.0),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.03),
-            borderRadius: BorderRadius.circular(8.0),
-            border: Border.all(color: Colors.white10),
-          ),
-          child: DropdownButtonHideUnderline(
-            child: DropdownButton<String?>(
-              value: _selectedResolution,
-              isDense: true,
-              icon: const Padding(
-                padding: EdgeInsets.only(left: 4.0),
-                child: Icon(Icons.arrow_drop_down, color: Colors.white38, size: 18),
-              ),
-              dropdownColor: const Color(0xFF0F0F11),
-              style: const TextStyle(color: Colors.white70, fontSize: 12.0, fontWeight: FontWeight.w600, fontFamily: 'Outfit'),
-              items: resolutions.map((res) {
-                return DropdownMenuItem<String?>(
-                  value: res['value'],
-                  child: Text(res['label'] as String),
-                );
-              }).toList(),
-              onChanged: (val) {
-                setState(() {
-                  _selectedResolution = val;
-                });
-                _fetchStreams();
-              },
-            ),
-          ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(6.0),
+          borderSide: const BorderSide(color: Colors.white30),
         ),
-      ],
-    );
-
-    final typeSelector = Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        const Text(
-          'Type',
-          style: TextStyle(color: Colors.white38, fontSize: 11.0, fontFamily: 'Outfit'),
-        ),
-        const SizedBox(width: 8.0),
-        Container(
-          height: 36.0,
-          padding: const EdgeInsets.symmetric(horizontal: 10.0),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.03),
-            borderRadius: BorderRadius.circular(8.0),
-            border: Border.all(color: Colors.white10),
-          ),
-          child: DropdownButtonHideUnderline(
-            child: DropdownButton<String>(
-              value: _selectedTypeFilter,
-              isDense: true,
-              icon: const Padding(
-                padding: EdgeInsets.only(left: 4.0),
-                child: Icon(Icons.arrow_drop_down, color: Colors.white38, size: 18),
-              ),
-              dropdownColor: const Color(0xFF0F0F11),
-              style: const TextStyle(color: Colors.white70, fontSize: 12.0, fontWeight: FontWeight.w600, fontFamily: 'Outfit'),
-              items: const [
-                DropdownMenuItem(value: 'all', child: Text('All')),
-                DropdownMenuItem(value: 'episode', child: Text('Episodes')),
-                DropdownMenuItem(value: 'batch', child: Text('Batches')),
-              ],
-              onChanged: (val) {
-                if (val != null) {
-                  setState(() {
-                    _selectedTypeFilter = val;
-                  });
-                }
-              },
-            ),
-          ),
-        ),
-      ],
-    );
-
-    final sortSelector = Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        const Text(
-          'Sort',
-          style: TextStyle(color: Colors.white38, fontSize: 11.0, fontFamily: 'Outfit'),
-        ),
-        const SizedBox(width: 8.0),
-        Container(
-          height: 36.0,
-          padding: const EdgeInsets.symmetric(horizontal: 10.0),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.03),
-            borderRadius: BorderRadius.circular(8.0),
-            border: Border.all(color: Colors.white10),
-          ),
-          child: DropdownButtonHideUnderline(
-            child: DropdownButton<String>(
-              value: _selectedSortOrder,
-              isDense: true,
-              icon: const Padding(
-                padding: EdgeInsets.only(left: 4.0),
-                child: Icon(Icons.arrow_drop_down, color: Colors.white38, size: 18),
-              ),
-              dropdownColor: const Color(0xFF0F0F11),
-              style: const TextStyle(color: Colors.white70, fontSize: 12.0, fontWeight: FontWeight.w600, fontFamily: 'Outfit'),
-              items: const [
-                DropdownMenuItem(value: 'seeders', child: Text('Seeders')),
-                DropdownMenuItem(value: 'size_desc', child: Text('Size (Large)')),
-                DropdownMenuItem(value: 'size_asc', child: Text('Size (Small)')),
-                DropdownMenuItem(value: 'leechers', child: Text('Leechers')),
-              ],
-              onChanged: (val) {
-                if (val != null) {
-                  setState(() {
-                    _selectedSortOrder = val;
-                  });
-                }
-              },
-            ),
-          ),
-        ),
-      ],
-    );
-
-    final sizeSelector = Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        const Text(
-          'Size',
-          style: TextStyle(color: Colors.white38, fontSize: 11.0, fontFamily: 'Outfit'),
-        ),
-        const SizedBox(width: 8.0),
-        Container(
-          height: 36.0,
-          padding: const EdgeInsets.symmetric(horizontal: 10.0),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.03),
-            borderRadius: BorderRadius.circular(8.0),
-            border: Border.all(color: Colors.white10),
-          ),
-          child: DropdownButtonHideUnderline(
-            child: DropdownButton<int?>(
-              value: _selectedMaxSize,
-              isDense: true,
-              icon: const Padding(
-                padding: EdgeInsets.only(left: 4.0),
-                child: Icon(Icons.arrow_drop_down, color: Colors.white38, size: 18),
-              ),
-              dropdownColor: const Color(0xFF0F0F11),
-              style: const TextStyle(color: Colors.white70, fontSize: 12.0, fontWeight: FontWeight.w600, fontFamily: 'Outfit'),
-              items: const [
-                DropdownMenuItem(value: null, child: Text('All Sizes')),
-                DropdownMenuItem(value: 524288000, child: Text('< 500 MB')),
-                DropdownMenuItem(value: 1073741824, child: Text('< 1 GB')),
-                DropdownMenuItem(value: 2147483648, child: Text('< 2 GB')),
-                DropdownMenuItem(value: 5368709120, child: Text('< 5 GB')),
-                DropdownMenuItem(value: 10737418240, child: Text('< 10 GB')),
-                DropdownMenuItem(value: 16106127360, child: Text('< 15 GB')),
-              ],
-              onChanged: (val) {
-                setState(() {
-                  _selectedMaxSize = val;
-                });
-              },
-            ),
-          ),
-        ),
-      ],
-    );
-
-    final selectorsWrap = Wrap(
-      spacing: 16.0,
-      runSpacing: 8.0,
-      alignment: WrapAlignment.start,
-      crossAxisAlignment: WrapCrossAlignment.center,
-      children: [
-        qualitySelector,
-        typeSelector,
-        sortSelector,
-        sizeSelector,
-      ],
-    );
-
-    final exclusionsInput = SizedBox(
-      height: 36.0,
-      child: TextField(
-        controller: _excludeController,
-        style: const TextStyle(color: Colors.white, fontSize: 12.0),
-        decoration: InputDecoration(
-          hintText: 'Add filter exclusions (comma separated)...',
-          hintStyle: const TextStyle(color: Colors.white24),
-          filled: true,
-          fillColor: Colors.white.withValues(alpha: 0.03),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(6.0),
-            borderSide: const BorderSide(color: Colors.white10),
-          ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(6.0),
-            borderSide: const BorderSide(color: Colors.white10),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(6.0),
-            borderSide: const BorderSide(color: Colors.white30),
-          ),
-          contentPadding: const EdgeInsets.symmetric(horizontal: 12.0),
-        ),
-        onSubmitted: (val) {
-          final parts = val.split(',').map((p) => p.trim()).where((p) => p.isNotEmpty);
-          if (parts.isNotEmpty) {
-            setState(() {
-              _exclusions.addAll(parts);
-            });
-            _excludeController.clear();
-            _fetchStreams();
-          }
-        },
       ),
+      onSubmitted: (val) {
+        final parts = val.split(',').map((p) => p.trim()).where((p) => p.isNotEmpty);
+        if (parts.isNotEmpty) {
+          setState(() {
+            _exclusions.addAll(parts);
+          });
+          _excludeController.clear();
+          _fetchStreams();
+        }
+      },
     );
 
     final exclusionsActions = Row(
@@ -563,29 +413,37 @@ class _TorrentSelectorPanelState extends State<TorrentSelectorPanel> {
         if (_exclusions.isNotEmpty) ...[
           Text(
             '${_exclusions.length} Excl.',
-            style: const TextStyle(color: Colors.white38, fontSize: 12.0),
+            style: const TextStyle(color: Colors.white38, fontSize: 11.5, fontFamily: 'Outfit'),
           ),
-          IconButton(
-            icon: const Icon(Icons.clear_all, color: Colors.white54, size: 18.0),
+          const SizedBox(width: 4.0),
+          TextButton(
             onPressed: () {
               setState(() {
                 _exclusions.clear();
               });
               _fetchStreams();
             },
-            tooltip: 'Clear exclusions',
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            child: const Text('Clear All', style: TextStyle(color: Colors.redAccent, fontSize: 11.5, fontFamily: 'Outfit')),
           ),
         ],
+        const SizedBox(width: 12.0),
         IconButton(
-          icon: const Icon(Icons.refresh, color: Colors.white70, size: 20.0),
+          icon: const Icon(Icons.refresh, color: Colors.white70, size: 18.0),
           onPressed: _fetchStreams,
           tooltip: 'Reload streams',
+          constraints: const BoxConstraints(),
+          padding: EdgeInsets.zero,
         ),
       ],
     );
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+      padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 12.0),
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.02),
         border: const Border(bottom: BorderSide(color: Colors.white10, width: 1.0)),
@@ -593,14 +451,187 @@ class _TorrentSelectorPanelState extends State<TorrentSelectorPanel> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
+          // Row 1: Dropdown Selectors
+          Wrap(
+            spacing: 12.0,
+            runSpacing: 8.0,
+            alignment: WrapAlignment.start,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              Expanded(child: selectorsWrap),
-              exclusionsActions,
+              _buildDropdown<String?>(
+                label: 'Quality',
+                value: _selectedResolution,
+                items: resolutions.map((res) {
+                  return DropdownMenuItem<String?>(
+                    value: res['value'],
+                    child: Text(res['label'] as String),
+                  );
+                }).toList(),
+                onChanged: (val) {
+                  setState(() {
+                    _selectedResolution = val;
+                  });
+                  _fetchStreams();
+                },
+              ),
+              _buildDropdown<String>(
+                label: 'Type',
+                value: _selectedTypeFilter,
+                items: const [
+                  DropdownMenuItem(value: 'all', child: Text('All')),
+                  DropdownMenuItem(value: 'episode', child: Text('Episodes')),
+                  DropdownMenuItem(value: 'batch', child: Text('Batches')),
+                ],
+                onChanged: (val) {
+                  if (val != null) {
+                    setState(() {
+                      _selectedTypeFilter = val;
+                    });
+                  }
+                },
+              ),
+              _buildDropdown<String>(
+                label: 'Sort',
+                value: _selectedSortOrder,
+                items: const [
+                  DropdownMenuItem(value: 'seeders', child: Text('Seeders')),
+                  DropdownMenuItem(value: 'size_desc', child: Text('Size (Large)')),
+                  DropdownMenuItem(value: 'size_asc', child: Text('Size (Small)')),
+                  DropdownMenuItem(value: 'leechers', child: Text('Leechers')),
+                ],
+                onChanged: (val) {
+                  if (val != null) {
+                    setState(() {
+                      _selectedSortOrder = val;
+                    });
+                  }
+                },
+              ),
+              _buildDropdown<int?>(
+                label: 'Size',
+                value: _selectedMaxSize,
+                items: const [
+                  DropdownMenuItem(value: null, child: Text('All Sizes')),
+                  DropdownMenuItem(value: 524288000, child: Text('< 500 MB')),
+                  DropdownMenuItem(value: 1073741824, child: Text('< 1 GB')),
+                  DropdownMenuItem(value: 2147483648, child: Text('< 2 GB')),
+                  DropdownMenuItem(value: 5368709120, child: Text('< 5 GB')),
+                  DropdownMenuItem(value: 10737418240, child: Text('< 10 GB')),
+                  DropdownMenuItem(value: 16106127360, child: Text('< 15 GB')),
+                ],
+                onChanged: (val) {
+                  setState(() {
+                    _selectedMaxSize = val;
+                  });
+                },
+              ),
             ],
           ),
-          const SizedBox(height: 8.0),
-          exclusionsInput,
+          const SizedBox(height: 12.0),
+          
+          // Row 2: Exclusions Input & Actions
+          if (isMobile) ...[
+            SizedBox(height: 34.0, child: exclusionsInput),
+            const SizedBox(height: 8.0),
+            exclusionsActions,
+          ] else
+            Row(
+              children: [
+                Expanded(
+                  child: SizedBox(
+                    height: 34.0,
+                    child: exclusionsInput,
+                  ),
+                ),
+                const SizedBox(width: 16.0),
+                exclusionsActions,
+              ],
+            ),
+            
+          // Row 3: Active Exclusions list chips
+          if (_exclusions.isNotEmpty) ...[
+            const SizedBox(height: 8.0),
+            Wrap(
+              spacing: 6.0,
+              runSpacing: 6.0,
+              children: _exclusions.map((excl) {
+                return Chip(
+                  label: Text(
+                    excl,
+                    style: const TextStyle(color: Colors.white70, fontSize: 10.5, fontFamily: 'Outfit'),
+                  ),
+                  backgroundColor: Colors.white.withValues(alpha: 0.05),
+                  padding: EdgeInsets.zero,
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  onDeleted: () {
+                    setState(() {
+                      _exclusions.remove(excl);
+                    });
+                    _fetchStreams();
+                  },
+                  deleteIcon: const Icon(Icons.close, size: 12.0, color: Colors.white54),
+                  side: BorderSide(color: Colors.white.withValues(alpha: 0.05)),
+                );
+              }).toList(),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAutoSelectIndicatorBar() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 10.0),
+      color: const Color(0xFFFF9F1C).withValues(alpha: 0.15),
+      child: Row(
+        children: [
+          const Icon(Icons.auto_awesome, color: Color(0xFFFF9F1C), size: 16.0),
+          const SizedBox(width: 12.0),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Auto-playing best stream...',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 12.0,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: 'Outfit',
+                  ),
+                ),
+                const SizedBox(height: 6.0),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(2.0),
+                  child: LinearProgressIndicator(
+                    value: _autoSelectProgress,
+                    backgroundColor: Colors.white10,
+                    valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFFFF9F1C)),
+                    minHeight: 4.0,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 16.0),
+          TextButton(
+            onPressed: _handleUserActivity,
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 6.0),
+              backgroundColor: Colors.white12,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4.0)),
+            ),
+            child: const Text(
+              'Cancel',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 11.0,
+                fontWeight: FontWeight.bold,
+                fontFamily: 'Outfit',
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -613,304 +644,322 @@ class _TorrentSelectorPanelState extends State<TorrentSelectorPanel> {
     final double screenWidth = MediaQuery.of(context).size.width;
     final bool isMobile = screenWidth < 650;
 
-    return Column(
-      children: [
-        // Title Bar Header
-        Container(
-          padding: EdgeInsets.symmetric(horizontal: 20.0, vertical: isMobile ? 12.0 : 16.0),
-          color: Colors.white.withValues(alpha: 0.01),
-          child: Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Available Streams • $titleLabel',
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 15.0,
-                        fontWeight: FontWeight.bold,
-                        fontFamily: 'Outfit',
-                      ),
-                    ),
-                    const SizedBox(height: 2.0),
-                    Text(
-                      widget.titles[0],
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: Colors.white38, fontSize: 11.0),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 8.0),
-              IconButton(
-                icon: const Icon(Icons.close, color: Colors.white54, size: 22),
-                onPressed: () => Navigator.pop(context),
-              ),
-            ],
-          ),
-        ),
-        
-        // Filters
-        _buildFilterRow(isMobile),
-        
-        // Main list area
-        Expanded(
-          child: _isLoading && _streams.isEmpty
-              ? const Center(
+    return Listener(
+      onPointerDown: (_) => _handleUserActivity(),
+      onPointerSignal: (signal) {
+        if (signal is PointerScrollEvent) {
+          _handleUserActivity();
+        }
+      },
+      child: Column(
+        children: [
+          // Title Bar Header
+          Container(
+            padding: EdgeInsets.symmetric(horizontal: 20.0, vertical: isMobile ? 12.0 : 16.0),
+            color: Colors.white.withValues(alpha: 0.01),
+            child: Row(
+              children: [
+                Expanded(
                   child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      CircularProgressIndicator(color: Colors.white, strokeWidth: 2.0),
-                      SizedBox(height: 16.0),
                       Text(
-                        'Querying active extensions...',
-                        style: TextStyle(color: Colors.white54, fontSize: 13.0, fontFamily: 'Outfit'),
+                        'Available Streams • $titleLabel',
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 15.0,
+                          fontWeight: FontWeight.bold,
+                          fontFamily: 'Outfit',
+                        ),
+                      ),
+                      const SizedBox(height: 2.0),
+                      Text(
+                        widget.titles[0],
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: Colors.white38, fontSize: 11.0),
                       ),
                     ],
                   ),
-                )
-              : _errorMessage != null && _streams.isEmpty
-                  ? Center(
-                      child: Padding(
-                        padding: const EdgeInsets.all(24.0),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Icon(Icons.error_outline, color: Colors.redAccent, size: 36),
-                            const SizedBox(height: 12.0),
-                            Text(
-                              'Search failed: $_errorMessage',
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(color: Colors.white70, fontSize: 13.0),
-                            ),
-                          ],
+                ),
+                const SizedBox(width: 8.0),
+                IconButton(
+                  icon: const Icon(Icons.close, color: Colors.white54, size: 22),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ],
+            ),
+          ),
+          
+          // Filters
+          _buildFilterRow(isMobile),
+          
+          // Auto-select banner
+          AnimatedSize(
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeInOut,
+            child: (_isAutoSelectActive && _processedStreams.isNotEmpty)
+                ? _buildAutoSelectIndicatorBar()
+                : const SizedBox(width: double.infinity, height: 0),
+          ),
+          
+          // Main list area
+          Expanded(
+            child: _isLoading && _streams.isEmpty
+                ? const Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        CircularProgressIndicator(color: Colors.white, strokeWidth: 2.0),
+                        SizedBox(height: 16.0),
+                        Text(
+                          'Querying active extensions...',
+                          style: TextStyle(color: Colors.white54, fontSize: 13.0, fontFamily: 'Outfit'),
                         ),
-                      ),
-                    )
-                  : _processedStreams.isEmpty
-                      ? const Center(
+                      ],
+                    ),
+                  )
+                : _errorMessage != null && _streams.isEmpty
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(24.0),
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              Icon(Icons.video_collection_outlined, color: Colors.white24, size: 40.0),
-                              SizedBox(height: 12.0),
+                              const Icon(Icons.error_outline, color: Colors.redAccent, size: 36),
+                              const SizedBox(height: 12.0),
                               Text(
-                                'No streams found.',
-                                style: TextStyle(color: Colors.white38, fontSize: 14.0, fontFamily: 'Outfit'),
-                              ),
-                              SizedBox(height: 4.0),
-                              Text(
-                                'Verify extensions are enabled and synced in Settings.',
-                                style: TextStyle(color: Colors.white24, fontSize: 11.5),
+                                'Search failed: $_errorMessage',
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(color: Colors.white70, fontSize: 13.0),
                               ),
                             ],
                           ),
-                        )
-                      : Stack(
-                          children: [
-                            ListView.builder(
-                              padding: const EdgeInsets.all(16.0),
-                              itemCount: _processedStreams.length,
-                              itemBuilder: (context, index) {
-                            final stream = _processedStreams[index];
-                            return Container(
-                              margin: const EdgeInsets.only(bottom: 10.0),
-                              decoration: BoxDecoration(
-                                color: Colors.white.withValues(alpha: 0.02),
-                                borderRadius: BorderRadius.circular(8.0),
-                                border: Border.all(color: Colors.white10),
-                              ),
-                              child: ListTile(
-                                contentPadding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-                                title: Text(
-                                  stream.title,
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 13.5,
-                                    fontWeight: FontWeight.w600,
-                                  ),
+                        ),
+                      )
+                    : _processedStreams.isEmpty
+                        ? const Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.video_collection_outlined, color: Colors.white24, size: 40.0),
+                                SizedBox(height: 12.0),
+                                Text(
+                                  'No streams found.',
+                                  style: TextStyle(color: Colors.white38, fontSize: 14.0, fontFamily: 'Outfit'),
                                 ),
-                                subtitle: Padding(
-                                  padding: const EdgeInsets.only(top: 8.0),
-                                  child: Wrap(
-                                    spacing: 8.0,
-                                    runSpacing: 4.0,
-                                    crossAxisAlignment: WrapCrossAlignment.center,
-                                    children: [
-                                      // Extension badge
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 6.0, vertical: 2.0),
-                                        decoration: BoxDecoration(
-                                          color: Colors.white10,
-                                          borderRadius: BorderRadius.circular(4.0),
-                                        ),
-                                        child: Text(
-                                          stream.extensionName.toUpperCase(),
-                                          style: const TextStyle(color: Colors.white60, fontSize: 9.0, fontWeight: FontWeight.bold),
-                                        ),
-                                      ),
-                                      
-                                      // Size
-                                      Text(
-                                        _formatBytes(stream.size),
-                                        style: const TextStyle(color: Colors.white54, fontSize: 11.5),
-                                      ),
-                                      
-                                      // Seeders
-                                      Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          const Icon(Icons.arrow_upward, color: Colors.green, size: 14.0),
-                                          const SizedBox(width: 2.0),
-                                          Text(
-                                            '${stream.seeders}',
-                                            style: const TextStyle(color: Colors.green, fontSize: 11.5, fontWeight: FontWeight.bold),
+                                SizedBox(height: 4.0),
+                                Text(
+                                  'Verify extensions are enabled and synced in Settings.',
+                                  style: TextStyle(color: Colors.white24, fontSize: 11.5),
+                                ),
+                              ],
+                            ),
+                          )
+                        : Stack(
+                            children: [
+                              ListView.builder(
+                                controller: _scrollController,
+                                padding: const EdgeInsets.all(16.0),
+                                itemCount: _processedStreams.length,
+                                itemBuilder: (context, index) {
+                              final stream = _processedStreams[index];
+                              return Container(
+                                margin: const EdgeInsets.only(bottom: 10.0),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withValues(alpha: 0.02),
+                                  borderRadius: BorderRadius.circular(8.0),
+                                  border: Border.all(color: Colors.white10),
+                                ),
+                                child: ListTile(
+                                  contentPadding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                                  title: Text(
+                                    stream.title,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 13.5,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  subtitle: Padding(
+                                    padding: const EdgeInsets.only(top: 8.0),
+                                    child: Wrap(
+                                      spacing: 8.0,
+                                      runSpacing: 4.0,
+                                      crossAxisAlignment: WrapCrossAlignment.center,
+                                      children: [
+                                        // Extension badge
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 6.0, vertical: 2.0),
+                                          decoration: BoxDecoration(
+                                            color: Colors.white10,
+                                            borderRadius: BorderRadius.circular(4.0),
                                           ),
-                                        ],
-                                      ),
-                                      
-                                      // Leechers
-                                      Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          const Icon(Icons.arrow_downward, color: Colors.redAccent, size: 14.0),
-                                          const SizedBox(width: 2.0),
-                                          Text(
-                                            '${stream.leechers}',
-                                            style: const TextStyle(color: Colors.redAccent, fontSize: 11.5),
+                                          child: Text(
+                                            stream.extensionName.toUpperCase(),
+                                            style: const TextStyle(color: Colors.white60, fontSize: 9.0, fontWeight: FontWeight.bold),
                                           ),
-                                        ],
-                                      ),
-                                      
-                                      // Computed type badge
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 6.0, vertical: 2.0),
-                                        decoration: BoxDecoration(
-                                          color: stream.computedType == 'batch'
-                                              ? Colors.amber.withValues(alpha: 0.15)
-                                              : Colors.blue.withValues(alpha: 0.15),
-                                          borderRadius: BorderRadius.circular(4.0),
                                         ),
-                                        child: Text(
-                                          stream.computedType.toUpperCase(),
-                                          style: TextStyle(
+                                        
+                                        // Size
+                                        Text(
+                                          _formatBytes(stream.size),
+                                          style: const TextStyle(color: Colors.white54, fontSize: 11.5),
+                                        ),
+                                        
+                                        // Seeders
+                                        Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            const Icon(Icons.arrow_upward, color: Colors.green, size: 14.0),
+                                            const SizedBox(width: 2.0),
+                                            Text(
+                                              '${stream.seeders}',
+                                              style: const TextStyle(color: Colors.green, fontSize: 11.5, fontWeight: FontWeight.bold),
+                                            ),
+                                          ],
+                                        ),
+                                        
+                                        // Leechers
+                                        Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            const Icon(Icons.arrow_downward, color: Colors.redAccent, size: 14.0),
+                                            const SizedBox(width: 2.0),
+                                            Text(
+                                              '${stream.leechers}',
+                                              style: const TextStyle(color: Colors.redAccent, fontSize: 11.5),
+                                            ),
+                                          ],
+                                        ),
+                                        
+                                        // Computed type badge
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 6.0, vertical: 2.0),
+                                          decoration: BoxDecoration(
                                             color: stream.computedType == 'batch'
-                                                ? Colors.amber[400]
-                                                : Colors.blue[400],
-                                            fontSize: 9.0,
-                                            fontWeight: FontWeight.bold,
+                                                ? Colors.amber.withValues(alpha: 0.15)
+                                                : Colors.blue.withValues(alpha: 0.15),
+                                            borderRadius: BorderRadius.circular(4.0),
+                                          ),
+                                          child: Text(
+                                            stream.computedType.toUpperCase(),
+                                            style: TextStyle(
+                                              color: stream.computedType == 'batch'
+                                                  ? Colors.amber[400]
+                                                  : Colors.blue[400],
+                                              fontSize: 9.0,
+                                              fontWeight: FontWeight.bold,
+                                            ),
                                           ),
                                         ),
-                                      ),
 
-                                      // Tags
-                                      ...stream.tags.map((tag) => Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 6.0, vertical: 2.0),
-                                        decoration: BoxDecoration(
-                                          color: Colors.white.withValues(alpha: 0.08),
-                                          borderRadius: BorderRadius.circular(4.0),
-                                          border: Border.all(color: Colors.white12),
-                                        ),
-                                        child: Text(
-                                          tag,
-                                          style: const TextStyle(
-                                            color: Colors.white70,
-                                            fontSize: 9.0,
-                                            fontWeight: FontWeight.w500,
+                                        // Tags
+                                        ...stream.tags.map((tag) => Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 6.0, vertical: 2.0),
+                                          decoration: BoxDecoration(
+                                            color: Colors.white.withValues(alpha: 0.08),
+                                            borderRadius: BorderRadius.circular(4.0),
+                                            border: Border.all(color: Colors.white12),
                                           ),
+                                          child: Text(
+                                            tag,
+                                            style: const TextStyle(
+                                              color: Colors.white70,
+                                              fontSize: 9.0,
+                                              fontWeight: FontWeight.w500,
+                                            ),
+                                          ),
+                                        )),
+                                      ],
+                                    ),
+                                  ),
+                                  trailing: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      IconButton(
+                                        icon: const Icon(Icons.download, color: Colors.white70),
+                                        tooltip: 'Download stream',
+                                        onPressed: () {
+                                          showDialog(
+                                            context: context,
+                                            barrierDismissible: false,
+                                            builder: (dialogContext) {
+                                              return PlaybackProgressDialog(
+                                                stream: stream,
+                                                parentContext: context,
+                                                anilistId: widget.anilistId,
+                                                movieId: widget.movieId,
+                                                episodeNumber: widget.episodeNumber,
+                                                titles: widget.titles,
+                                                episodeCount: widget.episodeCount,
+                                                isMovie: widget.isMovie,
+                                                media: widget.media,
+                                                episodes: widget.episodes,
+                                                tmdbEpisodesMap: widget.tmdbEpisodesMap,
+                                                onStreamSelected: widget.onStreamSelected,
+                                                isDownload: true,
+                                              );
+                                            },
+                                          );
+                                        },
+                                      ),
+                                      const SizedBox(width: 8.0),
+                                      ElevatedButton(
+                                        onPressed: () {
+                                          showDialog(
+                                            context: context,
+                                            barrierDismissible: false,
+                                            builder: (dialogContext) {
+                                              return PlaybackProgressDialog(
+                                                stream: stream,
+                                                parentContext: context,
+                                                anilistId: widget.anilistId,
+                                                movieId: widget.movieId,
+                                                episodeNumber: widget.episodeNumber,
+                                                titles: widget.titles,
+                                                episodeCount: widget.episodeCount,
+                                                isMovie: widget.isMovie,
+                                                media: widget.media,
+                                                episodes: widget.episodes,
+                                                tmdbEpisodesMap: widget.tmdbEpisodesMap,
+                                                onStreamSelected: widget.onStreamSelected,
+                                              );
+                                            },
+                                          );
+                                        },
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: Colors.white,
+                                          foregroundColor: Colors.black,
+                                          padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6.0)),
                                         ),
-                                      )),
+                                        child: const Text('Play', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12.0)),
+                                      ),
                                     ],
                                   ),
                                 ),
-                                trailing: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    IconButton(
-                                      icon: const Icon(Icons.download, color: Colors.white70),
-                                      tooltip: 'Download stream',
-                                      onPressed: () {
-                                        showDialog(
-                                          context: context,
-                                          barrierDismissible: false,
-                                          builder: (dialogContext) {
-                                            return PlaybackProgressDialog(
-                                              stream: stream,
-                                              parentContext: context,
-                                              anilistId: widget.anilistId,
-                                              movieId: widget.movieId,
-                                              episodeNumber: widget.episodeNumber,
-                                              titles: widget.titles,
-                                              episodeCount: widget.episodeCount,
-                                              isMovie: widget.isMovie,
-                                              media: widget.media,
-                                              episodes: widget.episodes,
-                                              tmdbEpisodesMap: widget.tmdbEpisodesMap,
-                                              onStreamSelected: widget.onStreamSelected,
-                                              isDownload: true,
-                                            );
-                                          },
-                                        );
-                                      },
-                                    ),
-                                    const SizedBox(width: 8.0),
-                                    ElevatedButton(
-                                      onPressed: () {
-                                        showDialog(
-                                          context: context,
-                                          barrierDismissible: false,
-                                          builder: (dialogContext) {
-                                            return PlaybackProgressDialog(
-                                              stream: stream,
-                                              parentContext: context,
-                                              anilistId: widget.anilistId,
-                                              movieId: widget.movieId,
-                                              episodeNumber: widget.episodeNumber,
-                                              titles: widget.titles,
-                                              episodeCount: widget.episodeCount,
-                                              isMovie: widget.isMovie,
-                                              media: widget.media,
-                                              episodes: widget.episodes,
-                                              tmdbEpisodesMap: widget.tmdbEpisodesMap,
-                                              onStreamSelected: widget.onStreamSelected,
-                                            );
-                                          },
-                                        );
-                                      },
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: Colors.white,
-                                        foregroundColor: Colors.black,
-                                        padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6.0)),
-                                      ),
-                                      child: const Text('Play', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12.0)),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                        if (_isLoading)
-                          const Positioned(
-                            top: 0,
-                            left: 0,
-                            right: 0,
-                            child: LinearProgressIndicator(
-                              backgroundColor: Colors.transparent,
-                              color: Colors.white24,
-                              minHeight: 2.0,
-                            ),
+                              );
+                            },
                           ),
-                      ],
-                    ),
-        ),
-      ],
+                          if (_isLoading)
+                            const Positioned(
+                              top: 0,
+                              left: 0,
+                              right: 0,
+                              child: LinearProgressIndicator(
+                                backgroundColor: Colors.transparent,
+                                color: Colors.white24,
+                                minHeight: 2.0,
+                              ),
+                            ),
+                        ],
+                      ),
+          ),
+        ],
+      ),
     );
   }
 }
