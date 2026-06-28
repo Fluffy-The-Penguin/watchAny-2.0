@@ -27,6 +27,8 @@ class _LibraryPageState extends State<LibraryPage> {
 
   bool _isLoading = true;
   String? _errorMessage;
+  bool _isBackgroundFetchingMissing = false;
+  bool _isUpdatingLibrary = false;
 
   // Real-time fetched items
   List<dynamic> _fetchedMedia = [];
@@ -85,9 +87,23 @@ class _LibraryPageState extends State<LibraryPage> {
         final rawList = await _anilistService.fetchMultipleMedia(ids, 'ANIME');
         loadedMedia = rawList;
       } else if (widget.mode == AppMode.manga) {
-        final futures = savedItems.map((item) => SuwayomiService().getMangaDetails(item.id));
-        final results = await Future.wait(futures);
-        loadedMedia = results.whereType<Map<String, dynamic>>().toList();
+        final cache = LibraryState().mangaCache;
+        final list = <Map<String, dynamic>>[];
+        final missingIds = <int>[];
+        
+        for (final item in savedItems) {
+          if (cache.containsKey(item.id)) {
+            list.add(cache[item.id]!);
+          } else {
+            missingIds.add(item.id);
+          }
+        }
+        
+        loadedMedia = list;
+
+        if (missingIds.isNotEmpty) {
+          _triggerBackgroundFetchMissing(missingIds);
+        }
       } else {
         // Movies/Series (TMDB)
         final futures = savedItems.map((item) => _tmdbService.fetchTmdbBasicDetails(item.id, item.format));
@@ -108,6 +124,238 @@ class _LibraryPageState extends State<LibraryPage> {
           _errorMessage = e.toString().replaceAll('Exception: ', '');
           _isLoading = false;
         });
+      }
+    }
+  }
+
+  void _triggerBackgroundFetchMissing(List<int> missingIds) async {
+    if (_isBackgroundFetchingMissing) return;
+    _isBackgroundFetchingMissing = true;
+
+    try {
+      for (final id in missingIds) {
+        final details = await SuwayomiService().getMangaDetails(id);
+        if (details != null) {
+          final chaptersList = await SuwayomiService().getChapters(id);
+          final totalChapters = chaptersList.length;
+
+          await LibraryState().updateMangaCache(id, details);
+
+          final item = LibraryState().getItem(id, 'manga');
+          if (item != null) {
+            await LibraryState().saveItem(
+              id: item.id,
+              mode: item.mode,
+              format: item.format,
+              libraryStatus: item.libraryStatus,
+              rating: item.rating,
+              watchedEpisodes: item.watchedEpisodes,
+              totalEpisodes: totalChapters,
+              categoryIds: item.categoryIds,
+            );
+          }
+        }
+      }
+    } catch (_) {} finally {
+      _isBackgroundFetchingMissing = false;
+      if (mounted) {
+        _loadLibraryData();
+      }
+    }
+  }
+
+  void _showUpdateLibraryDialog(List<String> tabIds, List<String> tabNames) {
+    final controller = DefaultTabController.of(context);
+    final activeIndex = controller.index;
+    final activeId = tabIds[activeIndex];
+    final activeName = tabNames[activeIndex];
+
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF141414),
+          title: const Text('Update Manga Library', style: TextStyle(color: Colors.white, fontFamily: 'Outfit', fontWeight: FontWeight.bold)),
+          content: const Text(
+            'Would you like to check for new episodes and update the manga in your library?',
+            style: TextStyle(color: Colors.white70, fontSize: 13.0),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context);
+                _runMangaUpdate(onlyCategory: true, categoryId: activeId, categoryName: activeName);
+              },
+              child: Text('Update "$activeName" Only', style: const TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold)),
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context);
+                _runMangaUpdate(onlyCategory: false);
+              },
+              child: const Text('Update Whole Library', style: TextStyle(color: Colors.white)),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel', style: TextStyle(color: Colors.white38)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _runMangaUpdate({
+    required bool onlyCategory,
+    String? categoryId,
+    String? categoryName,
+  }) async {
+    final modeStr = widget.mode.name;
+    var savedItems = LibraryState().items.where((item) => item.mode == modeStr).toList();
+
+    if (onlyCategory && categoryId != null) {
+      savedItems = savedItems.where((item) {
+        if (categoryId == 'UNCATEGORIZED') {
+          return item.categoryIds.isEmpty;
+        } else {
+          return item.categoryIds.contains(categoryId);
+        }
+      }).toList();
+    }
+
+    if (savedItems.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No manga items to update.')),
+      );
+      return;
+    }
+
+    setState(() {
+      _isUpdatingLibrary = true;
+    });
+
+    final progressTextNotifier = ValueNotifier<String>('0 / ${savedItems.length}');
+    final progressValueNotifier = ValueNotifier<double>(0.0);
+    final currentMangaTitleNotifier = ValueNotifier<String>('Initializing update...');
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return PopScope(
+          canPop: false,
+          child: AlertDialog(
+            backgroundColor: const Color(0xFF141414),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
+            content: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8.0),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    onlyCategory
+                        ? 'Updating Category "$categoryName"...'
+                        : 'Updating Library...',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontFamily: 'Outfit',
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16.0,
+                    ),
+                  ),
+                  const SizedBox(height: 16.0),
+                  ValueListenableBuilder<String>(
+                    valueListenable: currentMangaTitleNotifier,
+                    builder: (context, title, _) {
+                      return Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: Colors.white70, fontSize: 13.0),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 16.0),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(4.0),
+                    child: ValueListenableBuilder<double>(
+                      valueListenable: progressValueNotifier,
+                      builder: (context, val, _) {
+                        return LinearProgressIndicator(
+                          value: val,
+                          backgroundColor: Colors.white10,
+                          valueColor: const AlwaysStoppedAnimation<Color>(Colors.blueAccent),
+                          minHeight: 6.0,
+                        );
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 12.0),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: ValueListenableBuilder<String>(
+                      valueListenable: progressTextNotifier,
+                      builder: (context, txt, _) {
+                        return Text(
+                          txt,
+                          style: const TextStyle(color: Colors.white38, fontSize: 12.0, fontFamily: 'Outfit'),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+
+    int updatedCount = 0;
+    try {
+      for (int i = 0; i < savedItems.length; i++) {
+        final item = savedItems[i];
+        final cached = LibraryState().mangaCache[item.id];
+        final String displayName = cached?['title'] ?? 'Manga #${item.id}';
+        currentMangaTitleNotifier.value = 'Updating: $displayName';
+
+        final freshDetails = await SuwayomiService().getMangaDetails(item.id);
+        if (freshDetails != null) {
+          final chaptersList = await SuwayomiService().getChapters(item.id);
+          final totalChapters = chaptersList.length;
+
+          await LibraryState().updateMangaCache(item.id, freshDetails);
+
+          await LibraryState().saveItem(
+            id: item.id,
+            mode: item.mode,
+            format: item.format,
+            libraryStatus: item.libraryStatus,
+            rating: item.rating,
+            watchedEpisodes: item.watchedEpisodes,
+            totalEpisodes: totalChapters,
+            categoryIds: item.categoryIds,
+          );
+
+          updatedCount++;
+        }
+
+        progressValueNotifier.value = (i + 1) / savedItems.length;
+        progressTextNotifier.value = '${i + 1} / ${savedItems.length}';
+      }
+    } catch (e) {
+      debugPrint('[LibraryPage] Manga library update error: $e');
+    } finally {
+      setState(() {
+        _isUpdatingLibrary = false;
+      });
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Manga update complete! Updated $updatedCount of ${savedItems.length} manga.')),
+        );
+        _loadLibraryData();
       }
     }
   }
@@ -451,6 +699,12 @@ class _LibraryPageState extends State<LibraryPage> {
                     ),
                   ),
                   const SizedBox(width: 8.0),
+                  IconButton(
+                    icon: const Icon(Icons.refresh, color: Colors.white70),
+                    tooltip: 'Update Library',
+                    onPressed: () => _showUpdateLibraryDialog(tabIds, tabNames),
+                  ),
+                  const SizedBox(width: 4.0),
                   IconButton(
                     icon: const Icon(Icons.category_outlined, color: Colors.white70),
                     tooltip: 'Manage Categories',

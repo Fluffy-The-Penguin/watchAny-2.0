@@ -56,6 +56,10 @@ class _MangaDetailsPageState extends State<MangaDetailsPage> {
       final info = await _suwayomiService.getMangaDetails(_parsedMangaId);
       final chaps = await _suwayomiService.getChapters(_parsedMangaId);
       
+      if (info != null && LibraryState().isSaved(_parsedMangaId, 'manga')) {
+        await LibraryState().updateMangaCache(_parsedMangaId, info);
+      }
+      
       if (mounted) {
         setState(() {
           _details = info;
@@ -87,6 +91,7 @@ class _MangaDetailsPageState extends State<MangaDetailsPage> {
           title: _details!['title'] ?? 'Manga Details',
           totalChapters: _chapters.length,
           savedItem: savedItem,
+          mangaDetails: _details!,
           onSaved: () => setState(() {}),
         );
       },
@@ -637,6 +642,7 @@ class _MangaLibraryEditPanel extends StatefulWidget {
   final String title;
   final int totalChapters;
   final LibraryItem? savedItem;
+  final Map<String, dynamic> mangaDetails;
   final VoidCallback onSaved;
 
   const _MangaLibraryEditPanel({
@@ -644,6 +650,7 @@ class _MangaLibraryEditPanel extends StatefulWidget {
     required this.title,
     required this.totalChapters,
     required this.savedItem,
+    required this.mangaDetails,
     required this.onSaved,
   });
 
@@ -1154,6 +1161,7 @@ class _MangaLibraryEditPanelState extends State<_MangaLibraryEditPanel> {
                             final int finalChaptersRead = int.tryParse(_chaptersController.text)?.clamp(0, widget.totalChapters > 0 ? widget.totalChapters : 99999) ?? _chaptersRead;
                             final double finalRating = double.tryParse(_scoreController.text)?.clamp(0.0, 10.0) ?? _activeRating;
 
+                            await LibraryState().updateMangaCache(widget.mangaId, widget.mangaDetails);
                             await LibraryState().saveItem(
                               id: widget.mangaId,
                               mode: 'manga',

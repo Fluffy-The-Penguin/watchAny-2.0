@@ -88,6 +88,7 @@ class LibraryState extends ChangeNotifier {
 
   List<LibraryItem> _items = [];
   List<LibraryCategory> _categories = [];
+  Map<int, Map<String, dynamic>> _mangaCache = {};
   int _animeNotificationCount = 0;
   int _mangaNotificationCount = 0;
   int _moviesNotificationCount = 0;
@@ -98,6 +99,7 @@ class LibraryState extends ChangeNotifier {
 
   List<LibraryItem> get items => _items;
   List<LibraryCategory> get categories => _categories;
+  Map<int, Map<String, dynamic>> get mangaCache => _mangaCache;
 
   int getNotificationCount(AppMode mode) {
     if (mode == AppMode.anime) return _animeBadgeCleared ? 0 : _animeNotificationCount;
@@ -200,6 +202,17 @@ class LibraryState extends ChangeNotifier {
       }
     }
 
+    // Load manga cache
+    final String? cacheJson = prefs.getString('manga_library_cache');
+    if (cacheJson != null) {
+      try {
+        final Map<String, dynamic> decoded = jsonDecode(cacheJson);
+        _mangaCache = decoded.map((key, value) => MapEntry(int.parse(key), Map<String, dynamic>.from(value)));
+      } catch (e) {
+        debugPrint('Failed to load manga cache: $e');
+      }
+    }
+
     notifyListeners();
     updateNotificationCount();
   }
@@ -250,6 +263,9 @@ class LibraryState extends ChangeNotifier {
 
   Future<void> removeItem(int id, String mode) async {
     _items.removeWhere((item) => item.id == id && item.mode == mode);
+    if (mode == 'manga') {
+      _mangaCache.remove(id);
+    }
     notifyListeners();
     await _persist();
     updateNotificationCount();
@@ -262,6 +278,9 @@ class LibraryState extends ChangeNotifier {
     
     final String catsJson = jsonEncode(_categories.map((cat) => cat.toJson()).toList());
     await prefs.setString('library_categories', catsJson);
+
+    final String cacheJson = jsonEncode(_mangaCache.map((key, value) => MapEntry(key.toString(), value)));
+    await prefs.setString('manga_library_cache', cacheJson);
   }
 
   // --- Categories CRUD helper methods ---
@@ -455,5 +474,11 @@ class LibraryState extends ChangeNotifier {
     if (changed) {
       notifyListeners();
     }
+  }
+
+  Future<void> updateMangaCache(int id, Map<String, dynamic> data) async {
+    _mangaCache[id] = data;
+    notifyListeners();
+    await _persist();
   }
 }
