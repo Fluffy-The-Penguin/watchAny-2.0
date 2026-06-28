@@ -165,11 +165,14 @@ class SuwayomiService {
     required String sourceId,
     required int page,
     String query = "",
+    bool latest = false,
   }) async {
     try {
-      final response = query.isEmpty
-          ? await http.get(Uri.parse('$_baseUrl/api/popular?sourceId=$sourceId&page=$page'))
-          : await http.get(Uri.parse('$_baseUrl/api/search?sourceId=$sourceId&page=$page&q=${Uri.encodeComponent(query)}'));
+      final response = query.isNotEmpty
+          ? await http.get(Uri.parse('$_baseUrl/api/search?sourceId=$sourceId&page=$page&q=${Uri.encodeComponent(query)}'))
+          : latest
+              ? await http.get(Uri.parse('$_baseUrl/api/latest?sourceId=$sourceId&page=$page'))
+              : await http.get(Uri.parse('$_baseUrl/api/popular?sourceId=$sourceId&page=$page'));
 
       if (response.statusCode == 200) {
         final decoded = jsonDecode(response.body);

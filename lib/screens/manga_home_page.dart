@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../services/suwayomi_manager.dart';
 import '../services/suwayomi_service.dart';
 import '../state/navigation_state.dart';
+import '../state/library_state.dart';
 import '../widgets/smooth_scroll_area.dart';
 
 class MangaHomePage extends StatefulWidget {
@@ -439,54 +441,68 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
                   final String title = manga['title']?.toString() ?? 'Unknown Title';
                   final String? coverUrl = manga['thumbnailUrl']?.toString();
                   final int mangaId = int.tryParse(manga['id']?.toString() ?? '') ?? 0;
+                  final bool inLibrary = LibraryState().getItem(mangaId, 'manga') != null;
 
-                  return GestureDetector(
-                    onTap: () {
-                      if (mangaId != 0) {
-                        widget.navigationState.selectManga(mangaId.toString());
-                      }
-                    },
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(8.0),
-                            child: coverUrl != null && coverUrl.isNotEmpty
-                                ? Image.network(
-                                    coverUrl,
-                                    fit: BoxFit.cover,
-                                    width: double.infinity,
-                                    errorBuilder: (_, __, ___) => Container(
+                  final cardWidget = RepaintBoundary(
+                    child: GestureDetector(
+                      onTap: () {
+                        if (mangaId != 0) {
+                          widget.navigationState.selectManga(mangaId.toString());
+                        }
+                      },
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(8.0),
+                              child: coverUrl != null && coverUrl.isNotEmpty
+                                  ? CachedNetworkImage(
+                                      imageUrl: coverUrl,
+                                      fit: BoxFit.cover,
+                                      width: double.infinity,
+                                      memCacheWidth: 300,
+                                      fadeInDuration: const Duration(milliseconds: 150),
+                                      placeholder: (_, __) => Container(color: const Color(0xFF0F0F11)),
+                                      errorWidget: (_, __, ___) => Container(
+                                        color: const Color(0xFF0F0F11),
+                                        child: const Center(
+                                          child: Icon(Icons.book, color: Colors.white12, size: 40.0),
+                                        ),
+                                      ),
+                                    )
+                                  : Container(
                                       color: const Color(0xFF0F0F11),
                                       child: const Center(
                                         child: Icon(Icons.book, color: Colors.white12, size: 40.0),
                                       ),
                                     ),
-                                  )
-                                : Container(
-                                    color: const Color(0xFF0F0F11),
-                                    child: const Center(
-                                      child: Icon(Icons.book, color: Colors.white12, size: 40.0),
-                                    ),
-                                  ),
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 8.0),
-                        Text(
-                          title,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 12.5,
-                            fontWeight: FontWeight.bold,
-                            fontFamily: 'Outfit',
+                          const SizedBox(height: 8.0),
+                          Text(
+                            title,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.bold,
+                              fontFamily: 'Outfit',
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   );
+
+                  if (inLibrary) {
+                    return Opacity(
+                      opacity: 0.75,
+                      child: cardWidget,
+                    );
+                  }
+                  return cardWidget;
                 },
               ),
 
@@ -536,12 +552,74 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
     );
   }
 
+  Widget _buildExtensionTile(Map<String, dynamic> ext) {
+    final String name = ext['name']?.toString().replaceFirst('Tachiyomi: ', '') ?? 'Unknown Source';
+    final String lang = ext['lang']?.toString().toUpperCase() ?? 'ALL';
+    final bool isInstalled = ext['isInstalled'] ?? false;
+    final bool isNsfw = (ext['nsfw'] ?? 0) == 1;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10.0),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0F0F11),
+        borderRadius: BorderRadius.circular(8.0),
+        border: Border.all(color: Colors.white10),
+      ),
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 6.0),
+        title: Row(
+          children: [
+            Flexible(
+              child: Text(
+                name,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+              ),
+            ),
+            const SizedBox(width: 8.0),
+            if (isNsfw)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 4.0, vertical: 1.0),
+                decoration: BoxDecoration(
+                  color: Colors.redAccent.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(4.0),
+                ),
+                child: const Text(
+                  '18+',
+                  style: TextStyle(color: Colors.redAccent, fontSize: 8.0, fontWeight: FontWeight.bold),
+                ),
+              ),
+          ],
+        ),
+        subtitle: Text(
+          'Language: $lang',
+          style: const TextStyle(color: Colors.white38, fontSize: 12.0, fontFamily: 'Outfit'),
+        ),
+        trailing: ElevatedButton(
+          onPressed: () => _toggleExtensionInstall(ext),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: isInstalled ? Colors.redAccent : const Color(0xFFFF9F1C),
+            foregroundColor: Colors.black,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6.0)),
+          ),
+          child: Text(
+            isInstalled ? 'Uninstall' : 'Install',
+            style: const TextStyle(fontWeight: FontWeight.bold),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildExtensionsTab() {
     final filtered = _extensions.where((ext) {
       if (_extensionsSearchQuery.isEmpty) return true;
       final name = ext['name']?.toString().toLowerCase() ?? '';
       return name.contains(_extensionsSearchQuery.toLowerCase());
     }).toList();
+
+    final installed = filtered.where((ext) => ext['isInstalled'] == true).toList();
+    final available = filtered.where((ext) => ext['isInstalled'] != true).toList();
 
     return Column(
       children: [
@@ -571,7 +649,7 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
           ),
         ),
 
-        // Extensions List
+        // Extensions List (Installed + Available sections)
         Expanded(
           child: _loadingExtensions
               ? const Center(
@@ -580,67 +658,74 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
                   ),
                 )
               : SmoothScrollArea(
-                  builder: (controller, physics) => ListView.builder(
+                  builder: (controller, physics) => ListView(
                     controller: controller,
                     physics: physics,
                     padding: const EdgeInsets.symmetric(horizontal: 24.0),
-                    itemCount: filtered.length,
-                    itemBuilder: (context, index) {
-                      final ext = filtered[index];
-                      final String name = ext['name']?.toString().replaceFirst('Tachiyomi: ', '') ?? 'Unknown Source';
-                      final String lang = ext['lang']?.toString().toUpperCase() ?? 'ALL';
-                      final bool isInstalled = ext['isInstalled'] ?? false;
-                      final bool isNsfw = (ext['nsfw'] ?? 0) == 1;
-
-                      return Container(
-                        margin: const EdgeInsets.only(bottom: 12.0),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF0F0F11),
-                          borderRadius: BorderRadius.circular(8.0),
-                          border: Border.all(color: Colors.white10),
-                        ),
-                        child: ListTile(
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 6.0),
-                          title: Row(
-                            children: [
-                              Text(
-                                name,
-                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                    children: [
+                      // Installed Section
+                      if (installed.isNotEmpty) ...[
+                        Row(
+                          children: [
+                            const Icon(Icons.check_circle, color: Color(0xFFFF9F1C), size: 16.0),
+                            const SizedBox(width: 8.0),
+                            Text(
+                              'Installed (${installed.length})',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 14.0,
+                                fontWeight: FontWeight.bold,
+                                fontFamily: 'Outfit',
                               ),
-                              const SizedBox(width: 8.0),
-                              if (isNsfw)
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 4.0, vertical: 1.0),
-                                  decoration: BoxDecoration(
-                                    color: Colors.redAccent.withValues(alpha: 0.2),
-                                    borderRadius: BorderRadius.circular(4.0),
-                                  ),
-                                  child: const Text(
-                                    '18+',
-                                    style: TextStyle(color: Colors.redAccent, fontSize: 8.0, fontWeight: FontWeight.bold),
-                                  ),
-                                ),
-                            ],
-                          ),
-                          subtitle: Text(
-                            'Language: $lang',
-                            style: const TextStyle(color: Colors.white38, fontSize: 12.0, fontFamily: 'Outfit'),
-                          ),
-                          trailing: ElevatedButton(
-                            onPressed: () => _toggleExtensionInstall(ext),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: isInstalled ? Colors.redAccent : const Color(0xFFFF9F1C),
-                              foregroundColor: Colors.black,
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6.0)),
                             ),
+                          ],
+                        ),
+                        const SizedBox(height: 12.0),
+                        ...installed.map((ext) => _buildExtensionTile(ext)),
+                        const SizedBox(height: 16.0),
+                        // Divider between sections
+                        Container(
+                          height: 1.0,
+                          color: Colors.white.withValues(alpha: 0.06),
+                        ),
+                        const SizedBox(height: 16.0),
+                      ],
+
+                      // Available Section
+                      if (available.isNotEmpty) ...[
+                        Row(
+                          children: [
+                            const Icon(Icons.download_outlined, color: Colors.white38, size: 16.0),
+                            const SizedBox(width: 8.0),
+                            Text(
+                              'Available (${available.length})',
+                              style: const TextStyle(
+                                color: Colors.white54,
+                                fontSize: 14.0,
+                                fontWeight: FontWeight.bold,
+                                fontFamily: 'Outfit',
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12.0),
+                        ...available.map((ext) => _buildExtensionTile(ext)),
+                      ],
+
+                      // Empty state
+                      if (installed.isEmpty && available.isEmpty)
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 64.0),
+                          child: Center(
                             child: Text(
-                              isInstalled ? 'Uninstall' : 'Install',
-                              style: const TextStyle(fontWeight: FontWeight.bold),
+                              'No extensions found.',
+                              style: TextStyle(color: Colors.white30, fontFamily: 'Outfit'),
                             ),
                           ),
                         ),
-                      );
-                    },
+
+                      const SizedBox(height: 24.0),
+                    ],
                   ),
                 ),
         ),

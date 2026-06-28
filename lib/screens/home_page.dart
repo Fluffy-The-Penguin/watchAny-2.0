@@ -3,6 +3,7 @@ import '../state/navigation_state.dart';
 import 'anime_home_page.dart';
 import 'movies_home_page.dart';
 import 'manga_home_page.dart';
+import 'manga_trending_home_page.dart';
 
 class HomePage extends StatelessWidget {
   final AppMode mode;
@@ -23,7 +24,7 @@ class HomePage extends StatelessWidget {
       return MoviesHomePage(navigationState: navigationState);
     }
     if (mode == AppMode.manga) {
-      return MangaHomePage(navigationState: navigationState);
+      return MangaTrendingHomePage(navigationState: navigationState);
     }
 
     String modeString = '';

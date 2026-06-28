@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../state/library_state.dart';
 import '../state/navigation_state.dart';
 import '../services/anilist_service.dart';
@@ -31,7 +32,7 @@ class _LibraryPageState extends State<LibraryPage> {
   List<dynamic> _fetchedMedia = [];
 
   // Tab & Filter states
-  String _activeStatusTab = 'ALL'; // 'ALL', 'watching', 'planning', 'completed', 'paused_dropped'
+  String _activeStatusTab = 'ALL';
   String _searchQuery = '';
   String _selectedFormat = 'ALL';
   String _selectedStatus = 'ALL';
@@ -58,24 +59,6 @@ class _LibraryPageState extends State<LibraryPage> {
   void _onLibraryChanged() {
     if (mounted) {
       _loadLibraryData();
-
-      // Safeguard tab state
-      final cats = LibraryState().categories;
-      if (cats.isEmpty) {
-        const validDefaultTabs = {'ALL', 'watching', 'planning', 'completed', 'paused_dropped', 'downloaded'};
-        if (!validDefaultTabs.contains(_activeStatusTab)) {
-          setState(() {
-            _activeStatusTab = 'ALL';
-          });
-        }
-      } else {
-        final List<String> validCatTabs = ['ALL', 'UNCATEGORIZED'] + cats.map((c) => c.id).toList();
-        if (!validCatTabs.contains(_activeStatusTab)) {
-          setState(() {
-            _activeStatusTab = 'ALL';
-          });
-        }
-      }
     }
   }
 
@@ -150,72 +133,7 @@ class _LibraryPageState extends State<LibraryPage> {
 
 
 
-  // Filtered & Sorted list
-  List<dynamic> get _filteredAndSortedItems {
-    final modeStr = widget.mode.name;
-    List<dynamic> items = List.from(_fetchedMedia);
-
-    // 1. Filter by Status Tabs or Custom Category Tabs
-    if (_activeStatusTab != 'ALL') {
-      final List<LibraryCategory> cats = LibraryState().categories;
-      if (cats.isEmpty) {
-        // Fallback to default status tabs filter
-        if (_activeStatusTab == 'downloaded') {
-          items = items.where((media) {
-            return DownloadService().tasks.any((task) =>
-                task.anilistId == media['id'] &&
-                task.status == DownloadStatus.completed);
-          }).toList();
-        } else {
-          items = items.where((media) => _getLibraryStatus(media['id']) == _activeStatusTab).toList();
-        }
-      } else {
-        // Filter by custom categories
-        if (_activeStatusTab == 'UNCATEGORIZED') {
-          items = items.where((media) {
-            final item = LibraryState().getItem(media['id'], modeStr);
-            return item == null || item.categoryIds.isEmpty;
-          }).toList();
-        } else {
-          items = items.where((media) {
-            final item = LibraryState().getItem(media['id'], modeStr);
-            return item != null && item.categoryIds.contains(_activeStatusTab);
-          }).toList();
-        }
-      }
-    }
-
-    // 2. Filter by Search Query
-    if (_searchQuery.isNotEmpty) {
-      final query = _searchQuery.toLowerCase();
-      items = items.where((media) {
-        final title = (media['title']?['english'] ?? media['title']?['romaji'] ?? '').toString().toLowerCase();
-        final nativeTitle = (media['title']?['native'] ?? '').toString().toLowerCase();
-        return title.contains(query) || nativeTitle.contains(query);
-      }).toList();
-    }
-
-    // 3. Filter by Format
-    if (_selectedFormat != 'ALL') {
-      items = items.where((media) {
-        final fmt = (media['format'] ?? '').toString().toUpperCase();
-        final sel = _selectedFormat.toUpperCase();
-        if (sel == 'TV') {
-          return fmt == 'TV' || fmt == 'SERIES';
-        }
-        return fmt == sel;
-      }).toList();
-    }
-
-    // 4. Filter by Status (API)
-    if (_selectedStatus != 'ALL') {
-      items = items.where((media) {
-        final stat = (media['status'] ?? '').toString().replaceAll('_', ' ').toUpperCase();
-        return stat == _selectedStatus.toUpperCase();
-      }).toList();
-    }
-
-    // 5. Sort
+  List<dynamic> _sortItems(List<dynamic> items) {
     items.sort((a, b) {
       switch (_selectedSort) {
         case 'DATE_ADDED_DESC':
@@ -238,8 +156,104 @@ class _LibraryPageState extends State<LibraryPage> {
           return 0;
       }
     });
-
     return items;
+  }
+
+  Widget _buildEmptyStateForCategory(String categoryId) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.bookmark_outline, size: 40.0, color: Colors.white24),
+          const SizedBox(height: 12.0),
+          Text(
+            categoryId == 'UNCATEGORIZED'
+                ? 'No uncategorized items.'
+                : 'No items in this category yet.',
+            style: const TextStyle(color: Colors.white38, fontSize: 13.0, fontFamily: 'Outfit'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCategoryGrid(String categoryId, bool isMobile) {
+    final modeStr = widget.mode.name;
+    var items = _fetchedMedia.where((media) {
+      final savedItem = LibraryState().getItem(media['id'], modeStr);
+      if (categoryId == 'UNCATEGORIZED') {
+        return savedItem == null || savedItem.categoryIds.isEmpty;
+      } else {
+        return savedItem != null && savedItem.categoryIds.contains(categoryId);
+      }
+    }).toList();
+
+    // 1. Search Query
+    if (_searchQuery.isNotEmpty) {
+      final query = _searchQuery.toLowerCase();
+      items = items.where((media) {
+        final title = (media['title']?['english'] ?? media['title']?['romaji'] ?? '').toString().toLowerCase();
+        final nativeTitle = (media['title']?['native'] ?? '').toString().toLowerCase();
+        return title.contains(query) || nativeTitle.contains(query);
+      }).toList();
+    }
+
+    // 2. Format Filter
+    if (_selectedFormat != 'ALL') {
+      items = items.where((media) {
+        final fmt = (media['format'] ?? '').toString().toUpperCase();
+        final sel = _selectedFormat.toUpperCase();
+        if (sel == 'TV') {
+          return fmt == 'TV' || fmt == 'SERIES';
+        }
+        return fmt == sel;
+      }).toList();
+    }
+
+    // 3. Status Filter (API)
+    if (_selectedStatus != 'ALL') {
+      items = items.where((media) {
+        final stat = (media['status'] ?? '').toString().replaceAll('_', ' ').toUpperCase();
+        return stat == _selectedStatus.toUpperCase();
+      }).toList();
+    }
+
+    // 4. Sort
+    items = _sortItems(items);
+
+    if (items.isEmpty) {
+      return _buildEmptyStateForCategory(categoryId);
+    }
+
+    return GridView.builder(
+      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: 150.0,
+        mainAxisExtent: 248.0,
+        crossAxisSpacing: 14.0,
+        mainAxisSpacing: 14.0,
+      ),
+      itemCount: items.length,
+      itemBuilder: (context, index) {
+        final media = items[index];
+        return _LibraryMediaCard(
+          media: media,
+          mode: widget.mode,
+          onTap: () {
+            if (widget.mode == AppMode.anime) {
+              widget.navigationState.selectAnime(media['id']);
+            } else if (widget.mode == AppMode.manga) {
+              widget.navigationState.selectManga(media['id'].toString());
+            } else {
+              final type = media['format'] == 'MOVIE' ? 'movie' : 'series';
+              final rawIdStr = media['id'].toString();
+              final isNumericOnly = RegExp(r'^\d+$').hasMatch(rawIdStr);
+              final realId = isNumericOnly ? 'tt${rawIdStr.padLeft(7, '0')}' : rawIdStr;
+              widget.navigationState.selectMovie('$type:$realId');
+            }
+          },
+        );
+      },
+    );
   }
 
   // Options for Format dropdown
@@ -304,96 +318,283 @@ class _LibraryPageState extends State<LibraryPage> {
       );
     }
 
-    final displayItems = _filteredAndSortedItems;
     final double screenWidth = MediaQuery.of(context).size.width;
     final bool isMobile = screenWidth < 650;
 
-    return Padding(
-      padding: EdgeInsets.only(
-        top: isMobile ? 16.0 : 48.0,
-        left: isMobile ? 12.0 : 24.0,
-        right: isMobile ? 12.0 : 24.0,
-        bottom: 16.0,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // 1. Status Category Tabs (All, Watching, Planning, Completed, Dropped/Paused)
-          _buildStatusTabs(isMobile),
-          const SizedBox(height: 16.0),
+    if (widget.mode == AppMode.manga) {
+      // Manga mode: Category-based layout with swipable TabBar and TabBarView
+      final cats = LibraryState().categories.where((cat) => cat.mode == 'manga').toList();
+      final savedItems = LibraryState().items.where((item) => item.mode == 'manga').toList();
+      final hasUncategorized = savedItems.any((item) => item.categoryIds.isEmpty);
 
-          // 2. Search & Filter Section (Below Tabs)
-          isMobile
-              ? Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    _buildSearchBar(),
-                    const SizedBox(height: 12.0),
-                    SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      physics: const BouncingScrollPhysics(),
-                      child: Row(
+      final List<String> tabIds = [];
+      final List<String> tabNames = [];
+
+      for (final cat in cats) {
+        tabIds.add(cat.id);
+        tabNames.add(cat.name);
+      }
+
+      if (hasUncategorized || (cats.isEmpty && savedItems.isNotEmpty)) {
+        tabIds.add('UNCATEGORIZED');
+        tabNames.add('Uncategorized');
+      }
+
+      if (tabIds.isEmpty) {
+        // Empty state when library is completely empty
+        return Padding(
+          padding: EdgeInsets.only(
+            top: isMobile ? 16.0 : 48.0,
+            left: isMobile ? 12.0 : 24.0,
+            right: isMobile ? 12.0 : 24.0,
+            bottom: 16.0,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Align(
+                alignment: Alignment.topRight,
+                child: IconButton(
+                  icon: const Icon(Icons.category_outlined, color: Colors.white70),
+                  tooltip: 'Manage Categories',
+                  onPressed: _showManageCategoriesDialog,
+                ),
+              ),
+              Expanded(
+                child: Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.bookmarks_outlined, size: 48.0, color: Colors.white24),
+                      const SizedBox(height: 16.0),
+                      const Text(
+                        'Your library is empty.',
+                        style: TextStyle(color: Colors.white38, fontSize: 14.0, fontFamily: 'Outfit'),
+                      ),
+                      const SizedBox(height: 24.0),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          _buildFormatFilter(),
-                          const SizedBox(width: 8.0),
-                          _buildStatusFilter(),
-                          const SizedBox(width: 8.0),
-                          _buildSortFilter(),
+                          ElevatedButton.icon(
+                            icon: const Icon(Icons.add, size: 16),
+                            label: const Text('Create Category', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13.0)),
+                            onPressed: _showManageCategoriesDialog,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.white,
+                              foregroundColor: Colors.black,
+                              padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 12.0),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
+                            ),
+                          ),
+                          const SizedBox(width: 12.0),
+                          ElevatedButton.icon(
+                            icon: const Icon(Icons.search, size: 16),
+                            label: const Text('Browse Content', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13.0)),
+                            onPressed: () {
+                              widget.navigationState.setPage(TabPage.search);
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.white12,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 12.0),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
+                            ),
+                          ),
                         ],
                       ),
-                    ),
-                  ],
-                )
-              : Row(
-                  children: [
-                    Expanded(flex: 3, child: _buildSearchBar()),
-                    const SizedBox(width: 16.0),
-                    _buildFormatFilter(),
-                    const SizedBox(width: 12.0),
-                    _buildStatusFilter(),
-                    const SizedBox(width: 12.0),
-                    _buildSortFilter(),
-                  ],
-                ),
-          const SizedBox(height: 20.0),
-
-          // 3. Main Library Grid or Empty State
-          Expanded(
-            child: displayItems.isEmpty
-                ? _buildEmptyState()
-                : GridView.builder(
-                    gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                      maxCrossAxisExtent: 150.0,
-                      mainAxisExtent: 248.0, // Expanded height to display watched status / rating
-                      crossAxisSpacing: 14.0,
-                      mainAxisSpacing: 14.0,
-                    ),
-                    itemCount: displayItems.length,
-                    itemBuilder: (context, index) {
-                      final media = displayItems[index];
-                      return _LibraryMediaCard(
-                        media: media,
-                        mode: widget.mode,
-                        onTap: () {
-                          if (widget.mode == AppMode.anime) {
-                            widget.navigationState.selectAnime(media['id']);
-                          } else if (widget.mode == AppMode.manga) {
-                            widget.navigationState.selectManga(media['id'].toString());
-                          } else {
-                            final type = media['format'] == 'MOVIE' ? 'movie' : 'series';
-                            final rawIdStr = media['id'].toString();
-                            final isNumericOnly = RegExp(r'^\d+$').hasMatch(rawIdStr);
-                            final realId = isNumericOnly ? 'tt${rawIdStr.padLeft(7, '0')}' : rawIdStr;
-                            widget.navigationState.selectMovie('$type:$realId');
-                          }
-                        },
-                      );
-                    },
+                    ],
                   ),
+                ),
+              ),
+            ],
           ),
-        ],
-      ),
-    );
+        );
+      }
+
+      return DefaultTabController(
+        key: ValueKey('tab_controller_${tabIds.length}_manga'),
+        length: tabIds.length,
+        child: Padding(
+          padding: EdgeInsets.only(
+            top: isMobile ? 16.0 : 48.0,
+            left: isMobile ? 12.0 : 24.0,
+            right: isMobile ? 12.0 : 24.0,
+            bottom: 16.0,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Row combining dynamic TabBar and Manage Categories button on the right
+              Row(
+                children: [
+                  Expanded(
+                    child: Container(
+                      height: 38.0,
+                      alignment: Alignment.centerLeft,
+                      child: TabBar(
+                        isScrollable: true,
+                        tabAlignment: TabAlignment.start,
+                        dividerColor: Colors.transparent,
+                        indicator: const BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.all(Radius.circular(2.0)),
+                        ),
+                        indicatorSize: TabBarIndicatorSize.tab,
+                        indicatorPadding: const EdgeInsets.symmetric(vertical: 6.0, horizontal: 6.0),
+                        labelColor: Colors.black,
+                        unselectedLabelColor: Colors.white70,
+                        labelPadding: const EdgeInsets.symmetric(horizontal: 18.0),
+                        labelStyle: const TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 12.0),
+                        unselectedLabelStyle: const TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.w600, fontSize: 12.0),
+                        tabs: tabNames.map((name) => Tab(text: name)).toList(),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8.0),
+                  IconButton(
+                    icon: const Icon(Icons.category_outlined, color: Colors.white70),
+                    tooltip: 'Manage Categories',
+                    onPressed: _showManageCategoriesDialog,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16.0),
+
+              // Search & Filter row
+              isMobile
+                  ? Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        _buildSearchBar(),
+                        const SizedBox(height: 12.0),
+                        SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          physics: const BouncingScrollPhysics(),
+                          child: Row(
+                            children: [
+                              _buildFormatFilter(),
+                              const SizedBox(width: 8.0),
+                              _buildStatusFilter(),
+                              const SizedBox(width: 8.0),
+                              _buildSortFilter(),
+                            ],
+                          ),
+                        ),
+                      ],
+                    )
+                  : Row(
+                      children: [
+                        Expanded(flex: 3, child: _buildSearchBar()),
+                        const SizedBox(width: 16.0),
+                        _buildFormatFilter(),
+                        const SizedBox(width: 12.0),
+                        _buildStatusFilter(),
+                        const SizedBox(width: 12.0),
+                        _buildSortFilter(),
+                      ],
+                    ),
+              const SizedBox(height: 20.0),
+
+              // Swipable category grids TabBarView
+              Expanded(
+                child: TabBarView(
+                  physics: const BouncingScrollPhysics(),
+                  children: tabIds.map((id) => _buildCategoryGrid(id, isMobile)).toList(),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    } else {
+      // Anime & Movies Mode: Original status tabs layout with status button row filters
+      final displayItems = _getStatusFilteredItems();
+
+      return Padding(
+        padding: EdgeInsets.only(
+          top: isMobile ? 16.0 : 48.0,
+          left: isMobile ? 12.0 : 24.0,
+          right: isMobile ? 12.0 : 24.0,
+          bottom: 16.0,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // 1. Status Category Tabs (All, Watching, Planning, Completed, Dropped/Paused, Downloaded)
+            _buildStatusTabs(isMobile),
+            const SizedBox(height: 16.0),
+
+            // 2. Search & Filter Section (Below Tabs)
+            isMobile
+                ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _buildSearchBar(),
+                      const SizedBox(height: 12.0),
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        physics: const BouncingScrollPhysics(),
+                        child: Row(
+                          children: [
+                            _buildFormatFilter(),
+                            const SizedBox(width: 8.0),
+                            _buildStatusFilter(),
+                            const SizedBox(width: 8.0),
+                            _buildSortFilter(),
+                          ],
+                        ),
+                      ),
+                    ],
+                  )
+                : Row(
+                    children: [
+                      Expanded(flex: 3, child: _buildSearchBar()),
+                      const SizedBox(width: 16.0),
+                      _buildFormatFilter(),
+                      const SizedBox(width: 12.0),
+                      _buildStatusFilter(),
+                      const SizedBox(width: 12.0),
+                      _buildSortFilter(),
+                    ],
+                  ),
+            const SizedBox(height: 20.0),
+
+            // 3. Main Library Grid or Empty State
+            Expanded(
+              child: displayItems.isEmpty
+                  ? _buildEmptyState()
+                  : GridView.builder(
+                      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                        maxCrossAxisExtent: 150.0,
+                        mainAxisExtent: 248.0,
+                        crossAxisSpacing: 14.0,
+                        mainAxisSpacing: 14.0,
+                      ),
+                      itemCount: displayItems.length,
+                      itemBuilder: (context, index) {
+                        final media = displayItems[index];
+                        return _LibraryMediaCard(
+                          media: media,
+                          mode: widget.mode,
+                          onTap: () {
+                            if (widget.mode == AppMode.anime) {
+                              widget.navigationState.selectAnime(media['id']);
+                            } else {
+                              final type = media['format'] == 'MOVIE' ? 'movie' : 'series';
+                              final rawIdStr = media['id'].toString();
+                              final isNumericOnly = RegExp(r'^\d+$').hasMatch(rawIdStr);
+                              final realId = isNumericOnly ? 'tt${rawIdStr.padLeft(7, '0')}' : rawIdStr;
+                              widget.navigationState.selectMovie('$type:$realId');
+                            }
+                          },
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      );
+    }
   }
 
   void _showManageCategoriesDialog() {
@@ -606,12 +807,6 @@ class _LibraryPageState extends State<LibraryPage> {
                                               );
                                               if (confirmDelete == true) {
                                                 await LibraryState().deleteCategory(cat.id);
-                                                // Reset tab if active tab was the deleted category
-                                                if (_activeStatusTab == cat.id) {
-                                                  setState(() {
-                                                    _activeStatusTab = 'ALL';
-                                                  });
-                                                }
                                               }
                                             },
                                           ),
@@ -637,102 +832,7 @@ class _LibraryPageState extends State<LibraryPage> {
     );
   }
 
-  Widget _buildStatusTabs(bool isMobile) {
-    final List<LibraryCategory> cats = LibraryState().categories;
 
-    final Map<String, String> tabs = {};
-    if (cats.isEmpty) {
-      tabs['ALL'] = 'All';
-      tabs['watching'] = widget.mode == AppMode.manga ? 'Reading' : 'Watching';
-      tabs['planning'] = 'Planning';
-      tabs['completed'] = 'Completed';
-      tabs['paused_dropped'] = 'Dropped / Paused';
-      tabs['downloaded'] = 'Downloaded';
-    } else {
-      tabs['ALL'] = 'All';
-      tabs['UNCATEGORIZED'] = 'Uncategorized';
-      for (final cat in cats) {
-        tabs[cat.id] = cat.name;
-      }
-    }
-
-    final children = tabs.entries.map((entry) {
-      final bool isActive = _activeStatusTab == entry.key;
-      return GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: () {
-          setState(() {
-            _activeStatusTab = entry.key;
-          });
-        },
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          margin: const EdgeInsets.only(right: 12.0),
-          padding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 8.0),
-          decoration: BoxDecoration(
-            color: isActive ? Colors.white : Colors.white.withValues(alpha: 0.03),
-            borderRadius: BorderRadius.circular(20.0),
-            border: Border.all(
-              color: isActive ? Colors.white : Colors.white10,
-              width: 1.0,
-            ),
-          ),
-          child: Text(
-            entry.value,
-            style: TextStyle(
-              color: isActive ? Colors.black : Colors.white70,
-              fontSize: 12.0,
-              fontWeight: isActive ? FontWeight.bold : FontWeight.w600,
-              fontFamily: 'Outfit',
-            ),
-          ),
-        ),
-      );
-    }).toList();
-
-    // Add Manage Categories button at the end
-    children.add(
-      GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: _showManageCategoriesDialog,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 8.0),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.03),
-            borderRadius: BorderRadius.circular(20.0),
-            border: Border.all(
-              color: Colors.white10,
-              width: 1.0,
-            ),
-          ),
-          child: const Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.edit_note, color: Colors.white70, size: 16),
-              SizedBox(width: 4.0),
-              Text(
-                'Categories',
-                style: TextStyle(
-                  color: Colors.white70,
-                  fontSize: 12.0,
-                  fontWeight: FontWeight.w600,
-                  fontFamily: 'Outfit',
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-
-    return isMobile
-        ? SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            physics: const BouncingScrollPhysics(),
-            child: Row(children: children),
-          )
-        : Row(children: children);
-  }
 
   Widget _buildSearchBar() {
     return Container(
@@ -900,6 +1000,112 @@ class _LibraryPageState extends State<LibraryPage> {
       ),
     );
   }
+
+  List<dynamic> _getStatusFilteredItems() {
+    final modeStr = widget.mode.name;
+    List<dynamic> items = List.from(_fetchedMedia);
+
+    // 1. Filter by Status Tabs (All, Watching, Planning, Completed, Dropped/Paused, Downloaded)
+    if (_activeStatusTab != 'ALL') {
+      if (_activeStatusTab == 'downloaded') {
+        items = items.where((media) {
+          return DownloadService().tasks.any((task) =>
+              task.anilistId == media['id'] &&
+              task.status == DownloadStatus.completed);
+        }).toList();
+      } else {
+        items = items.where((media) => _getLibraryStatus(media['id']) == _activeStatusTab).toList();
+      }
+    }
+
+    // 2. Filter by Search Query
+    if (_searchQuery.isNotEmpty) {
+      final query = _searchQuery.toLowerCase();
+      items = items.where((media) {
+        final title = (media['title']?['english'] ?? media['title']?['romaji'] ?? '').toString().toLowerCase();
+        final nativeTitle = (media['title']?['native'] ?? '').toString().toLowerCase();
+        return title.contains(query) || nativeTitle.contains(query);
+      }).toList();
+    }
+
+    // 3. Filter by Format
+    if (_selectedFormat != 'ALL') {
+      items = items.where((media) {
+        final fmt = (media['format'] ?? '').toString().toUpperCase();
+        final sel = _selectedFormat.toUpperCase();
+        if (sel == 'TV') {
+          return fmt == 'TV' || fmt == 'SERIES';
+        }
+        return fmt == sel;
+      }).toList();
+    }
+
+    // 4. Filter by Status (API)
+    if (_selectedStatus != 'ALL') {
+      items = items.where((media) {
+        final stat = (media['status'] ?? '').toString().replaceAll('_', ' ').toUpperCase();
+        return stat == _selectedStatus.toUpperCase();
+      }).toList();
+    }
+
+    // 5. Sort
+    return _sortItems(items);
+  }
+
+  Widget _buildStatusTabs(bool isMobile) {
+    final Map<String, String> statusTabs = {
+      'ALL': 'All',
+      'watching': widget.mode == AppMode.manga ? 'Reading' : 'Watching',
+      'planning': 'Planning',
+      'completed': 'Completed',
+      'paused_dropped': 'Dropped / Paused',
+      'downloaded': 'Downloaded',
+    };
+
+    final children = statusTabs.entries.map((entry) {
+      final bool isActive = _activeStatusTab == entry.key;
+      return GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () {
+          setState(() {
+            _activeStatusTab = entry.key;
+          });
+        },
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          margin: const EdgeInsets.only(right: 12.0),
+          padding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 8.0),
+          decoration: BoxDecoration(
+            color: isActive ? Colors.white : Colors.white.withValues(alpha: 0.03),
+            borderRadius: BorderRadius.circular(20.0),
+            border: Border.all(
+              color: isActive ? Colors.white : Colors.white10,
+              width: 1.0,
+            ),
+          ),
+          child: Text(
+            entry.value,
+            style: TextStyle(
+              color: isActive ? Colors.black : Colors.white70,
+              fontSize: 12.0,
+              fontWeight: isActive ? FontWeight.bold : FontWeight.w600,
+              fontFamily: 'Outfit',
+            ),
+          ),
+        ),
+      );
+    }).toList();
+
+    return isMobile
+        ? SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            physics: const BouncingScrollPhysics(),
+            child: Row(children: children),
+          )
+        : Row(children: children);
+  }
+
+
 }
 
 class _LibraryMediaCard extends StatefulWidget {
@@ -997,11 +1203,12 @@ class _LibraryMediaCardState extends State<_LibraryMediaCard> {
                       // Image
                       Positioned.fill(
                         child: coverUrl.isNotEmpty
-                            ? Image.network(
-                                coverUrl,
+                            ? CachedNetworkImage(
+                                imageUrl: coverUrl,
                                 fit: BoxFit.cover,
-                                cacheWidth: 250, // Optimize RAM cache
-                                errorBuilder: (context, e, s) => Container(color: Colors.white.withValues(alpha: 0.02)),
+                                memCacheWidth: 250,
+                                placeholder: (context, url) => Container(color: Colors.white.withValues(alpha: 0.02)),
+                                errorWidget: (context, url, error) => Container(color: Colors.white.withValues(alpha: 0.02)),
                               )
                             : Container(color: Colors.white.withValues(alpha: 0.02)),
                       ),

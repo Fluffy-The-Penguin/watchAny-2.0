@@ -29,29 +29,7 @@ class ShellLayout extends StatelessWidget {
     required this.navigationState,
   });
 
-  Widget _buildContent(AppMode mode, TabPage page) {
-    switch (page) {
-      case TabPage.home:
-        return HomePage(key: ValueKey('home_$mode'), mode: mode, navigationState: navigationState);
-      case TabPage.search:
-        return SearchPage(key: ValueKey('search_$mode'), mode: mode, navigationState: navigationState);
-      case TabPage.library:
-        return LibraryPage(key: ValueKey('library_$mode'), mode: mode, navigationState: navigationState);
-      case TabPage.downloads:
-        return DownloadsPage(key: ValueKey('downloads_$mode'), mode: mode);
-      case TabPage.settings:
-        return SettingsPage(key: ValueKey('settings_$mode'));
-      case TabPage.schedule:
-        return SchedulePage(
-          key: ValueKey('schedule_$mode'),
-          navigationState: navigationState,
-        );
-      case TabPage.history:
-        return HistoryPage(key: ValueKey('history_$mode'), mode: mode, navigationState: navigationState);
-      case TabPage.notifications:
-        return NotificationsPage(key: ValueKey('notifications_$mode'), mode: mode, navigationState: navigationState);
-    }
-  }
+
 
   String _getPageTitle(TabPage page) {
     switch (page) {
@@ -214,17 +192,19 @@ class ShellLayout extends StatelessWidget {
         final showFullPlayer = playerState.isActive && !playerState.isMinimized;
         final showMiniPlayer = playerState.isActive && playerState.isMinimized;
 
+        final bool isDetailsOpen = selectedAnimeId != null ||
+            navigationState.selectedMovieId != null ||
+            navigationState.selectedMangaId != null;
+
         return Scaffold(
           backgroundColor: Colors.black,
-          appBar: isMobile && !showFullPlayer
+          appBar: isMobile && !showFullPlayer && !isDetailsOpen
               ? AppBar(
                   backgroundColor: Colors.black,
                   elevation: 0,
                   scrolledUnderElevation: 0,
                   title: Text(
-                    selectedAnimeId != null 
-                        ? 'Details' 
-                        : '${navigationState.modeLabel} - ${_getPageTitle(currentPage)}',
+                    '${navigationState.modeLabel} - ${_getPageTitle(currentPage)}',
                     style: const TextStyle(
                       color: Colors.white,
                       fontFamily: 'Outfit',
@@ -232,14 +212,9 @@ class ShellLayout extends StatelessWidget {
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                  leading: selectedAnimeId != null
-                      ? IconButton(
-                          icon: const Icon(Icons.arrow_back, color: Colors.white),
-                          onPressed: () => navigationState.selectAnime(null),
-                        )
-                      : null,
+                  leading: null,
                   actions: [
-                    if (selectedAnimeId == null) ...[
+                    if (!isDetailsOpen) ...[
                       IconButton(
                         icon: const Icon(Icons.history, color: Colors.white70),
                         tooltip: 'History',
@@ -366,27 +341,18 @@ class ShellLayout extends StatelessWidget {
                           Positioned.fill(
                             child: Container(
                               color: Colors.black,
-                              child: AnimatedSwitcher(
-                                duration: const Duration(milliseconds: 200),
-                                child: currentMode == AppMode.anime && selectedAnimeId != null
-                                    ? AnimeDetailsPage(
-                                        key: ValueKey('details_$selectedAnimeId'),
-                                        animeId: selectedAnimeId,
-                                        navigationState: navigationState,
-                                      )
-                                    : currentMode == AppMode.movies && navigationState.selectedMovieId != null
-                                        ? MovieDetailsPage(
-                                            key: ValueKey('details_movie_${navigationState.selectedMovieId}'),
-                                            movieId: navigationState.selectedMovieId!,
-                                            navigationState: navigationState,
-                                          )
-                                        : currentMode == AppMode.manga && navigationState.selectedMangaId != null
-                                            ? MangaDetailsPage(
-                                                key: ValueKey('details_manga_${navigationState.selectedMangaId}'),
-                                                mangaId: navigationState.selectedMangaId!,
-                                                navigationState: navigationState,
-                                              )
-                                            : _buildContent(currentMode, currentPage),
+                              child: Stack(
+                                children: [
+                                  Positioned.fill(
+                                    child: _buildDoubleNestedIndexedStack(currentMode, currentPage),
+                                  ),
+                                  Positioned.fill(
+                                    child: AnimatedSwitcher(
+                                      duration: const Duration(milliseconds: 200),
+                                      child: _buildDetailsOverlayWidget(currentMode, selectedAnimeId),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
                           ),
@@ -565,6 +531,117 @@ class ShellLayout extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+
+  int _getPageIndex(TabPage page, AppMode mode) {
+    if (mode == AppMode.anime) {
+      switch (page) {
+        case TabPage.home: return 0;
+        case TabPage.search: return 1;
+        case TabPage.library: return 2;
+        case TabPage.schedule: return 3;
+        case TabPage.downloads: return 4;
+        case TabPage.settings: return 5;
+        case TabPage.history: return 6;
+        case TabPage.notifications: return 7;
+      }
+    } else {
+      switch (page) {
+        case TabPage.home: return 0;
+        case TabPage.search: return 1;
+        case TabPage.library: return 2;
+        case TabPage.downloads: return 3;
+        case TabPage.settings: return 4;
+        case TabPage.history: return 5;
+        case TabPage.notifications: return 6;
+        default: return 0;
+      }
+    }
+  }
+
+  int _getModeIndex(AppMode mode) {
+    switch (mode) {
+      case AppMode.anime: return 0;
+      case AppMode.movies: return 1;
+      case AppMode.manga: return 2;
+    }
+  }
+
+  Widget? _buildDetailsOverlayWidget(AppMode currentMode, int? selectedAnimeId) {
+    if (currentMode == AppMode.anime && selectedAnimeId != null) {
+      return AnimeDetailsPage(
+        key: ValueKey('details_$selectedAnimeId'),
+        animeId: selectedAnimeId,
+        navigationState: navigationState,
+      );
+    }
+    if (currentMode == AppMode.movies && navigationState.selectedMovieId != null) {
+      return MovieDetailsPage(
+        key: ValueKey('details_movie_${navigationState.selectedMovieId}'),
+        movieId: navigationState.selectedMovieId!,
+        navigationState: navigationState,
+      );
+    }
+    if (currentMode == AppMode.manga && navigationState.selectedMangaId != null) {
+      return MangaDetailsPage(
+        key: ValueKey('details_manga_${navigationState.selectedMangaId}'),
+        mangaId: navigationState.selectedMangaId!,
+        navigationState: navigationState,
+      );
+    }
+    return null;
+  }
+
+  Widget _buildDoubleNestedIndexedStack(AppMode currentMode, TabPage currentPage) {
+    return IndexedStack(
+      key: const ValueKey('outer_indexed_stack'),
+      index: _getModeIndex(currentMode),
+      children: [
+        // Index 0: Anime Mode Stack
+        IndexedStack(
+          key: const ValueKey('anime_pages_stack'),
+          index: _getPageIndex(currentPage, AppMode.anime),
+          children: [
+            HomePage(key: const ValueKey('home_anime'), mode: AppMode.anime, navigationState: navigationState),
+            SearchPage(key: const ValueKey('search_anime'), mode: AppMode.anime, navigationState: navigationState),
+            LibraryPage(key: const ValueKey('library_anime'), mode: AppMode.anime, navigationState: navigationState),
+            SchedulePage(key: const ValueKey('schedule_anime'), navigationState: navigationState),
+            DownloadsPage(key: const ValueKey('downloads_anime'), mode: AppMode.anime),
+            SettingsPage(key: const ValueKey('settings_anime')),
+            HistoryPage(key: const ValueKey('history_anime'), mode: AppMode.anime, navigationState: navigationState),
+            NotificationsPage(key: const ValueKey('notifications_anime'), mode: AppMode.anime, navigationState: navigationState),
+          ],
+        ),
+        // Index 1: Movies Mode Stack
+        IndexedStack(
+          key: const ValueKey('movies_pages_stack'),
+          index: _getPageIndex(currentPage, AppMode.movies),
+          children: [
+            HomePage(key: const ValueKey('home_movies'), mode: AppMode.movies, navigationState: navigationState),
+            SearchPage(key: const ValueKey('search_movies'), mode: AppMode.movies, navigationState: navigationState),
+            LibraryPage(key: const ValueKey('library_movies'), mode: AppMode.movies, navigationState: navigationState),
+            DownloadsPage(key: const ValueKey('downloads_movies'), mode: AppMode.movies),
+            SettingsPage(key: const ValueKey('settings_movies')),
+            HistoryPage(key: const ValueKey('history_movies'), mode: AppMode.movies, navigationState: navigationState),
+            NotificationsPage(key: const ValueKey('notifications_movies'), mode: AppMode.movies, navigationState: navigationState),
+          ],
+        ),
+        // Index 2: Manga Mode Stack
+        IndexedStack(
+          key: const ValueKey('manga_pages_stack'),
+          index: _getPageIndex(currentPage, AppMode.manga),
+          children: [
+            HomePage(key: const ValueKey('home_manga'), mode: AppMode.manga, navigationState: navigationState),
+            SearchPage(key: const ValueKey('search_manga'), mode: AppMode.manga, navigationState: navigationState),
+            LibraryPage(key: const ValueKey('library_manga'), mode: AppMode.manga, navigationState: navigationState),
+            DownloadsPage(key: const ValueKey('downloads_manga'), mode: AppMode.manga),
+            SettingsPage(key: const ValueKey('settings_manga')),
+            HistoryPage(key: const ValueKey('history_manga'), mode: AppMode.manga, navigationState: navigationState),
+            NotificationsPage(key: const ValueKey('notifications_manga'), mode: AppMode.manga, navigationState: navigationState),
+          ],
+        ),
+      ],
     );
   }
 }

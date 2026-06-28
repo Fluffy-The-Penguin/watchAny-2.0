@@ -5,6 +5,8 @@ import '../services/anilist_service.dart';
 import '../services/tmdb_service.dart';
 import '../services/stremio_addon_service.dart';
 import '../state/navigation_state.dart';
+import '../state/library_state.dart';
+import 'manga_home_page.dart';
 
 class SearchPage extends StatefulWidget {
   final AppMode mode;
@@ -1087,6 +1089,9 @@ class _SearchPageState extends State<SearchPage> {
   // UI rendering
   @override
   Widget build(BuildContext context) {
+    if (widget.mode == AppMode.manga) {
+      return MangaHomePage(navigationState: widget.navigationState);
+    }
     final years = ['ALL', ...List.generate(37, (index) => (2026 - index).toString())];
     final seasons = ['ALL', 'WINTER', 'SPRING', 'SUMMER', 'FALL'];
     final statuses = ['ALL', ..._availableStatuses];
@@ -1215,6 +1220,7 @@ class _SearchPageState extends State<SearchPage> {
                                   final media = _results[index];
                                   return _SearchMediaCard(
                                     media: media,
+                                    mode: widget.mode,
                                     onTap: () {
                                       if (widget.mode == AppMode.movies) {
                                         final idStr = media['id']?.toString() ?? '';
@@ -1239,10 +1245,12 @@ class _SearchPageState extends State<SearchPage> {
 
 class _SearchMediaCard extends StatefulWidget {
   final dynamic media;
+  final AppMode mode;
   final VoidCallback onTap;
 
   const _SearchMediaCard({
     required this.media,
+    required this.mode,
     required this.onTap,
   });
 
@@ -1276,7 +1284,20 @@ class _SearchMediaCardState extends State<_SearchMediaCard> {
       infoString += addonName;
     }
 
-    return MouseRegion(
+    final bool inLibrary;
+    if (widget.mode == AppMode.movies) {
+      final idStr = widget.media['id']?.toString() ?? '';
+      final digits = RegExp(r'\d+').allMatches(idStr).map((m) => m.group(0)!).join();
+      final n = int.tryParse(digits);
+      final libId = (n != null && n > 0) ? n : idStr.hashCode.abs();
+      inLibrary = LibraryState().getItem(libId, 'movies') != null;
+    } else {
+      final idVal = widget.media['id'];
+      final int animeId = idVal is int ? idVal : (int.tryParse(idVal?.toString() ?? '') ?? 0);
+      inLibrary = LibraryState().getItem(animeId, 'anime') != null;
+    }
+
+    final cardWidget = MouseRegion(
       onEnter: (_) => setState(() => _isHovered = true),
       onExit: (_) => setState(() => _isHovered = false),
       child: GestureDetector(
@@ -1408,5 +1429,13 @@ class _SearchMediaCardState extends State<_SearchMediaCard> {
         ),
       ),
     );
+
+    if (inLibrary) {
+      return Opacity(
+        opacity: 0.75,
+        child: cardWidget,
+      );
+    }
+    return cardWidget;
   }
 }
