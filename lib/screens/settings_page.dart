@@ -22,6 +22,7 @@ class _SettingsPageState extends State<SettingsPage> {
   final TextEditingController _mangaRepoUrlController = TextEditingController();
   final TextEditingController _mangaPortController = TextEditingController();
   final TextEditingController _mangaHostController = TextEditingController();
+  final TextEditingController _torrServerUrlController = TextEditingController();
   
   int _activeCategoryIndex = 0; // 0: Extensions, 1: Addons, 2: General
   bool _isLoading = false;
@@ -51,6 +52,7 @@ class _SettingsPageState extends State<SettingsPage> {
     _mangaRepos = prefs.getStringList('manga_repos') ?? <String>[];
     _mangaPortController.text = (prefs.getInt('manga_server_port') ?? 4567).toString();
     _mangaHostController.text = prefs.getString('manga_server_host') ?? '127.0.0.1';
+    _torrServerUrlController.text = AppSettings().torrServerUrl;
 
     if (mounted) {
       setState(() => _isLoading = false);
@@ -65,6 +67,7 @@ class _SettingsPageState extends State<SettingsPage> {
     _mangaRepoUrlController.dispose();
     _mangaPortController.dispose();
     _mangaHostController.dispose();
+    _torrServerUrlController.dispose();
     super.dispose();
   }
 
@@ -804,6 +807,39 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
             const SizedBox(height: 16.0),
 
+            // ── TorrServer Address ──
+            _SettingsTile(
+              icon: Icons.dns_outlined,
+              title: 'TorrServer Address',
+              subtitle: 'IP address and port of the TorrServer instance (default http://127.0.0.1:8090).',
+              trailing: SizedBox(
+                width: 220,
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _torrServerUrlController,
+                        style: const TextStyle(color: Colors.white, fontSize: 13.0, fontFamily: 'Outfit'),
+                        decoration: InputDecoration(
+                          filled: true,
+                          fillColor: Colors.white10,
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(6.0), borderSide: BorderSide.none),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 8.0),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8.0),
+                    IconButton(
+                      icon: const Icon(Icons.save, color: Color(0xFFFF9F1C), size: 20),
+                      onPressed: _saveTorrServerUrl,
+                      tooltip: 'Save address',
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16.0),
+
             // ── Startup Section ──
             _SettingsTile(
               icon: Icons.start,
@@ -1474,6 +1510,36 @@ class _SettingsPageState extends State<SettingsPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to update host: $e'), backgroundColor: Colors.redAccent),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  Future<void> _saveTorrServerUrl() async {
+    final url = _torrServerUrlController.text.trim();
+    if (url.isEmpty || !url.startsWith('http')) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a valid URL starting with http:// or https://.')),
+      );
+      return;
+    }
+    
+    setState(() => _isLoading = true);
+    try {
+      await AppSettings().setTorrServerUrl(url);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('TorrServer URL updated successfully.')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to update URL: $e'), backgroundColor: Colors.redAccent),
         );
       }
     } finally {
