@@ -167,36 +167,75 @@ class _LibraryPageState extends State<LibraryPage> {
     final activeId = tabIds[activeIndex];
     final activeName = tabNames[activeIndex];
 
-    showDialog(
+    showModalBottomSheet(
       context: context,
+      backgroundColor: const Color(0xFF141414),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16.0)),
+      ),
+      constraints: const BoxConstraints(maxWidth: 500.0),
       builder: (BuildContext context) {
-        return AlertDialog(
-          backgroundColor: const Color(0xFF141414),
-          title: const Text('Update Manga Library', style: TextStyle(color: Colors.white, fontFamily: 'Outfit', fontWeight: FontWeight.bold)),
-          content: const Text(
-            'Would you like to check for new episodes and update the manga in your library?',
-            style: TextStyle(color: Colors.white70, fontSize: 13.0),
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(20.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text(
+                  'Update Options',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontFamily: 'Outfit',
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16.0,
+                  ),
+                ),
+                const SizedBox(height: 20.0),
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () {
+                          Navigator.pop(context);
+                          _runMangaUpdate(onlyCategory: false);
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.white10,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 14.0),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
+                        ),
+                        child: const Text('Update Library', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13.0, fontFamily: 'Outfit')),
+                      ),
+                    ),
+                    const SizedBox(width: 12.0),
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () {
+                          Navigator.pop(context);
+                          _runMangaUpdate(onlyCategory: true, categoryId: activeId, categoryName: activeName);
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.white,
+                          foregroundColor: Colors.black,
+                          padding: const EdgeInsets.symmetric(vertical: 14.0),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
+                        ),
+                        child: Text('Update "$activeName"', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13.0, fontFamily: 'Outfit')),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12.0),
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Cancel', style: TextStyle(color: Colors.white38, fontFamily: 'Outfit')),
+                ),
+              ],
+            ),
           ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.pop(context);
-                _runMangaUpdate(onlyCategory: true, categoryId: activeId, categoryName: activeName);
-              },
-              child: Text('Update Category ("$activeName")', style: const TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold)),
-            ),
-            TextButton(
-              onPressed: () {
-                Navigator.pop(context);
-                _runMangaUpdate(onlyCategory: false);
-              },
-              child: const Text('Update Library', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel', style: TextStyle(color: Colors.white38)),
-            ),
-          ],
         );
       },
     );
