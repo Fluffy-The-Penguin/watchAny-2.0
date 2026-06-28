@@ -1826,7 +1826,7 @@ class _SettingsPageState extends State<SettingsPage> {
                           const Icon(Icons.info, color: Colors.amber, size: 18.0),
                           const SizedBox(width: 8.0),
                           Text(
-                            'Update Available: v${updateService.latestUpdate!.version}',
+                            'Update Available: ${updateService.latestUpdate!.version.startsWith('v') ? '' : 'v'}${updateService.latestUpdate!.version}',
                             style: const TextStyle(
                               color: Colors.amber,
                               fontSize: 14.0,

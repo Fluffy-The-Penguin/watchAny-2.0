@@ -92,15 +92,40 @@ class UpdateService extends ChangeNotifier {
     return 0;
   }
 
+  Future<String> _getGhToken() async {
+    // 1. Check system environment GITHUB_TOKEN
+    final envToken = Platform.environment['GITHUB_TOKEN'] ?? '';
+    if (envToken.isNotEmpty && !envToken.contains('invalid')) {
+      return envToken.trim();
+    }
+    
+    // 2. Try querying gh CLI auth token
+    try {
+      final result = await Process.run('gh', ['auth', 'token']);
+      if (result.exitCode == 0) {
+        return result.stdout.toString().trim();
+      }
+    } catch (_) {}
+
+    return '';
+  }
+
   Future<bool> checkForUpdates() async {
     _isChecking = true;
     _error = null;
     notifyListeners();
 
     try {
+      final headers = <String, String>{'User-Agent': 'watchAny-Updater'};
+      final token = await _getGhToken();
+      if (token.isNotEmpty) {
+        headers['Authorization'] = 'token $token';
+        debugPrint('[UpdateService] Using GitHub Auth token for live update query.');
+      }
+
       final response = await http.get(
         Uri.parse(gitHubReleasesUrl),
-        headers: {'User-Agent': 'watchAny-Updater'},
+        headers: headers,
       ).timeout(const Duration(seconds: 8));
 
       if (response.statusCode == 200) {
@@ -113,8 +138,7 @@ class UpdateService extends ChangeNotifier {
         throw Exception('GitHub API returned status code: ${response.statusCode}');
       }
     } catch (e) {
-      // If live GitHub query fails (e.g. rate limit, no releases yet, offline),
-      // we fallback to a mock updater description so the UI remains testable.
+      // Fallback mock update in case of failure
       _error = 'Live check failed ($e). Showing fallback updates.';
       _latestUpdate = UpdateInfo(
         version: 'v2.0.1',
@@ -142,7 +166,13 @@ class UpdateService extends ChangeNotifier {
 
     try {
       final url = _latestUpdate!.downloadUrl;
-      final response = await http.Client().send(http.Request('GET', Uri.parse(url)));
+      final request = http.Request('GET', Uri.parse(url));
+      final token = await _getGhToken();
+      if (token.isNotEmpty) {
+        request.headers['Authorization'] = 'token $token';
+      }
+      
+      final response = await http.Client().send(request);
       final contentLength = response.contentLength ?? 0;
       
       final tempDir = Directory.systemTemp;
