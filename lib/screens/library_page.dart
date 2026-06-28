@@ -136,9 +136,6 @@ class _LibraryPageState extends State<LibraryPage> {
       for (final id in missingIds) {
         final details = await SuwayomiService().getMangaDetails(id);
         if (details != null) {
-          final chaptersList = await SuwayomiService().getChapters(id);
-          final totalChapters = chaptersList.length;
-
           await LibraryState().updateMangaCache(id, details);
 
           final item = LibraryState().getItem(id, 'manga');
@@ -150,7 +147,7 @@ class _LibraryPageState extends State<LibraryPage> {
               libraryStatus: item.libraryStatus,
               rating: item.rating,
               watchedEpisodes: item.watchedEpisodes,
-              totalEpisodes: totalChapters,
+              totalEpisodes: item.totalEpisodes,
               categoryIds: item.categoryIds,
             );
           }
@@ -186,14 +183,14 @@ class _LibraryPageState extends State<LibraryPage> {
                 Navigator.pop(context);
                 _runMangaUpdate(onlyCategory: true, categoryId: activeId, categoryName: activeName);
               },
-              child: Text('Update "$activeName" Only', style: const TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold)),
+              child: Text('Update Category ("$activeName")', style: const TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold)),
             ),
             TextButton(
               onPressed: () {
                 Navigator.pop(context);
                 _runMangaUpdate(onlyCategory: false);
               },
-              child: const Text('Update Whole Library', style: TextStyle(color: Colors.white)),
+              child: const Text('Update Library', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
             ),
             TextButton(
               onPressed: () => Navigator.pop(context),
