@@ -32,16 +32,13 @@ class _HistoryPageState extends State<HistoryPage> {
     });
     final items = await PlayerState.getHistoryList();
     
-    // Filter history items by active mode
+    // Filter history items by active mode using isAnime flag
     final filtered = items.where((item) {
-      final media = item['media'] ?? {};
-      final itemMode = media['mode'];
-      final itemFormat = media['format'];
-      
+      final isAnime = item['isAnime'] ?? true;
       if (widget.mode == AppMode.movies) {
-        return itemMode == 'movies' || itemFormat == 'MOVIE';
+        return !isAnime;
       } else if (widget.mode == AppMode.anime) {
-        return itemMode == 'anime' || (itemMode == null && itemFormat != 'MOVIE');
+        return isAnime;
       } else {
         return false;
       }
@@ -255,7 +252,15 @@ class _HistoryPageState extends State<HistoryPage> {
                               ),
                               child: InkWell(
                                 onTap: () {
-                                  widget.navigationState.selectAnime(item['id']);
+                                  final isAnime = item['isAnime'] ?? true;
+                                  if (isAnime) {
+                                    final idInt = int.tryParse(item['id'].toString());
+                                    if (idInt != null) {
+                                      widget.navigationState.selectAnime(idInt);
+                                    }
+                                  } else {
+                                    widget.navigationState.selectMovie(item['id'].toString());
+                                  }
                                 },
                                 borderRadius: BorderRadius.circular(10.0),
                                 child: Padding(

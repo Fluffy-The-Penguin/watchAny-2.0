@@ -83,7 +83,8 @@ extension TorrentStreamExtension on TorrentStream {
 }
 
 class TorrentSelectorPanel extends StatefulWidget {
-  final int anilistId;
+  final int? anilistId;
+  final String? movieId;
   final List<String> titles;
   final int episodeCount;
   final int episodeNumber;
@@ -92,10 +93,12 @@ class TorrentSelectorPanel extends StatefulWidget {
   final List<dynamic>? episodes;
   final Map<int, dynamic>? tmdbEpisodesMap;
   final void Function(String streamUrl, String title)? onStreamSelected;
+  final bool isFromPlayer;
 
   const TorrentSelectorPanel({
     super.key,
-    required this.anilistId,
+    this.anilistId,
+    this.movieId,
     required this.titles,
     required this.episodeCount,
     required this.episodeNumber,
@@ -104,6 +107,7 @@ class TorrentSelectorPanel extends StatefulWidget {
     this.episodes,
     this.tmdbEpisodesMap,
     this.onStreamSelected,
+    this.isFromPlayer = false,
   });
 
   @override
@@ -124,6 +128,97 @@ class _TorrentSelectorPanelState extends State<TorrentSelectorPanel> {
   final TextEditingController _excludeController = TextEditingController();
   String _selectedTypeFilter = 'all'; // 'all', 'episode', 'batch'
   String _selectedSortOrder = 'seeders'; // 'seeders', 'size_desc', 'size_asc', 'leechers'
+  int? _selectedMaxSize; // null means 'All'
+
+  // Auto-selection countdown state
+  Timer? _autoSelectTimer;
+  Timer? _cooldownTimer;
+  Timer? _countdownVisualTimer;
+  int _countdownSecondsLeft = 10;
+  bool _isAutoSelectActive = false;
+
+  void _startAutoSelectCountdown() {
+    _cancelAllTimers();
+    if (!mounted || widget.isFromPlayer || _processedStreams.isEmpty || _isLoading) return;
+    
+    setState(() {
+      _countdownSecondsLeft = 10;
+      _isAutoSelectActive = true;
+    });
+
+    _countdownVisualTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      setState(() {
+        if (_countdownSecondsLeft > 1) {
+          _countdownSecondsLeft--;
+        } else {
+          _countdownSecondsLeft = 0;
+          timer.cancel();
+        }
+      });
+    });
+
+    _autoSelectTimer = Timer(const Duration(seconds: 10), () {
+      if (!mounted || widget.isFromPlayer || _processedStreams.isEmpty || _isLoading) return;
+      // Auto-play the first stream
+      final bestStream = _processedStreams.first;
+      _playStreamDirectly(bestStream);
+    });
+  }
+
+  void _handleUserActivity() {
+    if (widget.isFromPlayer || _streams.isEmpty || _isLoading) return;
+    
+    if (_isAutoSelectActive) {
+      setState(() {
+        _isAutoSelectActive = false;
+        _countdownSecondsLeft = 10;
+      });
+      _cancelAllTimers();
+      
+      _cooldownTimer = Timer(const Duration(seconds: 30), () {
+        _startAutoSelectCountdown();
+      });
+    } else {
+      _cooldownTimer?.cancel();
+      _cooldownTimer = Timer(const Duration(seconds: 30), () {
+        _startAutoSelectCountdown();
+      });
+    }
+  }
+
+  void _cancelAllTimers() {
+    _autoSelectTimer?.cancel();
+    _cooldownTimer?.cancel();
+    _countdownVisualTimer?.cancel();
+  }
+
+  void _playStreamDirectly(TorrentStream stream) {
+    _cancelAllTimers();
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return PlaybackProgressDialog(
+          stream: stream,
+          parentContext: context,
+          anilistId: widget.anilistId,
+          movieId: widget.movieId,
+          episodeNumber: widget.episodeNumber,
+          titles: widget.titles,
+          episodeCount: widget.episodeCount,
+          isMovie: widget.isMovie,
+          media: widget.media,
+          episodes: widget.episodes,
+          tmdbEpisodesMap: widget.tmdbEpisodesMap,
+          onStreamSelected: widget.onStreamSelected,
+        );
+      },
+    );
+  }
 
   @override
   void initState() {
@@ -135,6 +230,7 @@ class _TorrentSelectorPanelState extends State<TorrentSelectorPanel> {
   void dispose() {
     _streamSubscription?.cancel();
     _excludeController.dispose();
+    _cancelAllTimers();
     super.dispose();
   }
 
@@ -148,7 +244,12 @@ class _TorrentSelectorPanelState extends State<TorrentSelectorPanel> {
       list = list.where((s) => s.computedType == 'batch').toList();
     }
 
-    // 2. Sorting
+    // 2. Size Filter
+    if (_selectedMaxSize != null) {
+      list = list.where((s) => s.size == 0 || s.size <= _selectedMaxSize!).toList();
+    }
+
+    // 3. Sorting
     if (_selectedSortOrder == 'seeders') {
       list.sort((a, b) => b.seeders.compareTo(a.seeders));
     } else if (_selectedSortOrder == 'size_desc') {
@@ -172,7 +273,7 @@ class _TorrentSelectorPanelState extends State<TorrentSelectorPanel> {
     });
 
     _streamSubscription = _extensionService.searchStreamsStream(
-      anilistId: widget.anilistId,
+      anilistId: widget.anilistId ?? 0,
       titles: widget.titles,
       episodeCount: widget.episodeCount,
       episodeNumber: widget.episodeNumber,
@@ -186,6 +287,9 @@ class _TorrentSelectorPanelState extends State<TorrentSelectorPanel> {
           setState(() {
             _streams = results;
           });
+          if (!widget.isFromPlayer && _streams.isNotEmpty && !_isAutoSelectActive) {
+            _startAutoSelectCountdown();
+          }
         }
       },
       onError: (e) {
@@ -201,6 +305,9 @@ class _TorrentSelectorPanelState extends State<TorrentSelectorPanel> {
           setState(() {
             _isLoading = false;
           });
+          if (!widget.isFromPlayer && _streams.isNotEmpty && !_isAutoSelectActive) {
+            _startAutoSelectCountdown();
+          }
         }
       },
     );
@@ -225,21 +332,28 @@ class _TorrentSelectorPanelState extends State<TorrentSelectorPanel> {
       mainAxisSize: MainAxisSize.min,
       children: [
         const Text(
-          'Quality:',
-          style: TextStyle(color: Colors.white70, fontSize: 13.0, fontFamily: 'Outfit'),
+          'Quality',
+          style: TextStyle(color: Colors.white38, fontSize: 11.0, fontFamily: 'Outfit'),
         ),
         const SizedBox(width: 8.0),
         Container(
+          height: 36.0,
           padding: const EdgeInsets.symmetric(horizontal: 10.0),
           decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.05),
-            borderRadius: BorderRadius.circular(6.0),
+            color: Colors.white.withValues(alpha: 0.03),
+            borderRadius: BorderRadius.circular(8.0),
+            border: Border.all(color: Colors.white10),
           ),
           child: DropdownButtonHideUnderline(
             child: DropdownButton<String?>(
               value: _selectedResolution,
+              isDense: true,
+              icon: const Padding(
+                padding: EdgeInsets.only(left: 4.0),
+                child: Icon(Icons.arrow_drop_down, color: Colors.white38, size: 18),
+              ),
               dropdownColor: const Color(0xFF0F0F11),
-              style: const TextStyle(color: Colors.white, fontSize: 13.0, fontFamily: 'Outfit'),
+              style: const TextStyle(color: Colors.white70, fontSize: 12.0, fontWeight: FontWeight.w600, fontFamily: 'Outfit'),
               items: resolutions.map((res) {
                 return DropdownMenuItem<String?>(
                   value: res['value'],
@@ -262,21 +376,28 @@ class _TorrentSelectorPanelState extends State<TorrentSelectorPanel> {
       mainAxisSize: MainAxisSize.min,
       children: [
         const Text(
-          'Type:',
-          style: TextStyle(color: Colors.white70, fontSize: 13.0, fontFamily: 'Outfit'),
+          'Type',
+          style: TextStyle(color: Colors.white38, fontSize: 11.0, fontFamily: 'Outfit'),
         ),
         const SizedBox(width: 8.0),
         Container(
+          height: 36.0,
           padding: const EdgeInsets.symmetric(horizontal: 10.0),
           decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.05),
-            borderRadius: BorderRadius.circular(6.0),
+            color: Colors.white.withValues(alpha: 0.03),
+            borderRadius: BorderRadius.circular(8.0),
+            border: Border.all(color: Colors.white10),
           ),
           child: DropdownButtonHideUnderline(
             child: DropdownButton<String>(
               value: _selectedTypeFilter,
+              isDense: true,
+              icon: const Padding(
+                padding: EdgeInsets.only(left: 4.0),
+                child: Icon(Icons.arrow_drop_down, color: Colors.white38, size: 18),
+              ),
               dropdownColor: const Color(0xFF0F0F11),
-              style: const TextStyle(color: Colors.white, fontSize: 13.0, fontFamily: 'Outfit'),
+              style: const TextStyle(color: Colors.white70, fontSize: 12.0, fontWeight: FontWeight.w600, fontFamily: 'Outfit'),
               items: const [
                 DropdownMenuItem(value: 'all', child: Text('All')),
                 DropdownMenuItem(value: 'episode', child: Text('Episodes')),
@@ -299,21 +420,28 @@ class _TorrentSelectorPanelState extends State<TorrentSelectorPanel> {
       mainAxisSize: MainAxisSize.min,
       children: [
         const Text(
-          'Sort:',
-          style: TextStyle(color: Colors.white70, fontSize: 13.0, fontFamily: 'Outfit'),
+          'Sort',
+          style: TextStyle(color: Colors.white38, fontSize: 11.0, fontFamily: 'Outfit'),
         ),
         const SizedBox(width: 8.0),
         Container(
+          height: 36.0,
           padding: const EdgeInsets.symmetric(horizontal: 10.0),
           decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.05),
-            borderRadius: BorderRadius.circular(6.0),
+            color: Colors.white.withValues(alpha: 0.03),
+            borderRadius: BorderRadius.circular(8.0),
+            border: Border.all(color: Colors.white10),
           ),
           child: DropdownButtonHideUnderline(
             child: DropdownButton<String>(
               value: _selectedSortOrder,
+              isDense: true,
+              icon: const Padding(
+                padding: EdgeInsets.only(left: 4.0),
+                child: Icon(Icons.arrow_drop_down, color: Colors.white38, size: 18),
+              ),
               dropdownColor: const Color(0xFF0F0F11),
-              style: const TextStyle(color: Colors.white, fontSize: 13.0, fontFamily: 'Outfit'),
+              style: const TextStyle(color: Colors.white70, fontSize: 12.0, fontWeight: FontWeight.w600, fontFamily: 'Outfit'),
               items: const [
                 DropdownMenuItem(value: 'seeders', child: Text('Seeders')),
                 DropdownMenuItem(value: 'size_desc', child: Text('Size (Large)')),
@@ -333,6 +461,52 @@ class _TorrentSelectorPanelState extends State<TorrentSelectorPanel> {
       ],
     );
 
+    final sizeSelector = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Text(
+          'Size',
+          style: TextStyle(color: Colors.white38, fontSize: 11.0, fontFamily: 'Outfit'),
+        ),
+        const SizedBox(width: 8.0),
+        Container(
+          height: 36.0,
+          padding: const EdgeInsets.symmetric(horizontal: 10.0),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.03),
+            borderRadius: BorderRadius.circular(8.0),
+            border: Border.all(color: Colors.white10),
+          ),
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<int?>(
+              value: _selectedMaxSize,
+              isDense: true,
+              icon: const Padding(
+                padding: EdgeInsets.only(left: 4.0),
+                child: Icon(Icons.arrow_drop_down, color: Colors.white38, size: 18),
+              ),
+              dropdownColor: const Color(0xFF0F0F11),
+              style: const TextStyle(color: Colors.white70, fontSize: 12.0, fontWeight: FontWeight.w600, fontFamily: 'Outfit'),
+              items: const [
+                DropdownMenuItem(value: null, child: Text('All Sizes')),
+                DropdownMenuItem(value: 524288000, child: Text('< 500 MB')),
+                DropdownMenuItem(value: 1073741824, child: Text('< 1 GB')),
+                DropdownMenuItem(value: 2147483648, child: Text('< 2 GB')),
+                DropdownMenuItem(value: 5368709120, child: Text('< 5 GB')),
+                DropdownMenuItem(value: 10737418240, child: Text('< 10 GB')),
+                DropdownMenuItem(value: 16106127360, child: Text('< 15 GB')),
+              ],
+              onChanged: (val) {
+                setState(() {
+                  _selectedMaxSize = val;
+                });
+              },
+            ),
+          ),
+        ),
+      ],
+    );
+
     final selectorsWrap = Wrap(
       spacing: 16.0,
       runSpacing: 8.0,
@@ -342,6 +516,7 @@ class _TorrentSelectorPanelState extends State<TorrentSelectorPanel> {
         qualitySelector,
         typeSelector,
         sortSelector,
+        sizeSelector,
       ],
     );
 
@@ -668,7 +843,7 @@ class _TorrentSelectorPanelState extends State<TorrentSelectorPanel> {
                                               stream: stream,
                                               parentContext: context,
                                               anilistId: widget.anilistId,
-                                              movieId: null,
+                                              movieId: widget.movieId,
                                               episodeNumber: widget.episodeNumber,
                                               titles: widget.titles,
                                               episodeCount: widget.episodeCount,
@@ -694,7 +869,7 @@ class _TorrentSelectorPanelState extends State<TorrentSelectorPanel> {
                                               stream: stream,
                                               parentContext: context,
                                               anilistId: widget.anilistId,
-                                              movieId: null,
+                                              movieId: widget.movieId,
                                               episodeNumber: widget.episodeNumber,
                                               titles: widget.titles,
                                               episodeCount: widget.episodeCount,
@@ -743,7 +918,7 @@ class _TorrentSelectorPanelState extends State<TorrentSelectorPanel> {
 class PlaybackProgressDialog extends StatefulWidget {
   final TorrentStream stream;
   final BuildContext parentContext;
-  final int anilistId;
+  final int? anilistId;
   final String? movieId;
   final int episodeNumber;
   final List<String> titles;
@@ -759,7 +934,7 @@ class PlaybackProgressDialog extends StatefulWidget {
     super.key,
     required this.stream,
     required this.parentContext,
-    required this.anilistId,
+    this.anilistId,
     this.movieId,
     required this.episodeNumber,
     required this.titles,
@@ -859,9 +1034,9 @@ class PlaybackProgressDialogState extends State<PlaybackProgressDialog> {
       }
     }
     
-    if (episodeToIndex.isNotEmpty) {
+    if (episodeToIndex.isNotEmpty && widget.anilistId != null) {
       BatchMappingService().saveMapping(
-        anilistId: widget.anilistId,
+        anilistId: widget.anilistId!,
         torrentLink: widget.stream.link,
         torrentHash: hash,
         torrentTitle: widget.stream.title,
@@ -895,8 +1070,26 @@ class PlaybackProgressDialogState extends State<PlaybackProgressDialog> {
         _status = "Adding torrent & fetching metadata...";
       });
 
+      String torrentLink = widget.stream.link;
+      if (!torrentLink.contains('&tr=')) {
+        final List<String> defaultTrackers = [
+          'udp://tracker.coppersurfer.tk:6969/announce',
+          'udp://tracker.openittracker.com:80/announce',
+          'udp://tracker.opentrackr.org:1337/announce',
+          'udp://explodie.org:6969/announce',
+          'udp://9.rarbg.to:2710/announce',
+          'udp://9.rarbg.me:2780/announce',
+          'udp://open.stealth.si:80/announce',
+          'udp://tracker.torrent.eu.org:451/announce',
+          'udp://opentracker.i2p.rocks:6969/announce',
+        ];
+        for (final tr in defaultTrackers) {
+          torrentLink += '&tr=${Uri.encodeComponent(tr)}';
+        }
+      }
+
       final TorrentInfo torrentInfo = await _torrServerService.addTorrent(
-        widget.stream.link,
+        torrentLink,
         title: widget.stream.title,
       );
 
@@ -952,34 +1145,11 @@ class PlaybackProgressDialogState extends State<PlaybackProgressDialog> {
 
         // Prebuffering phase inside the dialog
         setState(() {
-          _status = "Preloading stream...";
+          _status = "Starting playback...";
         });
 
         await _torrServerService.preloadTorrentFile(torrentInfo.hash, file.index);
-
-        int secondsElapsed = 0;
-        bool isReady = false;
-        while (secondsElapsed < 20 && !isReady) {
-          await Future.delayed(const Duration(seconds: 1));
-          secondsElapsed++;
-          if (!mounted) return;
-
-          try {
-            final updatedInfo = await _torrServerService.getTorrent(torrentInfo.hash);
-            final speedMb = updatedInfo.downloadSpeed / (1024 * 1024);
-            setState(() {
-              _status = "Prebuffering stream...\n"
-                  "${speedMb.toStringAsFixed(1)} MB/s • ${updatedInfo.activePeers} peers\n"
-                  "State: ${updatedInfo.stat.isNotEmpty ? updatedInfo.stat : 'Buffering'}";
-            });
-
-            if (updatedInfo.statCode >= 5) {
-              isReady = true;
-            }
-          } catch (e) {
-            debugPrint("Error polling prebuffer: $e");
-          }
-        }
+        await Future.delayed(const Duration(milliseconds: 800));
 
         if (!mounted) return;
         Navigator.of(context).pop(); // pop progress dialog
@@ -1012,7 +1182,10 @@ class PlaybackProgressDialogState extends State<PlaybackProgressDialog> {
       final navigator = Navigator.of(widget.parentContext);
 
       if (shouldPopParent) {
-        navigator.pop();
+        final route = ModalRoute.of(widget.parentContext);
+        if (route != null && !route.isFirst) {
+          navigator.pop();
+        }
       }
 
       PlayerState().startPlayback(
@@ -1205,7 +1378,7 @@ class BufferingProgressDialog extends StatefulWidget {
   final String hash;
   final TorrentFile file;
   final BuildContext parentContext;
-  final int anilistId;
+  final int? anilistId;
   final String? movieId;
   final int episodeNumber;
   final List<String> titles;
@@ -1220,7 +1393,7 @@ class BufferingProgressDialog extends StatefulWidget {
     required this.hash,
     required this.file,
     required this.parentContext,
-    required this.anilistId,
+    this.anilistId,
     this.movieId,
     required this.episodeNumber,
     required this.titles,
@@ -1261,41 +1434,12 @@ class BufferingProgressDialogState extends State<BufferingProgressDialog> {
       // 1. Trigger preload
       await _torrServerService.preloadTorrentFile(widget.hash, widget.file.index);
 
-      // 2. Poll progress every second
-      _pollTimer = Timer.periodic(const Duration(seconds: 1), (timer) async {
-        _secondsElapsed++;
-        if (!mounted) {
-          timer.cancel();
-          return;
-        }
-
-        try {
-          final info = await _torrServerService.getTorrent(widget.hash);
-          
-          if (!mounted) {
-            timer.cancel();
-            return;
-          }
-
-          final speedMb = info.downloadSpeed / (1024 * 1024);
-          setState(() {
-            _status = "Prebuffering stream...\n"
-                "${speedMb.toStringAsFixed(1)} MB/s • ${info.activePeers} peers\n"
-                "State: ${info.stat.isNotEmpty ? info.stat : 'Buffering'}";
-          });
-
-          if (info.statCode >= 5 || _secondsElapsed >= 20) {
-            timer.cancel();
-            _launchPlayer();
-          }
-        } catch (e) {
-          debugPrint("Error polling prebuffer: $e");
-          if (_secondsElapsed >= 20) {
-            timer.cancel();
-            _launchPlayer();
-          }
-        }
+      // 2. Wait a brief moment to initialize the buffer and launch player
+      setState(() {
+        _status = "Starting playback...";
       });
+      await Future.delayed(const Duration(milliseconds: 800));
+      _launchPlayer();
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -1318,7 +1462,10 @@ class BufferingProgressDialogState extends State<BufferingProgressDialog> {
       widget.onStreamSelected!(streamUrl, displayName);
     } else {
       final navigator = Navigator.of(widget.parentContext);
-      navigator.pop();
+      final route = ModalRoute.of(widget.parentContext);
+      if (route != null && !route.isFirst) {
+        navigator.pop();
+      }
 
       PlayerState().startPlayback(
         streamUrl: streamUrl,

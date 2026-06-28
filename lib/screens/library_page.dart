@@ -167,7 +167,11 @@ class _LibraryPageState extends State<LibraryPage> {
     if (_selectedFormat != 'ALL') {
       items = items.where((media) {
         final fmt = (media['format'] ?? '').toString().toUpperCase();
-        return fmt == _selectedFormat.toUpperCase();
+        final sel = _selectedFormat.toUpperCase();
+        if (sel == 'TV') {
+          return fmt == 'TV' || fmt == 'SERIES';
+        }
+        return fmt == sel;
       }).toList();
     }
 
@@ -339,7 +343,15 @@ class _LibraryPageState extends State<LibraryPage> {
                         media: media,
                         mode: widget.mode,
                         onTap: () {
-                          widget.navigationState.selectAnime(media['id']);
+                          if (widget.mode == AppMode.anime || widget.mode == AppMode.manga) {
+                            widget.navigationState.selectAnime(media['id']);
+                          } else {
+                            final type = media['format'] == 'MOVIE' ? 'movie' : 'series';
+                            final rawIdStr = media['id'].toString();
+                            final isNumericOnly = RegExp(r'^\d+$').hasMatch(rawIdStr);
+                            final realId = isNumericOnly ? 'tt${rawIdStr.padLeft(7, '0')}' : rawIdStr;
+                            widget.navigationState.selectMovie('$type:$realId');
+                          }
                         },
                       );
                     },
@@ -597,6 +609,7 @@ class _LibraryMediaCardState extends State<_LibraryMediaCard> {
         ? (widget.media['averageScore'] as num).toDouble()
         : null;
     final String format = widget.media['format'] ?? '';
+    final bool isMovie = format == 'MOVIE';
 
     // Retrieve user progress details from LibraryState
     final modeStr = widget.mode.name;
@@ -804,22 +817,23 @@ class _LibraryMediaCardState extends State<_LibraryMediaCard> {
                     fontFamily: 'Outfit',
                   ),
                 ),
-                Text(
-                  total != null 
-                      ? '$progress/$total ${widget.mode == AppMode.manga ? 'ch' : 'ep'}'
-                      : '$progress ${widget.mode == AppMode.manga ? 'ch' : 'ep'}',
-                  style: TextStyle(
-                    color: Colors.white38,
-                    fontSize: 10.0,
-                    fontFamily: 'Outfit',
+                if (!isMovie)
+                  Text(
+                    total != null 
+                        ? '$progress/$total ${widget.mode == AppMode.manga ? 'ch' : 'ep'}'
+                        : '$progress ${widget.mode == AppMode.manga ? 'ch' : 'ep'}',
+                    style: TextStyle(
+                      color: Colors.white38,
+                      fontSize: 10.0,
+                      fontFamily: 'Outfit',
+                    ),
                   ),
-                ),
               ],
             ),
             const SizedBox(height: 2.0),
             
             // Linear Progress Bar
-            if (total != null && total > 0)
+            if (!isMovie && total != null && total > 0)
               ClipRRect(
                 borderRadius: BorderRadius.circular(2.0),
                 child: LinearProgressIndicator(

@@ -18,6 +18,8 @@ import 'schedule_page.dart';
 import 'history_page.dart';
 import 'notifications_page.dart';
 import 'movies_details_page.dart';
+import 'manga_details_page.dart';
+import 'manga_reader_page.dart';
 
 class ShellLayout extends StatelessWidget {
   final NavigationState navigationState;
@@ -378,7 +380,13 @@ class ShellLayout extends StatelessWidget {
                                             movieId: navigationState.selectedMovieId!,
                                             navigationState: navigationState,
                                           )
-                                        : _buildContent(currentMode, currentPage),
+                                        : currentMode == AppMode.manga && navigationState.selectedMangaId != null
+                                            ? MangaDetailsPage(
+                                                key: ValueKey('details_manga_${navigationState.selectedMangaId}'),
+                                                mangaId: navigationState.selectedMangaId!,
+                                                navigationState: navigationState,
+                                              )
+                                            : _buildContent(currentMode, currentPage),
                               ),
                             ),
                           ),
@@ -413,7 +421,20 @@ class ShellLayout extends StatelessWidget {
                       tmdbEpisodesMap: playerState.tmdbEpisodesMap,
                     ),
                   ),
-                
+
+                // Full Screen Manga Reader Overlay
+                if (navigationState.activeChapterId != null)
+                  Positioned.fill(
+                    child: MangaReaderPage(
+                      chapterId: navigationState.activeChapterId!,
+                      chapterNumber: navigationState.activeChapterNumber!,
+                      mangaId: navigationState.activeMangaId!,
+                      mangaTitle: navigationState.activeMangaTitle!,
+                      chapters: navigationState.activeMangaChapters!,
+                      navigationState: navigationState,
+                    ),
+                  ),
+
                 // Floating MiniPlayer Overlay
                 if (showMiniPlayer)
                   Positioned(

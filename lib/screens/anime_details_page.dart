@@ -195,9 +195,9 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
 
     // Determine the Continue Watching details
     final prefs = await SharedPreferences.getInstance();
-    final int lastEp = prefs.getInt('continue_watching_last_ep_${widget.animeId}') ?? 1;
-    final pos = prefs.getInt('playback_pos_${widget.animeId}_$lastEp');
-    final dur = prefs.getInt('playback_dur_${widget.animeId}_$lastEp');
+    final int lastEp = prefs.getInt('anime_continue_watching_last_ep_${widget.animeId}') ?? 1;
+    final pos = prefs.getInt('anime_playback_pos_${widget.animeId}_$lastEp');
+    final dur = prefs.getInt('anime_playback_dur_${widget.animeId}_$lastEp');
 
     int targetEp = lastEp;
     bool finished = false;
@@ -2219,8 +2219,26 @@ class _DirectPlaybackProgressDialogState extends State<_DirectPlaybackProgressDi
         _status = "Adding torrent & loading file...";
       });
 
+      String torrentLink = widget.mapping['torrentLink']?.toString() ?? '';
+      if (!torrentLink.contains('&tr=')) {
+        final List<String> defaultTrackers = [
+          'udp://tracker.coppersurfer.tk:6969/announce',
+          'udp://tracker.openittracker.com:80/announce',
+          'udp://tracker.opentrackr.org:1337/announce',
+          'udp://explodie.org:6969/announce',
+          'udp://9.rarbg.to:2710/announce',
+          'udp://9.rarbg.me:2780/announce',
+          'udp://open.stealth.si:80/announce',
+          'udp://tracker.torrent.eu.org:451/announce',
+          'udp://opentracker.i2p.rocks:6969/announce',
+        ];
+        for (final tr in defaultTrackers) {
+          torrentLink += '&tr=${Uri.encodeComponent(tr)}';
+        }
+      }
+
       final torrentInfo = await _torrServerService.addTorrent(
-        widget.mapping['torrentLink'],
+        torrentLink,
         title: widget.mapping['torrentTitle'] ?? 'Batch Torrent',
       );
 
@@ -2239,34 +2257,11 @@ class _DirectPlaybackProgressDialogState extends State<_DirectPlaybackProgressDi
 
       // Prebuffering phase inside the dialog
       setState(() {
-        _status = "Preloading stream...";
+        _status = "Starting playback...";
       });
 
       await _torrServerService.preloadTorrentFile(torrentInfo.hash, file.index);
-
-      int secondsElapsed = 0;
-      bool isReady = false;
-      while (secondsElapsed < 20 && !isReady) {
-        await Future.delayed(const Duration(seconds: 1));
-        secondsElapsed++;
-        if (!mounted) return;
-
-        try {
-          final updatedInfo = await _torrServerService.getTorrent(torrentInfo.hash);
-          final speedMb = updatedInfo.downloadSpeed / (1024 * 1024);
-          setState(() {
-            _status = "Prebuffering stream...\n"
-                "${speedMb.toStringAsFixed(1)} MB/s • ${updatedInfo.activePeers} peers\n"
-                "State: ${updatedInfo.stat.isNotEmpty ? updatedInfo.stat : 'Buffering'}";
-          });
-
-          if (updatedInfo.statCode >= 5) {
-            isReady = true;
-          }
-        } catch (e) {
-          debugPrint("Error polling prebuffer: $e");
-        }
-      }
+      await Future.delayed(const Duration(milliseconds: 800));
 
       if (!mounted) return;
       Navigator.of(context).pop(); // pop progress dialog

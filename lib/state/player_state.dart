@@ -117,8 +117,14 @@ class PlayerState extends ChangeNotifier {
     try {
       final nativePlayer = _player!.platform as NativePlayer;
       nativePlayer.setProperty('hr-seek', 'no');
-      nativePlayer.setProperty('demuxer-max-bytes', '52428800'); // 50MB max bytes cache
-      nativePlayer.setProperty('demuxer-readahead-secs', '20'); // 20s readahead
+      nativePlayer.setProperty('cache', 'yes');
+      nativePlayer.setProperty('demuxer-seekable-cache', 'no');
+      nativePlayer.setProperty('demuxer-max-bytes', '104857600'); // 100MB max buffer
+      nativePlayer.setProperty('demuxer-max-back-bytes', '26214400'); // 25MB max back buffer
+      nativePlayer.setProperty('demuxer-readahead-secs', '10'); // 10s readahead
+      nativePlayer.setProperty('cache-pause', 'yes');
+      nativePlayer.setProperty('network-timeout', '60');         // Wait up to 60s for read operations
+      nativePlayer.setProperty('demuxer-lavf-timeout', '60');     // Wait up to 60s for initial metadata/opening
     } catch (e) {
       debugPrint('[PlayerState] Error setting player performance options: $e');
     }
@@ -249,32 +255,35 @@ class PlayerState extends ChangeNotifier {
   }
 
   void _saveCurrentProgress() {
-    final id = _anilistId?.toString() ?? _movieId;
-    final ep = _episodeNumber;
+    final isAnimeMode = _anilistId != null;
+    final id = isAnimeMode ? _anilistId.toString() : _movieId;
+    final ep = _episodeNumber ?? 1;
     final pos = _currentPosition.inMilliseconds;
     final dur = _currentDuration.inMilliseconds;
 
-    if (id != null && ep != null && pos > 0 && dur > 0) {
+    if (id != null && pos > 0 && dur > 0) {
       _lastSaveTime = DateTime.now();
       final key = '${id}_$ep';
       _progressCache[key] = PlaybackProgress(position: pos, duration: dur);
       notifyListeners();
 
       SharedPreferences.getInstance().then((prefs) {
-        prefs.setInt('playback_pos_$key', pos);
-        prefs.setInt('playback_dur_$key', dur);
-        prefs.setInt('continue_watching_timestamp_$id', DateTime.now().millisecondsSinceEpoch);
-        prefs.setInt('continue_watching_last_ep_$id', ep);
+        final prefix = isAnimeMode ? 'anime_' : 'movie_';
+        prefs.setInt('${prefix}playback_pos_$key', pos);
+        prefs.setInt('${prefix}playback_dur_$key', dur);
+        prefs.setInt('${prefix}continue_watching_timestamp_$id', DateTime.now().millisecondsSinceEpoch);
+        prefs.setInt('${prefix}continue_watching_last_ep_$id', ep);
       });
 
-      if (_anilistId != null) {
+      if (isAnimeMode) {
         _checkCompletion(_anilistId!, ep, pos, dur);
       }
     }
   }
 
   void _saveMediaMetadata() {
-    final id = _anilistId?.toString() ?? _movieId;
+    final isAnimeMode = _anilistId != null;
+    final id = isAnimeMode ? _anilistId.toString() : _movieId;
     if (id != null) {
       final med = _media;
       Map<String, dynamic> lightweightMedia;
@@ -286,6 +295,8 @@ class PlayerState extends ChangeNotifier {
           'averageScore': med['averageScore'],
           'format': med['format'],
           'episodes': med['episodes'] ?? _episodeCount,
+          'isAnime': isAnimeMode,
+          'type': med['type'] ?? (med['format'] == 'MOVIE' ? 'movie' : 'series'),
         };
       } else {
         lightweightMedia = {
@@ -295,28 +306,74 @@ class PlayerState extends ChangeNotifier {
           'averageScore': 0.0,
           'format': (_isMovie == true) ? 'MOVIE' : 'TV',
           'episodes': _episodeCount,
+          'isAnime': isAnimeMode,
+          'type': (_isMovie == true) ? 'movie' : 'series',
         };
       }
       SharedPreferences.getInstance().then((prefs) {
-        prefs.setString('continue_watching_metadata_$id', jsonEncode(lightweightMedia));
+        final prefix = isAnimeMode ? 'anime_' : 'movie_';
+        prefs.setString('${prefix}continue_watching_metadata_$id', jsonEncode(lightweightMedia));
       });
     }
   }
 
-  static Future<List<dynamic>> getContinueWatchingList() async {
+  static Future<List<dynamic>> getContinueWatchingList({bool? isAnime}) async {
     final prefs = await SharedPreferences.getInstance();
     final keys = prefs.getKeys();
     
-    final metadataKeys = keys.where((k) => k.startsWith('continue_watching_metadata_')).toList();
+    // Migrate legacy continue watching keys to new partitioned prefixes
+    for (final key in keys) {
+      if (key.startsWith('continue_watching_metadata_')) {
+        final id = key.replaceFirst('continue_watching_metadata_', '');
+        final isAnimeItem = int.tryParse(id) != null;
+        final prefix = isAnimeItem ? 'anime_' : 'movie_';
+        
+        final metadataJson = prefs.getString(key);
+        if (metadataJson != null) {
+          await prefs.setString('${prefix}continue_watching_metadata_$id', metadataJson);
+          await prefs.remove(key);
+        }
+        
+        final timestamp = prefs.getInt('continue_watching_timestamp_$id');
+        if (timestamp != null) {
+          await prefs.setInt('${prefix}continue_watching_timestamp_$id', timestamp);
+          await prefs.remove('continue_watching_timestamp_$id');
+        }
+        
+        final lastEp = prefs.getInt('continue_watching_last_ep_$id');
+        if (lastEp != null) {
+          await prefs.setInt('${prefix}continue_watching_last_ep_$id', lastEp);
+          await prefs.remove('continue_watching_last_ep_$id');
+        }
+        
+        // Migrate playback positions/durations
+        final playKeys = keys.where((k) => k.startsWith('playback_pos_${id}_') || k.startsWith('playback_dur_${id}_')).toList();
+        for (final pk in playKeys) {
+          final val = prefs.getInt(pk);
+          if (val != null) {
+            final newPk = pk.replaceFirst('playback_pos_', '${prefix}playback_pos_').replaceFirst('playback_dur_', '${prefix}playback_dur_');
+            await prefs.setInt(newPk, val);
+            await prefs.remove(pk);
+          }
+        }
+      }
+    }
+    
+    // Refresh keys after migration
+    final updatedKeys = prefs.getKeys();
+    final prefix = (isAnime == true) ? 'anime_' : 'movie_';
+    final metadataPrefix = '${prefix}continue_watching_metadata_';
+    
+    final metadataKeys = updatedKeys.where((k) => k.startsWith(metadataPrefix)).toList();
     final List<Map<String, dynamic>> items = [];
     
     for (final key in metadataKeys) {
-      final id = key.replaceFirst('continue_watching_metadata_', '');
-      final timestamp = prefs.getInt('continue_watching_timestamp_$id') ?? 0;
-      final lastEp = prefs.getInt('continue_watching_last_ep_$id') ?? 1;
+      final id = key.replaceFirst(metadataPrefix, '');
+      final timestamp = prefs.getInt('${prefix}continue_watching_timestamp_$id') ?? 0;
+      final lastEp = prefs.getInt('${prefix}continue_watching_last_ep_$id') ?? 1;
       
-      final pos = prefs.getInt('playback_pos_${id}_$lastEp');
-      final dur = prefs.getInt('playback_dur_${id}_$lastEp');
+      final pos = prefs.getInt('${prefix}playback_pos_${id}_$lastEp');
+      final dur = prefs.getInt('${prefix}playback_dur_${id}_$lastEp');
       
       if (pos != null && dur != null) {
         final ratio = pos / dur;
@@ -342,8 +399,9 @@ class PlayerState extends ChangeNotifier {
   Future<void> _resumePlayback(String id, int episodeNumber) async {
     final key = '${id}_$episodeNumber';
     final prefs = await SharedPreferences.getInstance();
-    final pos = prefs.getInt('playback_pos_$key');
-    final dur = prefs.getInt('playback_dur_$key');
+    final prefix = (_anilistId != null) ? 'anime_' : 'movie_';
+    final pos = prefs.getInt('${prefix}playback_pos_$key');
+    final dur = prefs.getInt('${prefix}playback_dur_$key');
     if (pos != null && dur != null) {
       final ratio = pos / dur;
       if (ratio < 0.90) {
@@ -424,7 +482,12 @@ class PlayerState extends ChangeNotifier {
     for (var key in keys) {
       if (key.startsWith('watched_episodes_')) {
         final id = key.replaceFirst('watched_episodes_', '');
-        final metadataStr = prefs.getString('continue_watching_metadata_$id');
+        var isAnime = true;
+        var metadataStr = prefs.getString('anime_continue_watching_metadata_$id');
+        if (metadataStr == null) {
+          metadataStr = prefs.getString('movie_continue_watching_metadata_$id');
+          isAnime = false;
+        }
         if (metadataStr == null) continue;
         
         try {
@@ -435,6 +498,7 @@ class PlayerState extends ChangeNotifier {
           
           history.add({
             'id': id,
+            'isAnime': isAnime,
             'media': metadata,
             'episodes': eps,
             'timestamp': timestamp,

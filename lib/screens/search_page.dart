@@ -1,6 +1,9 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import '../services/anilist_service.dart';
 import '../services/tmdb_service.dart';
+import '../services/stremio_addon_service.dart';
 import '../state/navigation_state.dart';
 
 class SearchPage extends StatefulWidget {
@@ -29,6 +32,11 @@ class _SearchPageState extends State<SearchPage> {
   bool _hasNextPage = false;
   bool _showMobileFilters = false;
 
+  // Stremio Addon Search State
+  List<StremioAddon> _stremioSearchAddons = [];
+  String _selectedSource = 'global'; // 'global', 'tmdb', or '<addon_id>'
+  String _selectedCatalogId = 'all'; // 'all', or '${catalog['id']}_${catalog['type']}'
+
   bool get _hasActiveFilters {
     return _selectedGenres.isNotEmpty ||
         _selectedYear != 'ALL' ||
@@ -49,8 +57,25 @@ class _SearchPageState extends State<SearchPage> {
   @override
   void initState() {
     super.initState();
-    // Perform an initial empty search to show popular items
+    if (widget.mode == AppMode.movies) {
+      _selectedSource = 'global';
+      _loadStremioAddons();
+    } else {
+      _selectedSource = 'tmdb'; // Not applicable to anime/manga
+    }
+    // Perform an initial empty search to show popular items / default catalog
     _performSearch();
+  }
+
+  Future<void> _loadStremioAddons() async {
+    final service = StremioAddonService();
+    await service.init();
+    final searchAddons = service.addons.where((a) => a.isEnabled && a.resources.contains('catalog')).toList();
+    if (mounted) {
+      setState(() {
+        _stremioSearchAddons = searchAddons;
+      });
+    }
   }
 
   @override
@@ -68,6 +93,10 @@ class _SearchPageState extends State<SearchPage> {
       _selectedFormats = [];
       _selectedStatus = 'ALL';
       _selectedSorting = 'POPULARITY_DESC';
+      if (widget.mode == AppMode.movies) {
+        _selectedSource = 'global';
+        _selectedCatalogId = 'all';
+      }
     });
     _performSearch();
   }
@@ -93,36 +122,116 @@ class _SearchPageState extends State<SearchPage> {
       List<dynamic> newResults = [];
 
       if (widget.mode == AppMode.movies) {
-        // TMDB Movies Search
-        int? parsedYear = int.tryParse(_selectedYear);
-        String? formatParam = _selectedFormats.isEmpty 
-            ? null 
-            : (_selectedFormats.contains('Movie') ? 'MOVIE' : 'TV');
-            
-        // Map Sorting
-        String sortBy = 'popularity.desc';
-        if (_selectedSorting == 'SCORE_DESC') {
-          sortBy = 'vote_average.desc';
-        } else if (_selectedSorting == 'START_DATE_DESC') {
-          sortBy = 'release_date.desc';
+        if (_selectedSource == 'tmdb') {
+          // TMDB Movies Search
+          int? parsedYear = int.tryParse(_selectedYear);
+          String? formatParam = _selectedFormats.isEmpty 
+              ? null 
+              : (_selectedFormats.contains('Movie') ? 'MOVIE' : 'TV');
+              
+          // Map Sorting
+          String sortBy = 'popularity.desc';
+          if (_selectedSorting == 'SCORE_DESC') {
+            sortBy = 'vote_average.desc';
+          } else if (_selectedSorting == 'START_DATE_DESC') {
+            sortBy = 'release_date.desc';
+          }
+
+          // Map Genres
+          List<int>? genreIds;
+          if (_selectedGenres.isNotEmpty) {
+            genreIds = _selectedGenres.map((g) => _mapMovieGenreToId(g)).whereType<int>().toList();
+          }
+
+          final rawResults = await _tmdbService.searchAndDiscover(
+            query: queryText,
+            year: parsedYear,
+            format: formatParam,
+            genres: genreIds,
+            sortBy: sortBy,
+          );
+
+          newResults = rawResults;
+          _hasNextPage = false;
+        } else {
+          // Stremio Addons Search
+          final service = StremioAddonService();
+          await service.init();
+
+          final targets = service.addons.where((a) => a.isEnabled && a.resources.contains('catalog'));
+          final filteredTargets = _selectedSource == 'global'
+              ? targets
+              : targets.where((a) => a.id == _selectedSource);
+
+          final List<dynamic> combinedResults = [];
+          final futures = <Future<void>>[];
+
+          for (final addon in filteredTargets) {
+            // Determine which catalogs of this addon to query (movie/series only)
+            List<dynamic> targetCatalogs = addon.catalogs.where((cat) {
+              final type = cat['type']?.toString();
+              return type == 'movie' || type == 'series';
+            }).toList();
+
+            if (_selectedSource != 'global' && _selectedCatalogId != 'all') {
+              // Filter to the single selected catalog
+              targetCatalogs = targetCatalogs.where((cat) {
+                return '${cat['id']}_${cat['type']}' == _selectedCatalogId;
+              }).toList();
+            }
+
+            for (final catalog in targetCatalogs) {
+              final type = catalog['type']?.toString() ?? 'movie';
+              final catId = catalog['id']?.toString() ?? '';
+
+              if (queryText.isNotEmpty) {
+                final extra = catalog['extra'] as List?;
+                final bool supportsSearch = extra != null && extra.any((e) => e is Map && e['name'] == 'search');
+                if (!supportsSearch) continue;
+              }
+
+              futures.add(() async {
+                try {
+                  final url = queryText.isEmpty
+                      ? '${addon.baseUrl}/catalog/$type/$catId.json'
+                      : '${addon.baseUrl}/catalog/$type/$catId/search=${Uri.encodeComponent(queryText)}.json';
+
+                  final response = await http.get(Uri.parse(url)).timeout(const Duration(seconds: 10));
+                  if (response.statusCode == 200) {
+                    final data = jsonDecode(response.body);
+                    final List metas = data['metas'] ?? [];
+                    for (final meta in metas) {
+                      if (meta is Map) {
+                        combinedResults.add({
+                          'id': meta['id']?.toString() ?? '',
+                          'title': meta['name']?.toString() ?? meta['title']?.toString() ?? 'Untitled',
+                          'coverImage': {
+                            'large': meta['poster']?.toString() ?? meta['coverImage']?.toString() ?? '',
+                          },
+                          'averageScore': double.tryParse(meta['imdbRating']?.toString() ?? '') != null
+                              ? (double.parse(meta['imdbRating'].toString()) * 10).toInt()
+                              : null,
+                          'format': (meta['type']?.toString() == 'series') ? 'TV' : 'MOVIE',
+                          'addonName': addon.name,
+                          'catalogName': catalog['name'] ?? addon.name,
+                        });
+                      }
+                    }
+                  }
+                } catch (e) {
+                  debugPrint('[stremio search] Error querying ${addon.name} / $catId: $e');
+                }
+              }());
+            }
+          }
+
+          if (futures.isNotEmpty) {
+            await Future.wait(futures);
+          }
+
+          newResults = combinedResults;
+          _hasNextPage = false;
         }
-
-        // Map Genres
-        List<int>? genreIds;
-        if (_selectedGenres.isNotEmpty) {
-          genreIds = _selectedGenres.map((g) => _mapMovieGenreToId(g)).whereType<int>().toList();
-        }
-
-        final rawResults = await _tmdbService.searchAndDiscover(
-          query: queryText,
-          year: parsedYear,
-          format: formatParam,
-          genres: genreIds,
-          sortBy: sortBy,
-        );
-
-        newResults = rawResults;
-        _hasNextPage = false; // TMDB simple pagination handled per page if needed, for now false
       } else {
         // AniList Anime/Manga Search
         final mediaType = widget.mode == AppMode.anime ? 'ANIME' : 'MANGA';
@@ -327,6 +436,33 @@ class _SearchPageState extends State<SearchPage> {
     final rowContent = Row(
       mainAxisSize: MainAxisSize.min,
       children: [
+        if (widget.mode == AppMode.movies) ...[
+          _buildFilterButton(
+            label: 'Source',
+            valueText: _selectedSource == 'tmdb'
+                ? 'TMDB (Online)'
+                : (_selectedSource == 'global'
+                    ? 'Global Addons'
+                    : _stremioSearchAddons.firstWhere((a) => a.id == _selectedSource, orElse: () => StremioAddon(url: '', id: '', name: 'Addon', description: '', version: '', icon: '', types: [], resources: [], catalogs: [], idPrefixes: [])).name),
+            onTap: _showSourceSelector,
+            isMobile: isMobile,
+          ),
+          const SizedBox(width: 8.0),
+          if (_selectedSource != 'tmdb' && _selectedSource != 'global' && _availableCatalogsForSelectedAddon.isNotEmpty) ...[
+            _buildFilterButton(
+              label: 'Catalog',
+              valueText: _selectedCatalogId == 'all'
+                  ? 'All Catalogs'
+                  : (_availableCatalogsForSelectedAddon.firstWhere(
+                      (cat) => '${cat['id']}_${cat['type']}' == _selectedCatalogId,
+                      orElse: () => {'name': 'Catalog'},
+                    )['name']?.toString() ?? 'Catalog'),
+              onTap: _showCatalogSelector,
+              isMobile: isMobile,
+            ),
+            const SizedBox(width: 8.0),
+          ],
+        ],
         searchWrapper,
         const SizedBox(width: 8.0),
         
@@ -343,26 +479,28 @@ class _SearchPageState extends State<SearchPage> {
         ),
         const SizedBox(width: 4.0),
 
-        _buildFilterButton(
-          label: 'Genre',
-          valueText: _selectedGenres.isEmpty 
-              ? 'ALL' 
-              : (_selectedGenres.length == 1 ? _selectedGenres.first : '${_selectedGenres.length} selected'),
-          onTap: _showMultiSelectGenres,
-          isMobile: isMobile,
-        ),
-
-        _buildFilterButton(
-          label: 'Year',
-          valueText: _selectedYear,
-          onTap: () => _showSingleSelectDialog(
-            title: 'Select Year',
-            options: years,
-            selected: _selectedYear,
-            onChanged: (val) => setState(() => _selectedYear = val),
+        if (widget.mode != AppMode.movies || _selectedSource == 'tmdb') ...[
+          _buildFilterButton(
+            label: 'Genre',
+            valueText: _selectedGenres.isEmpty 
+                ? 'ALL' 
+                : (_selectedGenres.length == 1 ? _selectedGenres.first : '${_selectedGenres.length} selected'),
+            onTap: _showMultiSelectGenres,
+            isMobile: isMobile,
           ),
-          isMobile: isMobile,
-        ),
+
+          _buildFilterButton(
+            label: 'Year',
+            valueText: _selectedYear,
+            onTap: () => _showSingleSelectDialog(
+              title: 'Select Year',
+              options: years,
+              selected: _selectedYear,
+              onChanged: (val) => setState(() => _selectedYear = val),
+            ),
+            isMobile: isMobile,
+          ),
+        ],
 
         if (widget.mode == AppMode.anime)
           _buildFilterButton(
@@ -388,14 +526,16 @@ class _SearchPageState extends State<SearchPage> {
     final rowContent = Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        _buildFilterButton(
-          label: 'Format',
-          valueText: _selectedFormats.isEmpty 
-              ? 'ALL' 
-              : (_selectedFormats.length == 1 ? _selectedFormats.first : '${_selectedFormats.length} selected'),
-          onTap: _showMultiSelectFormats,
-          isMobile: isMobile,
-        ),
+        if (widget.mode != AppMode.movies || _selectedSource == 'tmdb') ...[
+          _buildFilterButton(
+            label: 'Format',
+            valueText: _selectedFormats.isEmpty 
+                ? 'ALL' 
+                : (_selectedFormats.length == 1 ? _selectedFormats.first : '${_selectedFormats.length} selected'),
+            onTap: _showMultiSelectFormats,
+            isMobile: isMobile,
+          ),
+        ],
 
         if (widget.mode != AppMode.movies)
           _buildFilterButton(
@@ -410,22 +550,24 @@ class _SearchPageState extends State<SearchPage> {
             isMobile: isMobile,
           ),
 
-        _buildFilterButton(
-          label: 'Sorting',
-          valueText: _availableSortings[_selectedSorting] ?? 'Popularity',
-          onTap: () => _showSingleSelectDialog(
-            title: 'Select Sorting',
-            options: sortOptions.map((key) => _availableSortings[key]!).toList(),
-            selected: _availableSortings[_selectedSorting]!,
-            onChanged: (displayVal) {
-              final key = _availableSortings.entries
-                  .firstWhere((entry) => entry.value == displayVal)
-                  .key;
-              setState(() => _selectedSorting = key);
-            },
+        if (widget.mode != AppMode.movies || _selectedSource == 'tmdb') ...[
+          _buildFilterButton(
+            label: 'Sorting',
+            valueText: _availableSortings[_selectedSorting] ?? 'Popularity',
+            onTap: () => _showSingleSelectDialog(
+              title: 'Select Sorting',
+              options: sortOptions.map((key) => _availableSortings[key]!).toList(),
+              selected: _availableSortings[_selectedSorting]!,
+              onChanged: (displayVal) {
+                final key = _availableSortings.entries
+                    .firstWhere((entry) => entry.value == displayVal)
+                    .key;
+                setState(() => _selectedSorting = key);
+              },
+            ),
+            isMobile: isMobile,
           ),
-          isMobile: isMobile,
-        ),
+        ],
 
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 4.0),
@@ -806,6 +948,92 @@ class _SearchPageState extends State<SearchPage> {
     );
   }
 
+  void _showSourceSelector() {
+    final options = <String>[];
+    options.add('TMDB (Online)');
+    options.add('Global Addons');
+    for (final addon in _stremioSearchAddons) {
+      options.add(addon.name);
+    }
+
+    String current = 'TMDB (Online)';
+    if (_selectedSource == 'global') {
+      current = 'Global Addons';
+    } else if (_selectedSource != 'tmdb') {
+      final match = _stremioSearchAddons.firstWhere((a) => a.id == _selectedSource, orElse: () => _stremioSearchAddons.first);
+      current = match.name;
+    }
+
+    _showSingleSelectDialog(
+      title: 'Select Search Source',
+      options: options,
+      selected: current,
+      onChanged: (displayVal) {
+        setState(() {
+          if (displayVal == 'TMDB (Online)') {
+            _selectedSource = 'tmdb';
+            _selectedCatalogId = 'all';
+          } else if (displayVal == 'Global Addons') {
+            _selectedSource = 'global';
+            _selectedCatalogId = 'all';
+          } else {
+            final match = _stremioSearchAddons.firstWhere((a) => a.name == displayVal);
+            _selectedSource = match.id;
+            _selectedCatalogId = 'all';
+          }
+        });
+      },
+    );
+  }
+
+  void _showCatalogSelector() {
+    final catalogs = _availableCatalogsForSelectedAddon;
+    if (catalogs.isEmpty) return;
+
+    final options = <String>[];
+    options.add('All Catalogs');
+    for (final cat in catalogs) {
+      options.add(cat['name']?.toString() ?? 'Catalog');
+    }
+
+    String current = 'All Catalogs';
+    if (_selectedCatalogId != 'all') {
+      final match = catalogs.firstWhere(
+        (cat) => '${cat['id']}_${cat['type']}' == _selectedCatalogId,
+        orElse: () => catalogs.first,
+      );
+      current = match['name']?.toString() ?? 'Catalog';
+    }
+
+    _showSingleSelectDialog(
+      title: 'Select Addon Catalog',
+      options: options,
+      selected: current,
+      onChanged: (displayVal) {
+        setState(() {
+          if (displayVal == 'All Catalogs') {
+            _selectedCatalogId = 'all';
+          } else {
+            final match = catalogs.firstWhere((cat) => cat['name']?.toString() == displayVal);
+            _selectedCatalogId = '${match['id']}_${match['type']}';
+          }
+        });
+      },
+    );
+  }
+
+  List<Map<String, dynamic>> get _availableCatalogsForSelectedAddon {
+    if (_selectedSource == 'tmdb' || _selectedSource == 'global') return [];
+    final addon = _stremioSearchAddons.firstWhere(
+      (a) => a.id == _selectedSource,
+      orElse: () => _stremioSearchAddons.first,
+    );
+    return addon.catalogs.where((cat) {
+      final type = cat['type']?.toString();
+      return type == 'movie' || type == 'series';
+    }).map((cat) => Map<String, dynamic>.from(cat)).toList();
+  }
+
   void _showSingleSelectDialog({
     required String title,
     required List<String> options,
@@ -926,20 +1154,38 @@ class _SearchPageState extends State<SearchPage> {
                           ),
                         )
                       : _results.isEmpty
-                           ? const Center(
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(Icons.search_off_outlined, color: Colors.white24, size: 44.0),
-                                  SizedBox(height: 12.0),
+                           ? Center(
+                               child: Column(
+                                 mainAxisAlignment: MainAxisAlignment.center,
+                                 children: [
+                                   const Icon(Icons.search_off_outlined, color: Colors.white24, size: 44.0),
+                                   const SizedBox(height: 12.0),
                                   Text(
-                                    'No results found.',
-                                    style: TextStyle(color: Colors.white38, fontSize: 14.0, fontFamily: 'Outfit'),
+                                    _searchController.text.trim().isNotEmpty &&
+                                            _selectedSource != 'tmdb' &&
+                                            _selectedSource != 'global' &&
+                                            _availableCatalogsForSelectedAddon.isNotEmpty &&
+                                            !_availableCatalogsForSelectedAddon.any((c) =>
+                                                c['extra'] != null &&
+                                                (c['extra'] as List)
+                                                    .any((e) => e is Map && e['name'] == 'search'))
+                                        ? 'Search is not supported by this addon.'
+                                        : 'No results found.',
+                                    style: const TextStyle(color: Colors.white38, fontSize: 14.0, fontFamily: 'Outfit'),
                                   ),
-                                  SizedBox(height: 4.0),
+                                  const SizedBox(height: 4.0),
                                   Text(
-                                    'Try expanding your filters or query text.',
-                                    style: TextStyle(color: Colors.white24, fontSize: 11.5, fontFamily: 'Outfit'),
+                                    _searchController.text.trim().isNotEmpty &&
+                                            _selectedSource != 'tmdb' &&
+                                            _selectedSource != 'global' &&
+                                            _availableCatalogsForSelectedAddon.isNotEmpty &&
+                                            !_availableCatalogsForSelectedAddon.any((c) =>
+                                                c['extra'] != null &&
+                                                (c['extra'] as List)
+                                                    .any((e) => e is Map && e['name'] == 'search'))
+                                        ? 'Try searching globally or browsing the catalog categories.'
+                                        : 'Try expanding your filters or query text.',
+                                    style: const TextStyle(color: Colors.white24, fontSize: 11.5, fontFamily: 'Outfit'),
                                   ),
                                 ],
                               ),
@@ -970,7 +1216,14 @@ class _SearchPageState extends State<SearchPage> {
                                   return _SearchMediaCard(
                                     media: media,
                                     onTap: () {
-                                      widget.navigationState.selectAnime(media['id']);
+                                      if (widget.mode == AppMode.movies) {
+                                        final idStr = media['id']?.toString() ?? '';
+                                        final isTv = media['format'] == 'TV' || media['type']?.toString() == 'series';
+                                        final typeStr = isTv ? 'series' : 'movie';
+                                        widget.navigationState.selectMovie('$typeStr:$idStr');
+                                      } else {
+                                        widget.navigationState.selectAnime(media['id']);
+                                      }
                                     },
                                   );
                                 },
@@ -1002,17 +1255,26 @@ class _SearchMediaCardState extends State<_SearchMediaCard> {
 
   @override
   Widget build(BuildContext context) {
-    final coverUrl = widget.media['coverImage']?['large'] ?? '';
-    final title = widget.media['title']?['english'] ?? widget.media['title']?['romaji'] ?? 'Untitled';
+    final coverUrl = widget.media['coverImage'] is Map
+        ? (widget.media['coverImage']?['large']?.toString() ?? '')
+        : (widget.media['coverImage']?.toString() ?? '');
+    final title = widget.media['title'] is Map
+        ? (widget.media['title']?['english'] ?? widget.media['title']?['romaji'] ?? 'Untitled')
+        : (widget.media['title']?.toString() ?? 'Untitled');
     final double? rating = widget.media['averageScore'] != null
         ? (widget.media['averageScore'] as num).toDouble()
         : null;
     final String? format = widget.media['format'];
     final int? episodes = widget.media['episodes'];
+    final String? addonName = widget.media['addonName'];
 
     String infoString = '';
     if (format != null) infoString += format;
     if (episodes != null) infoString += ' · $episodes eps';
+    if (addonName != null) {
+      if (infoString.isNotEmpty) infoString += ' · ';
+      infoString += addonName;
+    }
 
     return MouseRegion(
       onEnter: (_) => setState(() => _isHovered = true),

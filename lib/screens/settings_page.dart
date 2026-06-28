@@ -3,6 +3,7 @@ import '../services/extension_service.dart';
 import '../services/stremio_addon_service.dart';
 import '../state/app_settings.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../services/suwayomi_manager.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -16,6 +17,8 @@ class _SettingsPageState extends State<SettingsPage> {
   final TextEditingController _repoUrlController = TextEditingController();
   final TextEditingController _repoNameController = TextEditingController();
   final TextEditingController _stremioUrlController = TextEditingController();
+  final TextEditingController _mangaRepoUrlController = TextEditingController();
+  final TextEditingController _mangaPortController = TextEditingController();
   
   int _activeCategoryIndex = 0; // 0: Extensions, 1: Addons, 2: General
   bool _isLoading = false;
@@ -27,6 +30,7 @@ class _SettingsPageState extends State<SettingsPage> {
   
   // Track syncing status for repositories by URL
   final Map<String, bool> _repoSyncing = {};
+  List<String> _mangaRepos = [];
 
   @override
   void initState() {
@@ -38,6 +42,12 @@ class _SettingsPageState extends State<SettingsPage> {
     setState(() => _isLoading = true);
     await _extensionService.init();
     await StremioAddonService().init();
+
+    // Load Manga Settings
+    final prefs = await SharedPreferences.getInstance();
+    _mangaRepos = prefs.getStringList('manga_repos') ?? ["https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.min.json"];
+    _mangaPortController.text = (prefs.getInt('manga_server_port') ?? 4567).toString();
+
     if (mounted) {
       setState(() => _isLoading = false);
     }
@@ -48,6 +58,8 @@ class _SettingsPageState extends State<SettingsPage> {
     _repoUrlController.dispose();
     _repoNameController.dispose();
     _stremioUrlController.dispose();
+    _mangaRepoUrlController.dispose();
+    _mangaPortController.dispose();
     super.dispose();
   }
 
@@ -137,6 +149,7 @@ class _SettingsPageState extends State<SettingsPage> {
       {'title': 'Extensions', 'icon': Icons.extension},
       {'title': 'Movies/TV Addons', 'icon': Icons.movie_filter},
       {'title': 'General', 'icon': Icons.settings_applications},
+      {'title': 'Manga Settings', 'icon': Icons.book},
     ];
 
     return Container(
@@ -854,6 +867,7 @@ class _SettingsPageState extends State<SettingsPage> {
       {'title': 'Extensions', 'icon': Icons.extension},
       {'title': 'Addons', 'icon': Icons.movie_filter},
       {'title': 'General', 'icon': Icons.settings_applications},
+      {'title': 'Manga Settings', 'icon': Icons.book},
     ];
 
     return Container(
@@ -956,6 +970,8 @@ class _SettingsPageState extends State<SettingsPage> {
             _buildStremioAddonsSection(isMobile),
           ] else if (_activeCategoryIndex == 2) ...[
             _buildGeneralSection(),
+          ] else if (_activeCategoryIndex == 3) ...[
+            _buildMangaSettingsSection(isMobile),
           ],
         ],
       ),
@@ -1303,6 +1319,342 @@ class _SettingsPageState extends State<SettingsPage> {
           ],
         );
       },
+    );
+  }
+
+  Future<void> _addMangaRepo() async {
+    final url = _mangaRepoUrlController.text.trim();
+    if (url.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a repository URL.')),
+      );
+      return;
+    }
+    if (_mangaRepos.contains(url)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Repository already exists.')),
+      );
+      return;
+    }
+    
+    setState(() => _isLoading = true);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _mangaRepos.add(url);
+      await prefs.setStringList('manga_repos', _mangaRepos);
+      _mangaRepoUrlController.clear();
+      
+      // Dynamic engine reload
+      SuwayomiManager.stop();
+      await SuwayomiManager.start();
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Manga repository added and engine restarted successfully.')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to add repository: $e'), backgroundColor: Colors.redAccent),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  Future<void> _removeMangaRepo(String url) async {
+    setState(() => _isLoading = true);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _mangaRepos.remove(url);
+      await prefs.setStringList('manga_repos', _mangaRepos);
+      
+      // Dynamic engine reload
+      SuwayomiManager.stop();
+      await SuwayomiManager.start();
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Manga repository removed and engine restarted.')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to remove repository: $e'), backgroundColor: Colors.redAccent),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  Future<void> _saveMangaPort() async {
+    final portStr = _mangaPortController.text.trim();
+    final port = int.tryParse(portStr);
+    if (port == null || port < 1024 || port > 65535) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a valid port number between 1024 and 65535.')),
+      );
+      return;
+    }
+    
+    setState(() => _isLoading = true);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt('manga_server_port', port);
+      
+      // Dynamic engine reload
+      SuwayomiManager.stop();
+      await SuwayomiManager.start();
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Manga server port updated and engine restarted.')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to update port: $e'), backgroundColor: Colors.redAccent),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  Widget _buildMangaSettingsSection(bool isMobile) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Manga Settings',
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 20.0,
+            fontWeight: FontWeight.bold,
+            fontFamily: 'Outfit',
+          ),
+        ),
+        const SizedBox(height: 8.0),
+        const Text(
+          'Configure your Suwayomi-Server port, custom extension repositories, and lifecycle status.',
+          style: TextStyle(color: Colors.white38, fontSize: 13.5, fontFamily: 'Outfit'),
+        ),
+        const SizedBox(height: 24.0),
+
+        // Port Configuration
+        _SettingsTile(
+          icon: Icons.lan_outlined,
+          title: 'Server Port',
+          subtitle: 'Port of the background Suwayomi-Server instance (default 4567).',
+          trailing: SizedBox(
+            width: 140,
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _mangaPortController,
+                    keyboardType: TextInputType.number,
+                    style: const TextStyle(color: Colors.white, fontSize: 13.0, fontFamily: 'Outfit'),
+                    decoration: InputDecoration(
+                      filled: true,
+                      fillColor: Colors.white10,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(6.0), borderSide: BorderSide.none),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 8.0),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8.0),
+                IconButton(
+                  icon: const Icon(Icons.save, color: Color(0xFFFF9F1C), size: 20),
+                  onPressed: _saveMangaPort,
+                  tooltip: 'Save and restart server',
+                ),
+              ],
+            ),
+          ),
+        ),
+
+        const SizedBox(height: 24.0),
+
+        // Engine Status control card
+        ValueListenableBuilder<String>(
+          valueListenable: SuwayomiManager.statusNotifier,
+          builder: (context, status, _) {
+            final isRunning = status.contains('running');
+            return Container(
+              padding: const EdgeInsets.all(16.0),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.02),
+                borderRadius: BorderRadius.circular(8.0),
+                border: Border.all(color: Colors.white10),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    isRunning ? Icons.play_circle : Icons.stop_circle,
+                    color: isRunning ? Colors.green : Colors.white38,
+                    size: 32,
+                  ),
+                  const SizedBox(width: 16.0),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Manga Engine Server',
+                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14.0, fontFamily: 'Outfit'),
+                        ),
+                        Text(
+                          'Status: $status',
+                          style: const TextStyle(color: Colors.white54, fontSize: 12.0, fontFamily: 'Outfit'),
+                        ),
+                      ],
+                    ),
+                  ),
+                  ElevatedButton(
+                    onPressed: () async {
+                      if (isRunning) {
+                        SuwayomiManager.stop();
+                      } else {
+                        await SuwayomiManager.start();
+                      }
+                      setState(() {});
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: isRunning ? Colors.redAccent : const Color(0xFFFF9F1C),
+                      foregroundColor: Colors.black,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6.0)),
+                    ),
+                    child: Text(
+                      isRunning ? 'Stop Server' : 'Start Server',
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+
+        const SizedBox(height: 32.0),
+        Container(height: 1.0, color: Colors.white10),
+        const SizedBox(height: 24.0),
+
+        // Manga Extension Repositories
+        const Text(
+          'Manga Extension Repositories',
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 16.0,
+            fontWeight: FontWeight.bold,
+            fontFamily: 'Outfit',
+          ),
+        ),
+        const SizedBox(height: 8.0),
+        const Text(
+          'Configure repositories index URLs (Tachiyomi extensions). Adding a URL will sync new extensions.',
+          style: TextStyle(color: Colors.white38, fontSize: 12.5),
+        ),
+        const SizedBox(height: 16.0),
+
+        // Add repository fields
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _mangaRepoUrlController,
+                style: const TextStyle(color: Colors.white, fontSize: 13.0, fontFamily: 'Outfit'),
+                decoration: InputDecoration(
+                  hintText: 'https://example.com/index.min.json',
+                  hintStyle: const TextStyle(color: Colors.white38),
+                  filled: true,
+                  fillColor: Colors.white.withValues(alpha: 0.03),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8.0), borderSide: const BorderSide(color: Colors.white10)),
+                  enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8.0), borderSide: const BorderSide(color: Colors.white10)),
+                  focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8.0), borderSide: const BorderSide(color: Colors.white38)),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12.0),
+            ElevatedButton.icon(
+              icon: const Icon(Icons.add, color: Colors.black, size: 16),
+              label: const Text('Add', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+              onPressed: _isLoading ? null : _addMangaRepo,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFFF9F1C),
+                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 14.0),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6.0)),
+              ),
+            ),
+          ],
+        ),
+
+        const SizedBox(height: 16.0),
+
+        // Repos list
+        ListView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: _mangaRepos.length,
+          itemBuilder: (context, index) {
+            final url = _mangaRepos[index];
+            final isDefault = url.contains('keiyoushi');
+
+            return Container(
+              margin: const EdgeInsets.only(bottom: 8.0),
+              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 10.0),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.02),
+                borderRadius: BorderRadius.circular(8.0),
+                border: Border.all(color: Colors.white10),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.source, color: Colors.white38, size: 18.0),
+                  const SizedBox(width: 12.0),
+                  Expanded(
+                    child: Text(
+                      url,
+                      style: const TextStyle(color: Colors.white, fontSize: 13.0, fontFamily: 'Outfit'),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  if (isDefault)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6.0, vertical: 2.0),
+                      decoration: BoxDecoration(
+                        color: Colors.white12,
+                        borderRadius: BorderRadius.circular(4.0),
+                      ),
+                      child: const Text(
+                        'DEFAULT',
+                        style: TextStyle(color: Colors.white54, fontSize: 8.0, fontWeight: FontWeight.bold),
+                      ),
+                    )
+                  else
+                    IconButton(
+                      icon: const Icon(Icons.delete, color: Colors.redAccent, size: 18.0),
+                      onPressed: () => _removeMangaRepo(url),
+                      tooltip: 'Remove Repository',
+                    ),
+                ],
+              ),
+            );
+          },
+        ),
+      ],
     );
   }
 }

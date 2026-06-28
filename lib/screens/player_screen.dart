@@ -7,6 +7,7 @@ import 'package:media_kit/media_kit.dart' hide PlayerState;
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:window_manager/window_manager.dart';
 import '../widgets/torrent_selector_panel.dart';
+import '../widgets/movie_stream_selector_panel.dart';
 import '../services/download_service.dart';
 import '../state/player_state.dart';
 import '../services/stremio_addon_service.dart';
@@ -209,7 +210,10 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
   }
 
   void _openTorrentSelectorPanel({int? epNum}) {
-    if (widget.anilistId == null) return;
+    if (widget.anilistId == null) {
+      _openMovieStreamSelectorPanel(epNum: epNum);
+      return;
+    }
     final targetEpNum = epNum ?? PlayerState().episodeNumber ?? widget.episodeNumber ?? 1;
     final double screenWidth = MediaQuery.of(context).size.width;
     final bool isMobileSheet = screenWidth < 650;
@@ -243,7 +247,8 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
             child: ClipRRect(
               borderRadius: const BorderRadius.vertical(top: Radius.circular(15.0)),
               child: TorrentSelectorPanel(
-                anilistId: widget.anilistId!,
+                isFromPlayer: true,
+                anilistId: widget.anilistId,
                 titles: widget.titles ?? [],
                 episodeCount: widget.episodeCount ?? 0,
                 episodeNumber: targetEpNum,
@@ -258,6 +263,127 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
                     episodeNumber: targetEpNum,
                   );
                   Navigator.of(context).pop();
+                },
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _openMovieStreamSelectorPanel({int? epNum}) async {
+    final String? movieId = PlayerState().movieId;
+    if (movieId == null) return;
+
+    // Show loading
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => const Center(
+        child: CircularProgressIndicator(color: Colors.white),
+      ),
+    );
+
+    final addonService = StremioAddonService();
+    await addonService.init();
+
+    final parts = movieId.split(':');
+    final String type = parts.length > 1 ? parts[0] : (widget.isMovie == true ? 'movie' : 'series');
+    final String realId = parts.last;
+    final targetEpNum = epNum ?? PlayerState().episodeNumber ?? widget.episodeNumber ?? 1;
+
+    final targetId = type == 'series' ? '$realId:$targetEpNum' : realId;
+
+    final streamAddons = addonService.streamAddons
+        .where((a) => a.matchesId(targetId))
+        .where((a) => a.supportsType(type) || a.types.isEmpty)
+        .toList();
+
+    final streamFutures = <Future<List<dynamic>>>[];
+    for (final addon in streamAddons) {
+      streamFutures.add(() async {
+        try {
+          final url = '${addon.baseUrl}/stream/$type/$targetId.json';
+          final response = await http.get(Uri.parse(url)).timeout(const Duration(seconds: 10));
+          if (response.statusCode == 200) {
+            final body = jsonDecode(response.body);
+            final List streams = body['streams'] ?? [];
+            return streams
+                .map((s) => Map<String, dynamic>.from(s as Map)..['addonName'] = addon.name)
+                .toList();
+          }
+        } catch (e) {
+          debugPrint('[stream] Error from ${addon.name}: $e');
+        }
+        return [];
+      }());
+    }
+
+    final allStreams = <dynamic>[];
+    if (streamFutures.isNotEmpty) {
+      final results = await Future.wait(streamFutures);
+      for (final r in results) {
+        allStreams.addAll(r);
+      }
+    }
+
+    if (mounted) Navigator.pop(context);
+
+    if (allStreams.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No stream links found for this title.')),
+        );
+      }
+      return;
+    }
+
+    if (!mounted) return;
+    final double screenWidth = MediaQuery.of(context).size.width;
+    final bool isMobileSheet = screenWidth < 650;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black54,
+      builder: (context) {
+        return Align(
+          alignment: Alignment.bottomCenter,
+          child: Container(
+            width: isMobileSheet ? double.infinity : 800.0,
+            height: MediaQuery.of(context).size.height * (isMobileSheet ? 0.8 : 0.65),
+            margin: isMobileSheet
+                ? EdgeInsets.zero
+                : const EdgeInsets.only(left: 24.0, right: 24.0, top: 24.0),
+            decoration: BoxDecoration(
+              color: const Color(0xFF0C0C0E),
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(16.0)),
+              border: Border.all(color: Colors.white10, width: 1.0),
+              boxShadow: const [
+                BoxShadow(
+                  color: Colors.black87,
+                  blurRadius: 30,
+                  spreadRadius: 2,
+                )
+              ],
+            ),
+            child: ClipRRect(
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(15.0)),
+              child: MovieStreamSelectorPanel(
+                isFromPlayer: true,
+                streams: allStreams,
+                title: widget.title,
+                onStreamSelected: (stream) {
+                  Navigator.pop(context);
+                  final String streamUrl = stream['url']?.toString() ?? '';
+                  final String streamTitle = stream['title']?.toString() ?? 'Stream';
+                  PlayerState().updateActiveEpisode(
+                    streamUrl: streamUrl,
+                    title: streamTitle,
+                    episodeNumber: targetEpNum,
+                  );
                 },
               ),
             ),
@@ -885,38 +1011,35 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
     );
 
     final addonService = StremioAddonService();
-    final enabledStreamAddons = addonService.addons
-        .where((a) => a.isEnabled && a.resources.contains('stream'))
-        .toList();
+    final enabledStreamAddons = addonService.streamAddons;
 
     List<dynamic> allStreams = [];
     final String type = PlayerState().isMovie == true ? 'movie' : 'series';
 
     final List<Future<List<dynamic>>> streamFutures = [];
     for (final addon in enabledStreamAddons) {
-      if (addon.types.contains(type)) {
-        if (addon.idPrefixes.isNotEmpty && !addon.idPrefixes.any((prefix) => targetId.startsWith(prefix))) {
-          continue;
-        }
-        streamFutures.add(() async {
-          try {
-            final streamUrl = '${addon.url.replaceAll('/manifest.json', '')}/stream/$type/$targetId.json';
-            final response = await http.get(Uri.parse(streamUrl)).timeout(const Duration(seconds: 8));
+      if (!addon.supportsType(type) && addon.types.isNotEmpty) continue;
+      if (!addon.matchesId(targetId)) continue;
 
-            if (response.statusCode == 200) {
-              final data = jsonDecode(response.body);
-              final List streams = data['streams'] ?? [];
-              return streams.map((s) => {
-                ...s,
-                'addonName': addon.name,
-              }).toList();
-            }
-          } catch (e) {
-            debugPrint('Error loading stream from ${addon.name}: $e');
+      streamFutures.add(() async {
+        try {
+          final url = '${addon.baseUrl}/stream/$type/$targetId.json';
+          final response =
+              await http.get(Uri.parse(url)).timeout(const Duration(seconds: 10));
+
+          if (response.statusCode == 200) {
+            final data = jsonDecode(response.body);
+            final List streams = data['streams'] ?? [];
+            return streams
+                .map((s) => Map<String, dynamic>.from(s as Map)
+                  ..['addonName'] = addon.name)
+                .toList();
           }
-          return [];
-        }());
-      }
+        } catch (e) {
+          debugPrint('[stream/player] Error from ${addon.name}: $e');
+        }
+        return <dynamic>[];
+      }());
     }
 
     final streamResults = await Future.wait(streamFutures);

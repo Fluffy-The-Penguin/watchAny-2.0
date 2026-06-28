@@ -329,12 +329,97 @@ class TmdbService {
 
   // Fetch basic movie/TV show details by ID for the library page (real-time fetching)
   Future<Map<String, dynamic>?> fetchTmdbBasicDetails(int id, String format) async {
-    if (!isConfigured) return null;
     final isMovie = format == 'MOVIE';
+    final type = isMovie ? 'movie' : 'series';
+    final imdbId = 'tt${id.toString().padLeft(7, '0')}';
+
+    // 1. Try querying Cinemeta first (extremely fast, public, and not blocked by ISPs)
+    final cinemetaUrl = 'https://v3-cinemeta.strem.io/meta/$type/$imdbId.json';
+    try {
+      final response = await http.get(Uri.parse(cinemetaUrl)).timeout(const Duration(seconds: 4));
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body);
+        if (decoded['meta'] is Map) {
+          final meta = decoded['meta'];
+          final double imdbScore = double.tryParse(meta['imdbRating']?.toString() ?? '') ?? 0.0;
+          return {
+            'id': id,
+            'title': {
+              'english': meta['name'] ?? '',
+              'romaji': meta['name'] ?? '',
+            },
+            'coverImage': {
+              'large': meta['poster'] ?? '',
+            },
+            'averageScore': (imdbScore * 10).toInt(),
+            'format': format,
+            'status': meta['released'] != null ? 'Released' : '',
+          };
+        }
+      }
+    } catch (e) {
+      debugPrint('Error fetching basic details from Cinemeta for $imdbId: $e');
+    }
+
+    // 2. Fallback to TMDB find API
+    if (!isConfigured) return null;
+    final findUrl = '$_baseUrl/find/$imdbId?api_key=$tmdbApiKey&external_source=imdb_id';
+    try {
+      final response = await http.get(Uri.parse(findUrl)).timeout(const Duration(seconds: 4));
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body);
+        final movieResults = decoded['movie_results'] as List?;
+        final tvResults = decoded['tv_results'] as List?;
+        
+        dynamic match;
+        bool matchedMovie = isMovie;
+        
+        if (isMovie && movieResults != null && movieResults.isNotEmpty) {
+          match = movieResults.first;
+        } else if (!isMovie && tvResults != null && tvResults.isNotEmpty) {
+          match = tvResults.first;
+        }
+        
+        // Fallback: check other lists if format match failed
+        if (match == null) {
+          if (movieResults != null && movieResults.isNotEmpty) {
+            match = movieResults.first;
+            matchedMovie = true;
+          } else if (tvResults != null && tvResults.isNotEmpty) {
+            match = tvResults.first;
+            matchedMovie = false;
+          }
+        }
+        
+        if (match != null) {
+          return {
+            'id': id,
+            'title': {
+              'english': match[matchedMovie ? 'title' : 'name'] ?? '',
+              'romaji': match[matchedMovie ? 'original_title' : 'original_name'] ?? '',
+            },
+            'coverImage': {
+              'large': match['poster_path'] != null 
+                  ? 'https://image.tmdb.org/t/p/w300${match['poster_path']}' 
+                  : '',
+            },
+            'averageScore': (match['vote_average'] as num?) != null 
+                ? ((match['vote_average'] as num).toDouble() * 10).toInt()
+                : null,
+            'format': format,
+            'status': '',
+          };
+        }
+      }
+    } catch (e) {
+      debugPrint('Error finding TMDB details by IMDB ID digits $id: $e');
+    }
+
+    // 3. Fallback to direct TMDB ID lookup if /find lookup didn't yield results
     final searchType = isMovie ? 'movie' : 'tv';
     final url = '$_baseUrl/$searchType/$id?api_key=$tmdbApiKey';
     try {
-      final response = await http.get(Uri.parse(url));
+      final response = await http.get(Uri.parse(url)).timeout(const Duration(seconds: 4));
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         return {
@@ -356,7 +441,7 @@ class TmdbService {
         };
       }
     } catch (e) {
-      debugPrint('Error fetching basic TMDB details for $id: $e');
+      debugPrint('Error fetching basic TMDB details for direct ID $id: $e');
     }
     return null;
   }

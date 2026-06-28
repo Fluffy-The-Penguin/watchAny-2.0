@@ -39,6 +39,35 @@ class TorrServerManager {
     return startPort;
   }
 
+  static Future<void> _applySettings(int port) async {
+    // Delay slightly to give the server a moment to initialize if newly started
+    Future.delayed(const Duration(seconds: 1), () async {
+      try {
+        final settingsUrl = 'http://127.0.0.1:$port/settings';
+        await http.post(
+          Uri.parse(settingsUrl),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({
+            'action': 'set',
+            'sets': {
+              'CacheSize': 209715200,          // 200MB Cache for smooth buffering
+              'Preload': 10,                   // 10% of CacheSize = 20MB Preload (super fast start!)
+              'ReaderReadAhead': 90,           // 90% Read ahead
+              'TorrentDisconnectTimeout': 30,  // Recycle stale connections quickly
+              'PeersLifeTime': 30,
+              'MaxPeers': 200,
+              'PendingPeers': 20,
+              'Aportlimit': true
+            }
+          }),
+        ).timeout(const Duration(seconds: 3));
+        debugPrint('[TorrServerManager] Optimal streaming settings applied successfully.');
+      } catch (e) {
+        debugPrint('[TorrServerManager] Failed to apply streaming settings: $e');
+      }
+    });
+  }
+
   static Future<void> start() async {
     if (_process != null) {
       debugPrint('TorrServer already running or starting...');
@@ -50,6 +79,7 @@ class TorrServerManager {
 
       if (await _isTorrServerRunning(_port)) {
         debugPrint('Reusing existing TorrServer instance on port $_port.');
+        _applySettings(_port);
         return;
       }
 
@@ -83,6 +113,7 @@ class TorrServerManager {
       });
 
       debugPrint('TorrServer started successfully!');
+      _applySettings(_port);
     } catch (e) {
       debugPrint('Error starting TorrServer: $e');
     }

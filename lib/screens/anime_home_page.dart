@@ -190,20 +190,14 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
                   listenable: PlayerState(),
                   builder: (context, _) {
                     return FutureBuilder<List<dynamic>>(
-                      future: PlayerState.getContinueWatchingList(),
+                      future: PlayerState.getContinueWatchingList(isAnime: true),
                       builder: (context, snapshot) {
                         if (!snapshot.hasData || snapshot.data!.isEmpty) {
                           return const SizedBox.shrink();
                         }
-                        final animeOnly = snapshot.data!
-                            .where((item) => int.tryParse(item['id']?.toString() ?? '') != null)
-                            .toList();
-                        if (animeOnly.isEmpty) {
-                          return const SizedBox.shrink();
-                        }
                         return _RailwayTrack(
                           title: 'Continue Watching',
-                          initialItems: animeOnly,
+                          initialItems: snapshot.data!,
                           onLoadMore: (page) async => const [],
                           navigationState: widget.navigationState,
                         );
@@ -744,7 +738,11 @@ class _RailwayTrackState extends State<_RailwayTrack> {
                   final animeItem = _items[index];
                   return _AnimeCard(
                     anime: animeItem,
-                    onTap: () => widget.navigationState.selectAnime(animeItem['id']),
+                    onTap: () {
+                      final rawId = animeItem['id'];
+                      final int? parsedId = rawId is int ? rawId : int.tryParse(rawId?.toString() ?? '');
+                      widget.navigationState.selectAnime(parsedId);
+                    },
                   );
                 },
               ),

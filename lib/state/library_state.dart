@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:http/http.dart' as http;
 import '../services/anilist_service.dart';
 import 'navigation_state.dart';
 
@@ -96,11 +97,32 @@ class LibraryState extends ChangeNotifier {
     final libraryItems = _items.where((item) => item.mode == localModeStr).toList();
     if (libraryItems.isEmpty) return;
     
+    final prefs = await SharedPreferences.getInstance();
+
+    if (mode == AppMode.movies) {
+      final futures = libraryItems.where((item) => item.format == 'SERIES').map((item) async {
+        final imdbId = 'tt${item.id.toString().padLeft(7, '0')}';
+        final url = 'https://v3-cinemeta.strem.io/meta/series/$imdbId.json';
+        try {
+          final response = await http.get(Uri.parse(url)).timeout(const Duration(seconds: 4));
+          if (response.statusCode == 200) {
+            final decoded = jsonDecode(response.body);
+            final videos = decoded['meta']?['videos'] as List? ?? [];
+            final int latestReleased = videos.length;
+            if (latestReleased > item.watchedEpisodes) {
+              await prefs.setInt('notif_acknowledged_movies_${item.id}', latestReleased);
+            }
+          }
+        } catch (_) {}
+      });
+      await Future.wait(futures);
+      await updateNotificationCount();
+      return;
+    }
+
     final ids = libraryItems.map((item) => item.id).toList();
     try {
       final details = await AnilistService().fetchLibraryDetails(ids, type: anilistTypeStr);
-      final prefs = await SharedPreferences.getInstance();
-      
       for (var media in details) {
         final id = media['id'];
         final localItem = libraryItems.firstWhere((item) => item.id == id);
@@ -239,29 +261,33 @@ class LibraryState extends ChangeNotifier {
       } catch (_) {}
     }
 
-    // 3. MOVIES
-    final movieItems = _items.where((item) => item.mode == 'movies').toList();
+    // 3. MOVIES / TV Series notification updates using Cinemeta
+    final movieItems = _items.where((item) => item.mode == 'movies' && item.format == 'SERIES').toList();
     int movieCount = 0;
     if (movieItems.isNotEmpty) {
-      final ids = movieItems.map((item) => item.id).toList();
-      try {
-        final details = await AnilistService().fetchLibraryDetails(ids, type: 'ANIME');
-        for (var media in details) {
-          final id = media['id'];
-          final localItem = movieItems.firstWhere((item) => item.id == id);
-          final int? nextEpisode = media['nextAiringEpisode']?['episode'];
-          final int totalEpisodes = media['episodes'] ?? 0;
-          final int latestReleased = nextEpisode != null ? (nextEpisode - 1) : totalEpisodes;
-          
-          int ackEp = prefs.getInt('notif_acknowledged_movies_$id') ?? localItem.watchedEpisodes;
-          if (ackEp < localItem.watchedEpisodes) {
-            ackEp = localItem.watchedEpisodes;
+      final futures = movieItems.map((item) async {
+        final imdbId = 'tt${item.id.toString().padLeft(7, '0')}';
+        final url = 'https://v3-cinemeta.strem.io/meta/series/$imdbId.json';
+        try {
+          final response = await http.get(Uri.parse(url)).timeout(const Duration(seconds: 4));
+          if (response.statusCode == 200) {
+            final decoded = jsonDecode(response.body);
+            final videos = decoded['meta']?['videos'] as List? ?? [];
+            final int latestReleased = videos.length;
+            
+            int ackEp = prefs.getInt('notif_acknowledged_movies_${item.id}') ?? item.watchedEpisodes;
+            if (ackEp < item.watchedEpisodes) {
+              ackEp = item.watchedEpisodes;
+            }
+            if (latestReleased > ackEp) {
+              return 1;
+            }
           }
-          if (latestReleased > ackEp) {
-            movieCount++;
-          }
-        }
-      } catch (_) {}
+        } catch (_) {}
+        return 0;
+      });
+      final results = await Future.wait(futures);
+      movieCount = results.fold(0, (sum, val) => sum + val);
     }
 
     bool changed = false;

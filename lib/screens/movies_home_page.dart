@@ -24,6 +24,7 @@ class _MoviesHomePageState extends State<MoviesHomePage> {
   bool _isFetching = true;
   List<Map<String, dynamic>> _catalogRows = [];
   Map<String, dynamic>? _featuredItem;
+  bool _hasEnabledAddons = false;
 
   @override
   void initState() {
@@ -38,78 +39,68 @@ class _MoviesHomePageState extends State<MoviesHomePage> {
       _isFetching = true;
       _catalogRows = [];
       _featuredItem = null;
+      _hasEnabledAddons = false;
     });
 
     final addonService = StremioAddonService();
     await addonService.init();
 
-    final enabledCatalogAddons = addonService.addons
-        .where((a) => a.isEnabled && a.resources.contains('catalog'))
-        .toList();
+    final enabledCatalogAddons = addonService.catalogAddons;
+
+    if (!mounted) return;
+    setState(() {
+      _hasEnabledAddons = enabledCatalogAddons.isNotEmpty;
+      _isLoading = false;
+    });
 
     if (enabledCatalogAddons.isEmpty) {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-          _isFetching = false;
-        });
-      }
+      setState(() => _isFetching = false);
       return;
     }
 
     final prefs = await SharedPreferences.getInstance();
-    final List<String> selectedAddons = prefs.getStringList('stremio_homepage_selected_addons') ?? [];
+    final List<String> selectedAddonIds =
+        prefs.getStringList('stremio_homepage_selected_addons') ?? [];
 
-    List<StremioAddon> targetAddons = [];
-    if (selectedAddons.isNotEmpty) {
-      for (final addonId in selectedAddons) {
-        final addonObj = enabledCatalogAddons.firstWhere(
-          (a) => a.id == addonId,
-          orElse: () => StremioAddon(id: '', name: '', version: '', description: '', url: '', icon: '', types: [], resources: [], catalogs: [], idPrefixes: []),
-        );
-        if (addonObj.id.isNotEmpty) {
-          targetAddons.add(addonObj);
-        }
-      }
+    List<StremioAddon> targetAddons;
+    if (selectedAddonIds.isNotEmpty) {
+      targetAddons = selectedAddonIds
+          .map((id) => enabledCatalogAddons.where((a) => a.id == id).toList())
+          .expand((x) => x)
+          .toList();
     } else {
       targetAddons = enabledCatalogAddons.take(5).toList();
-    }
-
-    if (mounted) {
-      setState(() {
-        _isLoading = false;
-      });
     }
 
     final List<Future<void>> fetchTasks = [];
 
     for (final addon in targetAddons) {
-      final List<String> selectedCatalogs = prefs.getStringList('stremio_homepage_selected_catalogs_${addon.id}') ?? [];
+      final List<String> selectedCatalogIds =
+          prefs.getStringList('stremio_homepage_selected_catalogs_${addon.id}') ?? [];
 
-      List<dynamic> targetCatalogs = [];
-      if (selectedCatalogs.isNotEmpty) {
-        for (final catId in selectedCatalogs) {
-          final catObj = addon.catalogs.firstWhere(
-            (c) => c['id'] == catId,
-            orElse: () => <String, dynamic>{},
-          );
-          if (catObj.isNotEmpty) {
-            targetCatalogs.add(catObj);
-          }
-        }
+      List<Map<String, dynamic>> targetCatalogs;
+      if (selectedCatalogIds.isNotEmpty) {
+        targetCatalogs = selectedCatalogIds
+            .map((catId) => addon.catalogs.where((c) => c['id'] == catId).toList())
+            .expand((x) => x)
+            .toList();
       } else {
-        targetCatalogs = addon.catalogs.take(5).toList();
+        targetCatalogs = addon.catalogs.take(5).cast<Map<String, dynamic>>().toList();
       }
 
       for (final cat in targetCatalogs) {
-        final type = cat['type'] ?? 'movie';
-        final id = cat['id'] ?? '';
-        final name = cat['name'] ?? addon.name;
+        final type = (cat['type'] as String?) ?? 'movie';
+        final id = (cat['id'] as String?) ?? '';
+        final catName = (cat['name'] as String?) ?? addon.name;
+
+        if (id.isEmpty) continue;
 
         final task = () async {
           try {
-            final catalogUrl = '${addon.url.replaceAll('/manifest.json', '')}/catalog/$type/$id.json';
-            final response = await http.get(Uri.parse(catalogUrl)).timeout(const Duration(seconds: 8));
+            final catalogUrl = '${addon.baseUrl}/catalog/$type/$id.json';
+            final response = await http
+                .get(Uri.parse(catalogUrl))
+                .timeout(const Duration(seconds: 10));
 
             if (response.statusCode == 200) {
               final data = jsonDecode(response.body);
@@ -119,15 +110,18 @@ class _MoviesHomePageState extends State<MoviesHomePage> {
                   _catalogRows = List.from(_catalogRows)
                     ..add({
                       'addonName': addon.name,
-                      'catalogName': name,
+                      'catalogName': catName,
                       'type': type,
                       'items': metas,
                     });
 
+                  // Feature the first item that has a background image
                   if (_featuredItem == null) {
                     for (final item in metas) {
-                      if (item['background'] != null && item['background'].toString().isNotEmpty) {
-                        _featuredItem = item;
+                      final bg = item['background']?.toString() ?? '';
+                      final poster = item['poster']?.toString() ?? '';
+                      if (bg.isNotEmpty || poster.isNotEmpty) {
+                        _featuredItem = Map<String, dynamic>.from(item);
                         break;
                       }
                     }
@@ -136,7 +130,7 @@ class _MoviesHomePageState extends State<MoviesHomePage> {
               }
             }
           } catch (e) {
-            debugPrint('Error loading catalog $name from ${addon.name}: $e');
+            debugPrint('Error loading catalog "$catName" from "${addon.name}": $e');
           }
         }();
         fetchTasks.add(task);
@@ -148,9 +142,7 @@ class _MoviesHomePageState extends State<MoviesHomePage> {
     }
 
     if (mounted) {
-      setState(() {
-        _isFetching = false;
-      });
+      setState(() => _isFetching = false);
     }
   }
 
@@ -165,10 +157,7 @@ class _MoviesHomePageState extends State<MoviesHomePage> {
       );
     }
 
-    final StremioAddonService addonService = StremioAddonService();
-    final enabledCatalogAddons = addonService.addons.where((a) => a.isEnabled && a.resources.contains('catalog')).toList();
-
-    if (enabledCatalogAddons.isEmpty) {
+    if (!_hasEnabledAddons) {
       return Scaffold(
         backgroundColor: Colors.black,
         body: Center(
@@ -180,7 +169,7 @@ class _MoviesHomePageState extends State<MoviesHomePage> {
                 const Icon(Icons.movie_creation_outlined, color: Colors.white24, size: 64.0),
                 const SizedBox(height: 18.0),
                 const Text(
-                  'No Catalog Addons Enabled',
+                  'No Catalog Addons Installed',
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: 20.0,
@@ -190,7 +179,7 @@ class _MoviesHomePageState extends State<MoviesHomePage> {
                 ),
                 const SizedBox(height: 8.0),
                 const Text(
-                  'Install Stremio addons (like Cinemeta) from the Settings -> Movies/TV Addons page to load catalogs.',
+                  'Install Stremio addons (like Cinemeta) from Settings → Movies/TV Addons to load catalogs.',
                   textAlign: TextAlign.center,
                   style: TextStyle(color: Colors.white38, fontSize: 14.0),
                 ),
@@ -198,13 +187,12 @@ class _MoviesHomePageState extends State<MoviesHomePage> {
                 ElevatedButton.icon(
                   onPressed: () => widget.navigationState.setPage(TabPage.settings),
                   icon: const Icon(Icons.settings, color: Colors.black, size: 18.0),
-                  label: const Text('Go to Settings', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                  label: const Text('Go to Settings',
+                      style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 14.0),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8.0),
-                    ),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
                   ),
                 ),
               ],
@@ -228,65 +216,39 @@ class _MoviesHomePageState extends State<MoviesHomePage> {
               // 1. Featured Hero Banner
               if (_featuredItem != null) _buildHeroBanner(_featuredItem!),
 
-              // 2. Continue Watching Railway (Filtered for Movie Mode)
-              ListenableBuilder(
-                listenable: PlayerState(),
-                builder: (context, _) {
-                  return FutureBuilder<List<dynamic>>(
-                    future: PlayerState.getContinueWatchingList(),
-                    builder: (context, snapshot) {
-                      if (!snapshot.hasData || snapshot.data!.isEmpty) {
-                        return const SizedBox.shrink();
-                      }
-                      // Keep only items that are NOT AniList integers (Stremio IDs start with tt/etc)
-                      final movieOnly = snapshot.data!
-                          .where((item) => int.tryParse(item['id']?.toString() ?? '') == null)
-                          .toList();
-                      if (movieOnly.isEmpty) {
-                        return const SizedBox.shrink();
-                      }
-                      return Padding(
-                        padding: const EdgeInsets.only(left: 24.0, right: 24.0, top: 12.0),
-                        child: _MovieRailwayTrack(
-                          title: 'Continue Watching',
-                          items: movieOnly,
-                          navigationState: widget.navigationState,
-                        ),
-                      );
-                    },
-                  );
-                },
-              ),
+              // 2. Continue Watching (Stremio items only)
+              _ContinueWatchingRail(navigationState: widget.navigationState),
 
               // 3. Dynamic Catalog Railways
               if (_catalogRows.isEmpty)
-                if (_isFetching)
-                  const Center(
-                    child: Padding(
-                      padding: EdgeInsets.symmetric(vertical: 64.0),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          CircularProgressIndicator(color: Colors.white, strokeWidth: 2.0),
-                          SizedBox(height: 16.0),
-                          Text(
-                            'Loading catalogs...',
-                            style: TextStyle(color: Colors.white38, fontSize: 13.0, fontFamily: 'Outfit'),
+                _isFetching
+                    ? const Center(
+                        child: Padding(
+                          padding: EdgeInsets.symmetric(vertical: 64.0),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              CircularProgressIndicator(color: Colors.white, strokeWidth: 2.0),
+                              SizedBox(height: 16.0),
+                              Text(
+                                'Loading catalogs...',
+                                style: TextStyle(
+                                    color: Colors.white38, fontSize: 13.0, fontFamily: 'Outfit'),
+                              ),
+                            ],
                           ),
-                        ],
-                      ),
-                    ),
-                  )
-                else
-                  const Center(
-                    child: Padding(
-                      padding: EdgeInsets.symmetric(vertical: 64.0),
-                      child: Text(
-                        'No content rows returned by enabled addons.',
-                        style: TextStyle(color: Colors.white38),
-                      ),
-                    ),
-                  )
+                        ),
+                      )
+                    : const Center(
+                        child: Padding(
+                          padding: EdgeInsets.symmetric(vertical: 64.0),
+                          child: Text(
+                            'No content returned by enabled addons.\nCheck your addon settings.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(color: Colors.white38),
+                          ),
+                        ),
+                      )
               else
                 Padding(
                   padding: const EdgeInsets.only(bottom: 48.0),
@@ -301,7 +263,7 @@ class _MoviesHomePageState extends State<MoviesHomePage> {
                         child: Padding(
                           padding: const EdgeInsets.only(top: 12.0),
                           child: _MovieRailwayTrack(
-                            title: '${row['catalogName']} (${row['addonName']})',
+                            title: '${row['catalogName']} · ${row['addonName']}',
                             items: row['items'],
                             navigationState: widget.navigationState,
                           ),
@@ -318,16 +280,19 @@ class _MoviesHomePageState extends State<MoviesHomePage> {
   }
 
   Widget _buildHeroBanner(Map<String, dynamic> item) {
-    final background = item['background'] ?? item['poster'] ?? '';
-    final title = item['name'] ?? 'Featured Content';
-    final description = item['description'] ?? 'No description available.';
-    final double? rating = item['imdbRating'] != null ? double.tryParse(item['imdbRating'].toString()) : null;
-    final String type = item['type'] ?? 'movie';
-    final String id = item['id'] ?? '';
+    final background =
+        item['background']?.toString() ?? item['poster']?.toString() ?? '';
+    final title = item['name']?.toString() ?? item['title']?.toString() ?? 'Featured Content';
+    final description = item['description']?.toString() ?? '';
+    final double? rating = item['imdbRating'] != null
+        ? double.tryParse(item['imdbRating'].toString())
+        : null;
+    final String type = item['type']?.toString() ?? 'movie';
+    final String id = item['id']?.toString() ?? '';
 
     return Stack(
       children: [
-        // Backdrop Image
+        // Backdrop
         Container(
           height: 480.0,
           width: double.infinity,
@@ -341,23 +306,19 @@ class _MoviesHomePageState extends State<MoviesHomePage> {
             color: Colors.white10,
           ),
         ),
-        // Dark Radial/Linear Gradient Overlay
+        // Gradient overlay
         Container(
           height: 480.0,
           decoration: const BoxDecoration(
             gradient: LinearGradient(
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
-              colors: [
-                Colors.black38,
-                Colors.black87,
-                Colors.black,
-              ],
-              stops: [0.0, 0.7, 1.0],
+              colors: [Colors.black26, Colors.black87, Colors.black],
+              stops: [0.0, 0.65, 1.0],
             ),
           ),
         ),
-        // Content Details Info
+        // Content
         Positioned(
           left: 24.0,
           right: 24.0,
@@ -365,7 +326,6 @@ class _MoviesHomePageState extends State<MoviesHomePage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Rating Tag
               if (rating != null)
                 Container(
                   margin: const EdgeInsets.only(bottom: 8.0),
@@ -391,7 +351,6 @@ class _MoviesHomePageState extends State<MoviesHomePage> {
                     ],
                   ),
                 ),
-              // Title Text
               Text(
                 title,
                 maxLines: 2,
@@ -403,35 +362,36 @@ class _MoviesHomePageState extends State<MoviesHomePage> {
                   fontFamily: 'Outfit',
                 ),
               ),
-              const SizedBox(height: 6.0),
-              // Description Paragraph
-              ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 600.0),
-                child: Text(
-                  description,
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: Colors.white70, fontSize: 14.0),
+              if (description.isNotEmpty) ...[
+                const SizedBox(height: 6.0),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 600.0),
+                  child: Text(
+                    description,
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Colors.white70, fontSize: 14.0),
+                  ),
                 ),
-              ),
+              ],
               const SizedBox(height: 16.0),
-              // Play/Watch Details Buttons
               ElevatedButton.icon(
-                onPressed: () {
-                  if (_featuredItem != null) {
-                    MovieMetadataCache.placeholders[id] = Map<String, dynamic>.from(_featuredItem!);
-                    MovieMetadataCache.placeholders['$type:$id'] = Map<String, dynamic>.from(_featuredItem!);
-                  }
-                  widget.navigationState.selectMovie('$type:$id');
-                },
+                onPressed: id.isNotEmpty
+                    ? () {
+                        MovieMetadataCache.placeholders[id] =
+                            Map<String, dynamic>.from(item);
+                        MovieMetadataCache.placeholders['$type:$id'] =
+                            Map<String, dynamic>.from(item);
+                        widget.navigationState.selectMovie('$type:$id');
+                      }
+                    : null,
                 icon: const Icon(Icons.info_outline, color: Colors.black, size: 18.0),
-                label: const Text('View Details', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                label: const Text('View Details',
+                    style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 14.0),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8.0),
-                  ),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
                 ),
               ),
             ],
@@ -441,6 +401,55 @@ class _MoviesHomePageState extends State<MoviesHomePage> {
     );
   }
 }
+
+// ─── Continue Watching Rail ───────────────────────────────────────────────────
+
+class _ContinueWatchingRail extends StatefulWidget {
+  final NavigationState navigationState;
+  const _ContinueWatchingRail({required this.navigationState});
+
+  @override
+  State<_ContinueWatchingRail> createState() => _ContinueWatchingRailState();
+}
+
+class _ContinueWatchingRailState extends State<_ContinueWatchingRail> {
+  List<dynamic> _items = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadItems();
+    PlayerState().addListener(_onPlayerChange);
+  }
+
+  @override
+  void dispose() {
+    PlayerState().removeListener(_onPlayerChange);
+    super.dispose();
+  }
+
+  void _onPlayerChange() => _loadItems();
+
+  Future<void> _loadItems() async {
+    final filtered = await PlayerState.getContinueWatchingList(isAnime: false);
+    if (mounted) setState(() => _items = filtered);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_items.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(left: 24.0, right: 24.0, top: 12.0),
+      child: _MovieRailwayTrack(
+        title: 'Continue Watching',
+        items: _items,
+        navigationState: widget.navigationState,
+      ),
+    );
+  }
+}
+
+// ─── Railway Track ────────────────────────────────────────────────────────────
 
 class _MovieRailwayTrack extends StatefulWidget {
   final String title;
@@ -480,7 +489,7 @@ class _MovieRailwayTrackState extends State<_MovieRailwayTrack> {
             widget.title,
             style: const TextStyle(
               color: Colors.white,
-              fontSize: 18.0,
+              fontSize: 17.0,
               fontWeight: FontWeight.bold,
               fontFamily: 'Outfit',
             ),
@@ -495,74 +504,32 @@ class _MovieRailwayTrackState extends State<_MovieRailwayTrack> {
                 scrollDirection: Axis.horizontal,
                 itemCount: widget.items.length,
                 itemBuilder: (context, index) {
-                  final item = widget.items[index];
+                  final item = widget.items[index] as Map;
                   return _MovieCard(
                     item: item,
                     onTap: () {
-                      final type = item['type'] ?? 'movie';
-                      final id = item['id'] ?? '';
-                      MovieMetadataCache.placeholders[id] = Map<String, dynamic>.from(item);
-                      MovieMetadataCache.placeholders['$type:$id'] = Map<String, dynamic>.from(item);
-                      widget.navigationState.selectMovie('$type:$id');
+                      final type = item['type']?.toString() ?? 'movie';
+                      final id = item['id']?.toString() ?? '';
+                      if (id.isEmpty) return;
+                      final String selectId = id.contains(':') ? id : '$type:$id';
+                      MovieMetadataCache.placeholders[id] =
+                          Map<String, dynamic>.from(item.cast());
+                      MovieMetadataCache.placeholders[selectId] =
+                          Map<String, dynamic>.from(item.cast());
+                      widget.navigationState.selectMovie(selectId);
                     },
                   );
                 },
               ),
             ),
             if (!isMobile && widget.items.length > 4) ...[
-              // Left Scroll Button
-              Positioned(
-                left: 0,
-                top: 0,
-                bottom: 0,
-                child: Center(
-                  child: Container(
-                    margin: const EdgeInsets.only(left: 4.0),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.7),
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white10),
-                    ),
-                    child: IconButton(
-                      icon: const Icon(Icons.chevron_left, color: Colors.white),
-                      onPressed: () {
-                        final target = (_scrollController.offset - 400.0).clamp(0.0, _scrollController.position.maxScrollExtent);
-                        _scrollController.animateTo(
-                          target,
-                          duration: const Duration(milliseconds: 300),
-                          curve: Curves.easeInOut,
-                        );
-                      },
-                    ),
-                  ),
-                ),
+              _ScrollButton(
+                direction: ScrollDirection.left,
+                controller: _scrollController,
               ),
-              // Right Scroll Button
-              Positioned(
-                right: 0,
-                top: 0,
-                bottom: 0,
-                child: Center(
-                  child: Container(
-                    margin: const EdgeInsets.only(right: 4.0),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.7),
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white10),
-                    ),
-                    child: IconButton(
-                      icon: const Icon(Icons.chevron_right, color: Colors.white),
-                      onPressed: () {
-                        final target = (_scrollController.offset + 400.0).clamp(0.0, _scrollController.position.maxScrollExtent);
-                        _scrollController.animateTo(
-                          target,
-                          duration: const Duration(milliseconds: 300),
-                          curve: Curves.easeInOut,
-                        );
-                      },
-                    ),
-                  ),
-                ),
+              _ScrollButton(
+                direction: ScrollDirection.right,
+                controller: _scrollController,
               ),
             ],
           ],
@@ -572,14 +539,60 @@ class _MovieRailwayTrackState extends State<_MovieRailwayTrack> {
   }
 }
 
+enum ScrollDirection { left, right }
+
+class _ScrollButton extends StatelessWidget {
+  final ScrollDirection direction;
+  final ScrollController controller;
+
+  const _ScrollButton({required this.direction, required this.controller});
+
+  @override
+  Widget build(BuildContext context) {
+    final isLeft = direction == ScrollDirection.left;
+    return Positioned(
+      left: isLeft ? 0 : null,
+      right: isLeft ? null : 0,
+      top: 0,
+      bottom: 0,
+      child: Center(
+        child: Container(
+          margin: EdgeInsets.only(left: isLeft ? 4 : 0, right: isLeft ? 0 : 4),
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.7),
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white10),
+          ),
+          child: IconButton(
+            icon: Icon(
+              isLeft ? Icons.chevron_left : Icons.chevron_right,
+              color: Colors.white,
+            ),
+            onPressed: () {
+              if (!controller.hasClients) return;
+              final delta = isLeft ? -420.0 : 420.0;
+              final target =
+                  (controller.offset + delta).clamp(0.0, controller.position.maxScrollExtent);
+              controller.animateTo(
+                target,
+                duration: const Duration(milliseconds: 300),
+                curve: Curves.easeInOut,
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Movie Card ───────────────────────────────────────────────────────────────
+
 class _MovieCard extends StatefulWidget {
   final dynamic item;
   final VoidCallback onTap;
 
-  const _MovieCard({
-    required this.item,
-    required this.onTap,
-  });
+  const _MovieCard({required this.item, required this.onTap});
 
   @override
   State<_MovieCard> createState() => _MovieCardState();
@@ -590,10 +603,16 @@ class _MovieCardState extends State<_MovieCard> {
 
   @override
   Widget build(BuildContext context) {
-    final posterUrl = widget.item['poster'] ?? widget.item['coverImage'] ?? '';
-    final title = widget.item['name'] ?? widget.item['title'] ?? 'Untitled';
-    final double? rating = widget.item['imdbRating'] != null ? double.tryParse(widget.item['imdbRating'].toString()) : null;
-    final String? releaseInfo = widget.item['releaseInfo']?.toString();
+    final Map item = widget.item;
+    final posterUrl =
+        item['poster']?.toString() ?? item['coverImage']?.toString() ?? '';
+    final title =
+        item['name']?.toString() ?? item['title']?.toString() ?? 'Untitled';
+    final double? rating = item['imdbRating'] != null
+        ? double.tryParse(item['imdbRating'].toString())
+        : null;
+    final String? releaseInfo = item['releaseInfo']?.toString();
+    final String? type = item['type']?.toString();
 
     return MouseRegion(
       onEnter: (_) => setState(() => _isHovered = true),
@@ -640,17 +659,39 @@ class _MovieCardState extends State<_MovieCard> {
                                   fit: BoxFit.cover,
                                   cacheWidth: 280,
                                   errorBuilder: (context, error, stackTrace) =>
-                                      Container(color: Colors.grey[950], child: const Icon(Icons.movie, color: Colors.white24)),
+                                      _placeholder(),
                                 )
-                              : Container(color: Colors.grey[950], child: const Icon(Icons.movie, color: Colors.white24)),
+                              : _placeholder(),
                         ),
                       ),
+                      // Type badge (series vs movie)
+                      if (type == 'series')
+                        Positioned(
+                          left: 6,
+                          top: 6,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 5.0, vertical: 2.0),
+                            decoration: BoxDecoration(
+                              color: Colors.deepPurple.withValues(alpha: 0.85),
+                              borderRadius: BorderRadius.circular(3.0),
+                            ),
+                            child: const Text(
+                              'TV',
+                              style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 8.0,
+                                  fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                        ),
                       if (rating != null)
                         Positioned(
                           right: 6.0,
                           top: 6.0,
                           child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 5.0, vertical: 2.0),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 5.0, vertical: 2.0),
                             decoration: BoxDecoration(
                               color: Colors.black87,
                               borderRadius: BorderRadius.circular(4.0),
@@ -673,6 +714,23 @@ class _MovieCardState extends State<_MovieCard> {
                             ),
                           ),
                         ),
+                      // Play overlay on hover
+                      Positioned.fill(
+                        child: AnimatedOpacity(
+                          opacity: _isHovered ? 1.0 : 0.0,
+                          duration: const Duration(milliseconds: 150),
+                          child: Container(
+                            color: Colors.black.withValues(alpha: 0.35),
+                            child: const Center(
+                              child: CircleAvatar(
+                                radius: 18,
+                                backgroundColor: Colors.white,
+                                child: Icon(Icons.play_arrow, color: Colors.black, size: 22),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -692,10 +750,7 @@ class _MovieCardState extends State<_MovieCard> {
               if (releaseInfo != null && releaseInfo.isNotEmpty)
                 Text(
                   releaseInfo,
-                  style: const TextStyle(
-                    color: Colors.white38,
-                    fontSize: 11.0,
-                  ),
+                  style: const TextStyle(color: Colors.white38, fontSize: 11.0),
                 ),
             ],
           ),
@@ -703,7 +758,14 @@ class _MovieCardState extends State<_MovieCard> {
       ),
     );
   }
+
+  Widget _placeholder() => Container(
+        color: Colors.grey[950],
+        child: const Icon(Icons.movie, color: Colors.white24),
+      );
 }
+
+// ─── Fade-in Animation Widget ─────────────────────────────────────────────────
 
 class FadeInWidget extends StatefulWidget {
   final Widget child;
@@ -719,21 +781,16 @@ class FadeInWidget extends StatefulWidget {
   State<FadeInWidget> createState() => _FadeInWidgetState();
 }
 
-class _FadeInWidgetState extends State<FadeInWidget> with SingleTickerProviderStateMixin {
+class _FadeInWidgetState extends State<FadeInWidget>
+    with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
   late final Animation<double> _animation;
 
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: widget.duration,
-    );
-    _animation = CurvedAnimation(
-      parent: _controller,
-      curve: Curves.easeIn,
-    );
+    _controller = AnimationController(vsync: this, duration: widget.duration);
+    _animation = CurvedAnimation(parent: _controller, curve: Curves.easeIn);
     _controller.forward();
   }
 
@@ -745,9 +802,6 @@ class _FadeInWidgetState extends State<FadeInWidget> with SingleTickerProviderSt
 
   @override
   Widget build(BuildContext context) {
-    return FadeTransition(
-      opacity: _animation,
-      child: widget.child,
-    );
+    return FadeTransition(opacity: _animation, child: widget.child);
   }
 }

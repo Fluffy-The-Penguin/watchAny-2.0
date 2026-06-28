@@ -1,4 +1,6 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import '../state/navigation_state.dart';
 import '../state/library_state.dart';
 import '../services/anilist_service.dart';
@@ -39,8 +41,6 @@ class _NotificationsPageState extends State<NotificationsPage> {
     final String localModeStr = widget.mode == AppMode.manga
         ? 'manga'
         : (widget.mode == AppMode.movies ? 'movies' : 'anime');
-        
-    final String anilistTypeStr = widget.mode == AppMode.manga ? 'MANGA' : 'ANIME';
 
     final libraryItems = LibraryState().items.where((item) => item.mode == localModeStr).toList();
     if (libraryItems.isEmpty) {
@@ -53,6 +53,68 @@ class _NotificationsPageState extends State<NotificationsPage> {
       return;
     }
 
+    if (widget.mode == AppMode.movies) {
+      final List<Map<String, dynamic>> generated = [];
+      try {
+        final futures = libraryItems.where((item) => item.format == 'SERIES').map((localItem) async {
+          final imdbId = 'tt${localItem.id.toString().padLeft(7, '0')}';
+          final url = 'https://v3-cinemeta.strem.io/meta/series/$imdbId.json';
+          try {
+            final response = await http.get(Uri.parse(url)).timeout(const Duration(seconds: 4));
+            if (response.statusCode == 200) {
+              final decoded = jsonDecode(response.body);
+              final meta = decoded['meta'];
+              if (meta != null) {
+                final videos = meta['videos'] as List? ?? [];
+                final int latestReleased = videos.length;
+                
+                if (latestReleased > localItem.watchedEpisodes) {
+                  final int startNew = localItem.watchedEpisodes + 1;
+                  final int endNew = latestReleased;
+                  
+                  final String message = startNew == endNew
+                      ? 'Episode $startNew is now available!'
+                      : 'Episodes $startNew-$endNew are now available!';
+                      
+                  generated.add({
+                    'id': imdbId,
+                    'media': meta,
+                    'title': meta['name'] ?? 'Untitled',
+                    'coverImage': meta['poster'] ?? '',
+                    'message': message,
+                    'latestReleased': latestReleased,
+                    'watchedCount': localItem.watchedEpisodes,
+                    'status': meta['status'] ?? '',
+                    'releaseTime': DateTime.tryParse(meta['released']?.toString() ?? '')?.millisecondsSinceEpoch ?? 0,
+                  });
+                }
+              }
+            }
+          } catch (_) {}
+        });
+        await Future.wait(futures);
+
+        // Sort notifications by releaseTime descending
+        generated.sort((a, b) => (b['releaseTime'] as int).compareTo(a['releaseTime'] as int));
+
+        if (mounted) {
+          setState(() {
+            _notifications = generated;
+            _isLoading = false;
+          });
+        }
+      } catch (e) {
+        if (mounted) {
+          setState(() {
+            _errorMessage = e.toString();
+            _isLoading = false;
+          });
+        }
+      }
+      return;
+    }
+
+    final String anilistTypeStr = widget.mode == AppMode.manga ? 'MANGA' : 'ANIME';
     final ids = libraryItems.map((item) => item.id).toList();
 
     try {
@@ -263,7 +325,11 @@ class _NotificationsPageState extends State<NotificationsPage> {
                                   ),
                                   child: InkWell(
                                     onTap: () {
-                                      widget.navigationState.selectAnime(notif['id']);
+                                      if (widget.mode == AppMode.anime || widget.mode == AppMode.manga) {
+                                        widget.navigationState.selectAnime(notif['id']);
+                                      } else {
+                                        widget.navigationState.selectMovie('series:${notif['id']}');
+                                      }
                                     },
                                     borderRadius: BorderRadius.circular(10.0),
                                     child: Padding(

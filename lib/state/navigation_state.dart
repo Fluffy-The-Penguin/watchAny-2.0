@@ -49,17 +49,35 @@ class NavigationState extends ChangeNotifier {
   // Selected Movie ID for details screen navigation
   String? _selectedMovieId;
 
+  // Selected Manga ID for details screen navigation
+  String? _selectedMangaId;
+
+  // Active reading chapter details (Manga reader fullscreen overlay)
+  String? _activeChapterId;
+  int? _activeChapterNumber;
+  String? _activeMangaId;
+  String? _activeMangaTitle;
+  List<dynamic>? _activeMangaChapters;
+
   AppMode get currentMode => _currentMode;
   TabPage get currentPage => _modePages[_currentMode] ?? TabPage.home;
   bool get isSidebarExpanded => _isSidebarExpanded;
   int? get selectedAnimeId => _selectedAnimeId;
   String? get selectedMovieId => _selectedMovieId;
+  String? get selectedMangaId => _selectedMangaId;
+
+  String? get activeChapterId => _activeChapterId;
+  int? get activeChapterNumber => _activeChapterNumber;
+  String? get activeMangaId => _activeMangaId;
+  String? get activeMangaTitle => _activeMangaTitle;
+  List<dynamic>? get activeMangaChapters => _activeMangaChapters;
 
   void setMode(AppMode mode) {
     if (_currentMode != mode) {
       _currentMode = mode;
       _selectedAnimeId = null; // Clear details view when switching modes
       _selectedMovieId = null;
+      _selectedMangaId = null;
       notifyListeners();
     }
   }
@@ -78,6 +96,37 @@ class NavigationState extends ChangeNotifier {
     }
   }
 
+  void selectManga(String? id) {
+    if (_selectedMangaId != id) {
+      _selectedMangaId = id;
+      notifyListeners();
+    }
+  }
+
+  void startReading({
+    required String chapterId,
+    required int chapterNumber,
+    required String mangaId,
+    required String mangaTitle,
+    required List<dynamic> chapters,
+  }) {
+    _activeChapterId = chapterId;
+    _activeChapterNumber = chapterNumber;
+    _activeMangaId = mangaId;
+    _activeMangaTitle = mangaTitle;
+    _activeMangaChapters = chapters;
+    notifyListeners();
+  }
+
+  void stopReading() {
+    _activeChapterId = null;
+    _activeChapterNumber = null;
+    _activeMangaId = null;
+    _activeMangaTitle = null;
+    _activeMangaChapters = null;
+    notifyListeners();
+  }
+
   void setPage(TabPage page) {
     if (page == TabPage.schedule && _currentMode != AppMode.anime) {
       return;
@@ -88,6 +137,10 @@ class NavigationState extends ChangeNotifier {
     if (_selectedMovieId != null) {
       _selectedMovieId = null; // Exit movie details page when clicking a tab
     }
+    if (_selectedMangaId != null) {
+      _selectedMangaId = null; // Exit manga details page when clicking a tab
+    }
+    stopReading(); // Exit reader when clicking a tab
     if (_modePages[_currentMode] != page) {
       _modePages[_currentMode] = page;
       notifyListeners();

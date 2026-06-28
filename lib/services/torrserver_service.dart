@@ -121,9 +121,25 @@ class TorrServerService {
   Future<void> preloadTorrentFile(String hash, int fileIndex) async {
     try {
       final uri = Uri.parse('$baseUrl/stream?link=$hash&index=${fileIndex + 1}&preload');
-      await http.get(uri).timeout(const Duration(seconds: 3));
+      final client = http.Client();
+      final request = http.Request('GET', uri);
+      
+      client.send(request).then((response) {
+        // Actively listen and discard bytes to prevent the TCP buffer from filling up,
+        // which keeps TorrServer downloading at maximum speed.
+        response.stream.listen(
+          (chunk) {
+            // Discard bytes
+          },
+          onDone: () => client.close(),
+          onError: (_) => client.close(),
+          cancelOnError: true,
+        );
+      }).catchError((_) {
+        client.close();
+      });
     } catch (_) {
-      // Ignore network errors/timeouts since preloading is non-blocking on the server
+      // Ignore
     }
   }
 }
