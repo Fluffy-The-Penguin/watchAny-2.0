@@ -42,7 +42,7 @@ class UpdateService extends ChangeNotifier {
   factory UpdateService() => _instance;
   UpdateService._internal();
 
-  static const String currentVersion = '2.0.1';
+  static const String currentVersion = '2.0.2';
   
   // GitHub Releases API Endpoint
   static const String gitHubReleasesUrl = 'https://api.github.com/repos/Fluffy-The-Penguin/watchAny-2.0/releases/latest';
@@ -141,11 +141,11 @@ class UpdateService extends ChangeNotifier {
       // Fallback mock update in case of failure
       _error = 'Live check failed ($e). Showing fallback updates.';
       _latestUpdate = UpdateInfo(
-        version: 'v2.0.2',
-        changelog: '• Added persistent cache for Manga library details\n'
-            '• Added category and global library manual updates\n'
-            '• Auto-resolving GitHub auth token for private repo updates',
-        downloadUrl: 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.2/watchany_setup_mock.exe',
+        version: 'v2.0.3',
+        changelog: '• Fixed file lock ProcessException during update extraction\n'
+            '• Added persistent cache for Manga library details\n'
+            '• Added category and global library manual updates',
+        downloadUrl: 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.3/watchany_setup_mock.exe',
       );
     } finally {
       _isChecking = false;
@@ -185,24 +185,19 @@ class UpdateService extends ChangeNotifier {
       var downloaded = 0;
       final sink = file.openWrite();
       
-      await response.stream.listen(
-        (chunk) {
+      try {
+        await for (final chunk in response.stream) {
           downloaded += chunk.length;
           sink.add(chunk);
           if (contentLength > 0) {
             _downloadProgress = downloaded / contentLength;
             notifyListeners();
           }
-        },
-        onDone: () async {
-          await sink.flush();
-          await sink.close();
-        },
-        onError: (e) {
-          throw e;
-        },
-        cancelOnError: true,
-      ).asFuture();
+        }
+      } finally {
+        await sink.flush();
+        await sink.close();
+      }
 
       _downloadedFilePath = filePath;
       _isDownloading = false;
