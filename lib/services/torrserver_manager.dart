@@ -69,6 +69,11 @@ class TorrServerManager {
   }
 
   static Future<void> start() async {
+    final bool isDesktop = !kIsWeb && (Platform.isWindows || Platform.isMacOS || Platform.isLinux);
+    if (!isDesktop) {
+      debugPrint('TorrServerManager start skipped on non-desktop platform.');
+      return;
+    }
     if (_process != null) {
       debugPrint('TorrServer already running or starting...');
       return;

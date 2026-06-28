@@ -51,6 +51,12 @@ class SuwayomiManager {
   }
 
   static Future<void> start() async {
+    final bool isDesktop = !kIsWeb && (Platform.isWindows || Platform.isMacOS || Platform.isLinux);
+    if (!isDesktop) {
+      debugPrint('SuwayomiManager start skipped on non-desktop platform.');
+      statusNotifier.value = "Manga engine external connection ready";
+      return;
+    }
     if (_process != null) {
       debugPrint('Manga engine already running or starting...');
       return;
