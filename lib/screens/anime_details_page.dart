@@ -2399,6 +2399,7 @@ class _LibraryEditPanelState extends State<_LibraryEditPanel> {
   late String _activeStatus;
   late double _activeRating;
   late int _watchedEps;
+  late List<String> _selectedCategoryIds;
 
   late final TextEditingController _episodesController;
   late final TextEditingController _scoreController;
@@ -2409,6 +2410,7 @@ class _LibraryEditPanelState extends State<_LibraryEditPanel> {
     _activeStatus = widget.savedItem?.libraryStatus ?? 'watching';
     _activeRating = widget.savedItem?.rating ?? 0.0;
     _watchedEps = widget.savedItem?.watchedEpisodes ?? 0;
+    _selectedCategoryIds = List<String>.from(widget.savedItem?.categoryIds ?? <String>[]);
 
     _episodesController = TextEditingController(text: '$_watchedEps');
     _scoreController = TextEditingController(
@@ -2770,6 +2772,74 @@ class _LibraryEditPanelState extends State<_LibraryEditPanel> {
                             ],
                           ),
                         ),
+                        
+                        // Custom Categories selection chips
+                        Builder(
+                          builder: (context) {
+                            final cats = LibraryState().categories.where((cat) => cat.mode == widget.modeStr).toList();
+                            if (cats.isEmpty) return const SizedBox.shrink();
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const SizedBox(height: 20.0),
+                                const Text(
+                                  'Categories',
+                                  style: TextStyle(
+                                    color: Colors.white70,
+                                    fontSize: 13.0,
+                                    fontWeight: FontWeight.w600,
+                                    fontFamily: 'Outfit',
+                                  ),
+                                ),
+                                const SizedBox(height: 8.0),
+                                Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.all(12.0),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withValues(alpha: 0.03),
+                                    borderRadius: BorderRadius.circular(8.0),
+                                    border: Border.all(color: Colors.white10),
+                                  ),
+                                  child: Wrap(
+                                    spacing: 8.0,
+                                    runSpacing: 8.0,
+                                    children: cats.map((cat) {
+                                      final bool isChecked = _selectedCategoryIds.contains(cat.id);
+                                      return FilterChip(
+                                        label: Text(
+                                          cat.name,
+                                          style: TextStyle(
+                                            color: isChecked ? Colors.black : Colors.white70,
+                                            fontSize: 11.5,
+                                            fontWeight: isChecked ? FontWeight.bold : FontWeight.normal,
+                                            fontFamily: 'Outfit',
+                                          ),
+                                        ),
+                                        selected: isChecked,
+                                        selectedColor: Colors.white,
+                                        checkmarkColor: Colors.black,
+                                        backgroundColor: Colors.transparent,
+                                        side: BorderSide(
+                                          color: isChecked ? Colors.white : Colors.white24,
+                                        ),
+                                        onSelected: (bool selected) {
+                                          setState(() {
+                                            if (selected) {
+                                              _selectedCategoryIds.add(cat.id);
+                                            } else {
+                                              _selectedCategoryIds.remove(cat.id);
+                                            }
+                                          });
+                                        },
+                                      );
+                                    }).toList(),
+                                  ),
+                                ),
+                              ],
+                            );
+                          },
+                        ),
                       ],
                     ),
                   ),
@@ -2821,6 +2891,7 @@ class _LibraryEditPanelState extends State<_LibraryEditPanel> {
                               rating: finalRating,
                               watchedEpisodes: finalWatchedEps,
                               totalEpisodes: widget.totalEpisodes,
+                              categoryIds: _selectedCategoryIds,
                             );
                             if (context.mounted) {
                               Navigator.pop(context);

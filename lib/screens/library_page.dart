@@ -57,6 +57,25 @@ class _LibraryPageState extends State<LibraryPage> {
   void _onLibraryChanged() {
     if (mounted) {
       _loadLibraryData();
+
+      // Safeguard tab state
+      final modeStr = widget.mode.name;
+      final cats = LibraryState().categories.where((cat) => cat.mode == modeStr).toList();
+      if (cats.isEmpty) {
+        const validDefaultTabs = {'ALL', 'watching', 'planning', 'completed', 'paused_dropped', 'downloaded'};
+        if (!validDefaultTabs.contains(_activeStatusTab)) {
+          setState(() {
+            _activeStatusTab = 'ALL';
+          });
+        }
+      } else {
+        final List<String> validCatTabs = ['ALL', 'UNCATEGORIZED'] + cats.map((c) => c.id).toList();
+        if (!validCatTabs.contains(_activeStatusTab)) {
+          setState(() {
+            _activeStatusTab = 'ALL';
+          });
+        }
+      }
     }
   }
 
@@ -126,30 +145,40 @@ class _LibraryPageState extends State<LibraryPage> {
     return match.libraryStatus;
   }
 
-  double _getUserRating(int id) {
-    final modeStr = widget.mode.name;
-    final match = LibraryState().items.firstWhere(
-      (item) => item.id == id && item.mode == modeStr,
-      orElse: () => LibraryItem(id: id, mode: modeStr, format: '', addedAt: DateTime.fromMillisecondsSinceEpoch(0), libraryStatus: 'planning', rating: 0.0, watchedEpisodes: 0),
-    );
-    return match.rating;
-  }
+
 
   // Filtered & Sorted list
   List<dynamic> get _filteredAndSortedItems {
     final modeStr = widget.mode.name;
     List<dynamic> items = List.from(_fetchedMedia);
 
-    // 1. Filter by Status Tabs (All, Watching, Planning, Completed, Dropped/Paused, Downloaded)
+    // 1. Filter by Status Tabs or Custom Category Tabs
     if (_activeStatusTab != 'ALL') {
-      if (_activeStatusTab == 'downloaded') {
-        items = items.where((media) {
-          return DownloadService().tasks.any((task) =>
-              task.anilistId == media['id'] &&
-              task.status == DownloadStatus.completed);
-        }).toList();
+      final List<LibraryCategory> cats = LibraryState().categories.where((cat) => cat.mode == modeStr).toList();
+      if (cats.isEmpty) {
+        // Fallback to default status tabs filter
+        if (_activeStatusTab == 'downloaded') {
+          items = items.where((media) {
+            return DownloadService().tasks.any((task) =>
+                task.anilistId == media['id'] &&
+                task.status == DownloadStatus.completed);
+          }).toList();
+        } else {
+          items = items.where((media) => _getLibraryStatus(media['id']) == _activeStatusTab).toList();
+        }
       } else {
-        items = items.where((media) => _getLibraryStatus(media['id']) == _activeStatusTab).toList();
+        // Filter by custom categories
+        if (_activeStatusTab == 'UNCATEGORIZED') {
+          items = items.where((media) {
+            final item = LibraryState().getItem(media['id'], modeStr);
+            return item == null || item.categoryIds.isEmpty;
+          }).toList();
+        } else {
+          items = items.where((media) {
+            final item = LibraryState().getItem(media['id'], modeStr);
+            return item != null && item.categoryIds.contains(_activeStatusTab);
+          }).toList();
+        }
       }
     }
 
@@ -362,17 +391,268 @@ class _LibraryPageState extends State<LibraryPage> {
     );
   }
 
-  Widget _buildStatusTabs(bool isMobile) {
-    final Map<String, String> statusTabs = {
-      'ALL': 'All',
-      'watching': widget.mode == AppMode.manga ? 'Reading' : 'Watching',
-      'planning': 'Planning',
-      'completed': 'Completed',
-      'paused_dropped': 'Dropped / Paused',
-      'downloaded': 'Downloaded',
-    };
+  void _showManageCategoriesDialog() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black54,
+      builder: (context) {
+        final textController = TextEditingController();
+        final double screenWidth = MediaQuery.of(context).size.width;
+        final bool isMobileSheet = screenWidth < 650;
+        final String modeStr = widget.mode.name;
 
-    final children = statusTabs.entries.map((entry) {
+        return Align(
+          alignment: Alignment.bottomCenter,
+          child: Container(
+            width: isMobileSheet ? double.infinity : 500.0,
+            margin: isMobileSheet ? EdgeInsets.zero : const EdgeInsets.only(left: 24.0, right: 24.0, top: 24.0),
+            decoration: BoxDecoration(
+              color: const Color(0xFF0F0F11),
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(16.0)),
+              border: Border.all(color: Colors.white10, width: 1.0),
+            ),
+            child: ClipRRect(
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(15.0)),
+              child: Padding(
+                padding: EdgeInsets.only(
+                  bottom: MediaQuery.of(context).viewInsets.bottom,
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // Header
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 16.0),
+                      decoration: const BoxDecoration(
+                        color: Colors.white12,
+                        border: Border(bottom: BorderSide(color: Colors.white10, width: 1.0)),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text(
+                            'Manage Categories',
+                            style: TextStyle(color: Colors.white, fontSize: 15.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.close, color: Colors.white70, size: 20),
+                            onPressed: () => Navigator.pop(context),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    // Add new category
+                    Padding(
+                      padding: const EdgeInsets.all(20.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          const Text(
+                            'Create Category',
+                            style: TextStyle(color: Colors.white70, fontSize: 13.0, fontWeight: FontWeight.w600, fontFamily: 'Outfit'),
+                          ),
+                          const SizedBox(height: 8.0),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Container(
+                                  height: 42.0,
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withValues(alpha: 0.03),
+                                    borderRadius: BorderRadius.circular(8.0),
+                                    border: Border.all(color: Colors.white10),
+                                  ),
+                                  padding: const EdgeInsets.symmetric(horizontal: 12.0),
+                                  child: TextField(
+                                    controller: textController,
+                                    style: const TextStyle(color: Colors.white, fontSize: 13.5, fontFamily: 'Outfit'),
+                                    decoration: const InputDecoration(
+                                      hintText: 'e.g. Favorites, Must Watch...',
+                                      hintStyle: TextStyle(color: Colors.white38, fontSize: 13.0),
+                                      border: InputBorder.none,
+                                      isDense: true,
+                                      contentPadding: EdgeInsets.symmetric(vertical: 12.0),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 12.0),
+                              ElevatedButton(
+                                onPressed: () async {
+                                  final name = textController.text.trim();
+                                  if (name.isNotEmpty) {
+                                    await LibraryState().createCategory(name, modeStr);
+                                    textController.clear();
+                                  }
+                                },
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.white,
+                                  foregroundColor: Colors.black,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
+                                  padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+                                ),
+                                child: const Text('Add', style: TextStyle(fontWeight: FontWeight.bold, fontFamily: 'Outfit')),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 20.0),
+                          const Text(
+                            'Existing Categories',
+                            style: TextStyle(color: Colors.white70, fontSize: 13.0, fontWeight: FontWeight.w600, fontFamily: 'Outfit'),
+                          ),
+                          const SizedBox(height: 8.0),
+                          Container(
+                            constraints: const BoxConstraints(maxHeight: 250.0),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.03),
+                              borderRadius: BorderRadius.circular(8.0),
+                              border: Border.all(color: Colors.white10),
+                            ),
+                            child: ListenableBuilder(
+                              listenable: LibraryState(),
+                              builder: (context, _) {
+                                final cats = LibraryState().categories.where((cat) => cat.mode == modeStr).toList();
+                                if (cats.isEmpty) {
+                                  return const Padding(
+                                    padding: EdgeInsets.all(24.0),
+                                    child: Center(
+                                      child: Text(
+                                        'No custom categories created yet.',
+                                        style: TextStyle(color: Colors.white38, fontSize: 12.0, fontFamily: 'Outfit'),
+                                      ),
+                                    ),
+                                  );
+                                }
+                                return ListView.separated(
+                                  shrinkWrap: true,
+                                  padding: const EdgeInsets.all(8.0),
+                                  itemCount: cats.length,
+                                  separatorBuilder: (context, index) => const Divider(color: Colors.white10, height: 1.0),
+                                  itemBuilder: (context, index) {
+                                    final cat = cats[index];
+                                    return ListTile(
+                                      dense: true,
+                                      contentPadding: const EdgeInsets.symmetric(horizontal: 12.0),
+                                      title: Text(
+                                        cat.name,
+                                        style: const TextStyle(color: Colors.white, fontSize: 13.5, fontWeight: FontWeight.w500, fontFamily: 'Outfit'),
+                                      ),
+                                      trailing: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          IconButton(
+                                            icon: const Icon(Icons.edit_outlined, color: Colors.white54, size: 16),
+                                            onPressed: () async {
+                                              final renameController = TextEditingController(text: cat.name);
+                                              final confirmRename = await showDialog<bool>(
+                                                context: context,
+                                                builder: (context) => AlertDialog(
+                                                  backgroundColor: const Color(0xFF0F0F11),
+                                                  title: const Text('Rename Category', style: TextStyle(color: Colors.white, fontFamily: 'Outfit', fontSize: 15.0, fontWeight: FontWeight.bold)),
+                                                  content: TextField(
+                                                    controller: renameController,
+                                                    style: const TextStyle(color: Colors.white, fontFamily: 'Outfit'),
+                                                    decoration: const InputDecoration(
+                                                      enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white24)),
+                                                      focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white)),
+                                                    ),
+                                                  ),
+                                                  actions: [
+                                                    TextButton(
+                                                      onPressed: () => Navigator.pop(context, false),
+                                                      child: const Text('Cancel', style: TextStyle(color: Colors.white38)),
+                                                    ),
+                                                    TextButton(
+                                                      onPressed: () => Navigator.pop(context, true),
+                                                      child: const Text('Rename', style: TextStyle(color: Colors.white)),
+                                                    ),
+                                                  ],
+                                                ),
+                                              );
+                                              if (confirmRename == true && renameController.text.trim().isNotEmpty) {
+                                                await LibraryState().renameCategory(cat.id, renameController.text.trim());
+                                              }
+                                            },
+                                          ),
+                                          IconButton(
+                                            icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 16),
+                                            onPressed: () async {
+                                              final confirmDelete = await showDialog<bool>(
+                                                context: context,
+                                                builder: (context) => AlertDialog(
+                                                  backgroundColor: const Color(0xFF0F0F11),
+                                                  title: const Text('Delete Category?', style: TextStyle(color: Colors.white, fontFamily: 'Outfit', fontSize: 15.0, fontWeight: FontWeight.bold)),
+                                                  content: Text('Are you sure you want to delete "${cat.name}"? Entries in this category will not be deleted.', style: const TextStyle(color: Colors.white70, fontFamily: 'Outfit', fontSize: 13.0)),
+                                                  actions: [
+                                                    TextButton(
+                                                      onPressed: () => Navigator.pop(context, false),
+                                                      child: const Text('Cancel', style: TextStyle(color: Colors.white38)),
+                                                    ),
+                                                    TextButton(
+                                                      onPressed: () => Navigator.pop(context, true),
+                                                      child: const Text('Delete', style: TextStyle(color: Colors.redAccent)),
+                                                    ),
+                                                  ],
+                                                ),
+                                              );
+                                              if (confirmDelete == true) {
+                                                await LibraryState().deleteCategory(cat.id);
+                                                // Reset tab if active tab was the deleted category
+                                                if (_activeStatusTab == cat.id) {
+                                                  setState(() {
+                                                    _activeStatusTab = 'ALL';
+                                                  });
+                                                }
+                                              }
+                                            },
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  },
+                                );
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12.0),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildStatusTabs(bool isMobile) {
+    final String modeStr = widget.mode.name;
+    final List<LibraryCategory> cats = LibraryState().categories.where((cat) => cat.mode == modeStr).toList();
+
+    final Map<String, String> tabs = {};
+    if (cats.isEmpty) {
+      tabs['ALL'] = 'All';
+      tabs['watching'] = widget.mode == AppMode.manga ? 'Reading' : 'Watching';
+      tabs['planning'] = 'Planning';
+      tabs['completed'] = 'Completed';
+      tabs['paused_dropped'] = 'Dropped / Paused';
+      tabs['downloaded'] = 'Downloaded';
+    } else {
+      tabs['ALL'] = 'All';
+      tabs['UNCATEGORIZED'] = 'Uncategorized';
+      for (final cat in cats) {
+        tabs[cat.id] = cat.name;
+      }
+    }
+
+    final children = tabs.entries.map((entry) {
       final bool isActive = _activeStatusTab == entry.key;
       return GestureDetector(
         behavior: HitTestBehavior.opaque,
@@ -405,6 +685,41 @@ class _LibraryPageState extends State<LibraryPage> {
         ),
       );
     }).toList();
+
+    // Add Manage Categories button at the end
+    children.add(
+      GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: _showManageCategoriesDialog,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 8.0),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.03),
+            borderRadius: BorderRadius.circular(20.0),
+            border: Border.all(
+              color: Colors.white10,
+              width: 1.0,
+            ),
+          ),
+          child: const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.edit_note, color: Colors.white70, size: 16),
+              SizedBox(width: 4.0),
+              Text(
+                'Categories',
+                style: TextStyle(
+                  color: Colors.white70,
+                  fontSize: 12.0,
+                  fontWeight: FontWeight.w600,
+                  fontFamily: 'Outfit',
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
 
     return isMobile
         ? SingleChildScrollView(

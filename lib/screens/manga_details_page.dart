@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:math';
 import '../services/suwayomi_service.dart';
 import '../state/navigation_state.dart';
 import '../state/library_state.dart';
@@ -70,15 +71,16 @@ class _MangaDetailsPageState extends State<MangaDetailsPage> {
     if (_details == null) return;
     showModalBottomSheet(
       context: context,
-      backgroundColor: const Color(0xFF0F0F11),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16.0)),
-      ),
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black54,
       builder: (context) {
+        final savedItem = LibraryState().getItem(_parsedMangaId, 'manga');
         return _MangaLibraryEditPanel(
           mangaId: _parsedMangaId,
           title: _details!['title'] ?? 'Manga Details',
           totalChapters: _chapters.length,
+          savedItem: savedItem,
           onSaved: () => setState(() {}),
         );
       },
@@ -383,12 +385,14 @@ class _MangaLibraryEditPanel extends StatefulWidget {
   final int mangaId;
   final String title;
   final int totalChapters;
+  final LibraryItem? savedItem;
   final VoidCallback onSaved;
 
   const _MangaLibraryEditPanel({
     required this.mangaId,
     required this.title,
     required this.totalChapters,
+    required this.savedItem,
     required this.onSaved,
   });
 
@@ -397,179 +401,523 @@ class _MangaLibraryEditPanel extends StatefulWidget {
 }
 
 class _MangaLibraryEditPanelState extends State<_MangaLibraryEditPanel> {
-  String _status = 'planning';
-  double _rating = 0.0;
-  int _chaptersRead = 0;
+  late String _activeStatus;
+  late double _activeRating;
+  late int _chaptersRead;
+  late List<String> _selectedCategoryIds;
+
+  late final TextEditingController _chaptersController;
+  late final TextEditingController _scoreController;
 
   @override
   void initState() {
     super.initState();
-    final item = LibraryState().getItem(widget.mangaId, 'manga');
-    if (item != null) {
-      _status = item.libraryStatus;
-      _rating = item.rating;
-      _chaptersRead = item.watchedEpisodes;
-    }
-  }
+    _activeStatus = widget.savedItem?.libraryStatus ?? 'watching';
+    _activeRating = widget.savedItem?.rating ?? 0.0;
+    _chaptersRead = widget.savedItem?.watchedEpisodes ?? 0;
+    _selectedCategoryIds = List<String>.from(widget.savedItem?.categoryIds ?? <String>[]);
 
-  void _save() {
-    LibraryState().saveItem(
-      id: widget.mangaId,
-      mode: 'manga',
-      format: 'MANGA',
-      libraryStatus: _status,
-      rating: _rating,
-      watchedEpisodes: _chaptersRead,
-      totalEpisodes: widget.totalChapters,
+    _chaptersController = TextEditingController(text: '$_chaptersRead');
+    _scoreController = TextEditingController(
+      text: _activeRating == 0.0 ? '' : _activeRating.toStringAsFixed(1),
     );
-    widget.onSaved();
-    Navigator.pop(context);
   }
 
-  void _remove() {
-    LibraryState().removeItem(widget.mangaId, 'manga');
-    widget.onSaved();
-    Navigator.pop(context);
+  @override
+  void dispose() {
+    _chaptersController.dispose();
+    _scoreController.dispose();
+    super.dispose();
+  }
+
+  void _updateChaptersRead(int val) {
+    final int clamped = val.clamp(0, widget.totalChapters > 0 ? widget.totalChapters : 99999);
+    setState(() {
+      _chaptersRead = clamped;
+      _chaptersController.text = '$clamped';
+    });
+  }
+
+  void _updateRating(double val) {
+    final double clamped = val.clamp(0.0, 10.0);
+    setState(() {
+      _activeRating = clamped;
+      _scoreController.text = clamped == 0.0 ? '' : clamped.toStringAsFixed(1);
+    });
+  }
+
+  Widget _buildStatusChip(String value, String label, IconData icon) {
+    final bool isSelected = _activeStatus == value;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () {
+        setState(() {
+          _activeStatus = value;
+          if (value == 'completed' && widget.totalChapters > 0) {
+            _updateChaptersRead(widget.totalChapters);
+          }
+        });
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        decoration: BoxDecoration(
+          color: isSelected ? Colors.white : Colors.transparent,
+          borderRadius: BorderRadius.circular(6.0),
+          border: Border.all(
+            color: isSelected ? Colors.white : Colors.white10,
+            width: 1.0,
+          ),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              icon,
+              color: isSelected ? Colors.black : Colors.white70,
+              size: 18.0,
+            ),
+            const SizedBox(height: 4.0),
+            Text(
+              label,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: isSelected ? Colors.black : Colors.white70,
+                fontSize: 11.5,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                fontFamily: 'Outfit',
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final item = LibraryState().getItem(widget.mangaId, 'manga');
+    final double screenWidth = MediaQuery.of(context).size.width;
+    final bool isMobileSheet = screenWidth < 650;
 
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Expanded(
-                  child: Text(
-                    widget.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.white, fontSize: 16.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.close, color: Colors.white70),
-                  onPressed: () => Navigator.pop(context),
-                ),
-              ],
-            ),
-            const Divider(color: Colors.white10),
-            const SizedBox(height: 12.0),
-
-            // Status Row Selector
-            const Text('Status', style: TextStyle(color: Colors.white54, fontSize: 12.0, fontFamily: 'Outfit')),
-            const SizedBox(height: 8.0),
-            Wrap(
-              spacing: 8.0,
-              children: ['reading', 'planning', 'completed', 'dropped'].map((statusOption) {
-                final isSelected = _status == statusOption;
-                return ChoiceChip(
-                  label: Text(
-                    statusOption.replaceFirst('_', ' ').toUpperCase(),
-                    style: TextStyle(
-                      color: isSelected ? Colors.black : Colors.white,
-                      fontSize: 10.0,
-                      fontWeight: FontWeight.bold,
-                      fontFamily: 'Outfit',
+    return Align(
+      alignment: Alignment.bottomCenter,
+      child: Container(
+        width: isMobileSheet ? double.infinity : 550.0,
+        margin: isMobileSheet
+            ? EdgeInsets.zero
+            : const EdgeInsets.only(left: 24.0, right: 24.0, top: 24.0),
+        decoration: BoxDecoration(
+          color: const Color(0xFF0F0F11),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(16.0)),
+          border: Border.all(color: Colors.white10, width: 1.0),
+          boxShadow: const [
+            BoxShadow(
+              color: Colors.black87,
+              blurRadius: 30,
+              spreadRadius: 2,
+            )
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(15.0)),
+          child: AnimatedSize(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeInOut,
+            child: Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(context).viewInsets.bottom,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Header
+                  Container(
+                    padding: EdgeInsets.symmetric(horizontal: 20.0, vertical: isMobileSheet ? 12.0 : 16.0),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.01),
+                      border: const Border(bottom: BorderSide(color: Colors.white10, width: 1.0)),
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                  'Manga Library Settings',
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 15.0,
+                                    fontWeight: FontWeight.bold,
+                                    fontFamily: 'Outfit',
+                                  ),
+                                ),
+                              const SizedBox(height: 2.0),
+                              Text(
+                                widget.title,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(color: Colors.white38, fontSize: 11.0, fontFamily: 'Outfit'),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 8.0),
+                        IconButton(
+                          icon: const Icon(Icons.close, color: Colors.white54, size: 22),
+                          onPressed: () => Navigator.pop(context),
+                        ),
+                      ],
                     ),
                   ),
-                  selected: isSelected,
-                  selectedColor: const Color(0xFFFF9F1C),
-                  backgroundColor: const Color(0xFF16161A),
-                  onSelected: (selected) {
-                    if (selected) {
-                      setState(() {
-                        _status = statusOption;
-                        if (statusOption == 'completed') {
-                          _chaptersRead = widget.totalChapters;
-                        }
-                      });
-                    }
-                  },
-                );
-              }).toList(),
-            ),
 
-            const SizedBox(height: 20.0),
+                  // Body
+                  Padding(
+                    padding: const EdgeInsets.all(20.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // Status
+                        const Text(
+                          'Status',
+                          style: TextStyle(color: Colors.white70, fontSize: 13.0, fontWeight: FontWeight.w600, fontFamily: 'Outfit'),
+                        ),
+                        const SizedBox(height: 8.0),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(6.0),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.03),
+                            borderRadius: BorderRadius.circular(8.0),
+                            border: Border.all(color: Colors.white10),
+                          ),
+                          child: GridView.count(
+                            crossAxisCount: isMobileSheet ? 2 : 4,
+                            shrinkWrap: true,
+                            physics: const NeverScrollableScrollPhysics(),
+                            mainAxisSpacing: 6.0,
+                            crossAxisSpacing: 6.0,
+                            childAspectRatio: isMobileSheet ? 2.5 : 2.0,
+                            children: [
+                              _buildStatusChip('watching', 'Reading', Icons.play_arrow),
+                              _buildStatusChip('planning', 'Planning', Icons.bookmark_border),
+                              _buildStatusChip('completed', 'Completed', Icons.done_all),
+                              _buildStatusChip('paused_dropped', 'Paused/Dropped', Icons.pause),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 20.0),
 
-            // Progress Slider
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text('Chapters Read', style: TextStyle(color: Colors.white54, fontSize: 12.0, fontFamily: 'Outfit')),
-                Text('$_chaptersRead / ${widget.totalChapters}', style: const TextStyle(color: Colors.white70, fontFamily: 'Outfit', fontWeight: FontWeight.bold)),
-              ],
-            ),
-            if (widget.totalChapters > 0)
-              Slider(
-                value: _chaptersRead.toDouble().clamp(0.0, widget.totalChapters.toDouble()),
-                min: 0.0,
-                max: widget.totalChapters.toDouble(),
-                activeColor: const Color(0xFFFF9F1C),
-                inactiveColor: Colors.white10,
-                onChanged: (val) {
-                  setState(() {
-                    _chaptersRead = val.toInt();
-                    if (_chaptersRead == widget.totalChapters) {
-                      _status = 'completed';
-                    }
-                  });
-                },
-              ),
+                        // Chapters Read Progress
+                        Container(
+                          padding: const EdgeInsets.all(16.0),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.03),
+                            borderRadius: BorderRadius.circular(8.0),
+                            border: Border.all(color: Colors.white10),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Row(
+                                    children: [
+                                      const Text(
+                                        'Chapters Read',
+                                        style: TextStyle(color: Colors.white70, fontSize: 13.0, fontWeight: FontWeight.w600, fontFamily: 'Outfit'),
+                                      ),
+                                      const SizedBox(width: 8.0),
+                                      SizedBox(
+                                        width: 50.0,
+                                        height: 20.0,
+                                        child: TextField(
+                                          controller: _chaptersController,
+                                          keyboardType: TextInputType.number,
+                                          textAlign: TextAlign.center,
+                                          style: const TextStyle(color: Colors.white, fontSize: 14.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                                          decoration: const InputDecoration(
+                                            isDense: true,
+                                            contentPadding: EdgeInsets.zero,
+                                            border: InputBorder.none,
+                                          ),
+                                          onChanged: (val) {
+                                            final int? parsed = int.tryParse(val);
+                                            if (parsed != null) {
+                                              final int clamped = parsed.clamp(0, widget.totalChapters > 0 ? widget.totalChapters : 99999);
+                                              setState(() {
+                                                _chaptersRead = clamped;
+                                              });
+                                            }
+                                          },
+                                          onSubmitted: (val) {
+                                            final int? parsed = int.tryParse(val);
+                                            _updateChaptersRead(parsed ?? _chaptersRead);
+                                          },
+                                        ),
+                                      ),
+                                      if (widget.totalChapters > 0)
+                                        Text(
+                                          ' / ${widget.totalChapters}',
+                                          style: const TextStyle(color: Colors.white38, fontSize: 14.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                                        ),
+                                    ],
+                                  ),
+                                  if (widget.totalChapters > 0)
+                                    Text(
+                                      '${((widget.totalChapters > 0 ? _chaptersRead / widget.totalChapters : 0.0) * 100).toStringAsFixed(0)}%',
+                                      style: const TextStyle(color: Colors.white38, fontSize: 12.0, fontFamily: 'Outfit'),
+                                    ),
+                                ],
+                              ),
+                              const SizedBox(height: 16.0),
+                              SliderTheme(
+                                data: SliderTheme.of(context).copyWith(
+                                  activeTrackColor: Colors.white,
+                                  inactiveTrackColor: Colors.white10,
+                                  thumbColor: Colors.white,
+                                  overlayColor: Colors.white.withValues(alpha: 0.1),
+                                  valueIndicatorColor: Colors.white,
+                                  valueIndicatorTextStyle: const TextStyle(color: Colors.black, fontFamily: 'Outfit'),
+                                ),
+                                child: Slider(
+                                  value: _chaptersRead.toDouble(),
+                                  min: 0.0,
+                                  max: (widget.totalChapters > 0 ? widget.totalChapters : max(100, _chaptersRead + 50)).toDouble(),
+                                  divisions: widget.totalChapters > 0 ? widget.totalChapters : (100 + _chaptersRead),
+                                  label: '$_chaptersRead',
+                                  onChanged: (val) {
+                                    _updateChaptersRead(val.toInt());
+                                  },
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 20.0),
 
-            const SizedBox(height: 20.0),
-
-            // Rating Slider
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text('Rating Score', style: TextStyle(color: Colors.white54, fontSize: 12.0, fontFamily: 'Outfit')),
-                Text(_rating > 0.0 ? _rating.toStringAsFixed(1) : 'No Rating', style: const TextStyle(color: Colors.white70, fontFamily: 'Outfit', fontWeight: FontWeight.bold)),
-              ],
-            ),
-            Slider(
-              value: _rating,
-              min: 0.0,
-              max: 10.0,
-              divisions: 100,
-              activeColor: const Color(0xFFFF9F1C),
-              inactiveColor: Colors.white10,
-              onChanged: (val) => setState(() => _rating = val),
-            ),
-
-            const SizedBox(height: 24.0),
-
-            // Footer Actions
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                if (item != null)
-                  TextButton.icon(
-                    onPressed: _remove,
-                    icon: const Icon(Icons.delete, color: Colors.redAccent, size: 18.0),
-                    label: const Text('Delete', style: TextStyle(color: Colors.redAccent, fontFamily: 'Outfit')),
-                  )
-                else
-                  const SizedBox.shrink(),
-                ElevatedButton(
-                  onPressed: _save,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFFFF9F1C),
-                    foregroundColor: Colors.black,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6.0)),
+                        // Score Rating
+                        Container(
+                          padding: const EdgeInsets.all(16.0),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.03),
+                            borderRadius: BorderRadius.circular(8.0),
+                            border: Border.all(color: Colors.white10),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  const Text(
+                                    'Your Score',
+                                    style: TextStyle(color: Colors.white70, fontSize: 13.0, fontWeight: FontWeight.w600, fontFamily: 'Outfit'),
+                                  ),
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    crossAxisAlignment: CrossAxisAlignment.center,
+                                    children: [
+                                      const Icon(Icons.star, color: Colors.amber, size: 16.0),
+                                      const SizedBox(width: 4.0),
+                                      SizedBox(
+                                        width: 50.0,
+                                        height: 20.0,
+                                        child: TextField(
+                                          controller: _scoreController,
+                                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                          textAlign: TextAlign.right,
+                                          style: const TextStyle(color: Colors.amber, fontSize: 14.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                                          decoration: const InputDecoration(
+                                            isDense: true,
+                                            contentPadding: EdgeInsets.zero,
+                                            border: InputBorder.none,
+                                            hintText: '0.0',
+                                            hintStyle: TextStyle(color: Colors.white38),
+                                          ),
+                                          onChanged: (val) {
+                                            final double? parsed = double.tryParse(val);
+                                            if (parsed != null) {
+                                              final double clamped = parsed.clamp(0.0, 10.0);
+                                              setState(() {
+                                                _activeRating = clamped;
+                                              });
+                                            }
+                                          },
+                                          onSubmitted: (val) {
+                                            final double? parsed = double.tryParse(val);
+                                            _updateRating(parsed ?? _activeRating);
+                                          },
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 16.0),
+                              SliderTheme(
+                                data: SliderTheme.of(context).copyWith(
+                                  activeTrackColor: Colors.white,
+                                  inactiveTrackColor: Colors.white10,
+                                  thumbColor: Colors.white,
+                                  overlayColor: Colors.white.withValues(alpha: 0.1),
+                                  valueIndicatorColor: Colors.white,
+                                  valueIndicatorTextStyle: const TextStyle(color: Colors.black, fontFamily: 'Outfit'),
+                                ),
+                                child: Slider(
+                                  value: _activeRating,
+                                  min: 0.0,
+                                  max: 10.0,
+                                  divisions: 100,
+                                  label: _activeRating == 0.0 ? 'No Rating' : _activeRating.toStringAsFixed(1),
+                                  onChanged: _updateRating,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        
+                        // Custom Categories chips selection
+                        Builder(
+                          builder: (context) {
+                            final cats = LibraryState().categories.where((cat) => cat.mode == 'manga').toList();
+                            if (cats.isEmpty) return const SizedBox.shrink();
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const SizedBox(height: 20.0),
+                                const Text(
+                                  'Categories',
+                                  style: TextStyle(
+                                    color: Colors.white70,
+                                    fontSize: 13.0,
+                                    fontWeight: FontWeight.w600,
+                                    fontFamily: 'Outfit',
+                                  ),
+                                ),
+                                const SizedBox(height: 8.0),
+                                Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.all(12.0),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withValues(alpha: 0.03),
+                                    borderRadius: BorderRadius.circular(8.0),
+                                    border: Border.all(color: Colors.white10),
+                                  ),
+                                  child: Wrap(
+                                    spacing: 8.0,
+                                    runSpacing: 8.0,
+                                    children: cats.map((cat) {
+                                      final bool isChecked = _selectedCategoryIds.contains(cat.id);
+                                      return FilterChip(
+                                        label: Text(
+                                          cat.name,
+                                          style: TextStyle(
+                                            color: isChecked ? Colors.black : Colors.white70,
+                                            fontSize: 11.5,
+                                            fontWeight: isChecked ? FontWeight.bold : FontWeight.normal,
+                                            fontFamily: 'Outfit',
+                                          ),
+                                        ),
+                                        selected: isChecked,
+                                        selectedColor: Colors.white,
+                                        checkmarkColor: Colors.black,
+                                        backgroundColor: Colors.transparent,
+                                        side: BorderSide(
+                                          color: isChecked ? Colors.white : Colors.white24,
+                                        ),
+                                        onSelected: (bool selected) {
+                                          setState(() {
+                                            if (selected) {
+                                              _selectedCategoryIds.add(cat.id);
+                                            } else {
+                                              _selectedCategoryIds.remove(cat.id);
+                                            }
+                                          });
+                                        },
+                                      );
+                                    }).toList(),
+                                  ),
+                                ),
+                              ],
+                            );
+                          },
+                        ),
+                      ],
+                    ),
                   ),
-                  child: const Text('Save Entry', style: TextStyle(fontWeight: FontWeight.bold, fontFamily: 'Outfit')),
-                ),
-              ],
+
+                  // Footer
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
+                    decoration: const BoxDecoration(
+                      color: Color(0xFF0C0C0E),
+                      border: Border(top: BorderSide(color: Colors.white10, width: 1.0)),
+                    ),
+                    child: Row(
+                      children: [
+                        if (widget.savedItem != null)
+                          ElevatedButton.icon(
+                            icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 18.0),
+                            label: const Text('Remove', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold, fontFamily: 'Outfit')),
+                            onPressed: () async {
+                              await LibraryState().removeItem(widget.mangaId, 'manga');
+                              widget.onSaved();
+                              if (context.mounted) {
+                                Navigator.pop(context);
+                              }
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.redAccent.withValues(alpha: 0.1),
+                              elevation: 0,
+                              side: const BorderSide(color: Colors.redAccent, width: 1.0),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
+                              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+                            ),
+                          ),
+                        const Spacer(),
+                        TextButton(
+                          onPressed: () => Navigator.pop(context),
+                          child: const Text('Cancel', style: TextStyle(color: Colors.white38, fontFamily: 'Outfit', fontWeight: FontWeight.w600)),
+                        ),
+                        const SizedBox(width: 12.0),
+                        ElevatedButton(
+                          onPressed: () async {
+                            final int finalChaptersRead = int.tryParse(_chaptersController.text)?.clamp(0, widget.totalChapters > 0 ? widget.totalChapters : 99999) ?? _chaptersRead;
+                            final double finalRating = double.tryParse(_scoreController.text)?.clamp(0.0, 10.0) ?? _activeRating;
+
+                            await LibraryState().saveItem(
+                              id: widget.mangaId,
+                              mode: 'manga',
+                              format: 'MANGA',
+                              libraryStatus: _activeStatus,
+                              rating: finalRating,
+                              watchedEpisodes: finalChaptersRead,
+                              totalEpisodes: widget.totalChapters > 0 ? widget.totalChapters : null,
+                              categoryIds: _selectedCategoryIds,
+                            );
+                            widget.onSaved();
+                            if (context.mounted) {
+                              Navigator.pop(context);
+                            }
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.white,
+                            foregroundColor: Colors.black,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
+                            padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 12.0),
+                          ),
+                          child: const Text('Save Changes', style: TextStyle(fontWeight: FontWeight.bold, fontFamily: 'Outfit')),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ],
+          ),
         ),
       ),
     );

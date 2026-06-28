@@ -5,6 +5,32 @@ import 'package:http/http.dart' as http;
 import '../services/anilist_service.dart';
 import 'navigation_state.dart';
 
+class LibraryCategory {
+  final String id;
+  final String name;
+  final String mode; // 'anime', 'manga', 'movies'
+
+  LibraryCategory({
+    required this.id,
+    required this.name,
+    required this.mode,
+  });
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'name': name,
+    'mode': mode,
+  };
+
+  factory LibraryCategory.fromJson(Map<String, dynamic> json) {
+    return LibraryCategory(
+      id: json['id'],
+      name: json['name'],
+      mode: json['mode'] ?? 'anime',
+    );
+  }
+}
+
 class LibraryItem {
   final int id;
   final String mode; // 'anime', 'manga', 'movies'
@@ -14,6 +40,7 @@ class LibraryItem {
   final double rating; // 0.0 (no rating) to 10.0
   final int watchedEpisodes;
   final int? totalEpisodes;
+  final List<String> categoryIds; // Custom category IDs
 
   LibraryItem({
     required this.id,
@@ -24,6 +51,7 @@ class LibraryItem {
     required this.rating,
     required this.watchedEpisodes,
     this.totalEpisodes,
+    this.categoryIds = const <String>[],
   });
 
   Map<String, dynamic> toJson() => {
@@ -35,6 +63,7 @@ class LibraryItem {
     'rating': rating,
     'watchedEpisodes': watchedEpisodes,
     'totalEpisodes': totalEpisodes,
+    'categoryIds': categoryIds,
   };
 
   factory LibraryItem.fromJson(Map<String, dynamic> json) {
@@ -47,6 +76,7 @@ class LibraryItem {
       rating: (json['rating'] as num?)?.toDouble() ?? 0.0,
       watchedEpisodes: json['watchedEpisodes'] ?? 0,
       totalEpisodes: json['totalEpisodes'],
+      categoryIds: (json['categoryIds'] as List?)?.map((c) => c.toString()).toList() ?? const <String>[],
     );
   }
 }
@@ -57,6 +87,7 @@ class LibraryState extends ChangeNotifier {
   LibraryState._internal();
 
   List<LibraryItem> _items = [];
+  List<LibraryCategory> _categories = [];
   int _animeNotificationCount = 0;
   int _mangaNotificationCount = 0;
   int _moviesNotificationCount = 0;
@@ -66,6 +97,7 @@ class LibraryState extends ChangeNotifier {
   bool _moviesBadgeCleared = false;
 
   List<LibraryItem> get items => _items;
+  List<LibraryCategory> get categories => _categories;
 
   int getNotificationCount(AppMode mode) {
     if (mode == AppMode.anime) return _animeBadgeCleared ? 0 : _animeNotificationCount;
@@ -145,15 +177,29 @@ class LibraryState extends ChangeNotifier {
 
   Future<void> init() async {
     final prefs = await SharedPreferences.getInstance();
-    final String? jsonString = prefs.getString('library_items');
-    if (jsonString != null) {
+    
+    // Load library items
+    final String? itemsJson = prefs.getString('library_items');
+    if (itemsJson != null) {
       try {
-        final List<dynamic> decoded = jsonDecode(jsonString);
+        final List<dynamic> decoded = jsonDecode(itemsJson);
         _items = decoded.map((item) => LibraryItem.fromJson(item)).toList();
       } catch (e) {
         debugPrint('Failed to load library items: $e');
       }
     }
+
+    // Load categories
+    final String? catsJson = prefs.getString('library_categories');
+    if (catsJson != null) {
+      try {
+        final List<dynamic> decoded = jsonDecode(catsJson);
+        _categories = decoded.map((cat) => LibraryCategory.fromJson(cat)).toList();
+      } catch (e) {
+        debugPrint('Failed to load library categories: $e');
+      }
+    }
+
     notifyListeners();
     updateNotificationCount();
   }
@@ -178,18 +224,23 @@ class LibraryState extends ChangeNotifier {
     required double rating,
     required int watchedEpisodes,
     int? totalEpisodes,
+    List<String>? categoryIds,
   }) async {
+    final existing = getItem(id, mode);
+    final List<String> finalCategories = categoryIds ?? existing?.categoryIds ?? const <String>[];
+
     _items.removeWhere((item) => item.id == id && item.mode == mode);
     
     _items.add(LibraryItem(
       id: id,
       mode: mode,
       format: format,
-      addedAt: DateTime.now(),
+      addedAt: existing?.addedAt ?? DateTime.now(),
       libraryStatus: libraryStatus,
       rating: rating,
       watchedEpisodes: watchedEpisodes,
       totalEpisodes: totalEpisodes,
+      categoryIds: finalCategories,
     ));
     
     notifyListeners();
@@ -208,6 +259,100 @@ class LibraryState extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     final String jsonString = jsonEncode(_items.map((item) => item.toJson()).toList());
     await prefs.setString('library_items', jsonString);
+    
+    final String catsJson = jsonEncode(_categories.map((cat) => cat.toJson()).toList());
+    await prefs.setString('library_categories', catsJson);
+  }
+
+  // --- Categories CRUD helper methods ---
+
+  Future<void> createCategory(String name, String mode) async {
+    final id = 'cat_${DateTime.now().millisecondsSinceEpoch}_${name.hashCode.abs()}';
+    _categories.add(LibraryCategory(id: id, name: name, mode: mode));
+    notifyListeners();
+    await _persist();
+  }
+
+  Future<void> deleteCategory(String id) async {
+    _categories.removeWhere((cat) => cat.id == id);
+    
+    // Also remove this category ID from all items in the library
+    for (int i = 0; i < _items.length; i++) {
+      final item = _items[i];
+      if (item.categoryIds.contains(id)) {
+        final List<String> updatedCats = List<String>.from(item.categoryIds)..remove(id);
+        _items[i] = LibraryItem(
+          id: item.id,
+          mode: item.mode,
+          format: item.format,
+          addedAt: item.addedAt,
+          libraryStatus: item.libraryStatus,
+          rating: item.rating,
+          watchedEpisodes: item.watchedEpisodes,
+          totalEpisodes: item.totalEpisodes,
+          categoryIds: updatedCats,
+        );
+      }
+    }
+    
+    notifyListeners();
+    await _persist();
+  }
+
+  Future<void> renameCategory(String id, String newName) async {
+    final idx = _categories.indexWhere((cat) => cat.id == id);
+    if (idx != -1) {
+      final mode = _categories[idx].mode;
+      _categories[idx] = LibraryCategory(id: id, name: newName, mode: mode);
+      notifyListeners();
+      await _persist();
+    }
+  }
+
+  Future<void> toggleItemCategory(int itemId, String mode, String categoryId) async {
+    final idx = _items.indexWhere((item) => item.id == itemId && item.mode == mode);
+    if (idx != -1) {
+      final item = _items[idx];
+      final List<String> updatedCats = List<String>.from(item.categoryIds);
+      if (updatedCats.contains(categoryId)) {
+        updatedCats.remove(categoryId);
+      } else {
+        updatedCats.add(categoryId);
+      }
+      _items[idx] = LibraryItem(
+        id: item.id,
+        mode: item.mode,
+        format: item.format,
+        addedAt: item.addedAt,
+        libraryStatus: item.libraryStatus,
+        rating: item.rating,
+        watchedEpisodes: item.watchedEpisodes,
+        totalEpisodes: item.totalEpisodes,
+        categoryIds: updatedCats,
+      );
+      notifyListeners();
+      await _persist();
+    }
+  }
+
+  Future<void> updateItemCategories(int itemId, String mode, List<String> categoryIds) async {
+    final idx = _items.indexWhere((item) => item.id == itemId && item.mode == mode);
+    if (idx != -1) {
+      final item = _items[idx];
+      _items[idx] = LibraryItem(
+        id: item.id,
+        mode: item.mode,
+        format: item.format,
+        addedAt: item.addedAt,
+        libraryStatus: item.libraryStatus,
+        rating: item.rating,
+        watchedEpisodes: item.watchedEpisodes,
+        totalEpisodes: item.totalEpisodes,
+        categoryIds: categoryIds,
+      );
+      notifyListeners();
+      await _persist();
+    }
   }
 
   Future<void> updateNotificationCount() async {

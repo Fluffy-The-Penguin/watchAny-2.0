@@ -109,17 +109,6 @@ class _MangaReaderPageState extends State<MangaReaderPage> {
           totalEpisodes: widget.chapters.length,
         );
       }
-    } else {
-      // Auto add to library as reading if not already there
-      library.saveItem(
-        id: parsedMangaId,
-        mode: 'manga',
-        format: 'MANGA',
-        libraryStatus: 'reading',
-        rating: 0.0,
-        watchedEpisodes: widget.chapterNumber,
-        totalEpisodes: widget.chapters.length,
-      );
     }
   }
 
