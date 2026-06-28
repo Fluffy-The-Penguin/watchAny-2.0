@@ -375,8 +375,10 @@ class _LibraryPageState extends State<LibraryPage> {
                         media: media,
                         mode: widget.mode,
                         onTap: () {
-                          if (widget.mode == AppMode.anime || widget.mode == AppMode.manga) {
+                          if (widget.mode == AppMode.anime) {
                             widget.navigationState.selectAnime(media['id']);
+                          } else if (widget.mode == AppMode.manga) {
+                            widget.navigationState.selectManga(media['id'].toString());
                           } else {
                             final type = media['format'] == 'MOVIE' ? 'movie' : 'series';
                             final rawIdStr = media['id'].toString();
@@ -1028,25 +1030,26 @@ class _LibraryMediaCardState extends State<_LibraryMediaCard> {
                         ),
 
                       // Status dot overlay on top right
-                      Positioned(
-                        top: 8.0,
-                        right: 8.0,
-                        child: Container(
-                          width: 8.0,
-                          height: 8.0,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: statusColor,
-                            boxShadow: [
-                              BoxShadow(
-                                color: statusColor.withValues(alpha: 0.5),
-                                blurRadius: 4.0,
-                                spreadRadius: 1.0,
-                              ),
-                            ],
+                      if (widget.mode != AppMode.manga)
+                        Positioned(
+                          top: 8.0,
+                          right: 8.0,
+                          child: Container(
+                            width: 8.0,
+                            height: 8.0,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: statusColor,
+                              boxShadow: [
+                                BoxShadow(
+                                  color: statusColor.withValues(alpha: 0.5),
+                                  blurRadius: 4.0,
+                                  spreadRadius: 1.0,
+                                ),
+                              ],
+                            ),
                           ),
                         ),
-                      ),
 
                       // User Rating overlay (personal score) at bottom left
                       if (userRating > 0.0)
@@ -1133,15 +1136,18 @@ class _LibraryMediaCardState extends State<_LibraryMediaCard> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  statusName,
-                  style: TextStyle(
-                    color: statusColor.withValues(alpha: 0.8),
-                    fontSize: 10.0,
-                    fontWeight: FontWeight.bold,
-                    fontFamily: 'Outfit',
-                  ),
-                ),
+                if (widget.mode != AppMode.manga)
+                  Text(
+                    statusName,
+                    style: TextStyle(
+                      color: statusColor.withValues(alpha: 0.8),
+                      fontSize: 10.0,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: 'Outfit',
+                    ),
+                  )
+                else
+                  const SizedBox.shrink(),
                 if (!isMovie)
                   Text(
                     total != null 
