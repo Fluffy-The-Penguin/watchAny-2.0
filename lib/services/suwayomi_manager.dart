@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'suwayomi_service.dart';
 
 class SuwayomiManager {
   static Process? _process;
@@ -20,7 +21,7 @@ class SuwayomiManager {
   static Future<bool> isSuwayomiRunning(int port) async {
     try {
       final response = await http.get(
-        Uri.parse('http://127.0.0.1:$port/api/health'),
+        Uri.parse('http://${SuwayomiService.host}:$port/api/health'),
       ).timeout(const Duration(milliseconds: 500));
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
