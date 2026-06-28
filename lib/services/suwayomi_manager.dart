@@ -58,26 +58,110 @@ class SuwayomiManager {
     try {
       statusNotifier.value = "Checking JRE...";
       
-      // Smart Java Executable Path Resolver (bypasses system environment PATH cache delay)
-      String javaPath = 'java';
-      final defaultJdk21 = File('C:\\Program Files\\Eclipse Adoptium\\jdk-21.0.11.10-hotspot\\bin\\java.exe');
-      if (await defaultJdk21.exists()) {
-        javaPath = defaultJdk21.path;
-        debugPrint('[SuwayomiManager] Located installed JDK 21 at: $javaPath');
+      final appDir = Directory('C:\\Users\\aryan\\AppData\\Local\\watch_any');
+      if (!await appDir.exists()) {
+        await appDir.create(recursive: true);
       }
 
-      // 1. Verify Java is installed
+      final localJreDir = Directory('${appDir.path}\\jre');
+      final localJavaExe = File('${localJreDir.path}\\bin\\java.exe');
+      
+      String javaPath = 'java';
       bool javaInstalled = false;
-      try {
-        final checkResult = await Process.run(javaPath, ['-version']);
-        if (checkResult.exitCode == 0 || checkResult.stderr.toString().contains('version')) {
-          javaInstalled = true;
-        }
-      } catch (_) {}
 
-      if (!javaInstalled) {
-        statusNotifier.value = "Error: Java Runtime (JRE) is not installed.";
-        throw Exception("Java Runtime (JRE) is required but was not found on your system PATH.");
+      if (await localJavaExe.exists()) {
+        javaPath = localJavaExe.path;
+        javaInstalled = true;
+        debugPrint('[SuwayomiManager] Located local JRE at: $javaPath');
+      } else {
+        // Smart Java Executable Path Resolver (bypasses system environment PATH cache delay)
+        final defaultJdk21 = File('C:\\Program Files\\Eclipse Adoptium\\jdk-21.0.11.10-hotspot\\bin\\java.exe');
+        if (await defaultJdk21.exists()) {
+          javaPath = defaultJdk21.path;
+          javaInstalled = true;
+          debugPrint('[SuwayomiManager] Located installed JDK 21 at: $javaPath');
+        } else {
+          // Check system java
+          try {
+            final checkResult = await Process.run('java', ['-version']);
+            if (checkResult.exitCode == 0 || checkResult.stderr.toString().contains('version')) {
+              javaPath = 'java';
+              javaInstalled = true;
+              debugPrint('[SuwayomiManager] Located system JRE in PATH.');
+            }
+          } catch (_) {}
+        }
+
+        if (!javaInstalled) {
+          // System Java not found. Let's download a minimal JRE automatically!
+          statusNotifier.value = "Downloading JRE (Manga Runtime)...";
+          debugPrint('[SuwayomiManager] System JRE not found. Initiating Adoptium JRE 21 download...');
+          
+          final jreZipPath = '${appDir.path}\\jre.zip';
+          final jreZipFile = File(jreZipPath);
+          
+          // Download URL for a minimal, official OpenJDK JRE 21 for Windows x64
+          final jreUrl = 'https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.2%2B13/OpenJDK21U-jre_x64_windows_hotspot_21.0.2_13.zip';
+          
+          // Download the file
+          final response = await http.get(Uri.parse(jreUrl));
+          if (response.statusCode == 200) {
+            await jreZipFile.writeAsBytes(response.bodyBytes);
+            debugPrint('[SuwayomiManager] JRE zip downloaded successfully.');
+          } else {
+            statusNotifier.value = "Error: Failed to download JRE.";
+            throw Exception("Failed to download JRE from Adoptium (Status: ${response.statusCode}).");
+          }
+
+          // Unzip the file using PowerShell
+          statusNotifier.value = "Extracting JRE (Manga Runtime)...";
+          debugPrint('[SuwayomiManager] Extracting JRE archive using PowerShell...');
+          final tempExtractDir = Directory('${appDir.path}\\jre_temp');
+          if (await tempExtractDir.exists()) {
+            await tempExtractDir.delete(recursive: true);
+          }
+          await tempExtractDir.create();
+
+          // Run expand archive
+          final extractResult = await Process.run('powershell', [
+            '-Command',
+            'Expand-Archive -Path "$jreZipPath" -DestinationPath "${tempExtractDir.path}" -Force'
+          ]);
+
+          if (extractResult.exitCode != 0) {
+            debugPrint('[SuwayomiManager] Extraction failed: ${extractResult.stderr}');
+            statusNotifier.value = "Error: Extraction failed.";
+            throw Exception("Failed to extract JRE archive.");
+          }
+
+          // Clean up zip
+          await jreZipFile.delete();
+
+          // Move the extracted folder contents to localJreDir
+          final extractedSubDirs = tempExtractDir.listSync();
+          if (extractedSubDirs.isNotEmpty && extractedSubDirs.first is Directory) {
+            final extractedJreDir = extractedSubDirs.first as Directory;
+            if (await localJreDir.exists()) {
+              await localJreDir.delete(recursive: true);
+            }
+            await extractedJreDir.rename(localJreDir.path);
+            debugPrint('[SuwayomiManager] JRE placed at ${localJreDir.path}');
+          } else {
+            statusNotifier.value = "Error: Empty JRE archive.";
+            throw Exception("Extracted JRE directory was empty.");
+          }
+          
+          // Clean up temp directory
+          await tempExtractDir.delete(recursive: true);
+
+          if (await localJavaExe.exists()) {
+            javaPath = localJavaExe.path;
+            debugPrint('[SuwayomiManager] Local JRE successfully initialized at: $javaPath');
+          } else {
+            statusNotifier.value = "Error: Failed to verify JRE installation.";
+            throw Exception("Failed to verify local JRE executable path.");
+          }
+        }
       }
 
       // 2. Resolve port and repos from SharedPreferences
@@ -90,11 +174,6 @@ class SuwayomiManager {
         statusNotifier.value = "Manga engine running";
         debugPrint('Reusing existing Manga engine instance on port $_port.');
         return;
-      }
-
-      final appDir = Directory('C:\\Users\\aryan\\AppData\\Local\\watch_any');
-      if (!await appDir.exists()) {
-        await appDir.create(recursive: true);
       }
 
       final runtimeDir = Directory('${appDir.path}\\keiyoushi');
