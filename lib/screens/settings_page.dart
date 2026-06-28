@@ -45,7 +45,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
     // Load Manga Settings
     final prefs = await SharedPreferences.getInstance();
-    _mangaRepos = prefs.getStringList('manga_repos') ?? ["https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.min.json"];
+    _mangaRepos = prefs.getStringList('manga_repos') ?? <String>[];
     _mangaPortController.text = (prefs.getInt('manga_server_port') ?? 4567).toString();
 
     if (mounted) {
@@ -1447,7 +1447,7 @@ class _SettingsPageState extends State<SettingsPage> {
         ),
         const SizedBox(height: 8.0),
         const Text(
-          'Configure your Suwayomi-Server port, custom extension repositories, and lifecycle status.',
+          'Configure your Keiyoushi Manga Engine port, custom extension repositories, and lifecycle status.',
           style: TextStyle(color: Colors.white38, fontSize: 13.5, fontFamily: 'Outfit'),
         ),
         const SizedBox(height: 24.0),
@@ -1456,7 +1456,7 @@ class _SettingsPageState extends State<SettingsPage> {
         _SettingsTile(
           icon: Icons.lan_outlined,
           title: 'Server Port',
-          subtitle: 'Port of the background Suwayomi-Server instance (default 4567).',
+          subtitle: 'Port of the background Keiyoushi Manga Engine instance (default 4567).',
           trailing: SizedBox(
             width: 140,
             child: Row(

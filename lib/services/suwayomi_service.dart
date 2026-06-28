@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'suwayomi_manager.dart';
 
 class SuwayomiService {
@@ -10,115 +11,153 @@ class SuwayomiService {
 
   String get _baseUrl => 'http://127.0.0.1:${SuwayomiManager.port}';
 
-  Future<Map<String, dynamic>?> _postQuery(String query, {Map<String, dynamic>? variables}) async {
-    try {
-      final response = await http.post(
-        Uri.parse('$_baseUrl/api/graphql'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'query': query,
-          if (variables != null) 'variables': variables,
-        }),
-      ).timeout(const Duration(seconds: 15));
+  int _generateHash(String input) {
+    return input.hashCode.abs();
+  }
 
-      if (response.statusCode == 200) {
-        final Map<String, dynamic> decoded = jsonDecode(response.body);
-        if (decoded['errors'] != null) {
-          debugPrint('[SuwayomiService] GraphQL Errors: ${decoded['errors']}');
-        }
-        return decoded['data'];
-      }
-      return null;
-    } catch (e) {
-      debugPrint('[SuwayomiService] HTTP Post Query Error: $e');
-      return null;
-    }
+  Future<void> registerMangaPath(int hash, String sourceId, String url) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('manga_path_$hash', '$sourceId:$url');
+  }
+
+  Future<Map<String, String>?> getMangaPath(int hash) async {
+    final prefs = await SharedPreferences.getInstance();
+    final val = prefs.getString('manga_path_$hash');
+    if (val == null) return null;
+    final parts = val.split(':');
+    if (parts.length < 2) return null;
+    final sourceId = parts[0];
+    final url = parts.sublist(1).join(':');
+    return {'sourceId': sourceId, 'url': url};
+  }
+
+  Future<void> registerChapterPath(int hash, String sourceId, String url) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('chapter_path_$hash', '$sourceId:$url');
+  }
+
+  Future<Map<String, String>?> getChapterPath(int hash) async {
+    final prefs = await SharedPreferences.getInstance();
+    final val = prefs.getString('chapter_path_$hash');
+    if (val == null) return null;
+    final parts = val.split(':');
+    if (parts.length < 2) return null;
+    final sourceId = parts[0];
+    final url = parts.sublist(1).join(':');
+    return {'sourceId': sourceId, 'url': url};
   }
 
   // Fetch all extensions (installed and available in repositories)
   Future<List<dynamic>> getExtensions() async {
-    const query = r'''
-      query GetExtensions {
-        extensions {
-          name
-          pkgName
-          versionName
-          isInstalled
-          lang
-          nsfw
-        }
+    try {
+      final instResp = await http.get(Uri.parse('$_baseUrl/api/installed')).timeout(const Duration(seconds: 5));
+      final listResp = await http.get(Uri.parse('$_baseUrl/api/list')).timeout(const Duration(seconds: 5));
+
+      if (instResp.statusCode != 200 || listResp.statusCode != 200) return [];
+
+      final installedData = jsonDecode(instResp.body);
+      final listData = jsonDecode(listResp.body);
+
+      final installedList = installedData['data'] as List? ?? [];
+      final listExts = listData['data'] as List? ?? [];
+
+      final Map<String, Map<String, dynamic>> combined = {};
+
+      for (var ext in installedList) {
+        final String pkg = ext['pkg']?.toString() ?? '';
+        if (pkg.isEmpty) continue;
+        combined[pkg] = {
+          'name': ext['name'] ?? '',
+          'pkgName': pkg,
+          'versionName': ext['version'] ?? '',
+          'isInstalled': true,
+          'lang': ext['lang'] ?? 'en',
+          'nsfw': (ext['nsfw'] ?? 0) == 1,
+        };
       }
-    ''';
-    final data = await _postQuery(query);
-    if (data != null && data['extensions'] != null) {
-      return data['extensions'] as List;
-    }
-    // Fallback query if 'extensions' directly doesn't work
-    const fallbackQuery = r'''
-      query GetExtensionsFallback {
-        fetchExtensions {
-          extensions {
-            name
-            pkgName
-            versionName
-            isInstalled
-            lang
-            nsfw
-          }
-        }
+
+      for (var ext in listExts) {
+        final String pkg = ext['pkg']?.toString() ?? '';
+        if (pkg.isEmpty) continue;
+        if (combined.containsKey(pkg)) continue;
+        combined[pkg] = {
+          'name': ext['name'] ?? '',
+          'pkgName': pkg,
+          'versionName': ext['version'] ?? '',
+          'isInstalled': false,
+          'lang': ext['lang'] ?? 'en',
+          'nsfw': (ext['nsfw'] ?? 0) == 1,
+        };
       }
-    ''';
-    final fallbackData = await _postQuery(fallbackQuery);
-    if (fallbackData != null && fallbackData['fetchExtensions']?['extensions'] != null) {
-      return fallbackData['fetchExtensions']['extensions'] as List;
+
+      return combined.values.toList();
+    } catch (e) {
+      debugPrint('[SuwayomiService] getExtensions Error: $e');
+      return [];
     }
-    return [];
   }
 
   // Install extension
   Future<bool> installExtension(String pkgName) async {
-    const mutation = r'''
-      mutation InstallExtension($pkgName: String!) {
-        installExtension(pkgName: $pkgName) {
-          pkgName
-        }
+    try {
+      final response = await http.get(
+        Uri.parse('$_baseUrl/api/install?pkg=$pkgName'),
+      ).timeout(const Duration(seconds: 30));
+
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body);
+        return decoded['ok'] == true;
       }
-    ''';
-    final data = await _postQuery(mutation, variables: {'pkgName': pkgName});
-    return data != null;
+      return false;
+    } catch (e) {
+      debugPrint('[SuwayomiService] installExtension Error: $e');
+      return false;
+    }
   }
 
   // Uninstall extension
   Future<bool> uninstallExtension(String pkgName) async {
-    const mutation = r'''
-      mutation UninstallExtension($pkgName: String!) {
-        uninstallExtension(pkgName: $pkgName) {
-          pkgName
-        }
+    try {
+      final response = await http.get(
+        Uri.parse('$_baseUrl/api/uninstall?pkg=$pkgName'),
+      ).timeout(const Duration(seconds: 15));
+
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body);
+        return decoded['ok'] == true;
       }
-    ''';
-    final data = await _postQuery(mutation, variables: {'pkgName': pkgName});
-    return data != null;
+      return false;
+    } catch (e) {
+      debugPrint('[SuwayomiService] uninstallExtension Error: $e');
+      return false;
+    }
   }
 
   // Fetch active manga sources
   Future<List<dynamic>> getSources() async {
-    const query = r'''
-      query GetSources {
-        sources {
-          id
-          name
-          lang
-          isNsfw
-          supportsLatest
+    try {
+      final response = await http.get(
+        Uri.parse('$_baseUrl/api/sources'),
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body);
+        if (decoded['ok'] == true) {
+          final list = decoded['data'] as List? ?? [];
+          return list.map((source) => {
+            'id': source['id']?.toString() ?? '',
+            'name': source['name'] ?? '',
+            'lang': source['lang'] ?? 'en',
+            'isNsfw': false,
+            'supportsLatest': source['supportsLatest'] ?? true,
+          }).toList();
         }
       }
-    ''';
-    final data = await _postQuery(query);
-    if (data != null && data['sources'] != null) {
-      return data['sources'] as List;
+      return [];
+    } catch (e) {
+      debugPrint('[SuwayomiService] getSources Error: $e');
+      return [];
     }
-    return [];
   }
 
   // Search or browse catalog from a source
@@ -127,114 +166,157 @@ class SuwayomiService {
     required int page,
     String query = "",
   }) async {
-    // If query is empty, we perform browse popular / latest
-    const q = r'''
-      query FetchSourceManga($query: String!, $sourceId: String!, $page: Int!) {
-        fetchSourceManga(query: $query, source: $sourceId, page: $page) {
-          manga {
-            id
-            title
-            thumbnailUrl
+    try {
+      final response = query.isEmpty
+          ? await http.get(Uri.parse('$_baseUrl/api/popular?sourceId=$sourceId&page=$page'))
+          : await http.get(Uri.parse('$_baseUrl/api/search?sourceId=$sourceId&page=$page&q=${Uri.encodeComponent(query)}'));
+
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body);
+        if (decoded['ok'] == true && decoded['data']?['mangas'] != null) {
+          final list = decoded['data']['mangas'] as List;
+          final mapped = <dynamic>[];
+
+          for (var manga in list) {
+            final String url = manga['url'] ?? '';
+            if (url.isEmpty) continue;
+
+            final int hash = _generateHash('$sourceId:$url');
+            await registerMangaPath(hash, sourceId, url);
+
+            final coverUrl = manga['thumbnailUrl']?.toString() ?? '';
+            final proxiedCover = coverUrl.isNotEmpty
+                ? '$_baseUrl/api/image?url=${Uri.encodeComponent(coverUrl)}'
+                : '';
+
+            mapped.add({
+              'id': hash,
+              'title': manga['title'] ?? 'Unknown Manga',
+              'thumbnailUrl': proxiedCover,
+              'url': url,
+            });
           }
+          return mapped;
         }
       }
-    ''';
-    
-    final variables = {
-      'query': query,
-      'sourceId': sourceId,
-      'page': page,
-    };
-
-    final data = await _postQuery(q, variables: variables);
-    if (data != null && data['fetchSourceManga']?['manga'] != null) {
-      return data['fetchSourceManga']['manga'] as List;
+      return [];
+    } catch (e) {
+      debugPrint('[SuwayomiService] fetchSourceManga Error: $e');
+      return [];
     }
-    return [];
   }
 
   // Fetch manga details
   Future<Map<String, dynamic>?> getMangaDetails(int id) async {
-    const query = r'''
-      query GetMangaDetails($id: Int!) {
-        manga(id: $id) {
-          id
-          title
-          author
-          description
-          genre
-          status
-          thumbnailUrl
-          sourceId
+    try {
+      final pathInfo = await getMangaPath(id);
+      if (pathInfo == null) return null;
+
+      final sourceId = pathInfo['sourceId']!;
+      final mangaUrl = pathInfo['url']!;
+
+      final response = await http.get(
+        Uri.parse('$_baseUrl/api/details?sourceId=$sourceId&url=${Uri.encodeComponent(mangaUrl)}'),
+      ).timeout(const Duration(seconds: 15));
+
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body);
+        if (decoded['ok'] == true && decoded['data'] != null) {
+          final data = Map<String, dynamic>.from(decoded['data']);
+          
+          data['id'] = id;
+          data['genre'] = data['genres'] ?? [];
+
+          final coverUrl = data['thumbnailUrl']?.toString() ?? '';
+          if (coverUrl.isNotEmpty) {
+            data['thumbnailUrl'] = '$_baseUrl/api/image?url=${Uri.encodeComponent(coverUrl)}';
+          }
+          return data;
         }
       }
-    ''';
-    final data = await _postQuery(query, variables: {'id': id});
-    if (data != null && data['manga'] != null) {
-      return data['manga'] as Map<String, dynamic>;
+      return null;
+    } catch (e) {
+      debugPrint('[SuwayomiService] getMangaDetails Error: $e');
+      return null;
     }
-    return null;
   }
 
   // Fetch chapters list
   Future<List<dynamic>> getChapters(int mangaId) async {
-    const query = r'''
-      query GetChapters($mangaId: Int!) {
-        chapters(mangaId: $mangaId) {
-          id
-          name
-          chapterNumber
-          uploadDate
-          read
-        }
-      }
-    ''';
-    final data = await _postQuery(query, variables: {'mangaId': mangaId});
-    if (data != null && data['chapters'] != null) {
-      return data['chapters'] as List;
-    }
-    // Fallback query if 'chapters' directly doesn't work
-    const fallbackQuery = r'''
-      query GetChaptersFallback($mangaId: Int!) {
-        fetchChapters(mangaId: $mangaId) {
-          chapters {
-            id
-            name
-            chapterNumber
-            uploadDate
-            read
+    try {
+      final pathInfo = await getMangaPath(mangaId);
+      if (pathInfo == null) return [];
+
+      final sourceId = pathInfo['sourceId']!;
+      final mangaUrl = pathInfo['url']!;
+
+      final response = await http.get(
+        Uri.parse('$_baseUrl/api/chapters?sourceId=$sourceId&url=${Uri.encodeComponent(mangaUrl)}'),
+      ).timeout(const Duration(seconds: 15));
+
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body);
+        if (decoded['ok'] == true && decoded['data']?['chapters'] != null) {
+          final list = decoded['data']['chapters'] as List;
+          final mapped = <dynamic>[];
+
+          for (var chapter in list) {
+            final String url = chapter['url'] ?? '';
+            if (url.isEmpty) continue;
+
+            final int hash = _generateHash('$sourceId:$url');
+            await registerChapterPath(hash, sourceId, url);
+
+            mapped.add({
+              'id': hash,
+              'name': chapter['name'] ?? 'Chapter',
+              'chapterNumber': chapter['chapterNumber'] ?? 1.0,
+              'uploadDate': chapter['dateUpload'] ?? 0,
+              'read': false,
+            });
           }
+          return mapped;
         }
       }
-    ''';
-    final fallbackData = await _postQuery(fallbackQuery, variables: {'mangaId': mangaId});
-    if (fallbackData != null && fallbackData['fetchChapters']?['chapters'] != null) {
-      return fallbackData['fetchChapters']['chapters'] as List;
+      return [];
+    } catch (e) {
+      debugPrint('[SuwayomiService] getChapters Error: $e');
+      return [];
     }
-    return [];
   }
 
   // Fetch pages list for reading
   Future<List<String>> getChapterPages(int chapterId) async {
-    const query = r'''
-      query GetChapterPages($chapterId: Int!) {
-        fetchChapterPages(chapterId: $chapterId) {
-          pages
+    try {
+      final pathInfo = await getChapterPath(chapterId);
+      if (pathInfo == null) return [];
+
+      final sourceId = pathInfo['sourceId']!;
+      final chapterUrl = pathInfo['url']!;
+
+      final response = await http.get(
+        Uri.parse('$_baseUrl/api/pages?sourceId=$sourceId&url=${Uri.encodeComponent(chapterUrl)}'),
+      ).timeout(const Duration(seconds: 15));
+
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body);
+        if (decoded['ok'] == true && decoded['data']?['pages'] != null) {
+          final list = decoded['data']['pages'] as List;
+          final pages = <String>[];
+
+          for (var page in list) {
+            final String pageUrl = page['imageUrl'] ?? page['url'] ?? '';
+            if (pageUrl.isEmpty) continue;
+
+            pages.add('$_baseUrl/api/image?url=${Uri.encodeComponent(pageUrl)}');
+          }
+          return pages;
         }
       }
-    ''';
-    final data = await _postQuery(query, variables: {'chapterId': chapterId});
-    if (data != null && data['fetchChapterPages']?['pages'] != null) {
-      final pages = data['fetchChapterPages']['pages'] as List;
-      // Prepend base URL to relative pages if needed
-      return pages.map((p) {
-        final String pageUrl = p.toString();
-        if (pageUrl.startsWith('http')) {
-          return pageUrl;
-        }
-        return '$_baseUrl$pageUrl';
-      }).toList();
+      return [];
+    } catch (e) {
+      debugPrint('[SuwayomiService] getChapterPages Error: $e');
+      return [];
     }
-    return [];
   }
 }

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -19,9 +20,13 @@ class SuwayomiManager {
   static Future<bool> isSuwayomiRunning(int port) async {
     try {
       final response = await http.get(
-        Uri.parse('http://127.0.0.1:$port/api/v1/info'),
+        Uri.parse('http://127.0.0.1:$port/api/health'),
       ).timeout(const Duration(milliseconds: 500));
-      return response.statusCode == 200;
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return data['ok'] == true;
+      }
+      return false;
     } catch (_) {
       return false;
     }
@@ -31,7 +36,7 @@ class SuwayomiManager {
     int port = startPort;
     while (port < startPort + 100) {
       if (await isSuwayomiRunning(port)) {
-        debugPrint('Suwayomi is already running on port $port. Will reuse.');
+        debugPrint('Manga engine is already running on port $port. Will reuse.');
         return port;
       }
       try {
@@ -47,15 +52,24 @@ class SuwayomiManager {
 
   static Future<void> start() async {
     if (_process != null) {
-      debugPrint('Suwayomi already running or starting...');
+      debugPrint('Manga engine already running or starting...');
       return;
     }
     try {
       statusNotifier.value = "Checking JRE...";
+      
+      // Smart Java Executable Path Resolver (bypasses system environment PATH cache delay)
+      String javaPath = 'java';
+      final defaultJdk21 = File('C:\\Program Files\\Eclipse Adoptium\\jdk-21.0.11.10-hotspot\\bin\\java.exe');
+      if (await defaultJdk21.exists()) {
+        javaPath = defaultJdk21.path;
+        debugPrint('[SuwayomiManager] Located installed JDK 21 at: $javaPath');
+      }
+
       // 1. Verify Java is installed
       bool javaInstalled = false;
       try {
-        final checkResult = await Process.run('java', ['-version']);
+        final checkResult = await Process.run(javaPath, ['-version']);
         if (checkResult.exitCode == 0 || checkResult.stderr.toString().contains('version')) {
           javaInstalled = true;
         }
@@ -70,11 +84,11 @@ class SuwayomiManager {
       final prefs = await SharedPreferences.getInstance();
       final savedPort = prefs.getInt('manga_server_port') ?? 4567;
       _port = await _findAvailablePort(savedPort);
-      final repos = prefs.getStringList('manga_repos') ?? ["https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.min.json"];
+      final repos = prefs.getStringList('manga_repos') ?? <String>[];
 
       if (await isSuwayomiRunning(_port)) {
         statusNotifier.value = "Manga engine running";
-        debugPrint('Reusing existing Suwayomi instance on port $_port.');
+        debugPrint('Reusing existing Manga engine instance on port $_port.');
         return;
       }
 
@@ -83,116 +97,87 @@ class SuwayomiManager {
         await appDir.create(recursive: true);
       }
 
-      final suwayomiDir = Directory('${appDir.path}\\suwayomi');
-      if (!await suwayomiDir.exists()) {
-        await suwayomiDir.create(recursive: true);
+      final runtimeDir = Directory('${appDir.path}\\keiyoushi');
+      if (!await runtimeDir.exists()) {
+        await runtimeDir.create(recursive: true);
       }
 
-      // 3. Write server.conf HOCON config file
-      final configFile = File('${suwayomiDir.path}\\server.conf');
-      final reposHocon = repos.map((url) => '"$url"').join(', ');
-      final configContent = '''
-server.port = $_port
-server.extensionRepos = [$reposHocon]
-''';
-      await configFile.writeAsString(configContent);
-
-      // 4. Check/Download jar
-      final jarPath = '${appDir.path}\\Suwayomi-Server.jar';
+      // 3. Extract keiyoushi-runtime.jar from assets
+      final jarPath = '${appDir.path}\\keiyoushi-runtime.jar';
       final jarFile = File(jarPath);
 
       if (!await jarFile.exists() || await jarFile.length() == 0) {
-        _isDownloading = true;
-        statusNotifier.value = "Checking release version...";
-        
-        String downloadUrl = 'https://github.com/Suwayomi/Suwayomi-Server/releases/download/v2.2.2100/Suwayomi-Server-v2.2.2100.jar';
-        try {
-          final releaseResponse = await http.get(
-            Uri.parse('https://api.github.com/repos/Suwayomi/Suwayomi-Server/releases/latest'),
-            headers: {'User-Agent': 'watchAny-App'},
-          ).timeout(const Duration(seconds: 5));
-          
-          if (releaseResponse.statusCode == 200) {
-            final Map<String, dynamic> releaseData = jsonDecode(releaseResponse.body);
-            final List<dynamic> assets = releaseData['assets'] ?? [];
-            final jarAsset = assets.firstWhere(
-              (asset) => asset['name'].toString().endsWith('.jar'),
-              orElse: () => null,
-            );
-            if (jarAsset != null && jarAsset['browser_download_url'] != null) {
-              downloadUrl = jarAsset['browser_download_url'];
-              debugPrint('[SuwayomiManager] Found latest release jar: $downloadUrl');
-            }
-          }
-        } catch (e) {
-          debugPrint('[SuwayomiManager] Error fetching latest release metadata (using fallback): $e');
-        }
-
-        statusNotifier.value = "Downloading Manga engine...";
-        final client = http.Client();
-        final request = http.Request('GET', Uri.parse(downloadUrl));
-        final response = await client.send(request);
-        
-        if (response.statusCode != 200) {
-          _isDownloading = false;
-          statusNotifier.value = "Download failed!";
-          throw Exception("Failed to download Suwayomi-Server.jar: HTTP ${response.statusCode}");
-        }
-
-        final int totalBytes = response.contentLength ?? 170000000;
-        int receivedBytes = 0;
-        final List<int> bytes = [];
-
-        await response.stream.forEach((chunk) {
-          bytes.addAll(chunk);
-          receivedBytes += chunk.length;
-          _downloadProgress = receivedBytes / totalBytes;
-          statusNotifier.value = "Downloading Manga engine: ${(_downloadProgress * 100).toStringAsFixed(0)}%";
-        });
-
+        statusNotifier.value = "Extracting Manga engine...";
+        debugPrint('[SuwayomiManager] Extracting keiyoushi-runtime.jar from assets...');
+        final byteData = await rootBundle.load('assets/bin/keiyoushi-runtime.jar');
+        final bytes = byteData.buffer.asUint8List(byteData.offsetInBytes, byteData.lengthInBytes);
         await jarFile.writeAsBytes(bytes);
-        _isDownloading = false;
+        debugPrint('[SuwayomiManager] Extraction complete.');
       }
 
-      // 5. Start the background process
+      // 4. Start the background process
       statusNotifier.value = "Starting Manga engine...";
-      debugPrint('[SuwayomiManager] Launching Suwayomi-Server on port $_port...');
+      debugPrint('[SuwayomiManager] Launching keiyoushi-runtime on port $_port using: $javaPath');
       
       _process = await Process.start(
-        'java',
+        javaPath,
         [
-          '-Dsuwayomi.tachidesk.config.server.port=$_port',
-          '-Dsuwayomi.tachidesk.config.server.rootDir=${suwayomiDir.path}',
           '-jar',
           jarPath,
+          '--root',
+          runtimeDir.path,
+          'web',
+          '$_port',
         ],
         workingDirectory: appDir.path,
       );
 
       // Log process output for debugging
       _process!.stdout.transform(utf8.decoder).listen((data) {
-        debugPrint('[Suwayomi-stdout] $data');
+        debugPrint('[MangaEngine-stdout] $data');
       });
       _process!.stderr.transform(utf8.decoder).listen((data) {
-        debugPrint('[Suwayomi-stderr] $data');
+        debugPrint('[MangaEngine-stderr] $data');
       });
 
       // Poll until the REST API responds
-      int attempts = 0;
-      while (attempts < 60) {
+      bool serverReady = false;
+      for (int i = 0; i < 40; i++) {
         if (await isSuwayomiRunning(_port)) {
-          debugPrint('[SuwayomiManager] Suwayomi-Server is fully operational.');
-          statusNotifier.value = "Manga engine running";
-          return;
+          serverReady = true;
+          break;
         }
-        await Future.delayed(const Duration(seconds: 1));
-        attempts++;
+        await Future.delayed(const Duration(milliseconds: 250));
       }
 
-      statusNotifier.value = "Engine startup timeout";
-      throw Exception("Timed out waiting for Suwayomi-Server to start.");
+      if (serverReady) {
+        statusNotifier.value = "Manga engine running";
+        debugPrint('[SuwayomiManager] Manga engine is fully operational on port $_port.');
+        
+        // Seed default/configured repositories
+        try {
+          final reposUrl = Uri.parse('http://127.0.0.1:$_port/api/repos');
+          final reposResponse = await http.get(reposUrl).timeout(const Duration(seconds: 3));
+          if (reposResponse.statusCode == 200) {
+            final data = jsonDecode(reposResponse.body);
+            final list = data['data'] as List?;
+            if (list == null || list.isEmpty) {
+              debugPrint('[SuwayomiManager] Seeding repositories in custom runtime...');
+              for (final repo in repos) {
+                final addUrl = Uri.parse('http://127.0.0.1:$_port/api/repos/add?url=${Uri.encodeComponent(repo)}');
+                await http.get(addUrl).timeout(const Duration(seconds: 10));
+              }
+            }
+          }
+        } catch (e) {
+          debugPrint('[SuwayomiManager] Error seeding repositories: $e');
+        }
+      } else {
+        statusNotifier.value = "Engine startup timeout";
+        throw Exception("Timed out waiting for Manga engine to start.");
+      }
     } catch (e) {
-      debugPrint('[SuwayomiManager] Failed to start Suwayomi-Server: $e');
+      debugPrint('[SuwayomiManager] Failed to start Manga engine: $e');
       statusNotifier.value = "Engine startup failed";
       _process = null;
       rethrow;
@@ -201,7 +186,7 @@ server.extensionRepos = [$reposHocon]
 
   static void stop() {
     if (_process != null) {
-      debugPrint('[SuwayomiManager] Killing Suwayomi-Server process...');
+      debugPrint('[SuwayomiManager] Killing Manga engine process...');
       _process!.kill();
       _process = null;
       statusNotifier.value = "Manga engine stopped";

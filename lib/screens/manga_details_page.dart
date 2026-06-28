@@ -119,10 +119,42 @@ class _MangaDetailsPageState extends State<MangaDetailsPage> {
 
     final title = _details!['title'] ?? 'Unknown Manga';
     final coverUrl = _details!['thumbnailUrl']?.toString() ?? '';
-    final author = _details!['author'] ?? 'Unknown Author';
     final description = _details!['description'] ?? 'No description available.';
-    final status = _details!['status'] ?? 'Unknown';
-    final genres = (_details!['genre'] as List? ?? []).map((g) => g.toString()).toList();
+
+    // Safe Author parser
+    String authorStr = 'Unknown Author';
+    final rawAuthor = _details!['author'];
+    if (rawAuthor is List) {
+      authorStr = rawAuthor.join(', ');
+    } else if (rawAuthor != null && rawAuthor.toString().trim().isNotEmpty) {
+      authorStr = rawAuthor.toString().trim();
+    }
+
+    // Safe Status parser (Tachiyomi status is an enum integer)
+    String statusStr = 'Unknown';
+    final rawStatus = _details!['status'];
+    if (rawStatus is int) {
+      switch (rawStatus) {
+        case 1: statusStr = 'Ongoing'; break;
+        case 2: statusStr = 'Completed'; break;
+        case 3: statusStr = 'Licensed'; break;
+        case 4: statusStr = 'Finished'; break;
+        case 5: statusStr = 'Cancelled'; break;
+        case 6: statusStr = 'On Hiatus'; break;
+        default: statusStr = 'Unknown';
+      }
+    } else if (rawStatus != null) {
+      statusStr = rawStatus.toString();
+    }
+
+    // Safe Genres parser
+    final rawGenre = _details!['genre'];
+    final List<String> genres = [];
+    if (rawGenre is List) {
+      genres.addAll(rawGenre.map((g) => g.toString()));
+    } else if (rawGenre is String) {
+      genres.addAll(rawGenre.split(',').map((g) => g.trim()).where((g) => g.isNotEmpty));
+    }
 
     final libraryState = LibraryState();
     final libraryItem = libraryState.getItem(_parsedMangaId, 'manga');
@@ -196,7 +228,7 @@ class _MangaDetailsPageState extends State<MangaDetailsPage> {
                   Row(
                     children: [
                       Text(
-                        'By $author',
+                        'By $authorStr',
                         style: const TextStyle(color: Colors.white54, fontSize: 13.0, fontFamily: 'Outfit'),
                       ),
                       const SizedBox(width: 12.0),
@@ -207,7 +239,7 @@ class _MangaDetailsPageState extends State<MangaDetailsPage> {
                           borderRadius: BorderRadius.circular(4.0),
                         ),
                         child: Text(
-                          status,
+                          statusStr,
                           style: const TextStyle(
                             color: Color(0xFFFF9F1C),
                             fontSize: 10.0,
