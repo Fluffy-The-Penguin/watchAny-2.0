@@ -9,7 +9,10 @@ class SuwayomiService {
   factory SuwayomiService() => _instance;
   SuwayomiService._internal();
 
-  String get _baseUrl => 'http://127.0.0.1:${SuwayomiManager.port}';
+  static String host = '127.0.0.1';
+  static int port = 4567;
+
+  String get _baseUrl => 'http://$host:$port';
 
   int _generateHash(String input) {
     return input.hashCode.abs();

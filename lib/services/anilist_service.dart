@@ -4,6 +4,9 @@ import 'package:http/http.dart' as http;
 class AnilistService {
   static const String _endpoint = 'https://graphql.anilist.co';
 
+  static Map<String, dynamic>? _dashboardCache;
+  static DateTime? _lastFetchedTime;
+
   // Get current season string for AniList API
   static String getCurrentSeason(DateTime date) {
     final month = date.month;
@@ -19,7 +22,14 @@ class AnilistService {
   }
 
   // Fetch all dashboard categories in one query
-  Future<Map<String, dynamic>> fetchDashboardData() async {
+  Future<Map<String, dynamic>> fetchDashboardData({bool forceRefresh = false}) async {
+    if (!forceRefresh && _dashboardCache != null && _lastFetchedTime != null) {
+      final difference = DateTime.now().difference(_lastFetchedTime!);
+      if (difference.inMinutes < 15) {
+        return _dashboardCache!;
+      }
+    }
+
     final now = DateTime.now();
     final season = getCurrentSeason(now);
     final year = now.year;
@@ -166,7 +176,9 @@ class AnilistService {
       if (response.statusCode == 200) {
         final body = jsonDecode(response.body);
         if (body['data'] != null) {
-          return body['data'] as Map<String, dynamic>;
+          _dashboardCache = body['data'] as Map<String, dynamic>;
+          _lastFetchedTime = DateTime.now();
+          return _dashboardCache!;
         }
         throw Exception('GraphQL error: ${body['errors']}');
       } else {

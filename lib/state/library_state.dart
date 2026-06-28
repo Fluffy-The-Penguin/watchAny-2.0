@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import '../services/anilist_service.dart';
+import '../services/suwayomi_service.dart';
 import 'navigation_state.dart';
 
 class LibraryCategory {
@@ -179,6 +180,10 @@ class LibraryState extends ChangeNotifier {
 
   Future<void> init() async {
     final prefs = await SharedPreferences.getInstance();
+    
+    // Load host and port for Suwayomi manga engine
+    SuwayomiService.host = prefs.getString('manga_server_host') ?? '127.0.0.1';
+    SuwayomiService.port = prefs.getInt('manga_server_port') ?? 4567;
     
     // Load library items
     final String? itemsJson = prefs.getString('library_items');

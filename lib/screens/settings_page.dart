@@ -4,6 +4,7 @@ import '../services/stremio_addon_service.dart';
 import '../state/app_settings.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/suwayomi_manager.dart';
+import '../services/suwayomi_service.dart';
 import '../services/update_service.dart';
 
 class SettingsPage extends StatefulWidget {
@@ -20,6 +21,7 @@ class _SettingsPageState extends State<SettingsPage> {
   final TextEditingController _stremioUrlController = TextEditingController();
   final TextEditingController _mangaRepoUrlController = TextEditingController();
   final TextEditingController _mangaPortController = TextEditingController();
+  final TextEditingController _mangaHostController = TextEditingController();
   
   int _activeCategoryIndex = 0; // 0: Extensions, 1: Addons, 2: General
   bool _isLoading = false;
@@ -48,6 +50,7 @@ class _SettingsPageState extends State<SettingsPage> {
     final prefs = await SharedPreferences.getInstance();
     _mangaRepos = prefs.getStringList('manga_repos') ?? <String>[];
     _mangaPortController.text = (prefs.getInt('manga_server_port') ?? 4567).toString();
+    _mangaHostController.text = prefs.getString('manga_server_host') ?? '127.0.0.1';
 
     if (mounted) {
       setState(() => _isLoading = false);
@@ -61,6 +64,7 @@ class _SettingsPageState extends State<SettingsPage> {
     _stremioUrlController.dispose();
     _mangaRepoUrlController.dispose();
     _mangaPortController.dispose();
+    _mangaHostController.dispose();
     super.dispose();
   }
 
@@ -1415,19 +1419,61 @@ class _SettingsPageState extends State<SettingsPage> {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setInt('manga_server_port', port);
       
+      // Update dynamic runtime reference
+      SuwayomiService.port = port;
+      
       // Dynamic engine reload
       SuwayomiManager.stop();
       await SuwayomiManager.start();
       
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Manga server port updated and engine restarted.')),
+          const SnackBar(content: Text('Manga server port updated.')),
         );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to update port: $e'), backgroundColor: Colors.redAccent),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  Future<void> _saveMangaHost() async {
+    final host = _mangaHostController.text.trim();
+    if (host.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a valid IP address or hostname.')),
+      );
+      return;
+    }
+    
+    setState(() => _isLoading = true);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('manga_server_host', host);
+      
+      // Update dynamic runtime reference
+      SuwayomiService.host = host;
+      
+      // Dynamic engine reload
+      SuwayomiManager.stop();
+      await SuwayomiManager.start();
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Manga server host updated.')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to update host: $e'), backgroundColor: Colors.redAccent),
         );
       }
     } finally {
@@ -1456,6 +1502,40 @@ class _SettingsPageState extends State<SettingsPage> {
           style: TextStyle(color: Colors.white38, fontSize: 13.5, fontFamily: 'Outfit'),
         ),
         const SizedBox(height: 24.0),
+
+        // Host/IP Configuration
+        _SettingsTile(
+          icon: Icons.computer_outlined,
+          title: 'Server IP / Host',
+          subtitle: 'IP address of the Keiyoushi Manga Engine instance (default 127.0.0.1).',
+          trailing: SizedBox(
+            width: 180,
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _mangaHostController,
+                    style: const TextStyle(color: Colors.white, fontSize: 13.0, fontFamily: 'Outfit'),
+                    decoration: InputDecoration(
+                      filled: true,
+                      fillColor: Colors.white10,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(6.0), borderSide: BorderSide.none),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 8.0),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8.0),
+                IconButton(
+                  icon: const Icon(Icons.save, color: Color(0xFFFF9F1C), size: 20),
+                  onPressed: _saveMangaHost,
+                  tooltip: 'Save host',
+                ),
+              ],
+            ),
+          ),
+        ),
+
+        const SizedBox(height: 16.0),
 
         // Port Configuration
         _SettingsTile(

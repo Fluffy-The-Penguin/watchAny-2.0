@@ -38,9 +38,9 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
     _loadData();
   }
 
-  Future<void> _loadData() async {
+  Future<void> _loadData({bool forceRefresh = false}) async {
     try {
-      final data = await _anilistService.fetchDashboardData();
+      final data = await _anilistService.fetchDashboardData(forceRefresh: forceRefresh);
       if (mounted) {
         setState(() {
           _trending = data['trending']?['media'] ?? [];
@@ -153,7 +153,7 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
                     _isLoading = true;
                     _errorMessage = null;
                   });
-                  _loadData();
+                  _loadData(forceRefresh: true);
                 },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.white10,
