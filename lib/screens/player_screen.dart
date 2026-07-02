@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
@@ -63,6 +65,27 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
   final List<StreamSubscription> _subscriptions = [];
   final TorrServerService _torrServerService = TorrServerService();
 
+  void _handlePlayerStateChange() {
+    final playerState = PlayerState();
+    final bool isDesktop = !kIsWeb && (Platform.isWindows || Platform.isMacOS || Platform.isLinux);
+    
+    if (!isDesktop) {
+      if (playerState.isMinimized) {
+        SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: SystemUiOverlay.values);
+        SystemChrome.setPreferredOrientations([
+          DeviceOrientation.portraitUp,
+          DeviceOrientation.portraitDown,
+        ]);
+      } else {
+        SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+        SystemChrome.setPreferredOrientations([
+          DeviceOrientation.landscapeLeft,
+          DeviceOrientation.landscapeRight,
+        ]);
+      }
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -73,10 +96,13 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
         _playNextEpisode();
       }
     }));
+    PlayerState().addListener(_handlePlayerStateChange);
+    _handlePlayerStateChange();
   }
 
   @override
   void dispose() {
+    PlayerState().removeListener(_handlePlayerStateChange);
     for (var sub in _subscriptions) {
       sub.cancel();
     }
@@ -91,7 +117,14 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
         windowManager.setFullScreen(false);
       }
     }).catchError((_) {});
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: SystemUiOverlay.values);
+
+    final bool isDesktop = !kIsWeb && (Platform.isWindows || Platform.isMacOS || Platform.isLinux);
+    if (!isDesktop) {
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: SystemUiOverlay.values);
+      SystemChrome.setPreferredOrientations([]);
+    } else {
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: SystemUiOverlay.values);
+    }
 
     super.dispose();
   }
@@ -595,6 +628,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
 
   @override
   Widget build(BuildContext context) {
+    final bool isDesktop = !kIsWeb && (Platform.isWindows || Platform.isMacOS || Platform.isLinux);
     return ListenableBuilder(
       listenable: PlayerState(),
       builder: (context, _) {
@@ -773,32 +807,75 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
           const MaterialDesktopFullscreenButton(),
         ],
       ),
-      child: Video(
-        controller: controller,
-        onEnterFullscreen: () async {
-          PlayerState().enterFullscreen();
-          await windowManager.setFullScreen(true);
-          await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-        },
-        onExitFullscreen: () async {
-          PlayerState().exitFullscreen();
-          await windowManager.setFullScreen(false);
-          await SystemChrome.setEnabledSystemUIMode(
-            SystemUiMode.manual,
-            overlays: SystemUiOverlay.values,
-          );
-        },
-        controls: (state) {
-          final bool isDesktop = [
-            TargetPlatform.windows,
-            TargetPlatform.linux,
-            TargetPlatform.macOS,
-          ].contains(Theme.of(state.context).platform);
-          return KeyedSubtree(
-            key: ValueKey(_overlayEntry != null),
-            child: isDesktop
-                ? MaterialDesktopVideoControls(state)
-                : MaterialVideoControls(state),
+      child: StreamBuilder<int?>(
+        stream: player.stream.width,
+        builder: (context, widthSnapshot) {
+          return StreamBuilder<int?>(
+            stream: player.stream.height,
+            builder: (context, heightSnapshot) {
+              final w = widthSnapshot.data ?? player.state.width;
+              final h = heightSnapshot.data ?? player.state.height;
+              
+              Widget videoWidget = Video(
+                controller: controller,
+                onEnterFullscreen: () async {
+                  PlayerState().enterFullscreen();
+                  if (isDesktop) {
+                    try {
+                      await windowManager.setFullScreen(true);
+                    } catch (_) {}
+                    await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+                  } else {
+                    await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+                    await SystemChrome.setPreferredOrientations([
+                      DeviceOrientation.landscapeLeft,
+                      DeviceOrientation.landscapeRight,
+                    ]);
+                  }
+                },
+                onExitFullscreen: () async {
+                  PlayerState().exitFullscreen();
+                  if (isDesktop) {
+                    try {
+                      await windowManager.setFullScreen(false);
+                    } catch (_) {}
+                    await SystemChrome.setEnabledSystemUIMode(
+                      SystemUiMode.manual,
+                      overlays: SystemUiOverlay.values,
+                    );
+                  } else {
+                    await SystemChrome.setEnabledSystemUIMode(
+                      SystemUiMode.manual,
+                      overlays: SystemUiOverlay.values,
+                    );
+                    await SystemChrome.setPreferredOrientations([]);
+                  }
+                },
+                controls: (state) {
+                  final bool isDesktop = [
+                    TargetPlatform.windows,
+                    TargetPlatform.linux,
+                    TargetPlatform.macOS,
+                  ].contains(Theme.of(state.context).platform);
+                  return KeyedSubtree(
+                    key: ValueKey(_overlayEntry != null),
+                    child: isDesktop
+                        ? MaterialDesktopVideoControls(state)
+                        : MaterialVideoControls(state),
+                  );
+                },
+              );
+
+              if (w != null && h != null && w > 0 && h > 0) {
+                return Center(
+                  child: AspectRatio(
+                    aspectRatio: w / h,
+                    child: videoWidget,
+                  ),
+                );
+              }
+              return videoWidget;
+            },
           );
         },
       ),
@@ -812,6 +889,41 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
         seekBarPositionColor: Colors.amber,
         seekBarColor: Colors.white12,
         seekBarThumbColor: Colors.amber,
+        topButtonBar: [
+          MaterialCustomButton(
+            onPressed: () {
+              PlayerState().minimize();
+            },
+            icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 18),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              currentTitle,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: Colors.white, fontSize: 14.0, fontFamily: 'Outfit', fontWeight: FontWeight.bold),
+            ),
+          ),
+          const SizedBox(width: 8),
+          if (widget.episodes != null && widget.episodes!.isNotEmpty)
+            MaterialCustomButton(
+              onPressed: _openEpisodesPanel,
+              icon: const Icon(Icons.playlist_play, color: Colors.white),
+            ),
+          if (widget.anilistId != null)
+            MaterialCustomButton(
+              onPressed: () {
+                _hideSettingsMenu();
+                _openTorrentSelectorPanel();
+              },
+              icon: const Icon(Icons.swap_horizontal_circle, color: Colors.white),
+            ),
+          MaterialCustomButton(
+            onPressed: _toggleSettingsMenu,
+            icon: const Icon(Icons.settings, color: Colors.white),
+          ),
+        ],
         bottomButtonBar: [
           const MaterialPlayOrPauseButton(),
           if (widget.isMovie != true)
@@ -821,29 +933,6 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
             ),
           const MaterialPositionIndicator(),
           const Spacer(),
-          if (widget.episodes != null && widget.episodes!.isNotEmpty)
-            MaterialCustomButton(
-              onPressed: _openEpisodesPanel,
-              icon: const Icon(
-                Icons.keyboard_arrow_up,
-                color: Colors.white,
-              ),
-            ),
-          if (widget.episodes != null && widget.episodes!.isNotEmpty)
-            const Spacer(),
-          // Quality Enhancement Button
-          ValueListenableBuilder<bool>(
-            valueListenable: _isQualityEnhancedNotifier,
-            builder: (context, isEnhanced, _) {
-              return MaterialCustomButton(
-                onPressed: _toggleQualityEnhancement,
-                icon: Icon(
-                  Icons.auto_awesome,
-                  color: isEnhanced ? Colors.amber : Colors.white38,
-                ),
-              );
-            },
-          ),
           // Subtitles On/Off Button (CC)
           MaterialCustomButton(
             onPressed: () {
@@ -868,22 +957,6 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
                   color: isOff ? Colors.white38 : Colors.white,
                 );
               },
-            ),
-          ),
-          // Change Stream Button
-          if (widget.anilistId != null)
-            MaterialCustomButton(
-              onPressed: () {
-                _hideSettingsMenu();
-                _openTorrentSelectorPanel();
-              },
-              icon: const Icon(Icons.swap_horizontal_circle, color: Colors.white),
-            ),
-          CompositedTransformTarget(
-            link: _layerLink,
-            child: MaterialCustomButton(
-              onPressed: _toggleSettingsMenu,
-              icon: const Icon(Icons.settings, color: Colors.white),
             ),
           ),
           const MaterialFullscreenButton(),
@@ -895,6 +968,41 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
         seekBarPositionColor: Colors.amber,
         seekBarColor: Colors.white12,
         seekBarThumbColor: Colors.amber,
+        topButtonBar: [
+          MaterialCustomButton(
+            onPressed: () {
+              PlayerState().minimize();
+            },
+            icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 18),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              currentTitle,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: Colors.white, fontSize: 14.0, fontFamily: 'Outfit', fontWeight: FontWeight.bold),
+            ),
+          ),
+          const SizedBox(width: 8),
+          if (widget.episodes != null && widget.episodes!.isNotEmpty)
+            MaterialCustomButton(
+              onPressed: _openEpisodesPanel,
+              icon: const Icon(Icons.playlist_play, color: Colors.white),
+            ),
+          if (widget.anilistId != null)
+            MaterialCustomButton(
+              onPressed: () {
+                _hideSettingsMenu();
+                _openTorrentSelectorPanel();
+              },
+              icon: const Icon(Icons.swap_horizontal_circle, color: Colors.white),
+            ),
+          MaterialCustomButton(
+            onPressed: _toggleSettingsMenu,
+            icon: const Icon(Icons.settings, color: Colors.white),
+          ),
+        ],
         bottomButtonBar: [
           const MaterialPlayOrPauseButton(),
           if (widget.isMovie != true)
@@ -904,29 +1012,6 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
             ),
           const MaterialPositionIndicator(),
           const Spacer(),
-          if (widget.episodes != null && widget.episodes!.isNotEmpty)
-            MaterialCustomButton(
-              onPressed: _openEpisodesPanel,
-              icon: const Icon(
-                Icons.keyboard_arrow_up,
-                color: Colors.white,
-              ),
-            ),
-          if (widget.episodes != null && widget.episodes!.isNotEmpty)
-            const Spacer(),
-          // Quality Enhancement Button
-          ValueListenableBuilder<bool>(
-            valueListenable: _isQualityEnhancedNotifier,
-            builder: (context, isEnhanced, _) {
-              return MaterialCustomButton(
-                onPressed: _toggleQualityEnhancement,
-                icon: Icon(
-                  Icons.auto_awesome,
-                  color: isEnhanced ? Colors.amber : Colors.white38,
-                ),
-              );
-            },
-          ),
           // Subtitles On/Off Button (CC)
           MaterialCustomButton(
             onPressed: () {
@@ -953,22 +1038,6 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
               },
             ),
           ),
-          // Change Stream Button
-          if (widget.anilistId != null)
-            MaterialCustomButton(
-              onPressed: () {
-                _hideSettingsMenu();
-                _openTorrentSelectorPanel();
-              },
-              icon: const Icon(Icons.swap_horizontal_circle, color: Colors.white),
-            ),
-          CompositedTransformTarget(
-            link: _layerLink,
-            child: MaterialCustomButton(
-              onPressed: _toggleSettingsMenu,
-              icon: const Icon(Icons.settings, color: Colors.white),
-            ),
-          ),
           const MaterialFullscreenButton(),
         ],
       ),
@@ -977,90 +1046,99 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
 
     return Scaffold(
       backgroundColor: Colors.black,
-      appBar: AppBar(
-        backgroundColor: Colors.black,
-        elevation: 0,
-        toolbarHeight: 36.0,
-        titleSpacing: 0,
-        actionsPadding: EdgeInsets.zero,
-        title: GestureDetector(
-          behavior: HitTestBehavior.translucent,
-          onPanStart: (details) {
-            windowManager.startDragging();
-          },
-          onDoubleTap: () async {
-            final isMax = await windowManager.isMaximized();
-            if (isMax) {
-              await windowManager.unmaximize();
-            } else {
-              await windowManager.maximize();
-            }
-            _checkMaximizedState();
-          },
-          child: Container(
-            width: double.infinity,
-            height: 36.0,
-            alignment: Alignment.centerLeft,
-            child: Text(
-              currentTitle,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: Colors.white, fontSize: 15.0, fontFamily: 'Outfit', fontWeight: FontWeight.bold),
-            ),
-          ),
-        ),
-        leading: SizedBox(
-          width: 40.0,
-          height: 36.0,
-          child: IconButton(
-            padding: EdgeInsets.zero,
-            icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 16.0),
-            onPressed: () async {
-              final isFullScreen = await windowManager.isFullScreen();
-              if (isFullScreen) {
-                await windowManager.setFullScreen(false);
-              }
-              PlayerState().minimize();
-            },
-          ),
-        ),
-        actions: [
-          // Minimize
-          _PlayerTitleBarButton(
-            icon: Icons.remove,
-            onPressed: () async {
-              await windowManager.minimize();
-            },
-            hoverColor: Colors.white10,
-            iconSize: 16.0,
-          ),
-          // Maximize / Restore
-          _PlayerTitleBarButton(
-            icon: _isMaximized ? Icons.filter_none : Icons.crop_square,
-            onPressed: () async {
-              final isMax = await windowManager.isMaximized();
-              if (isMax) {
-                await windowManager.unmaximize();
-              } else {
-                await windowManager.maximize();
-              }
-              _checkMaximizedState();
-            },
-            hoverColor: Colors.white10,
-            iconSize: 12.0,
-          ),
-          // Close
-          _PlayerTitleBarButton(
-            icon: Icons.close,
-            onPressed: () async {
-              await windowManager.close();
-            },
-            hoverColor: Colors.red.withValues(alpha: 0.8),
-            hoverIconColor: Colors.white,
-            iconSize: 16.0,
-          ),
-        ],
-      ),
+      appBar: isDesktop
+          ? AppBar(
+              backgroundColor: Colors.black,
+              elevation: 0,
+              toolbarHeight: 36.0,
+              titleSpacing: 0,
+              actionsPadding: EdgeInsets.zero,
+              title: GestureDetector(
+                behavior: HitTestBehavior.translucent,
+                onPanStart: (details) {
+                  windowManager.startDragging();
+                },
+                onDoubleTap: () async {
+                  final isMax = await windowManager.isMaximized();
+                  if (isMax) {
+                    await windowManager.unmaximize();
+                  } else {
+                    await windowManager.maximize();
+                  }
+                  _checkMaximizedState();
+                },
+                child: Container(
+                  width: double.infinity,
+                  height: 36.0,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    currentTitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Colors.white, fontSize: 15.0, fontFamily: 'Outfit', fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ),
+              leading: SizedBox(
+                width: 40.0,
+                height: 36.0,
+                child: IconButton(
+                  padding: EdgeInsets.zero,
+                  icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 16.0),
+                  onPressed: () async {
+                    if (isDesktop) {
+                      try {
+                        final isFullScreen = await windowManager.isFullScreen();
+                        if (isFullScreen) {
+                          await windowManager.setFullScreen(false);
+                        }
+                      } catch (_) {}
+                    } else {
+                      PlayerState().exitFullscreen();
+                      SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: SystemUiOverlay.values);
+                    }
+                    PlayerState().minimize();
+                  },
+                ),
+              ),
+              actions: [
+                // Minimize
+                _PlayerTitleBarButton(
+                  icon: Icons.remove,
+                  onPressed: () async {
+                    await windowManager.minimize();
+                  },
+                  hoverColor: Colors.white10,
+                  iconSize: 16.0,
+                ),
+                // Maximize / Restore
+                _PlayerTitleBarButton(
+                  icon: _isMaximized ? Icons.filter_none : Icons.crop_square,
+                  onPressed: () async {
+                    final isMax = await windowManager.isMaximized();
+                    if (isMax) {
+                      await windowManager.unmaximize();
+                    } else {
+                      await windowManager.maximize();
+                    }
+                    _checkMaximizedState();
+                  },
+                  hoverColor: Colors.white10,
+                  iconSize: 12.0,
+                ),
+                // Close
+                _PlayerTitleBarButton(
+                  icon: Icons.close,
+                  onPressed: () async {
+                    await windowManager.close();
+                  },
+                  hoverColor: Colors.red.withValues(alpha: 0.8),
+                  hoverIconColor: Colors.white,
+                  iconSize: 16.0,
+                ),
+              ],
+            )
+          : null,
       body: mobileTheme,
     );
       },

@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:path_provider/path_provider.dart';
 import 'suwayomi_service.dart';
 
 class SuwayomiManager {
@@ -65,7 +66,7 @@ class SuwayomiManager {
     try {
       statusNotifier.value = "Checking JRE...";
       
-      final appDir = Directory('C:\\Users\\aryan\\AppData\\Local\\watch_any');
+      final appDir = await getApplicationSupportDirectory();
       if (!await appDir.exists()) {
         await appDir.create(recursive: true);
       }
@@ -273,9 +274,17 @@ class SuwayomiManager {
   static void stop() {
     if (_process != null) {
       debugPrint('[SuwayomiManager] Killing Manga engine process...');
-      _process!.kill();
+      try {
+        if (Platform.isWindows) {
+          Process.run('taskkill', ['/F', '/T', '/PID', '${_process!.pid}']);
+        } else {
+          _process!.kill(ProcessSignal.sigkill);
+        }
+      } catch (e) {
+        debugPrint('[SuwayomiManager] Error killing process: $e');
+      }
       _process = null;
-      statusNotifier.value = "Manga engine stopped";
     }
+    statusNotifier.value = "Manga engine stopped";
   }
 }

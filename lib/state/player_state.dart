@@ -98,6 +98,7 @@ class PlayerState extends ChangeNotifier {
     List<dynamic>? episodes,
     Map<int, dynamic>? tmdbEpisodesMap,
   }) {
+    FocusManager.instance.primaryFocus?.unfocus();
     _cleanupPlayer();
 
     _streamUrl = streamUrl;

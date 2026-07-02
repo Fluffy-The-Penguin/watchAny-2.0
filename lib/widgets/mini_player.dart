@@ -62,7 +62,7 @@ class _MiniPlayerState extends State<MiniPlayer> {
                 // Hover / Mobile always-on Overlay Controls
                 Positioned.fill(
                   child: AnimatedOpacity(
-                    opacity: _isHovered ? 1.0 : 0.0,
+                    opacity: (MediaQuery.of(context).size.width < 650 || _isHovered) ? 1.0 : 0.0,
                     duration: const Duration(milliseconds: 150),
                     child: Container(
                       color: Colors.black45,
@@ -97,34 +97,42 @@ class _MiniPlayerState extends State<MiniPlayer> {
                           Positioned(
                             top: 4.0,
                             right: 4.0,
-                            child: IconButton(
-                              icon: const Icon(Icons.close, color: Colors.white, size: 16.0),
-                              padding: const EdgeInsets.all(4.0),
-                              constraints: const BoxConstraints(),
-                              tooltip: 'Close player',
-                              onPressed: () {
-                                playerState.stopPlayback();
-                              },
+                            child: GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onTap: () {}, // Prevent click propagation to parent GestureDetector
+                              child: IconButton(
+                                icon: const Icon(Icons.close, color: Colors.white, size: 16.0),
+                                padding: const EdgeInsets.all(4.0),
+                                constraints: const BoxConstraints(),
+                                tooltip: 'Close player',
+                                onPressed: () {
+                                  playerState.stopPlayback();
+                                },
+                              ),
                             ),
                           ),
 
                           // Center Play/Pause Button
                           Center(
-                            child: StreamBuilder<bool>(
-                              stream: player.stream.playing,
-                              builder: (context, snapshot) {
-                                final isPlaying = snapshot.data ?? player.state.playing;
-                                return IconButton(
-                                  icon: Icon(
-                                    isPlaying ? Icons.pause_circle_filled : Icons.play_circle_filled,
-                                    color: Colors.white,
-                                    size: 40.0,
-                                  ),
-                                  onPressed: () {
-                                    player.playOrPause();
-                                  },
-                                );
-                              },
+                            child: GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onTap: () {}, // Prevent click propagation to parent GestureDetector
+                              child: StreamBuilder<bool>(
+                                stream: player.stream.playing,
+                                builder: (context, snapshot) {
+                                  final isPlaying = snapshot.data ?? player.state.playing;
+                                  return IconButton(
+                                    icon: Icon(
+                                      isPlaying ? Icons.pause_circle_filled : Icons.play_circle_filled,
+                                      color: Colors.white,
+                                      size: 40.0,
+                                    ),
+                                    onPressed: () {
+                                      player.playOrPause();
+                                    },
+                                  );
+                                },
+                              ),
                             ),
                           ),
                         ],

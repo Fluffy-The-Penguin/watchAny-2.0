@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:http/http.dart' as http;
 import '../services/suwayomi_manager.dart';
 import '../services/suwayomi_service.dart';
 import '../state/navigation_state.dart';
@@ -27,6 +29,7 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
   List<dynamic> _extensions = [];
   bool _loadingExtensions = false;
   String _extensionsSearchQuery = "";
+  String? _extensionsError;
   
   // Catalog tab state
   List<dynamic> _sources = [];
@@ -35,6 +38,7 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
   bool _loadingCatalog = false;
   int _currentPage = 1;
   String _catalogSearchQuery = "";
+  String? _catalogError;
   final TextEditingController _searchController = TextEditingController();
 
   @override
@@ -69,27 +73,109 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
     }
   }
 
+  Future<void> _retryConnection() async {
+    if (mounted) {
+      setState(() {
+        SuwayomiManager.statusNotifier.value = "Checking connection...";
+      });
+    }
+    await SuwayomiManager.start();
+    if (mounted) {
+      await _loadExtensions();
+      await _loadSources();
+    }
+  }
+
   // Load Extensions from Suwayomi
   Future<void> _loadExtensions() async {
-    if (!await SuwayomiManager.isSuwayomiRunning(SuwayomiManager.port)) return;
-    if (mounted) setState(() => _loadingExtensions = true);
+    if (!await SuwayomiManager.isSuwayomiRunning(SuwayomiService.port)) {
+      SuwayomiManager.statusNotifier.value = "Error: Could not connect to Suwayomi server at http://${SuwayomiService.host}:${SuwayomiService.port}";
+      return;
+    }
+    SuwayomiManager.statusNotifier.value = "Manga engine running";
+    if (mounted) {
+      setState(() {
+        _loadingExtensions = true;
+        _extensionsError = null;
+      });
+    }
     try {
+      await _suwayomiService.seedExternalRepositories();
       final list = await _suwayomiService.getExtensions();
       if (mounted) {
         setState(() {
           _extensions = list;
           _loadingExtensions = false;
         });
+
+        if (list.isEmpty) {
+          Future.microtask(() async {
+            if (!mounted) return;
+            String extraInfo = '';
+            try {
+              final reposUrl = Uri.parse('http://${SuwayomiService.host}:${SuwayomiService.port}/api/repos');
+              final reposResp = await http.get(reposUrl).timeout(const Duration(seconds: 5));
+              if (reposResp.statusCode == 200) {
+                final data = jsonDecode(reposResp.body);
+                final reposList = data['data'] as List?;
+                if (reposList != null && reposList.isNotEmpty) {
+                  final firstRepo = reposList.first;
+                  final lastError = firstRepo['lastError'];
+                  if (lastError != null) {
+                    extraInfo = ' | Repo Error: $lastError';
+                  } else {
+                    extraInfo = ' | Repo Exts: ${firstRepo['extensionCount']}';
+                  }
+                } else {
+                  extraInfo = ' | No repos registered on server';
+                }
+              }
+            } catch (e) {
+              extraInfo = ' | Failed to fetch repos: $e';
+            }
+
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Manga: Fetched ${list.length} extensions$extraInfo'),
+                  duration: const Duration(seconds: 5),
+                ),
+              );
+            }
+          });
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Manga: Fetched ${list.length} extensions from server'),
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
       }
-    } catch (_) {
-      if (mounted) setState(() => _loadingExtensions = false);
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _extensionsError = e.toString().replaceFirst('Exception: ', '');
+          _loadingExtensions = false;
+        });
+      }
     }
   }
 
   // Load Sources from Suwayomi
   Future<void> _loadSources() async {
-    if (!await SuwayomiManager.isSuwayomiRunning(SuwayomiManager.port)) return;
+    if (!await SuwayomiManager.isSuwayomiRunning(SuwayomiService.port)) {
+      SuwayomiManager.statusNotifier.value = "Error: Could not connect to Suwayomi server at http://${SuwayomiService.host}:${SuwayomiService.port}";
+      return;
+    }
+    SuwayomiManager.statusNotifier.value = "Manga engine running";
+    if (mounted) {
+      setState(() {
+        _catalogError = null;
+      });
+    }
     try {
+      await _suwayomiService.seedExternalRepositories();
       final list = await _suwayomiService.getSources();
       if (mounted) {
         setState(() {
@@ -99,8 +185,59 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
             _loadCatalog();
           }
         });
+
+        if (list.isEmpty) {
+          Future.microtask(() async {
+            if (!mounted) return;
+            String extraInfo = '';
+            try {
+              final installedUrl = Uri.parse('http://${SuwayomiService.host}:${SuwayomiService.port}/api/installed');
+              final installedResp = await http.get(installedUrl).timeout(const Duration(seconds: 5));
+              if (installedResp.statusCode == 200) {
+                final data = jsonDecode(installedResp.body);
+                final installedList = data['data'] as List?;
+                if (installedList != null && installedList.isNotEmpty) {
+                  final firstInst = installedList.first;
+                  final errors = firstInst['sourceLoadErrors'] as List?;
+                  if (errors != null && errors.isNotEmpty) {
+                    final firstError = errors.first;
+                    extraInfo = ' | Ext Load Error: ${firstError['className']}: ${firstError['errorType']} - ${firstError['message']}';
+                  } else {
+                    extraInfo = ' | Installed Ext: ${firstInst['name']} (no errors, sources count: ${firstInst['sources']?.length})';
+                  }
+                } else {
+                  extraInfo = ' | No extensions installed on server';
+                }
+              }
+            } catch (e) {
+              extraInfo = ' | Failed to fetch installed: $e';
+            }
+
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Manga: Fetched ${list.length} catalog sources$extraInfo'),
+                  duration: const Duration(seconds: 5),
+                ),
+              );
+            }
+          });
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Manga: Fetched ${list.length} catalog sources from server'),
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
       }
-    } catch (_) {}
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _catalogError = 'Failed to load catalog sources: ${e.toString().replaceFirst('Exception: ', '')}';
+        });
+      }
+    }
   }
 
   // Load Catalog items for selected source
@@ -109,6 +246,7 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
     if (mounted) {
       setState(() {
         _loadingCatalog = true;
+        _catalogError = null;
         if (resetPage) {
           _currentPage = 1;
         }
@@ -127,8 +265,13 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
           _loadingCatalog = false;
         });
       }
-    } catch (_) {
-      if (mounted) setState(() => _loadingCatalog = false);
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _catalogError = e.toString().replaceFirst('Exception: ', '');
+          _loadingCatalog = false;
+        });
+      }
     }
   }
 
@@ -237,7 +380,7 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
             ),
             const SizedBox(height: 24.0),
             ElevatedButton(
-              onPressed: () => SuwayomiManager.start(),
+              onPressed: _retryConnection,
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFFFF9F1C),
                 foregroundColor: Colors.black,
@@ -406,7 +549,46 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
             const SizedBox(height: 16.0),
 
             // Catalog Grid Content
-            if (_loadingCatalog)
+            if (_catalogError != null)
+              Center(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 48.0, horizontal: 16.0),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.error_outline, color: Colors.redAccent, size: 36.0),
+                      const SizedBox(height: 12.0),
+                      const Text(
+                        'Failed to load catalog',
+                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14.0, fontFamily: 'Outfit'),
+                      ),
+                      const SizedBox(height: 6.0),
+                      Text(
+                        _catalogError!,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: Colors.white54, fontSize: 12.0, fontFamily: 'Outfit'),
+                      ),
+                      const SizedBox(height: 16.0),
+                      ElevatedButton(
+                        onPressed: () {
+                          if (_selectedSourceId == null) {
+                            _loadSources();
+                          } else {
+                            _loadCatalog();
+                          }
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFFF9F1C),
+                          foregroundColor: Colors.black,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6.0)),
+                        ),
+                        child: const Text('Retry', style: TextStyle(fontWeight: FontWeight.bold)),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+            else if (_loadingCatalog)
               const Center(
                 child: Padding(
                   padding: EdgeInsets.symmetric(vertical: 64.0),
@@ -651,13 +833,46 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
 
         // Extensions List (Installed + Available sections)
         Expanded(
-          child: _loadingExtensions
-              ? const Center(
-                  child: CircularProgressIndicator(
-                    valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFFF9F1C)),
+          child: _extensionsError != null
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(32.0),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.error_outline, color: Colors.redAccent, size: 40.0),
+                        const SizedBox(height: 16.0),
+                        const Text(
+                          'Failed to load extensions',
+                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14.0, fontFamily: 'Outfit'),
+                        ),
+                        const SizedBox(height: 8.0),
+                        Text(
+                          _extensionsError!,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(color: Colors.white54, fontSize: 12.0, fontFamily: 'Outfit'),
+                        ),
+                        const SizedBox(height: 24.0),
+                        ElevatedButton(
+                          onPressed: _loadExtensions,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFFFF9F1C),
+                            foregroundColor: Colors.black,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6.0)),
+                          ),
+                          child: const Text('Retry', style: TextStyle(fontWeight: FontWeight.bold)),
+                        ),
+                      ],
+                    ),
                   ),
                 )
-              : SmoothScrollArea(
+              : _loadingExtensions
+                  ? const Center(
+                      child: CircularProgressIndicator(
+                        valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFFF9F1C)),
+                      ),
+                    )
+                  : SmoothScrollArea(
                   builder: (controller, physics) => ListView(
                     controller: controller,
                     physics: physics,

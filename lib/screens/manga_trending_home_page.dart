@@ -39,6 +39,21 @@ class _MangaTrendingHomePageState extends State<MangaTrendingHomePage> {
   void initState() {
     super.initState();
     _initDashboard();
+    widget.navigationState.addListener(_onNavigationChanged);
+  }
+
+  @override
+  void dispose() {
+    widget.navigationState.removeListener(_onNavigationChanged);
+    super.dispose();
+  }
+
+  void _onNavigationChanged() {
+    if (widget.navigationState.currentMode == AppMode.manga &&
+        widget.navigationState.currentPage == TabPage.home) {
+      _loadPins();
+      _loadSources();
+    }
   }
 
   Future<void> _initDashboard() async {
@@ -82,6 +97,15 @@ class _MangaTrendingHomePageState extends State<MangaTrendingHomePage> {
         setState(() {
           _allSources = list;
           _isLoadingSources = false;
+
+          // Filter out pinned sources that are no longer installed/available
+          final availableSourceIds = _allSources.map((s) => s['id']?.toString()).toSet();
+          final filteredPins = _pinnedSourceIds.where((id) => availableSourceIds.contains(id)).toList();
+          
+          if (filteredPins.length != _pinnedSourceIds.length) {
+            _pinnedSourceIds = filteredPins;
+            _savePins(); // Auto-save cleaned list back to SharedPreferences
+          }
         });
         
         // Auto-pin first source if list is completely empty

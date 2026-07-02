@@ -197,6 +197,15 @@ class ShellLayout extends StatelessWidget {
             navigationState.selectedMovieId != null ||
             navigationState.selectedMangaId != null;
 
+        final bool isBottomNavVisible = isMobile && !isDetailsOpen && !showFullPlayer;
+
+        final double statusBarHeight = MediaQuery.of(context).padding.top;
+        final double bottomSafeArea = MediaQuery.of(context).padding.bottom;
+        final double appBarHeight = (isMobile && !showFullPlayer && !isDetailsOpen) ? 56.0 : 0.0;
+        final double bottomNavBarHeight = isBottomNavVisible ? (56.0 + bottomSafeArea) : 0.0;
+        final double miniPlayerBottomOffset = 12.0 + bottomNavBarHeight + (isBottomNavVisible ? 0.0 : bottomSafeArea);
+        final double layoutTopOffset = statusBarHeight + appBarHeight;
+
         return Scaffold(
           backgroundColor: Colors.black,
           appBar: isMobile && !showFullPlayer && !isDetailsOpen
@@ -378,8 +387,8 @@ class ShellLayout extends StatelessWidget {
                     key: const ValueKey('player_animated_container'),
                     duration: const Duration(milliseconds: 350),
                     curve: Curves.easeInOutCubic,
-                    left: playerState.isMinimized ? (screenWidth - 280.0 - 16.0) : 0.0,
-                    top: playerState.isMinimized ? (screenHeight - 158.0 - 16.0 - (isMobile ? 60.0 : 0.0)) : 0.0,
+                    left: playerState.isMinimized ? (screenWidth - 280.0 - 12.0) : 0.0,
+                    top: playerState.isMinimized ? (screenHeight - 158.0 - miniPlayerBottomOffset - layoutTopOffset) : 0.0,
                     width: playerState.isMinimized ? 280.0 : screenWidth,
                     height: playerState.isMinimized ? 158.0 : screenHeight,
                     child: Material(

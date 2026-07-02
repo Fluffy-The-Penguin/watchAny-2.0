@@ -40,10 +40,14 @@ void main() async {
   ExtensionService().init();
   
   final bool isDesktop = !kIsWeb && (Platform.isWindows || Platform.isMacOS || Platform.isLinux);
+  final bool isAndroid = !kIsWeb && Platform.isAndroid;
+
+  // Start TorrServer sidecar (desktop + Android)
+  if (isDesktop || isAndroid) {
+    TorrServerManager.start();
+  }
 
   if (isDesktop) {
-    // Start TorrServer sidecar
-    TorrServerManager.start();
     
     // Initialize the window manager
     await windowManager.ensureInitialized();
@@ -96,9 +100,7 @@ class _MyAppState extends State<MyApp> with WindowListener {
     }
     _navigationState.removeListener(_handleNavigationModeChange);
     // Stop TorrServer when the app widget is disposed
-    if (_isDesktop) {
-      TorrServerManager.stop();
-    }
+    TorrServerManager.stop();
     super.dispose();
   }
 
@@ -116,7 +118,7 @@ class _MyAppState extends State<MyApp> with WindowListener {
   }
 
   void _handleNavigationModeChange() {
-    if (!_isDesktop) return;
+    if (!_isDesktop && !Platform.isAndroid) return;
     if (_navigationState.currentMode == AppMode.anime || _navigationState.currentMode == AppMode.movies) {
       TorrServerManager.start();
     } else {

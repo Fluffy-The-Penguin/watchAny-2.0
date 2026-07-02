@@ -53,13 +53,27 @@ class SuwayomiService {
   // Fetch all extensions (installed and available in repositories)
   Future<List<dynamic>> getExtensions() async {
     try {
-      final instResp = await http.get(Uri.parse('$_baseUrl/api/installed')).timeout(const Duration(seconds: 5));
-      final listResp = await http.get(Uri.parse('$_baseUrl/api/list')).timeout(const Duration(seconds: 5));
+      final responses = await Future.wait([
+        http.get(Uri.parse('$_baseUrl/api/installed')).timeout(const Duration(seconds: 20)),
+        http.get(Uri.parse('$_baseUrl/api/list')).timeout(const Duration(seconds: 20)),
+      ]).catchError((e) {
+        throw Exception('Network request failed: $e');
+      });
+      final instResp = responses[0];
+      final listResp = responses[1];
 
-      if (instResp.statusCode != 200 || listResp.statusCode != 200) return [];
+      if (instResp.statusCode != 200 || listResp.statusCode != 200) {
+        throw Exception('Server error: installed_status=${instResp.statusCode}, list_status=${listResp.statusCode}');
+      }
 
-      final installedData = jsonDecode(instResp.body);
-      final listData = jsonDecode(listResp.body);
+      dynamic installedData;
+      dynamic listData;
+      try {
+        installedData = jsonDecode(instResp.body);
+        listData = jsonDecode(listResp.body);
+      } catch (e) {
+        throw Exception('Failed to parse server response JSON: $e');
+      }
 
       final installedList = installedData['data'] as List? ?? [];
       final listExts = listData['data'] as List? ?? [];
@@ -96,7 +110,7 @@ class SuwayomiService {
       return combined.values.toList();
     } catch (e) {
       debugPrint('[SuwayomiService] getExtensions Error: $e');
-      return [];
+      rethrow;
     }
   }
 
@@ -136,30 +150,57 @@ class SuwayomiService {
     }
   }
 
+  // Seed default Keiyoushi repository on the server if the repository list is empty
+  Future<void> seedExternalRepositories() async {
+    try {
+      final reposUrl = Uri.parse('$_baseUrl/api/repos');
+      final reposResponse = await http.get(reposUrl).timeout(const Duration(seconds: 5));
+      if (reposResponse.statusCode == 200) {
+        final data = jsonDecode(reposResponse.body);
+        final list = data['data'] as List?;
+        if (list == null || list.isEmpty) {
+          debugPrint('[SuwayomiService] Seeding Keiyoushi repository on server...');
+          final repoUrl = "https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.min.json";
+          final addUrl = Uri.parse('$_baseUrl/api/repos/add?url=${Uri.encodeComponent(repoUrl)}');
+          await http.get(addUrl).timeout(const Duration(seconds: 15));
+          debugPrint('[SuwayomiService] Seeding complete.');
+          // Give the server 1.5 seconds to pull/sync the index in the background
+          await Future.delayed(const Duration(milliseconds: 1500));
+        }
+      }
+    } catch (e) {
+      debugPrint('[SuwayomiService] Error seeding external repositories: $e');
+    }
+  }
+
   // Fetch active manga sources
   Future<List<dynamic>> getSources() async {
     try {
       final response = await http.get(
         Uri.parse('$_baseUrl/api/sources'),
-      ).timeout(const Duration(seconds: 10));
+      ).timeout(const Duration(seconds: 10)).catchError((e) {
+        throw Exception('Network request failed: $e');
+      });
 
-      if (response.statusCode == 200) {
-        final decoded = jsonDecode(response.body);
-        if (decoded['ok'] == true) {
-          final list = decoded['data'] as List? ?? [];
-          return list.map((source) => {
-            'id': source['id']?.toString() ?? '',
-            'name': source['name'] ?? '',
-            'lang': source['lang'] ?? 'en',
-            'isNsfw': false,
-            'supportsLatest': source['supportsLatest'] ?? true,
-          }).toList();
-        }
+      if (response.statusCode != 200) {
+        throw Exception('Server error: status_code=${response.statusCode}');
+      }
+
+      final decoded = jsonDecode(response.body);
+      if (decoded['ok'] == true) {
+        final list = decoded['data'] as List? ?? [];
+        return list.map((source) => {
+          'id': source['id']?.toString() ?? '',
+          'name': source['name'] ?? '',
+          'lang': source['lang'] ?? 'en',
+          'isNsfw': false,
+          'supportsLatest': source['supportsLatest'] ?? true,
+        }).toList();
       }
       return [];
     } catch (e) {
       debugPrint('[SuwayomiService] getSources Error: $e');
-      return [];
+      rethrow;
     }
   }
 
@@ -171,44 +212,50 @@ class SuwayomiService {
     bool latest = false,
   }) async {
     try {
-      final response = query.isNotEmpty
-          ? await http.get(Uri.parse('$_baseUrl/api/search?sourceId=$sourceId&page=$page&q=${Uri.encodeComponent(query)}'))
+      final urlStr = query.isNotEmpty
+          ? '$_baseUrl/api/search?sourceId=$sourceId&page=$page&q=${Uri.encodeComponent(query)}'
           : latest
-              ? await http.get(Uri.parse('$_baseUrl/api/latest?sourceId=$sourceId&page=$page'))
-              : await http.get(Uri.parse('$_baseUrl/api/popular?sourceId=$sourceId&page=$page'));
+              ? '$_baseUrl/api/latest?sourceId=$sourceId&page=$page'
+              : '$_baseUrl/api/popular?sourceId=$sourceId&page=$page';
 
-      if (response.statusCode == 200) {
-        final decoded = jsonDecode(response.body);
-        if (decoded['ok'] == true && decoded['data']?['mangas'] != null) {
-          final list = decoded['data']['mangas'] as List;
-          final mapped = <dynamic>[];
+      final response = await http.get(Uri.parse(urlStr)).timeout(const Duration(seconds: 20)).catchError((e) {
+        throw Exception('Network request failed: $e');
+      });
 
-          for (var manga in list) {
-            final String url = manga['url'] ?? '';
-            if (url.isEmpty) continue;
+      if (response.statusCode != 200) {
+        throw Exception('Server error: status_code=${response.statusCode}');
+      }
 
-            final int hash = _generateHash('$sourceId:$url');
-            await registerMangaPath(hash, sourceId, url);
+      final decoded = jsonDecode(response.body);
+      if (decoded['ok'] == true && decoded['data']?['mangas'] != null) {
+        final list = decoded['data']['mangas'] as List;
+        final mapped = <dynamic>[];
 
-            final coverUrl = manga['thumbnailUrl']?.toString() ?? '';
-            final proxiedCover = coverUrl.isNotEmpty
-                ? '$_baseUrl/api/image?url=${Uri.encodeComponent(coverUrl)}'
-                : '';
+        for (var manga in list) {
+          final String url = manga['url'] ?? '';
+          if (url.isEmpty) continue;
 
-            mapped.add({
-              'id': hash,
-              'title': manga['title'] ?? 'Unknown Manga',
-              'thumbnailUrl': proxiedCover,
-              'url': url,
-            });
-          }
-          return mapped;
+          final int hash = _generateHash('$sourceId:$url');
+          await registerMangaPath(hash, sourceId, url);
+
+          final coverUrl = manga['thumbnailUrl']?.toString() ?? '';
+          final proxiedCover = coverUrl.isNotEmpty
+              ? '$_baseUrl/api/image?url=${Uri.encodeComponent(coverUrl)}'
+              : '';
+
+          mapped.add({
+            'id': hash,
+            'title': manga['title'] ?? 'Unknown Manga',
+            'thumbnailUrl': proxiedCover,
+            'url': url,
+          });
         }
+        return mapped;
       }
       return [];
     } catch (e) {
       debugPrint('[SuwayomiService] fetchSourceManga Error: $e');
-      return [];
+      rethrow;
     }
   }
 

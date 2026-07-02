@@ -1,19 +1,22 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:path_provider/path_provider.dart';
 
 class BatchMappingService {
   static final BatchMappingService _instance = BatchMappingService._internal();
   factory BatchMappingService() => _instance;
   BatchMappingService._internal();
 
-  final File _file = File('C:\\Users\\aryan\\OneDrive\\Documents\\watchAny 2.0\\batch_mappings.json');
+  late final File _file;
   Map<String, dynamic> _mappings = {};
   bool _initialized = false;
 
   Future<void> init() async {
     if (_initialized) return;
     try {
+      final appDir = await getApplicationSupportDirectory();
+      _file = File('${appDir.path}\\batch_mappings.json');
       if (await _file.exists()) {
         final content = await _file.readAsString();
         _mappings = jsonDecode(content) as Map<String, dynamic>;

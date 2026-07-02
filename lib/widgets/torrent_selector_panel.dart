@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import '../services/extension_service.dart';
 import '../services/torrserver_service.dart';
+import '../services/torrserver_manager.dart';
 import '../services/batch_mapping_service.dart';
 import '../models/torrent.dart';
 import '../services/download_service.dart';
@@ -1110,7 +1111,8 @@ class PlaybackProgressDialogState extends State<PlaybackProgressDialog> {
         await Future.delayed(const Duration(seconds: 2));
         final bool retryOnline = await _torrServerService.ping();
         if (!retryOnline) {
-          throw Exception("TorrServer is not running. Please restart the app.");
+          final lastError = TorrServerManager.lastStartupError;
+          throw Exception("TorrServer is not running. Please restart the app.${lastError != null ? '\n\nDetails:\n$lastError' : ''}");
         }
       }
 

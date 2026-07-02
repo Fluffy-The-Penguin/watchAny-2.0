@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_js/flutter_js.dart';
 import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
 
 class ExtensionRepo {
   final String url;
@@ -185,10 +186,14 @@ class ExtensionService extends ChangeNotifier {
     }
   }
 
+  File? _storageFile;
+  File? _logFile;
+
   void _logError(String message) {
     try {
-      final logFile = File('C:\\Users\\aryan\\OneDrive\\Documents\\watchAny 2.0\\extension_debug.log');
-      logFile.writeAsStringSync('${DateTime.now().toIso8601String()}: $message\n', mode: FileMode.append);
+      if (_logFile != null) {
+        _logFile!.writeAsStringSync('${DateTime.now().toIso8601String()}: $message\n', mode: FileMode.append);
+      }
     } catch (_) {}
   }
 
@@ -196,10 +201,6 @@ class ExtensionService extends ChangeNotifier {
   List<Extension> extensions = [];
   bool _isInitialized = false;
   Future<void>? _initFuture;
-
-  File get _storageFile {
-    return File('C:\\Users\\aryan\\OneDrive\\Documents\\watchAny 2.0\\extensions_storage.json');
-  }
 
   // Initialize and load saved state, seeding default repos if empty
   Future<void> init() async {
@@ -210,14 +211,18 @@ class ExtensionService extends ChangeNotifier {
 
   Future<void> _doInit() async {
     try {
+      final appDir = await getApplicationSupportDirectory();
+      _storageFile = File('${appDir.path}\\extensions_storage.json');
+      _logFile = File('${appDir.path}\\extension_debug.log');
+
       debugPrint('[ExtensionService] Warming up Javascript engine...');
       // Initialize a dummy JS runtime to trigger native libraries cold start setup
       final runtime = await _createRuntime();
       runtime.dispose();
       debugPrint('[ExtensionService] Javascript engine warmed up successfully.');
 
-      if (await _storageFile.exists()) {
-        final content = await _storageFile.readAsString();
+      if (await _storageFile!.exists()) {
+        final content = await _storageFile!.readAsString();
         final data = jsonDecode(content);
         
         repos = (data['repos'] as List? ?? [])
@@ -243,11 +248,12 @@ class ExtensionService extends ChangeNotifier {
   // Save current repos and extensions to disk
   Future<void> save() async {
     try {
+      if (_storageFile == null) return;
       final data = {
         'repos': repos.map((r) => r.toJson()).toList(),
         'extensions': extensions.map((e) => e.toJson()).toList(),
       };
-      await _storageFile.writeAsString(jsonEncode(data));
+      await _storageFile!.writeAsString(jsonEncode(data));
       notifyListeners();
     } catch (e) {
       debugPrint('Error saving ExtensionService data: $e');

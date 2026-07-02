@@ -1761,7 +1761,6 @@ class _SettingsPageState extends State<SettingsPage> {
           itemCount: _mangaRepos.length,
           itemBuilder: (context, index) {
             final url = _mangaRepos[index];
-            final isDefault = url.contains('keiyoushi');
 
             return Container(
               margin: const EdgeInsets.only(bottom: 8.0),
@@ -1782,24 +1781,11 @@ class _SettingsPageState extends State<SettingsPage> {
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
-                  if (isDefault)
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6.0, vertical: 2.0),
-                      decoration: BoxDecoration(
-                        color: Colors.white12,
-                        borderRadius: BorderRadius.circular(4.0),
-                      ),
-                      child: const Text(
-                        'DEFAULT',
-                        style: TextStyle(color: Colors.white54, fontSize: 8.0, fontWeight: FontWeight.bold),
-                      ),
-                    )
-                  else
-                    IconButton(
-                      icon: const Icon(Icons.delete, color: Colors.redAccent, size: 18.0),
-                      onPressed: () => _removeMangaRepo(url),
-                      tooltip: 'Remove Repository',
-                    ),
+                  IconButton(
+                    icon: const Icon(Icons.delete, color: Colors.redAccent, size: 18.0),
+                    onPressed: () => _removeMangaRepo(url),
+                    tooltip: 'Remove Repository',
+                  ),
                 ],
               ),
             );
