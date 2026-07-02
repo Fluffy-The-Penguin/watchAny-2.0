@@ -608,6 +608,7 @@ class _SettingsPageState extends State<SettingsPage> {
                                     width: 44,
                                     height: 44,
                                     fit: BoxFit.cover,
+                                    cacheWidth: 88,
                                     errorBuilder: (context, error, stackTrace) => Container(
                                       color: Colors.white.withValues(alpha: 0.05),
                                       width: 44,
@@ -1254,6 +1255,7 @@ class _SettingsPageState extends State<SettingsPage> {
                                 ? Image.network(
                                     addon.icon,
                                     fit: BoxFit.cover,
+                                    cacheWidth: 96,
                                     errorBuilder: (_, __, ___) => const Icon(Icons.movie, color: Colors.white38),
                                   )
                                 : const Icon(Icons.movie, color: Colors.white38),

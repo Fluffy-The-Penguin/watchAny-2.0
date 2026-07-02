@@ -19,7 +19,6 @@ import 'history_page.dart';
 import 'notifications_page.dart';
 import 'movies_details_page.dart';
 import 'manga_details_page.dart';
-import 'manga_reader_page.dart';
 
 class ShellLayout extends StatelessWidget {
   final NavigationState navigationState;
@@ -429,18 +428,6 @@ class ShellLayout extends StatelessWidget {
                     ),
                   ),
 
-                // Full Screen Manga Reader Overlay
-                if (navigationState.activeChapterId != null)
-                  Positioned.fill(
-                    child: MangaReaderPage(
-                      chapterId: navigationState.activeChapterId!,
-                      chapterNumber: navigationState.activeChapterNumber!,
-                      mangaId: navigationState.activeMangaId!,
-                      mangaTitle: navigationState.activeMangaTitle!,
-                      chapters: navigationState.activeMangaChapters!,
-                      navigationState: navigationState,
-                    ),
-                  ),
               ],
             ),
           ),

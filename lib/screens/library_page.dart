@@ -1457,15 +1457,16 @@ class _LibraryMediaCardState extends State<_LibraryMediaCard> {
       statusName = 'Dropped';
     }
 
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _isHovered = true),
-      onExit: (_) => setState(() => _isHovered = false),
-      child: GestureDetector(
-        onTap: widget.onTap,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
+    return RepaintBoundary(
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _isHovered = true),
+        onExit: (_) => setState(() => _isHovered = false),
+        child: GestureDetector(
+          onTap: widget.onTap,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
             // Card Cover Image
             Expanded(
               child: AnimatedContainer(
@@ -1679,6 +1680,6 @@ class _LibraryMediaCardState extends State<_LibraryMediaCard> {
           ],
         ),
       ),
-    );
+    ),);
   }
 }

@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:developer' as developer;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:http/http.dart' as http;
@@ -38,7 +39,7 @@ class SuwayomiManager {
     int port = startPort;
     while (port < startPort + 100) {
       if (await isSuwayomiRunning(port)) {
-        debugPrint('Manga engine is already running on port $port. Will reuse.');
+        developer.log('Manga engine is already running on port $port. Will reuse.', name: 'SuwayomiManager');
         return port;
       }
       try {
@@ -55,12 +56,12 @@ class SuwayomiManager {
   static Future<void> start() async {
     final bool isDesktop = !kIsWeb && (Platform.isWindows || Platform.isMacOS || Platform.isLinux);
     if (!isDesktop) {
-      debugPrint('SuwayomiManager start skipped on non-desktop platform.');
+      developer.log('SuwayomiManager start skipped on non-desktop platform.', name: 'SuwayomiManager');
       statusNotifier.value = "Manga engine external connection ready";
       return;
     }
     if (_process != null) {
-      debugPrint('Manga engine already running or starting...');
+      developer.log('Manga engine already running or starting...', name: 'SuwayomiManager');
       return;
     }
     try {
@@ -80,14 +81,14 @@ class SuwayomiManager {
       if (await localJavaExe.exists()) {
         javaPath = localJavaExe.path;
         javaInstalled = true;
-        debugPrint('[SuwayomiManager] Located local JRE at: $javaPath');
+        developer.log('Located local JRE at: $javaPath', name: 'SuwayomiManager');
       } else {
         // Smart Java Executable Path Resolver (bypasses system environment PATH cache delay)
         final defaultJdk21 = File('C:\\Program Files\\Eclipse Adoptium\\jdk-21.0.11.10-hotspot\\bin\\java.exe');
         if (await defaultJdk21.exists()) {
           javaPath = defaultJdk21.path;
           javaInstalled = true;
-          debugPrint('[SuwayomiManager] Located installed JDK 21 at: $javaPath');
+          developer.log('Located installed JDK 21 at: $javaPath', name: 'SuwayomiManager');
         } else {
           // Check system java
           try {
@@ -95,7 +96,7 @@ class SuwayomiManager {
             if (checkResult.exitCode == 0 || checkResult.stderr.toString().contains('version')) {
               javaPath = 'java';
               javaInstalled = true;
-              debugPrint('[SuwayomiManager] Located system JRE in PATH.');
+              developer.log('Located system JRE in PATH.', name: 'SuwayomiManager');
             }
           } catch (_) {}
         }
@@ -103,7 +104,7 @@ class SuwayomiManager {
         if (!javaInstalled) {
           // System Java not found. Let's download a minimal JRE automatically!
           statusNotifier.value = "Downloading JRE (Manga Runtime)...";
-          debugPrint('[SuwayomiManager] System JRE not found. Initiating Adoptium JRE 21 download...');
+          developer.log('System JRE not found. Initiating Adoptium JRE 21 download...', name: 'SuwayomiManager');
           
           final jreZipPath = '${appDir.path}\\jre.zip';
           final jreZipFile = File(jreZipPath);
@@ -115,7 +116,7 @@ class SuwayomiManager {
           final response = await http.get(Uri.parse(jreUrl));
           if (response.statusCode == 200) {
             await jreZipFile.writeAsBytes(response.bodyBytes);
-            debugPrint('[SuwayomiManager] JRE zip downloaded successfully.');
+            developer.log('JRE zip downloaded successfully.', name: 'SuwayomiManager');
           } else {
             statusNotifier.value = "Error: Failed to download JRE.";
             throw Exception("Failed to download JRE from Adoptium (Status: ${response.statusCode}).");
@@ -123,7 +124,7 @@ class SuwayomiManager {
 
           // Unzip the file using PowerShell
           statusNotifier.value = "Extracting JRE (Manga Runtime)...";
-          debugPrint('[SuwayomiManager] Extracting JRE archive using PowerShell...');
+          developer.log('Extracting JRE archive using PowerShell...', name: 'SuwayomiManager');
           final tempExtractDir = Directory('${appDir.path}\\jre_temp');
           if (await tempExtractDir.exists()) {
             await tempExtractDir.delete(recursive: true);
@@ -137,7 +138,7 @@ class SuwayomiManager {
           ]);
 
           if (extractResult.exitCode != 0) {
-            debugPrint('[SuwayomiManager] Extraction failed: ${extractResult.stderr}');
+            developer.log('Extraction failed: ${extractResult.stderr}', name: 'SuwayomiManager', error: extractResult.stderr);
             statusNotifier.value = "Error: Extraction failed.";
             throw Exception("Failed to extract JRE archive.");
           }
@@ -153,7 +154,7 @@ class SuwayomiManager {
               await localJreDir.delete(recursive: true);
             }
             await extractedJreDir.rename(localJreDir.path);
-            debugPrint('[SuwayomiManager] JRE placed at ${localJreDir.path}');
+            developer.log('JRE placed at ${localJreDir.path}', name: 'SuwayomiManager');
           } else {
             statusNotifier.value = "Error: Empty JRE archive.";
             throw Exception("Extracted JRE directory was empty.");
@@ -164,7 +165,7 @@ class SuwayomiManager {
 
           if (await localJavaExe.exists()) {
             javaPath = localJavaExe.path;
-            debugPrint('[SuwayomiManager] Local JRE successfully initialized at: $javaPath');
+            developer.log('Local JRE successfully initialized at: $javaPath', name: 'SuwayomiManager');
           } else {
             statusNotifier.value = "Error: Failed to verify JRE installation.";
             throw Exception("Failed to verify local JRE executable path.");
@@ -180,7 +181,7 @@ class SuwayomiManager {
 
       if (await isSuwayomiRunning(_port)) {
         statusNotifier.value = "Manga engine running";
-        debugPrint('Reusing existing Manga engine instance on port $_port.');
+        developer.log('Reusing existing Manga engine instance on port $_port.', name: 'SuwayomiManager');
         return;
       }
 
@@ -195,16 +196,16 @@ class SuwayomiManager {
 
       if (!await jarFile.exists() || await jarFile.length() == 0) {
         statusNotifier.value = "Extracting Manga engine...";
-        debugPrint('[SuwayomiManager] Extracting keiyoushi-runtime.jar from assets...');
+        developer.log('Extracting keiyoushi-runtime.jar from assets...', name: 'SuwayomiManager');
         final byteData = await rootBundle.load('assets/bin/keiyoushi-runtime.jar');
         final bytes = byteData.buffer.asUint8List(byteData.offsetInBytes, byteData.lengthInBytes);
         await jarFile.writeAsBytes(bytes);
-        debugPrint('[SuwayomiManager] Extraction complete.');
+        developer.log('Extraction complete.', name: 'SuwayomiManager');
       }
 
       // 4. Start the background process
       statusNotifier.value = "Starting Manga engine...";
-      debugPrint('[SuwayomiManager] Launching keiyoushi-runtime on port $_port using: $javaPath');
+      developer.log('Launching keiyoushi-runtime on port $_port using: $javaPath', name: 'SuwayomiManager');
       
       _process = await Process.start(
         javaPath,
@@ -221,10 +222,10 @@ class SuwayomiManager {
 
       // Log process output for debugging
       _process!.stdout.transform(utf8.decoder).listen((data) {
-        debugPrint('[MangaEngine-stdout] $data');
+        developer.log(data.trim(), name: 'MangaEngine-stdout');
       });
       _process!.stderr.transform(utf8.decoder).listen((data) {
-        debugPrint('[MangaEngine-stderr] $data');
+        developer.log(data.trim(), name: 'MangaEngine-stderr');
       });
 
       // Poll until the REST API responds
@@ -239,7 +240,7 @@ class SuwayomiManager {
 
       if (serverReady) {
         statusNotifier.value = "Manga engine running";
-        debugPrint('[SuwayomiManager] Manga engine is fully operational on port $_port.');
+        developer.log('Manga engine is fully operational on port $_port.', name: 'SuwayomiManager');
         
         // Seed default/configured repositories
         try {
@@ -249,22 +250,22 @@ class SuwayomiManager {
             final data = jsonDecode(reposResponse.body);
             final list = data['data'] as List?;
             if (list == null || list.isEmpty) {
-              debugPrint('[SuwayomiManager] Seeding repositories in custom runtime...');
+              developer.log('Seeding repositories in custom runtime...', name: 'SuwayomiManager');
               for (final repo in repos) {
                 final addUrl = Uri.parse('http://127.0.0.1:$_port/api/repos/add?url=${Uri.encodeComponent(repo)}');
                 await http.get(addUrl).timeout(const Duration(seconds: 10));
               }
             }
           }
-        } catch (e) {
-          debugPrint('[SuwayomiManager] Error seeding repositories: $e');
+        } catch (e, stack) {
+          developer.log('Error seeding repositories', name: 'SuwayomiManager', error: e, stackTrace: stack);
         }
       } else {
         statusNotifier.value = "Engine startup timeout";
         throw Exception("Timed out waiting for Manga engine to start.");
       }
-    } catch (e) {
-      debugPrint('[SuwayomiManager] Failed to start Manga engine: $e');
+    } catch (e, stack) {
+      developer.log('Failed to start Manga engine', name: 'SuwayomiManager', error: e, stackTrace: stack);
       statusNotifier.value = "Engine startup failed";
       _process = null;
       rethrow;
@@ -273,15 +274,15 @@ class SuwayomiManager {
 
   static void stop() {
     if (_process != null) {
-      debugPrint('[SuwayomiManager] Killing Manga engine process...');
+      developer.log('Killing Manga engine process...', name: 'SuwayomiManager');
       try {
         if (Platform.isWindows) {
           Process.run('taskkill', ['/F', '/T', '/PID', '${_process!.pid}']);
         } else {
           _process!.kill(ProcessSignal.sigkill);
         }
-      } catch (e) {
-        debugPrint('[SuwayomiManager] Error killing process: $e');
+      } catch (e, stack) {
+        developer.log('Error killing process', name: 'SuwayomiManager', error: e, stackTrace: stack);
       }
       _process = null;
     }

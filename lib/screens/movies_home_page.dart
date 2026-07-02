@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:developer' as developer;
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import '../state/navigation_state.dart';
@@ -129,8 +130,8 @@ class _MoviesHomePageState extends State<MoviesHomePage> {
                 });
               }
             }
-          } catch (e) {
-            debugPrint('Error loading catalog "$catName" from "${addon.name}": $e');
+          } catch (e, stack) {
+            developer.log('Error loading catalog "$catName" from "${addon.name}"', name: 'MoviesHomePage', error: e, stackTrace: stack);
           }
         }();
         fetchTasks.add(task);
@@ -614,14 +615,15 @@ class _MovieCardState extends State<_MovieCard> {
     final String? releaseInfo = item['releaseInfo']?.toString();
     final String? type = item['type']?.toString();
 
-    return MouseRegion(
-      onEnter: (_) => setState(() => _isHovered = true),
-      onExit: (_) => setState(() => _isHovered = false),
-      child: GestureDetector(
-        onTap: widget.onTap,
-        child: Container(
-          width: 140.0,
-          margin: const EdgeInsets.only(right: 14.0),
+    return RepaintBoundary(
+      child: MouseRegion(
+        onEnter: (_) => setState(() => _isHovered = true),
+        onExit: (_) => setState(() => _isHovered = false),
+        child: GestureDetector(
+          onTap: widget.onTap,
+          child: Container(
+            width: 140.0,
+            margin: const EdgeInsets.only(right: 14.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -756,7 +758,7 @@ class _MovieCardState extends State<_MovieCard> {
           ),
         ),
       ),
-    );
+    ),);
   }
 
   Widget _placeholder() => Container(

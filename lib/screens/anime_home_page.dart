@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:developer' as developer;
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../services/anilist_service.dart';
 import '../state/navigation_state.dart';
 import '../state/player_state.dart';
@@ -366,19 +368,15 @@ class _HeroSectionState extends State<_HeroSection> {
             child: AnimatedSwitcher(
               duration: const Duration(milliseconds: 800),
               child: bannerUrl.isNotEmpty
-                  ? Image.network(
-                      bannerUrl,
+                  ? CachedNetworkImage(
+                      imageUrl: bannerUrl,
                       key: ValueKey(bannerUrl),
                       fit: BoxFit.cover,
                       width: double.infinity,
                       height: double.infinity,
-                      cacheWidth: 1280,
-                      loadingBuilder: (context, child, progress) {
-                        if (progress == null) return child;
-                        return Container(color: Colors.black);
-                      },
-                      errorBuilder: (context, error, stackTrace) =>
-                          Container(color: Colors.black),
+                      memCacheWidth: 1280,
+                      placeholder: (context, url) => Container(color: Colors.black),
+                      errorWidget: (context, url, error) => Container(color: Colors.black),
                     )
                   : Container(color: Colors.black, key: const ValueKey('empty')),
             ),
@@ -673,8 +671,8 @@ class _RailwayTrackState extends State<_RailwayTrack> {
           _isLoadingMore = false;
         });
       }
-    } catch (e) {
-      debugPrint('Error loading more items for track ${widget.title}: $e');
+    } catch (e, stack) {
+      developer.log('Error loading more items for track ${widget.title}', name: 'AnimeHomePage', error: e, stackTrace: stack);
       if (mounted) {
         setState(() {
           _isLoadingMore = false;
@@ -852,14 +850,15 @@ class _AnimeCardState extends State<_AnimeCard> {
     if (format != null) infoString += format;
     if (episodes != null) infoString += ' · $episodes eps';
 
-    return MouseRegion(
-      onEnter: (_) => setState(() => _isHovered = true),
-      onExit: (_) => setState(() => _isHovered = false),
-      child: GestureDetector(
-        onTap: widget.onTap,
-        child: Container(
-          width: 140.0,
-          margin: const EdgeInsets.only(right: 14.0),
+    return RepaintBoundary(
+      child: MouseRegion(
+        onEnter: (_) => setState(() => _isHovered = true),
+        onExit: (_) => setState(() => _isHovered = false),
+        child: GestureDetector(
+          onTap: widget.onTap,
+          child: Container(
+            width: 140.0,
+            margin: const EdgeInsets.only(right: 14.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -894,16 +893,12 @@ class _AnimeCardState extends State<_AnimeCard> {
                           scale: _isHovered ? 1.05 : 1.0,
                           duration: const Duration(milliseconds: 150),
                           child: coverUrl.isNotEmpty
-                              ? Image.network(
-                                  coverUrl,
+                              ? CachedNetworkImage(
+                                  imageUrl: coverUrl,
                                   fit: BoxFit.cover,
-                                  cacheWidth: 280,
-                                  loadingBuilder: (context, child, progress) {
-                                    if (progress == null) return child;
-                                    return Container(color: Colors.grey[950]);
-                                  },
-                                  errorBuilder: (context, error, stackTrace) =>
-                                      Container(color: Colors.grey[950]),
+                                  memCacheWidth: 280,
+                                  placeholder: (context, url) => Container(color: Colors.grey[950]),
+                                  errorWidget: (context, url, error) => Container(color: Colors.grey[950]),
                                 )
                               : Container(color: Colors.grey[950]),
                         ),
@@ -990,6 +985,6 @@ class _AnimeCardState extends State<_AnimeCard> {
           ),
         ),
       ),
-    );
+    ),);
   }
 }

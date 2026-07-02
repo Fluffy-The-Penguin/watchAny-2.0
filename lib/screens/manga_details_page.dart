@@ -7,6 +7,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../services/suwayomi_service.dart';
 import '../state/navigation_state.dart';
 import '../state/library_state.dart';
+import 'manga_reader_page.dart';
 
 class MangaDetailsPage extends StatefulWidget {
   final String mangaId;
@@ -599,12 +600,18 @@ class _MangaDetailsPageState extends State<MangaDetailsPage> {
                         ),
                         onTap: () {
                           if (chId.isNotEmpty) {
-                            widget.navigationState.startReading(
-                              chapterId: chId,
-                              chapterNumber: currentChapterIdx,
-                              mangaId: widget.mangaId,
-                              mangaTitle: title,
-                              chapters: _chapters,
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => MangaReaderPage(
+                                  chapterId: chId,
+                                  chapterNumber: currentChapterIdx,
+                                  mangaId: widget.mangaId,
+                                  mangaTitle: title,
+                                  chapters: _chapters,
+                                  navigationState: widget.navigationState,
+                                ),
+                              ),
                             );
                           }
                         },

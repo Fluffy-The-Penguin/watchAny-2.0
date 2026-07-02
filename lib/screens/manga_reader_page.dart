@@ -39,9 +39,14 @@ class _MangaReaderPageState extends State<MangaReaderPage> {
   late ScrollController _scrollController;
   bool _showOverlay = true;
 
+  late String _currentChapterId;
+  late int _currentChapterNumber;
+
   @override
   void initState() {
     super.initState();
+    _currentChapterId = widget.chapterId;
+    _currentChapterNumber = widget.chapterNumber;
     _pageController = PageController();
     _scrollController = ScrollController();
     _loadPages();
@@ -56,7 +61,7 @@ class _MangaReaderPageState extends State<MangaReaderPage> {
   }
 
   Future<void> _loadPages() async {
-    final int parsedId = int.tryParse(widget.chapterId) ?? 0;
+    final int parsedId = int.tryParse(_currentChapterId) ?? 0;
     if (parsedId == 0) {
       if (mounted) {
         setState(() {
@@ -99,14 +104,14 @@ class _MangaReaderPageState extends State<MangaReaderPage> {
     final library = LibraryState();
     final item = library.getItem(parsedMangaId, 'manga');
     if (item != null) {
-      if (widget.chapterNumber > item.watchedEpisodes) {
+      if (_currentChapterNumber > item.watchedEpisodes) {
         library.saveItem(
           id: parsedMangaId,
           mode: 'manga',
           format: 'MANGA',
           libraryStatus: item.libraryStatus,
           rating: item.rating,
-          watchedEpisodes: widget.chapterNumber,
+          watchedEpisodes: _currentChapterNumber,
           totalEpisodes: widget.chapters.length,
         );
       }
@@ -115,8 +120,8 @@ class _MangaReaderPageState extends State<MangaReaderPage> {
 
   void _navigateToNextChapter() {
     final chapters = widget.chapters;
-    // Find index of current chapter
-    final currentIdx = chapters.indexWhere((c) => c['id']?.toString() == widget.chapterId);
+    // Find index of current chapter using local currentChapterId state
+    final currentIdx = chapters.indexWhere((c) => c['id']?.toString() == _currentChapterId);
     if (currentIdx != -1 && currentIdx > 0) {
       // Chapters list is usually descending by default, so index 0 is latest chapter
       // To go to next chapter (e.g. Chapter 2 -> 3), we actually go left in list (descending)
@@ -125,13 +130,15 @@ class _MangaReaderPageState extends State<MangaReaderPage> {
       final double? nextNum = double.tryParse(nextChapter['chapterNumber']?.toString() ?? '');
       
       if (nextId != null) {
-        widget.navigationState.startReading(
-          chapterId: nextId,
-          chapterNumber: nextNum?.toInt() ?? (widget.chapterNumber + 1),
-          mangaId: widget.mangaId,
-          mangaTitle: widget.mangaTitle,
-          chapters: chapters,
-        );
+        setState(() {
+          _currentChapterId = nextId;
+          _currentChapterNumber = nextNum?.toInt() ?? (_currentChapterNumber + 1);
+          _isLoading = true;
+          _pageUrls = [];
+          _currentPageIndex = 0;
+        });
+        _loadPages();
+        _updateLibraryProgress();
       }
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -142,20 +149,22 @@ class _MangaReaderPageState extends State<MangaReaderPage> {
 
   void _navigateToPrevChapter() {
     final chapters = widget.chapters;
-    final currentIdx = chapters.indexWhere((c) => c['id']?.toString() == widget.chapterId);
+    final currentIdx = chapters.indexWhere((c) => c['id']?.toString() == _currentChapterId);
     if (currentIdx != -1 && currentIdx < chapters.length - 1) {
       final prevChapter = chapters[currentIdx + 1];
       final String? prevId = prevChapter['id']?.toString();
       final double? prevNum = double.tryParse(prevChapter['chapterNumber']?.toString() ?? '');
       
       if (prevId != null) {
-        widget.navigationState.startReading(
-          chapterId: prevId,
-          chapterNumber: prevNum?.toInt() ?? (widget.chapterNumber - 1),
-          mangaId: widget.mangaId,
-          mangaTitle: widget.mangaTitle,
-          chapters: chapters,
-        );
+        setState(() {
+          _currentChapterId = prevId;
+          _currentChapterNumber = prevNum?.toInt() ?? (_currentChapterNumber - 1);
+          _isLoading = true;
+          _pageUrls = [];
+          _currentPageIndex = 0;
+        });
+        _loadPages();
+        _updateLibraryProgress();
       }
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -319,7 +328,7 @@ class _MangaReaderPageState extends State<MangaReaderPage> {
         children: [
           IconButton(
             icon: const Icon(Icons.close, color: Colors.white, size: 28.0),
-            onPressed: widget.navigationState.stopReading,
+            onPressed: () => Navigator.pop(context),
           ),
           const SizedBox(width: 12.0),
           Expanded(
@@ -338,7 +347,7 @@ class _MangaReaderPageState extends State<MangaReaderPage> {
                   ),
                 ),
                 Text(
-                  'Chapter ${widget.chapterNumber}',
+                  'Chapter $_currentChapterNumber',
                   style: const TextStyle(
                     color: Colors.white60,
                     fontSize: 12.0,
@@ -437,7 +446,7 @@ class _MangaReaderPageState extends State<MangaReaderPage> {
                   ),
                   const SizedBox(width: 8.0),
                   Text(
-                    'Ch. ${widget.chapterNumber}',
+                    'Ch. $_currentChapterNumber',
                     style: const TextStyle(color: Colors.white, fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 13.0),
                   ),
                   const SizedBox(width: 8.0),

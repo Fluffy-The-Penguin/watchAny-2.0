@@ -1,8 +1,7 @@
 import 'dart:convert';
-import 'package:flutter/foundation.dart';
+import 'dart:developer' as developer;
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
-import 'suwayomi_manager.dart';
 
 class SuwayomiService {
   static final SuwayomiService _instance = SuwayomiService._internal();
@@ -108,8 +107,8 @@ class SuwayomiService {
       }
 
       return combined.values.toList();
-    } catch (e) {
-      debugPrint('[SuwayomiService] getExtensions Error: $e');
+    } catch (e, stack) {
+      developer.log('getExtensions Error', name: 'SuwayomiService', error: e, stackTrace: stack);
       rethrow;
     }
   }
@@ -126,8 +125,8 @@ class SuwayomiService {
         return decoded['ok'] == true;
       }
       return false;
-    } catch (e) {
-      debugPrint('[SuwayomiService] installExtension Error: $e');
+    } catch (e, stack) {
+      developer.log('installExtension Error', name: 'SuwayomiService', error: e, stackTrace: stack);
       return false;
     }
   }
@@ -144,8 +143,8 @@ class SuwayomiService {
         return decoded['ok'] == true;
       }
       return false;
-    } catch (e) {
-      debugPrint('[SuwayomiService] uninstallExtension Error: $e');
+    } catch (e, stack) {
+      developer.log('uninstallExtension Error', name: 'SuwayomiService', error: e, stackTrace: stack);
       return false;
     }
   }
@@ -159,17 +158,17 @@ class SuwayomiService {
         final data = jsonDecode(reposResponse.body);
         final list = data['data'] as List?;
         if (list == null || list.isEmpty) {
-          debugPrint('[SuwayomiService] Seeding Keiyoushi repository on server...');
+          developer.log('Seeding Keiyoushi repository on server...', name: 'SuwayomiService');
           final repoUrl = "https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.min.json";
           final addUrl = Uri.parse('$_baseUrl/api/repos/add?url=${Uri.encodeComponent(repoUrl)}');
           await http.get(addUrl).timeout(const Duration(seconds: 15));
-          debugPrint('[SuwayomiService] Seeding complete.');
+          developer.log('Seeding complete.', name: 'SuwayomiService');
           // Give the server 1.5 seconds to pull/sync the index in the background
           await Future.delayed(const Duration(milliseconds: 1500));
         }
       }
-    } catch (e) {
-      debugPrint('[SuwayomiService] Error seeding external repositories: $e');
+    } catch (e, stack) {
+      developer.log('Error seeding external repositories', name: 'SuwayomiService', error: e, stackTrace: stack);
     }
   }
 
@@ -198,8 +197,8 @@ class SuwayomiService {
         }).toList();
       }
       return [];
-    } catch (e) {
-      debugPrint('[SuwayomiService] getSources Error: $e');
+    } catch (e, stack) {
+      developer.log('getSources Error', name: 'SuwayomiService', error: e, stackTrace: stack);
       rethrow;
     }
   }
@@ -253,8 +252,8 @@ class SuwayomiService {
         return mapped;
       }
       return [];
-    } catch (e) {
-      debugPrint('[SuwayomiService] fetchSourceManga Error: $e');
+    } catch (e, stack) {
+      developer.log('fetchSourceManga Error', name: 'SuwayomiService', error: e, stackTrace: stack);
       rethrow;
     }
   }
@@ -288,8 +287,8 @@ class SuwayomiService {
         }
       }
       return null;
-    } catch (e) {
-      debugPrint('[SuwayomiService] getMangaDetails Error: $e');
+    } catch (e, stack) {
+      developer.log('getMangaDetails Error', name: 'SuwayomiService', error: e, stackTrace: stack);
       return null;
     }
   }
@@ -332,8 +331,8 @@ class SuwayomiService {
         }
       }
       return [];
-    } catch (e) {
-      debugPrint('[SuwayomiService] getChapters Error: $e');
+    } catch (e, stack) {
+      developer.log('getChapters Error', name: 'SuwayomiService', error: e, stackTrace: stack);
       return [];
     }
   }
@@ -367,8 +366,8 @@ class SuwayomiService {
         }
       }
       return [];
-    } catch (e) {
-      debugPrint('[SuwayomiService] getChapterPages Error: $e');
+    } catch (e, stack) {
+      developer.log('getChapterPages Error', name: 'SuwayomiService', error: e, stackTrace: stack);
       return [];
     }
   }

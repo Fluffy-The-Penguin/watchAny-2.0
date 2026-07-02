@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:math';
+import 'dart:developer' as developer;
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import '../state/navigation_state.dart';
@@ -115,8 +116,8 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
                 return Map<String, dynamic>.from(body['meta']);
               }
             }
-          } catch (e) {
-            debugPrint('[meta] Error from ${addon.name}: $e');
+          } catch (e, stack) {
+            developer.log('Error fetching meta from ${addon.name}', name: 'MovieDetailsPage', error: e, stackTrace: stack);
           }
           return null;
         }());
@@ -143,8 +144,8 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
               metaData = Map<String, dynamic>.from(body['meta']);
             }
           }
-        } catch (e) {
-          debugPrint('[meta] Cinemeta fallback failed: $e');
+        } catch (e, stack) {
+          developer.log('Cinemeta fallback failed', name: 'MovieDetailsPage', error: e, stackTrace: stack);
         }
       }
 
@@ -251,7 +252,7 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
         await _loadPlaybackProgress();
       }
     } catch (e, stack) {
-      debugPrint('[MovieDetailsPage] Unhandled error in _loadMetadata: $e\n$stack');
+      developer.log('Unhandled error in _loadMetadata', name: 'MovieDetailsPage', error: e, stackTrace: stack);
       if (mounted) {
         setState(() {
           _error = 'Error loading metadata: $e';
@@ -349,8 +350,8 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
                   ..['addonName'] = addon.name)
                 .toList();
           }
-        } catch (e) {
-          debugPrint('[stream] Error from ${addon.name}: $e');
+        } catch (e, stack) {
+          developer.log('Error fetching stream from ${addon.name}', name: 'MovieDetailsPage', error: e, stackTrace: stack);
         }
         return [];
       }());
@@ -613,7 +614,7 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
       );
     }
 
-    debugPrint('[MovieDetailsPage] build: movieId=$widget.movieId, title=${_meta['name'] ?? _meta['title'] ?? 'Untitled'}, keys=${_meta.keys.toList()}');
+    developer.log('build: movieId=$widget.movieId, title=${_meta["name"] ?? _meta["title"] ?? "Untitled"}', name: 'MovieDetailsPage');
 
     final background =
         _meta['background']?.toString() ?? _meta['poster']?.toString() ?? _meta['coverImage']?.toString() ?? '';

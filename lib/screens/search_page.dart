@@ -1,6 +1,8 @@
 import 'dart:convert';
+import 'dart:developer' as developer;
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:cached_network_image/cached_network_image.dart';
 import '../services/anilist_service.dart';
 import '../services/tmdb_service.dart';
 import '../services/stremio_addon_service.dart';
@@ -220,8 +222,8 @@ class _SearchPageState extends State<SearchPage> {
                       }
                     }
                   }
-                } catch (e) {
-                  debugPrint('[stremio search] Error querying ${addon.name} / $catId: $e');
+                } catch (e, stack) {
+                  developer.log('Error querying ${addon.name} / $catId', name: 'SearchPage', error: e, stackTrace: stack);
                 }
               }());
             }
@@ -1297,14 +1299,15 @@ class _SearchMediaCardState extends State<_SearchMediaCard> {
       inLibrary = LibraryState().getItem(animeId, 'anime') != null;
     }
 
-    final cardWidget = MouseRegion(
-      onEnter: (_) => setState(() => _isHovered = true),
-      onExit: (_) => setState(() => _isHovered = false),
-      child: GestureDetector(
-        onTap: widget.onTap,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
+    final cardWidget = RepaintBoundary(
+      child: MouseRegion(
+        onEnter: (_) => setState(() => _isHovered = true),
+        onExit: (_) => setState(() => _isHovered = false),
+        child: GestureDetector(
+          onTap: widget.onTap,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
             // Card Cover Image
             Expanded(
               child: AnimatedContainer(
@@ -1332,12 +1335,12 @@ class _SearchMediaCardState extends State<_SearchMediaCard> {
                       // Cover image
                       Positioned.fill(
                         child: coverUrl.isNotEmpty
-                            ? Image.network(
-                                coverUrl,
+                            ? CachedNetworkImage(
+                                imageUrl: coverUrl,
                                 fit: BoxFit.cover,
-                                cacheWidth: 300,
-                                errorBuilder: (context, error, stackTrace) =>
-                                    Container(color: Colors.grey[950]),
+                                memCacheWidth: 300,
+                                placeholder: (context, url) => Container(color: Colors.grey[950]),
+                                errorWidget: (context, url, error) => Container(color: Colors.grey[950]),
                               )
                             : Container(color: Colors.grey[950]),
                       ),
@@ -1428,7 +1431,7 @@ class _SearchMediaCardState extends State<_SearchMediaCard> {
           ],
         ),
       ),
-    );
+    ),);
 
     if (inLibrary) {
       return Opacity(

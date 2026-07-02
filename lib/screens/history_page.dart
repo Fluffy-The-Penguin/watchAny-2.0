@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../state/navigation_state.dart';
 import '../state/player_state.dart';
 
@@ -274,11 +275,12 @@ class _HistoryPageState extends State<HistoryPage> {
                                           width: 48.0,
                                           height: 68.0,
                                           child: coverUrl.isNotEmpty
-                                              ? Image.network(
-                                                  coverUrl,
+                                              ? CachedNetworkImage(
+                                                  imageUrl: coverUrl,
                                                   fit: BoxFit.cover,
-                                                  errorBuilder: (context, error, stackTrace) =>
-                                                      Container(color: Colors.grey[950]),
+                                                  memCacheWidth: 100,
+                                                  placeholder: (context, url) => Container(color: Colors.grey[950]),
+                                                  errorWidget: (context, url, error) => Container(color: Colors.grey[950]),
                                                 )
                                               : Container(color: Colors.grey[950]),
                                         ),
