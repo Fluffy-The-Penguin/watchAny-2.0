@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../services/suwayomi_service.dart';
 import '../state/navigation_state.dart';
 import '../state/library_state.dart';
@@ -234,34 +235,31 @@ class _MangaReaderPageState extends State<MangaReaderPage> {
   }
 
   Widget _buildWebtoonViewer() {
-    return ScrollConfiguration(
-      behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
-      child: ListView.builder(
-        controller: _scrollController,
-        padding: const EdgeInsets.symmetric(vertical: 40.0),
-        itemCount: _pageUrls.length,
-        itemBuilder: (context, index) {
-          return Center(
-            child: InteractiveViewer(
-              minScale: 1.0,
-              maxScale: 3.5,
-              child: Image.network(
-                _pageUrls[index],
+    return InteractiveViewer(
+      minScale: 1.0,
+      maxScale: 4.0,
+      child: ScrollConfiguration(
+        behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
+        child: ListView.builder(
+          controller: _scrollController,
+          padding: const EdgeInsets.symmetric(vertical: 40.0),
+          itemCount: _pageUrls.length,
+          itemBuilder: (context, index) {
+            return Center(
+              child: CachedNetworkImage(
+                imageUrl: _pageUrls[index],
                 fit: BoxFit.contain,
-                loadingBuilder: (context, child, progress) {
-                  if (progress == null) return child;
-                  return Container(
-                    height: 500,
-                    color: Colors.black12,
-                    child: const Center(
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFFF9F1C)),
-                      ),
+                placeholder: (context, url) => Container(
+                  height: 500,
+                  color: Colors.black12,
+                  child: const Center(
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFFF9F1C)),
                     ),
-                  );
-                },
-                errorBuilder: (_, __, ___) => Container(
+                  ),
+                ),
+                errorWidget: (context, url, error) => Container(
                   height: 300,
                   color: Colors.white10,
                   child: const Center(
@@ -269,9 +267,9 @@ class _MangaReaderPageState extends State<MangaReaderPage> {
                   ),
                 ),
               ),
-            ),
-          );
-        },
+            );
+          },
+        ),
       ),
     );
   }
@@ -287,20 +285,17 @@ class _MangaReaderPageState extends State<MangaReaderPage> {
         return Center(
           child: InteractiveViewer(
             minScale: 1.0,
-            maxScale: 3.5,
-            child: Image.network(
-              _pageUrls[index],
+            maxScale: 4.0,
+            child: CachedNetworkImage(
+              imageUrl: _pageUrls[index],
               fit: BoxFit.contain,
-              loadingBuilder: (context, child, progress) {
-                if (progress == null) return child;
-                return const Center(
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFFF9F1C)),
-                  ),
-                );
-              },
-              errorBuilder: (_, __, ___) => const Center(
+              placeholder: (context, url) => const Center(
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFFF9F1C)),
+                ),
+              ),
+              errorWidget: (context, url, error) => const Center(
                 child: Icon(Icons.broken_image, color: Colors.white30, size: 40),
               ),
             ),

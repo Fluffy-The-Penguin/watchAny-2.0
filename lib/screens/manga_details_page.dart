@@ -241,25 +241,14 @@ class _MangaDetailsPageState extends State<MangaDetailsPage> {
               left: 0,
               right: 0,
               height: 380.0,
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  CachedNetworkImage(
-                    imageUrl: coverUrl,
-                    fit: BoxFit.cover,
-                    memCacheWidth: 600,
-                    placeholder: (context, url) => Container(color: Colors.black),
-                    errorWidget: (context, url, error) => Container(color: Colors.black),
-                  ),
-                  ClipRRect(
-                    child: BackdropFilter(
-                      filter: ImageFilter.blur(sigmaX: 12.0, sigmaY: 12.0),
-                      child: Container(
-                        color: Colors.black.withValues(alpha: 0.6),
-                      ),
-                    ),
-                  ),
-                ],
+              child: CachedNetworkImage(
+                imageUrl: coverUrl,
+                fit: BoxFit.cover,
+                memCacheWidth: 400,
+                color: Colors.black.withOpacity(0.82),
+                colorBlendMode: BlendMode.darken,
+                placeholder: (context, url) => Container(color: Colors.black),
+                errorWidget: (context, url, error) => Container(color: Colors.black),
               ),
             ),
 
