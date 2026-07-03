@@ -11,6 +11,7 @@ import '../services/notification_service.dart';
 
 enum SettingsCategory {
   general,
+  subtitles,
   extensions,
   addons,
   manga,
@@ -19,7 +20,8 @@ enum SettingsCategory {
 
 class SettingsPage extends StatefulWidget {
   final AppMode mode;
-  const SettingsPage({super.key, required this.mode});
+  final SettingsCategory? initialCategory;
+  const SettingsPage({super.key, required this.mode, this.initialCategory});
 
   @override
   State<SettingsPage> createState() => _SettingsPageState();
@@ -50,9 +52,9 @@ class _SettingsPageState extends State<SettingsPage> {
   List<SettingsCategory> _getAvailableCategories() {
     switch (widget.mode) {
       case AppMode.anime:
-        return [SettingsCategory.general, SettingsCategory.extensions, SettingsCategory.about];
+        return [SettingsCategory.general, SettingsCategory.subtitles, SettingsCategory.extensions, SettingsCategory.about];
       case AppMode.movies:
-        return [SettingsCategory.general, SettingsCategory.addons, SettingsCategory.about];
+        return [SettingsCategory.general, SettingsCategory.subtitles, SettingsCategory.addons, SettingsCategory.about];
       case AppMode.manga:
         return [SettingsCategory.general, SettingsCategory.manga, SettingsCategory.about];
     }
@@ -61,7 +63,7 @@ class _SettingsPageState extends State<SettingsPage> {
   @override
   void initState() {
     super.initState();
-    _activeCategory = SettingsCategory.general;
+    _activeCategory = widget.initialCategory ?? SettingsCategory.general;
     _loadData();
   }
 
@@ -915,6 +917,905 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
+  Widget _buildResponsiveRow({
+    required bool isMobile,
+    required Widget child1,
+    required Widget child2,
+    double spacing = 16.0,
+  }) {
+    if (isMobile) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          child1,
+          SizedBox(height: spacing),
+          child2,
+        ],
+      );
+    } else {
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(child: child1),
+          SizedBox(width: spacing),
+          Expanded(child: child2),
+        ],
+      );
+    }
+  }
+
+  void _applySubtitlePreset(String name) {
+    final settings = AppSettings();
+    if (name == 'Default') {
+      settings.setSubtitlesTextColor(0xFFFFFFFF);
+      settings.setSubtitlesBgEnabled(false);
+      settings.setSubtitlesShadowEnabled(true);
+      settings.setSubtitlesShadowColor(0xFF000000);
+      settings.setSubtitlesShadowOpacity(0.8);
+      settings.setSubtitlesShadowBlurRadius(2.0);
+      settings.setSubtitlesShadowOffset(1.5);
+    } else if (name == 'Netflix') {
+      settings.setSubtitlesTextColor(0xFFFFFFFF);
+      settings.setSubtitlesBgEnabled(true);
+      settings.setSubtitlesBgColor(0xFF000000);
+      settings.setSubtitlesBgOpacity(0.6);
+      settings.setSubtitlesShadowEnabled(false);
+    } else if (name == 'YouTube') {
+      settings.setSubtitlesTextColor(0xFFFFFF00); // Yellow
+      settings.setSubtitlesBgEnabled(true);
+      settings.setSubtitlesBgColor(0xFF000000);
+      settings.setSubtitlesBgOpacity(0.75);
+      settings.setSubtitlesShadowEnabled(false);
+    } else if (name == 'Anime Outlined') {
+      settings.setSubtitlesTextColor(0xFFFFFF00); // Yellow
+      settings.setSubtitlesBgEnabled(false);
+      settings.setSubtitlesShadowEnabled(true);
+      settings.setSubtitlesShadowColor(0xFF000000);
+      settings.setSubtitlesShadowOpacity(0.95);
+      settings.setSubtitlesShadowBlurRadius(3.0);
+      settings.setSubtitlesShadowOffset(2.0);
+    } else if (name == 'Captions') {
+      settings.setSubtitlesTextColor(0xFF000000); // Black
+      settings.setSubtitlesBgEnabled(true);
+      settings.setSubtitlesBgColor(0xFFFFFFFF);
+      settings.setSubtitlesBgOpacity(0.8);
+      settings.setSubtitlesShadowEnabled(false);
+    }
+  }
+
+  Widget _buildSubtitlesSection(bool isMobile) {
+    final settings = AppSettings();
+
+    // Font list options
+    final List<String> fontFamilies = [
+      'Outfit',
+      'Roboto',
+      'Inter',
+      'Open Sans',
+      'Lato',
+      'Poppins',
+      'Montserrat',
+      'Arial',
+      'Courier New',
+      'Times New Roman',
+      'Playfair Display',
+      'System',
+    ];
+
+    // Colors list
+    final List<Map<String, dynamic>> presetColors = [
+      {'name': 'White', 'value': 0xFFFFFFFF},
+      {'name': 'Yellow', 'value': 0xFFFFFF00},
+      {'name': 'Cyan', 'value': 0xFF00FFFF},
+      {'name': 'Light Green', 'value': 0xFF00FF00},
+      {'name': 'Orange', 'value': 0xFFFF9800},
+      {'name': 'Red', 'value': 0xFFE91E63},
+      {'name': 'Black', 'value': 0xFF000000},
+    ];
+
+    // Dark bg colors
+    final List<Map<String, dynamic>> bgColors = [
+      {'name': 'Black', 'value': 0xFF000000},
+      {'name': 'Dark Blue', 'value': 0xFF0B1D3A},
+      {'name': 'Deep Purple', 'value': 0xFF1A0933},
+      {'name': 'Dark Red', 'value': 0xFF3D0814},
+      {'name': 'White', 'value': 0xFFFFFFFF},
+    ];
+
+    final presets = ['Default', 'Netflix', 'YouTube', 'Anime Outlined', 'Captions'];
+
+    return ListenableBuilder(
+      listenable: settings,
+      builder: (context, _) {
+        final bool bgEnabled = settings.subtitlesBgEnabled;
+        final int bgColor = settings.subtitlesBgColor;
+        final double bgOpacity = settings.subtitlesBgOpacity;
+        final String fontFamily = settings.subtitlesFontFamily;
+        final double fontSize = settings.subtitlesFontSize;
+        final bool isBold = settings.subtitlesBold;
+        final bool isItalic = settings.subtitlesItalic;
+        final double offset = settings.subtitlesPositionOffset;
+        final double xOffset = settings.subtitlesXOffset;
+        final int textColor = settings.subtitlesTextColor;
+        final bool shadowEnabled = settings.subtitlesShadowEnabled;
+        final int shadowColor = settings.subtitlesShadowColor;
+        final double shadowOpacity = settings.subtitlesShadowOpacity;
+        final double shadowBlurRadius = settings.subtitlesShadowBlurRadius;
+        final double shadowOffset = settings.subtitlesShadowOffset;
+
+        // Map AppSettings offset (10.0 to 250.0) to local preview bottom padding (10.0 to 120.0) inside the 180px high box
+        final double previewBottom = ((offset - 10.0) / 240.0) * 110.0 + 10.0;
+        // Map AppSettings X offset (-150.0 to 150.0) to local preview X offset (-120.0 to 120.0)
+        final double previewX = (xOffset / 150.0) * 120.0;
+
+        final subtitlePreviewStyle = TextStyle(
+          height: 1.4,
+          fontSize: (fontSize * 0.95).clamp(10.0, 36.0),
+          color: Color(textColor),
+          backgroundColor: bgEnabled ? Color(bgColor).withValues(alpha: bgOpacity) : null,
+          fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
+          fontStyle: isItalic ? FontStyle.italic : FontStyle.normal,
+          fontFamily: fontFamily,
+          shadows: shadowEnabled
+              ? [
+                  Shadow(
+                    offset: Offset(-shadowOffset, -shadowOffset),
+                    color: Color(shadowColor).withValues(alpha: shadowOpacity),
+                    blurRadius: shadowBlurRadius,
+                  ),
+                  Shadow(
+                    offset: Offset(shadowOffset, -shadowOffset),
+                    color: Color(shadowColor).withValues(alpha: shadowOpacity),
+                    blurRadius: shadowBlurRadius,
+                  ),
+                  Shadow(
+                    offset: Offset(shadowOffset, shadowOffset),
+                    color: Color(shadowColor).withValues(alpha: shadowOpacity),
+                    blurRadius: shadowBlurRadius,
+                  ),
+                  Shadow(
+                    offset: Offset(-shadowOffset, shadowOffset),
+                    color: Color(shadowColor).withValues(alpha: shadowOpacity),
+                    blurRadius: shadowBlurRadius,
+                  ),
+                ]
+              : null,
+        );
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Subtitles',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 20.0,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: 'Outfit',
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: () => settings.resetSubtitlesToDefault(),
+                  icon: const Icon(Icons.refresh, size: 16.0, color: Colors.blueAccent),
+                  label: const Text(
+                    "Reset to Defaults",
+                    style: TextStyle(color: Colors.blueAccent, fontSize: 13.0, fontFamily: 'Outfit'),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6.0),
+            const Text(
+              'Detailed customization for player subtitles styling, positioning, and shadows.',
+              style: TextStyle(color: Colors.white38, fontSize: 13.0),
+            ),
+            const SizedBox(height: 16.0),
+
+            // Master Styling Override Switch
+            Container(
+              padding: const EdgeInsets.all(16.0),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.02),
+                borderRadius: BorderRadius.circular(12.0),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Apply Custom Subtitles Styling',
+                        style: TextStyle(color: Colors.white, fontSize: 14.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                      ),
+                      SizedBox(height: 4.0),
+                      Text(
+                        'Disable to fallback to the video player\'s native subtitle renderer.',
+                        style: TextStyle(color: Colors.white38, fontSize: 12.0),
+                      ),
+                    ],
+                  ),
+                  Transform.scale(
+                    scale: 0.85,
+                    child: Switch(
+                      value: settings.subtitlesCustomStylesEnabled,
+                      activeColor: Colors.white,
+                      activeTrackColor: Colors.blueAccent,
+                      onChanged: (val) => settings.setSubtitlesCustomStylesEnabled(val),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 24.0),
+
+            IgnorePointer(
+              ignoring: !settings.subtitlesCustomStylesEnabled,
+              child: AnimatedOpacity(
+                opacity: settings.subtitlesCustomStylesEnabled ? 1.0 : 0.25,
+                duration: const Duration(milliseconds: 250),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // ── Interactive Screen POSITION PANEL ──
+                    const Text(
+                      'Screen Position & Live Preview',
+                      style: TextStyle(color: Colors.white70, fontSize: 14.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                    ),
+                    const SizedBox(height: 6.0),
+                    const Text(
+                      'Drag the subtitles text in any direction (up/down/left/right) inside the panel below to position it.',
+                      style: TextStyle(color: Colors.white38, fontSize: 12.0),
+                    ),
+                    const SizedBox(height: 12.0),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 480.0),
+                        child: AspectRatio(
+                          aspectRatio: 16 / 9,
+                          child: GestureDetector(
+                            onPanUpdate: (details) {
+                              // Drag smoothly on both X and Y using details.delta without committing to SharedPreferences on every step
+                              settings.setSubtitlesXOffset(
+                                (settings.subtitlesXOffset + details.delta.dx).clamp(-150.0, 150.0),
+                                save: false,
+                              );
+                              settings.setSubtitlesPositionOffset(
+                                (settings.subtitlesPositionOffset - details.delta.dy).clamp(10.0, 250.0),
+                                save: false,
+                              );
+                            },
+                            onPanEnd: (_) => settings.saveSubtitlesPosition(),
+                            onPanCancel: () => settings.saveSubtitlesPosition(),
+                            child: MouseRegion(
+                              cursor: SystemMouseCursors.grab,
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(12.0),
+                                  border: Border.all(color: Colors.white10),
+                                  gradient: const LinearGradient(
+                                    begin: Alignment.topCenter,
+                                    end: Alignment.bottomCenter,
+                                    colors: [Color(0xFF16161A), Color(0xFF0C0C0E)],
+                                  ),
+                                ),
+                                child: Stack(
+                                  alignment: Alignment.bottomCenter,
+                                  children: [
+                                    // Video mockup guidelines
+                                    Center(
+                                      child: Icon(
+                                        Icons.movie_outlined,
+                                        color: Colors.white.withValues(alpha: 0.02),
+                                        size: 100,
+                                      ),
+                                    ),
+                                    Positioned(
+                                      top: 24.0,
+                                      left: 24.0,
+                                      child: Container(
+                                        width: 100.0,
+                                        height: 8.0,
+                                        decoration: BoxDecoration(
+                                          color: Colors.white.withValues(alpha: 0.05),
+                                          borderRadius: BorderRadius.circular(4.0),
+                                        ),
+                                      ),
+                                    ),
+                                    Positioned(
+                                      top: 38.0,
+                                      left: 24.0,
+                                      child: Container(
+                                        width: 60.0,
+                                        height: 8.0,
+                                        decoration: BoxDecoration(
+                                          color: Colors.white.withValues(alpha: 0.05),
+                                          borderRadius: BorderRadius.circular(4.0),
+                                        ),
+                                      ),
+                                    ),
+
+                                    // Center divider lines
+                                    Positioned.fill(
+                                      child: Align(
+                                        alignment: Alignment.center,
+                                        child: Container(
+                                          height: 0.5,
+                                          color: Colors.white.withValues(alpha: 0.04),
+                                        ),
+                                      ),
+                                    ),
+
+                                    // Draggable Subtitle Box
+                                    Positioned(
+                                      bottom: previewBottom,
+                                      left: 24.0 + previewX,
+                                      right: 24.0 - previewX,
+                                      child: Center(
+                                        child: Text(
+                                          "Subtitles look like this",
+                                          style: subtitlePreviewStyle,
+                                          textAlign: TextAlign.center,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 24.0),
+
+                    // ── Presets Profile Selector ──
+                    const Text(
+                      'Preset Style Profiles',
+                      style: TextStyle(color: Colors.white70, fontSize: 14.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                    ),
+                    const SizedBox(height: 12.0),
+                    Wrap(
+                      spacing: 12.0,
+                      runSpacing: 12.0,
+                      children: presets.map((name) {
+                        return OutlinedButton(
+                          onPressed: () => _applySubtitlePreset(name),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.white,
+                            side: const BorderSide(color: Colors.white10),
+                            backgroundColor: Colors.white.withValues(alpha: 0.03),
+                            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
+                          ),
+                          child: Text(
+                            name,
+                            style: const TextStyle(fontSize: 12.0, fontWeight: FontWeight.w600, fontFamily: 'Outfit'),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                    const SizedBox(height: 24.0),
+
+                    // ── Detailed Customization Controls ──
+                    const Divider(color: Colors.white10, height: 1.0),
+                    const SizedBox(height: 24.0),
+
+                    // Font options (Responsive row)
+                    _buildResponsiveRow(
+                      isMobile: isMobile,
+                      child1: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Font Family',
+                            style: TextStyle(color: Colors.white70, fontSize: 13.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                          ),
+                          const SizedBox(height: 8.0),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12.0),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.03),
+                              borderRadius: BorderRadius.circular(8.0),
+                              border: Border.all(color: Colors.white10),
+                            ),
+                            child: DropdownButtonHideUnderline(
+                              child: DropdownButton<String>(
+                                value: fontFamily,
+                                dropdownColor: const Color(0xFF0F0F11),
+                                isExpanded: true,
+                                style: const TextStyle(color: Colors.white, fontSize: 13.0, fontFamily: 'Outfit'),
+                                items: fontFamilies
+                                    .map((font) => DropdownMenuItem(value: font, child: Text(font)))
+                                    .toList(),
+                                onChanged: (val) {
+                                  if (val != null) settings.setSubtitlesFontFamily(val);
+                                },
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      child2: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text(
+                                'Font Size',
+                                style: TextStyle(color: Colors.white70, fontSize: 13.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                              ),
+                              Text(
+                                '${fontSize.toInt()} px',
+                                style: const TextStyle(color: Colors.blueAccent, fontSize: 13.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 4.0),
+                          SliderTheme(
+                            data: SliderTheme.of(context).copyWith(
+                              trackHeight: 2.0,
+                              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6.0),
+                            ),
+                            child: Slider(
+                              value: fontSize,
+                              min: 10.0,
+                              max: 40.0,
+                              activeColor: Colors.blueAccent,
+                              inactiveColor: Colors.white10,
+                              onChanged: (val) => settings.setSubtitlesFontSize(val),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 20.0),
+
+                    // Style Toggles and Text Color (Responsive row)
+                    _buildResponsiveRow(
+                      isMobile: isMobile,
+                      child1: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Text Color',
+                            style: TextStyle(color: Colors.white70, fontSize: 13.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                          ),
+                          const SizedBox(height: 8.0),
+                          Wrap(
+                            spacing: 8.0,
+                            runSpacing: 8.0,
+                            children: presetColors.map((colorItem) {
+                              final val = colorItem['value'];
+                              final isSelected = textColor == val;
+                              return InkWell(
+                                onTap: () => settings.setSubtitlesTextColor(val),
+                                borderRadius: BorderRadius.circular(20.0),
+                                child: Container(
+                                  width: 28.0,
+                                  height: 28.0,
+                                  decoration: BoxDecoration(
+                                    color: Color(val),
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                      color: isSelected ? Colors.blueAccent : Colors.white24,
+                                      width: isSelected ? 2.0 : 1.0,
+                                    ),
+                                  ),
+                                  child: isSelected
+                                      ? Center(
+                                          child: Icon(
+                                            Icons.check,
+                                            color: val == 0xFFFFFFFF ? Colors.black : Colors.white,
+                                            size: 14.0,
+                                          ),
+                                        )
+                                      : null,
+                                ),
+                              );
+                            }).toList(),
+                          ),
+                        ],
+                      ),
+                      child2: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Weight & Formatting',
+                            style: TextStyle(color: Colors.white70, fontSize: 13.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                          ),
+                          const SizedBox(height: 8.0),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: InkWell(
+                                  onTap: () => settings.setSubtitlesBold(!isBold),
+                                  borderRadius: BorderRadius.circular(8.0),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(vertical: 8.0),
+                                    decoration: BoxDecoration(
+                                      color: isBold ? Colors.blueAccent.withValues(alpha: 0.15) : Colors.white.withValues(alpha: 0.03),
+                                      borderRadius: BorderRadius.circular(8.0),
+                                      border: Border.all(color: isBold ? Colors.blueAccent.withValues(alpha: 0.3) : Colors.white10),
+                                    ),
+                                    child: Center(
+                                      child: Text(
+                                        'Bold',
+                                        style: TextStyle(
+                                          color: isBold ? Colors.white : Colors.white70,
+                                          fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
+                                          fontSize: 12.0,
+                                          fontFamily: 'Outfit',
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 10.0),
+                              Expanded(
+                                child: InkWell(
+                                  onTap: () => settings.setSubtitlesItalic(!isItalic),
+                                  borderRadius: BorderRadius.circular(8.0),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(vertical: 8.0),
+                                    decoration: BoxDecoration(
+                                      color: isItalic ? Colors.blueAccent.withValues(alpha: 0.15) : Colors.white.withValues(alpha: 0.03),
+                                      borderRadius: BorderRadius.circular(8.0),
+                                      border: Border.all(color: isItalic ? Colors.blueAccent.withValues(alpha: 0.3) : Colors.white10),
+                                    ),
+                                    child: Center(
+                                      child: Text(
+                                        'Italic',
+                                        style: TextStyle(
+                                          color: isItalic ? Colors.white : Colors.white70,
+                                          fontStyle: isItalic ? FontStyle.italic : FontStyle.normal,
+                                          fontSize: 12.0,
+                                          fontFamily: 'Outfit',
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 24.0),
+
+                    // ── Background Box Settings ──
+                    const Divider(color: Colors.white10, height: 1.0),
+                    const SizedBox(height: 20.0),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Enable Subtitles Background',
+                              style: TextStyle(color: Colors.white, fontSize: 14.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                            ),
+                            SizedBox(height: 4.0),
+                            Text(
+                              'Draws a translucent solid container behind the subtitles.',
+                              style: TextStyle(color: Colors.white38, fontSize: 12.0),
+                            ),
+                          ],
+                        ),
+                        Transform.scale(
+                          scale: 0.85,
+                          child: Switch(
+                            value: bgEnabled,
+                            activeColor: Colors.white,
+                            activeTrackColor: Colors.blueAccent,
+                            onChanged: (val) => settings.setSubtitlesBgEnabled(val),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16.0),
+                    AnimatedOpacity(
+                      opacity: bgEnabled ? 1.0 : 0.2,
+                      duration: const Duration(milliseconds: 200),
+                      child: IgnorePointer(
+                        ignoring: !bgEnabled,
+                        child: _buildResponsiveRow(
+                          isMobile: isMobile,
+                          child1: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Background Color',
+                                style: TextStyle(color: Colors.white70, fontSize: 13.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                              ),
+                              const SizedBox(height: 8.0),
+                              Wrap(
+                                spacing: 8.0,
+                                runSpacing: 8.0,
+                                children: bgColors.map((colorItem) {
+                                  final val = colorItem['value'];
+                                  final isSelected = bgColor == val;
+                                  return InkWell(
+                                    onTap: () => settings.setSubtitlesBgColor(val),
+                                    borderRadius: BorderRadius.circular(20.0),
+                                    child: Container(
+                                      width: 28.0,
+                                      height: 28.0,
+                                      decoration: BoxDecoration(
+                                        color: Color(val),
+                                        shape: BoxShape.circle,
+                                        border: Border.all(
+                                          color: isSelected ? Colors.blueAccent : Colors.white24,
+                                          width: isSelected ? 2.0 : 1.0,
+                                        ),
+                                      ),
+                                      child: isSelected
+                                          ? Center(
+                                              child: Icon(
+                                                Icons.check,
+                                                color: val == 0xFFFFFFFF ? Colors.black : Colors.white,
+                                                size: 14.0,
+                                              ),
+                                            )
+                                          : null,
+                                    ),
+                                  );
+                                }).toList(),
+                              ),
+                            ],
+                          ),
+                          child2: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  const Text(
+                                    'Background Opacity',
+                                    style: TextStyle(color: Colors.white70, fontSize: 13.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                                  ),
+                                  Text(
+                                    '${(bgOpacity * 100).toInt()}%',
+                                    style: const TextStyle(color: Colors.blueAccent, fontSize: 13.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 4.0),
+                              SliderTheme(
+                                data: SliderTheme.of(context).copyWith(
+                                  trackHeight: 2.0,
+                                  thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6.0),
+                                ),
+                                child: Slider(
+                                  value: bgOpacity,
+                                  min: 0.0,
+                                  max: 1.0,
+                                  activeColor: Colors.blueAccent,
+                                  inactiveColor: Colors.white10,
+                                  onChanged: (val) => settings.setSubtitlesBgOpacity(val),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 24.0),
+
+                    // ── Outline / Shadow Settings ──
+                    const Divider(color: Colors.white10, height: 1.0),
+                    const SizedBox(height: 20.0),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Enable Subtitles Outline (Text Shadow)',
+                              style: TextStyle(color: Colors.white, fontSize: 14.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                            ),
+                            SizedBox(height: 4.0),
+                            Text(
+                              'Renders high-contrast outlines/shadows to ensure readability.',
+                              style: TextStyle(color: Colors.white38, fontSize: 12.0),
+                            ),
+                          ],
+                        ),
+                        Transform.scale(
+                          scale: 0.85,
+                          child: Switch(
+                            value: shadowEnabled,
+                            activeColor: Colors.white,
+                            activeTrackColor: Colors.blueAccent,
+                            onChanged: (val) => settings.setSubtitlesShadowEnabled(val),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16.0),
+                    AnimatedOpacity(
+                      opacity: shadowEnabled ? 1.0 : 0.2,
+                      duration: const Duration(milliseconds: 200),
+                      child: IgnorePointer(
+                        ignoring: !shadowEnabled,
+                        child: Column(
+                          children: [
+                            // Shadow color & opacity (Responsive row)
+                            _buildResponsiveRow(
+                              isMobile: isMobile,
+                              child1: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'Shadow Color',
+                                    style: TextStyle(color: Colors.white70, fontSize: 13.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                                  ),
+                                  const SizedBox(height: 8.0),
+                                  Wrap(
+                                    spacing: 8.0,
+                                    runSpacing: 8.0,
+                                    children: bgColors.map((colorItem) {
+                                      final val = colorItem['value'];
+                                      final isSelected = shadowColor == val;
+                                      return InkWell(
+                                        onTap: () => settings.setSubtitlesShadowColor(val),
+                                        borderRadius: BorderRadius.circular(20.0),
+                                        child: Container(
+                                          width: 28.0,
+                                          height: 28.0,
+                                          decoration: BoxDecoration(
+                                            color: Color(val),
+                                            shape: BoxShape.circle,
+                                            border: Border.all(
+                                              color: isSelected ? Colors.blueAccent : Colors.white24,
+                                              width: isSelected ? 2.0 : 1.0,
+                                            ),
+                                          ),
+                                          child: isSelected
+                                              ? Center(
+                                                  child: Icon(
+                                                    Icons.check,
+                                                    color: val == 0xFFFFFFFF ? Colors.black : Colors.white,
+                                                    size: 14.0,
+                                                  ),
+                                                )
+                                              : null,
+                                        ),
+                                      );
+                                    }).toList(),
+                                  ),
+                                ],
+                              ),
+                              child2: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      const Text(
+                                        'Shadow Opacity',
+                                        style: TextStyle(color: Colors.white70, fontSize: 13.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                                      ),
+                                      Text(
+                                        '${(shadowOpacity * 100).toInt()}%',
+                                        style: const TextStyle(color: Colors.blueAccent, fontSize: 13.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 4.0),
+                                  SliderTheme(
+                                    data: SliderTheme.of(context).copyWith(
+                                      trackHeight: 2.0,
+                                      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6.0),
+                                    ),
+                                    child: Slider(
+                                      value: shadowOpacity,
+                                      min: 0.0,
+                                      max: 1.0,
+                                      activeColor: Colors.blueAccent,
+                                      inactiveColor: Colors.white10,
+                                      onChanged: (val) => settings.setSubtitlesShadowOpacity(val),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 20.0),
+                            // Thickness & Blur (Responsive row)
+                            _buildResponsiveRow(
+                              isMobile: isMobile,
+                              child1: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      const Text(
+                                        'Outline Thickness (Offset)',
+                                        style: TextStyle(color: Colors.white70, fontSize: 13.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                                      ),
+                                      Text(
+                                        '${shadowOffset.toStringAsFixed(1)} px',
+                                        style: const TextStyle(color: Colors.blueAccent, fontSize: 13.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 4.0),
+                                  SliderTheme(
+                                    data: SliderTheme.of(context).copyWith(
+                                      trackHeight: 2.0,
+                                      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6.0),
+                                    ),
+                                    child: Slider(
+                                      value: shadowOffset,
+                                      min: 0.5,
+                                      max: 5.0,
+                                      activeColor: Colors.blueAccent,
+                                      inactiveColor: Colors.white10,
+                                      onChanged: (val) => settings.setSubtitlesShadowOffset(val),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              child2: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      const Text(
+                                        'Outline Blur Radius',
+                                        style: TextStyle(color: Colors.white70, fontSize: 13.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                                      ),
+                                      Text(
+                                        '${shadowBlurRadius.toStringAsFixed(1)} px',
+                                        style: const TextStyle(color: Colors.blueAccent, fontSize: 13.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 4.0),
+                                  SliderTheme(
+                                    data: SliderTheme.of(context).copyWith(
+                                      trackHeight: 2.0,
+                                      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6.0),
+                                    ),
+                                    child: Slider(
+                                      value: shadowBlurRadius,
+                                      min: 0.0,
+                                      max: 8.0,
+                                      activeColor: Colors.blueAccent,
+                                      inactiveColor: Colors.white10,
+                                      onChanged: (val) => settings.setSubtitlesShadowBlurRadius(val),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 36.0),
+          ],
+        );
+      },
+    );
+  }
+
   Widget _buildDivider() => Container(
         margin: const EdgeInsets.symmetric(vertical: 12.0),
         height: 1.0,
@@ -927,6 +1828,7 @@ class _SettingsPageState extends State<SettingsPage> {
       SettingsCategory.extensions: {'title': 'Extensions', 'icon': Icons.extension},
       SettingsCategory.addons: {'title': 'Addons', 'icon': Icons.movie_filter},
       SettingsCategory.general: {'title': 'General', 'icon': Icons.settings_applications},
+      SettingsCategory.subtitles: {'title': 'Subtitles', 'icon': Icons.subtitles},
       SettingsCategory.manga: {'title': 'Manga', 'icon': Icons.book},
       SettingsCategory.about: {'title': 'About', 'icon': Icons.info_outline},
     };
@@ -1033,6 +1935,8 @@ class _SettingsPageState extends State<SettingsPage> {
             _buildStremioAddonsSection(isMobile),
           ] else if (_activeCategory == SettingsCategory.general) ...[
             _buildGeneralSection(),
+          ] else if (_activeCategory == SettingsCategory.subtitles) ...[
+            _buildSubtitlesSection(isMobile),
           ] else if (_activeCategory == SettingsCategory.manga) ...[
             _buildMangaSettingsSection(isMobile),
           ] else if (_activeCategory == SettingsCategory.about) ...[

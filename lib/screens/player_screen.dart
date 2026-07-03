@@ -20,6 +20,8 @@ import '../state/app_settings.dart';
 import '../services/torrserver_service.dart';
 import '../services/batch_mapping_service.dart';
 import '../services/aniskip_service.dart';
+import '../state/navigation_state.dart';
+import 'settings_page.dart';
 
 class PlayerScreen extends StatefulWidget {
   final String streamUrl;
@@ -94,6 +96,12 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
     }
   }
 
+  void _onSettingsChanged() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -112,6 +120,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
     }));
     PlayerState().addListener(_handlePlayerStateChange);
     _handlePlayerStateChange();
+    AppSettings().addListener(_onSettingsChanged);
 
     // Fetch skip times once duration is loaded
     if (widget.anilistId != null && widget.episodeNumber != null) {
@@ -130,6 +139,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
 
   @override
   void dispose() {
+    AppSettings().removeListener(_onSettingsChanged);
     PlayerState().removeListener(_handlePlayerStateChange);
     for (var sub in _subscriptions) {
       sub.cancel();
@@ -952,10 +962,11 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
           // Scale subtitles font size dynamically based on the current window/screen width
           final screenWidth = MediaQuery.of(context).size.width;
           final screenHeight = MediaQuery.of(context).size.height;
-          final double subtitleFontSize = (screenWidth / 600.0 * 16.0).clamp(12.0, 30.0);
+          final settings = AppSettings();
+          final double subtitleFontSize = (screenWidth / 600.0 * settings.subtitlesFontSize).clamp(10.0, 60.0);
 
           // Calculate vertical letterbox padding so subtitles are always drawn on the video frame
-          double bottomPadding = 24.0;
+          double bottomPadding = settings.subtitlesPositionOffset;
           if (screenWidth > 0 && screenHeight > 0) {
             final double screenAspectRatio = screenWidth / screenHeight;
             if (screenAspectRatio < videoAspectRatio) {
@@ -966,24 +977,53 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
             }
           }
 
-          final subtitleConfig = SubtitleViewConfiguration(
+          final subtitleConfig = !settings.subtitlesCustomStylesEnabled
+              ? const SubtitleViewConfiguration()
+              : SubtitleViewConfiguration(
             style: TextStyle(
               height: 1.4,
               fontSize: subtitleFontSize,
               letterSpacing: 0.0,
               wordSpacing: 0.0,
-              color: const Color(0xffffffff),
-              fontWeight: FontWeight.normal,
-              fontFamily: 'Outfit',
-              shadows: const [
-                Shadow(offset: Offset(-1.5, -1.5), color: Colors.black),
-                Shadow(offset: Offset(1.5, -1.5), color: Colors.black),
-                Shadow(offset: Offset(1.5, 1.5), color: Colors.black),
-                Shadow(offset: Offset(-1.5, 1.5), color: Colors.black),
-              ],
+              color: Color(settings.subtitlesTextColor),
+              backgroundColor: settings.subtitlesBgEnabled
+                  ? Color(settings.subtitlesBgColor).withValues(alpha: settings.subtitlesBgOpacity)
+                  : null,
+              fontWeight: settings.subtitlesBold ? FontWeight.bold : FontWeight.normal,
+              fontStyle: settings.subtitlesItalic ? FontStyle.italic : FontStyle.normal,
+              fontFamily: settings.subtitlesFontFamily,
+              shadows: settings.subtitlesShadowEnabled
+                  ? [
+                      Shadow(
+                        offset: Offset(-settings.subtitlesShadowOffset, -settings.subtitlesShadowOffset),
+                        color: Color(settings.subtitlesShadowColor).withValues(alpha: settings.subtitlesShadowOpacity),
+                        blurRadius: settings.subtitlesShadowBlurRadius,
+                      ),
+                      Shadow(
+                        offset: Offset(settings.subtitlesShadowOffset, -settings.subtitlesShadowOffset),
+                        color: Color(settings.subtitlesShadowColor).withValues(alpha: settings.subtitlesShadowOpacity),
+                        blurRadius: settings.subtitlesShadowBlurRadius,
+                      ),
+                      Shadow(
+                        offset: Offset(settings.subtitlesShadowOffset, settings.subtitlesShadowOffset),
+                        color: Color(settings.subtitlesShadowColor).withValues(alpha: settings.subtitlesShadowOpacity),
+                        blurRadius: settings.subtitlesShadowBlurRadius,
+                      ),
+                      Shadow(
+                        offset: Offset(-settings.subtitlesShadowOffset, settings.subtitlesShadowOffset),
+                        color: Color(settings.subtitlesShadowColor).withValues(alpha: settings.subtitlesShadowOpacity),
+                        blurRadius: settings.subtitlesShadowBlurRadius,
+                      ),
+                    ]
+                  : null,
             ),
             textAlign: TextAlign.center,
-            padding: EdgeInsets.fromLTRB(16.0, 16.0, 16.0, bottomPadding),
+            padding: EdgeInsets.fromLTRB(
+              16.0 + (settings.subtitlesXOffset > 0 ? settings.subtitlesXOffset : 0.0),
+              16.0,
+              16.0 + (settings.subtitlesXOffset < 0 ? -settings.subtitlesXOffset : 0.0),
+              bottomPadding,
+            ),
           );
 
           Widget videoWidget = Video(
@@ -2181,6 +2221,40 @@ class _SettingsOverlayCardState extends State<_SettingsOverlayCard> {
             ],
           ),
         ),
+        // Subtitle Style Customizer Button
+        Padding(
+          padding: const EdgeInsets.only(left: 16.0, right: 16.0, bottom: 12.0),
+          child: InkWell(
+            onTap: () {
+              _showSubtitleCustomizationDialog();
+            },
+            borderRadius: BorderRadius.circular(6.0),
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 10.0),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.05),
+                borderRadius: BorderRadius.circular(6.0),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+              ),
+              child: const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.tune, color: Colors.white, size: 14.0),
+                  SizedBox(width: 8.0),
+                  Text(
+                    "Customize Style",
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12.0,
+                      fontFamily: 'Outfit',
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
         const Divider(color: Colors.white10, height: 1),
 
         if (subtitleTracks.isEmpty)
@@ -2210,6 +2284,291 @@ class _SettingsOverlayCardState extends State<_SettingsOverlayCard> {
             ),
           ),
       ],
+    );
+  }
+
+  void _showSubtitleCustomizationDialog() {
+    final settings = AppSettings();
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            // Re-read current values from AppSettings
+            final bool bgEnabled = settings.subtitlesBgEnabled;
+            final int bgColor = settings.subtitlesBgColor;
+            final double bgOpacity = settings.subtitlesBgOpacity;
+            final String fontFamily = settings.subtitlesFontFamily;
+            final double fontSize = settings.subtitlesFontSize;
+            final bool isBold = settings.subtitlesBold;
+            final bool isItalic = settings.subtitlesItalic;
+            final double offset = settings.subtitlesPositionOffset;
+            final int textColor = settings.subtitlesTextColor;
+            final bool shadowEnabled = settings.subtitlesShadowEnabled;
+            final int shadowColor = settings.subtitlesShadowColor;
+            final double shadowOpacity = settings.subtitlesShadowOpacity;
+            final double shadowBlurRadius = settings.subtitlesShadowBlurRadius;
+            final double shadowOffset = settings.subtitlesShadowOffset;
+
+            // Map AppSettings offset (10.0 to 250.0) to local preview bottom padding (10.0 to 120.0) inside the 180px high box
+            final double previewBottom = ((offset - 10.0) / 240.0) * 110.0 + 10.0;
+            // Map AppSettings X offset (-150.0 to 150.0) to local preview X offset (-120.0 to 120.0)
+            final double previewX = (settings.subtitlesXOffset / 150.0) * 120.0;
+
+            final subtitlePreviewStyle = TextStyle(
+              height: 1.4,
+              fontSize: (fontSize * 0.9).clamp(10.0, 32.0),
+              color: Color(textColor),
+              backgroundColor: bgEnabled ? Color(bgColor).withValues(alpha: bgOpacity) : null,
+              fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
+              fontStyle: isItalic ? FontStyle.italic : FontStyle.normal,
+              fontFamily: fontFamily,
+              shadows: shadowEnabled
+                  ? [
+                      Shadow(
+                        offset: Offset(-shadowOffset, -shadowOffset),
+                        color: Color(shadowColor).withValues(alpha: shadowOpacity),
+                        blurRadius: shadowBlurRadius,
+                      ),
+                      Shadow(
+                        offset: Offset(shadowOffset, -shadowOffset),
+                        color: Color(shadowColor).withValues(alpha: shadowOpacity),
+                        blurRadius: shadowBlurRadius,
+                      ),
+                      Shadow(
+                        offset: Offset(shadowOffset, shadowOffset),
+                        color: Color(shadowColor).withValues(alpha: shadowOpacity),
+                        blurRadius: shadowBlurRadius,
+                      ),
+                      Shadow(
+                        offset: Offset(-shadowOffset, shadowOffset),
+                        color: Color(shadowColor).withValues(alpha: shadowOpacity),
+                        blurRadius: shadowBlurRadius,
+                      ),
+                    ]
+                  : null,
+            );
+
+            return AlertDialog(
+              backgroundColor: const Color(0xFF0F0F11),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16.0),
+                side: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+              ),
+              titlePadding: const EdgeInsets.all(20.0),
+              contentPadding: const EdgeInsets.only(left: 20.0, right: 20.0, bottom: 20.0),
+              title: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    "Subtitle Quick Tuning",
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 16.0,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: 'Outfit',
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, color: Colors.white70, size: 20.0),
+                    onPressed: () => Navigator.pop(dialogContext),
+                  ),
+                ],
+              ),
+              content: SizedBox(
+                width: 440.0,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // 1. Drag & Drop Screen Position Panel
+                    const Text(
+                      "Drag text inside panel to adjust position:",
+                      style: TextStyle(color: Colors.white38, fontSize: 11.5, fontFamily: 'Outfit'),
+                    ),
+                    const SizedBox(height: 8.0),
+                    GestureDetector(
+                      onPanUpdate: (details) {
+                        // Drag smoothly on both X and Y using details.delta without committing to SharedPreferences on every step
+                        settings.setSubtitlesXOffset(
+                          (settings.subtitlesXOffset + details.delta.dx).clamp(-150.0, 150.0),
+                          save: false,
+                        );
+                        settings.setSubtitlesPositionOffset(
+                          (settings.subtitlesPositionOffset - details.delta.dy).clamp(10.0, 250.0),
+                          save: false,
+                        );
+                        setDialogState(() {});
+                      },
+                      onPanEnd: (_) => settings.saveSubtitlesPosition(),
+                      onPanCancel: () => settings.saveSubtitlesPosition(),
+                      child: MouseRegion(
+                        cursor: SystemMouseCursors.grab,
+                        child: Container(
+                          height: 180.0,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(12.0),
+                            border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+                            gradient: const LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [Color(0xFF1E2026), Color(0xFF0F1013)],
+                            ),
+                          ),
+                          child: Stack(
+                            alignment: Alignment.bottomCenter,
+                            children: [
+                              // Playback preview background mockup lines
+                              Positioned(
+                                top: 40,
+                                child: Icon(
+                                  Icons.movie_outlined,
+                                  color: Colors.white.withValues(alpha: 0.03),
+                                  size: 100,
+                                ),
+                              ),
+                              Positioned(
+                                top: 20,
+                                left: 20,
+                                child: Container(
+                                  width: 80,
+                                  height: 6,
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withValues(alpha: 0.05),
+                                    borderRadius: BorderRadius.circular(3),
+                                  ),
+                                ),
+                              ),
+                              Positioned(
+                                top: 32,
+                                left: 20,
+                                child: Container(
+                                  width: 50,
+                                  height: 6,
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withValues(alpha: 0.05),
+                                    borderRadius: BorderRadius.circular(3),
+                                  ),
+                                ),
+                              ),
+                              
+                              // Center line guide
+                              Positioned.fill(
+                                child: Align(
+                                  alignment: Alignment.center,
+                                  child: Container(
+                                    height: 0.5,
+                                    color: Colors.white.withValues(alpha: 0.03),
+                                  ),
+                                ),
+                              ),
+
+                              // Preview text block
+                              Positioned(
+                                bottom: previewBottom,
+                                left: 16.0 + previewX,
+                                right: 16.0 - previewX,
+                                child: Center(
+                                  child: Text(
+                                    "Subtitles look like this",
+                                    style: subtitlePreviewStyle,
+                                    textAlign: TextAlign.center,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16.0),
+
+                    // 2. Font size slider
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text(
+                              "Quick Font Size",
+                              style: TextStyle(color: Colors.white70, fontSize: 12.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                            ),
+                            Text(
+                              "${fontSize.toInt()} px",
+                              style: const TextStyle(color: Color(0xFF3A86FF), fontSize: 12.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                            ),
+                          ],
+                        ),
+                        SliderTheme(
+                          data: SliderTheme.of(context).copyWith(
+                            trackHeight: 2.0,
+                            thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6.0),
+                            overlayShape: const RoundSliderOverlayShape(overlayRadius: 12.0),
+                            activeTrackColor: const Color(0xFF3A86FF),
+                            inactiveTrackColor: Colors.white10,
+                            thumbColor: Colors.white,
+                          ),
+                          child: Slider(
+                            value: fontSize,
+                            min: 10.0,
+                            max: 40.0,
+                            onChanged: (val) {
+                              settings.setSubtitlesFontSize(val);
+                              setDialogState(() {});
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12.0),
+
+                    // 3. Navigation link to detailed settings page
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF3A86FF),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 14.0),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8.0),
+                        ),
+                      ),
+                      onPressed: () {
+                        // Close quick dialog
+                        Navigator.pop(dialogContext);
+                        
+                        // Push main app settings with subtitles category pre-selected
+                        final AppMode appMode = widget.anilistId != null ? AppMode.anime : AppMode.movies;
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => SettingsPage(
+                              mode: appMode,
+                              initialCategory: SettingsCategory.subtitles,
+                            ),
+                          ),
+                        );
+                      },
+                      child: const Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.tune, size: 16.0),
+                          SizedBox(width: 8.0),
+                          Text(
+                            "All Subtitle Settings...",
+                            style: TextStyle(fontSize: 13.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 
