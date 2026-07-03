@@ -1,8 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
-import 'package:url_launcher/url_launcher.dart';
 
 class UpdateInfo {
   final String version;
@@ -66,7 +66,7 @@ class UpdateService extends ChangeNotifier {
   factory UpdateService() => _instance;
   UpdateService._internal();
 
-  static const String currentVersion = '2.0.5';
+  static const String currentVersion = '2.0.6';
   
   // GitHub Releases API Endpoint
   static const String gitHubReleasesUrl = 'https://api.github.com/repos/Fluffy-The-Penguin/watchAny-2.0/releases/latest';
@@ -156,7 +156,8 @@ class UpdateService extends ChangeNotifier {
         final json = jsonDecode(response.body);
         _latestUpdate = UpdateInfo.fromJson(json);
         if (_latestUpdate!.downloadUrl.isEmpty) {
-          throw Exception('No executable release asset (.exe) found in the latest release.');
+          final ext = Platform.isAndroid ? 'APK' : 'executable (.exe)';
+          throw Exception('No release asset ($ext) found in the latest release.');
         }
       } else {
         throw Exception('GitHub API returned status code: ${response.statusCode}');
@@ -165,13 +166,14 @@ class UpdateService extends ChangeNotifier {
       // Fallback mock update in case of failure
       _error = 'Live check failed ($e). Showing fallback updates.';
       _latestUpdate = UpdateInfo(
-        version: 'v2.0.5',
+        version: 'v2.0.6',
         changelog: '• Added Downloads & Cache storage limits and customizable folder paths\n'
             '• Added auto-manage FIFO storage deletion and full-storage warning dialogs\n'
-            '• Added Android system back gesture handling to prevent premature app closure',
+            '• Added Android system back gesture handling to prevent premature app closure\n'
+            '• Implemented flat chronological watch history that groups adjacent episode views only',
         downloadUrl: Platform.isAndroid 
-            ? 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.5/app-arm64-v8a-release.apk'
-            : 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.5/watchany_setup_mock.exe',
+            ? 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.6/app-arm64-v8a-release.apk'
+            : 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.6/watchany_setup_mock.exe',
       );
     } finally {
       _isChecking = false;
@@ -183,21 +185,6 @@ class UpdateService extends ChangeNotifier {
 
   Future<void> startUpdate() async {
     if (_latestUpdate == null || _isDownloading) return;
-
-    if (Platform.isAndroid) {
-      final url = Uri.parse(_latestUpdate!.downloadUrl);
-      try {
-        if (await canLaunchUrl(url)) {
-          await launchUrl(url, mode: LaunchMode.externalApplication);
-        } else {
-          throw Exception("Cannot open download link in web browser.");
-        }
-      } catch (e) {
-        _error = 'Failed to launch update link: $e';
-        notifyListeners();
-      }
-      return;
-    }
 
     _isDownloading = true;
     _downloadProgress = 0.0;
@@ -216,7 +203,8 @@ class UpdateService extends ChangeNotifier {
       final contentLength = response.contentLength ?? 0;
       
       final tempDir = Directory.systemTemp;
-      final filePath = '${tempDir.path}${Platform.pathSeparator}watchany_update_${_latestUpdate!.version}.exe';
+      final ext = Platform.isAndroid ? 'apk' : 'exe';
+      final filePath = '${tempDir.path}${Platform.pathSeparator}watchany_update_${_latestUpdate!.version}.$ext';
       final file = File(filePath);
       
       if (await file.exists()) {
@@ -260,8 +248,11 @@ class UpdateService extends ChangeNotifier {
         await Process.start(_downloadedFilePath!, []);
         // Exit the current app so the installer can overwrite the executable
         exit(0);
+      } else if (Platform.isAndroid) {
+        const channel = MethodChannel('com.example.watch_any/native_path');
+        await channel.invokeMethod('installApk', {'filePath': _downloadedFilePath});
       } else {
-        throw Exception('Auto update is only supported on Windows.');
+        throw Exception('Auto update is only supported on Windows and Android.');
       }
     } catch (e) {
       _error = 'Failed to launch installer: $e';
