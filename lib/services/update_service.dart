@@ -67,7 +67,7 @@ class UpdateService extends ChangeNotifier {
   factory UpdateService() => _instance;
   UpdateService._internal();
 
-  static const String currentVersion = '2.0.8';
+  static const String currentVersion = '2.0.9';
   
   // GitHub Releases API Endpoint
   static const String gitHubReleasesUrl = 'https://api.github.com/repos/Fluffy-The-Penguin/watchAny-2.0/releases/latest';
@@ -167,15 +167,15 @@ class UpdateService extends ChangeNotifier {
       // Fallback mock update in case of failure
       _error = 'Live check failed ($e). Showing fallback updates.';
       _latestUpdate = UpdateInfo(
-        version: 'v2.0.8',
-        changelog: '• Added Downloads & Cache storage limits and customizable folder paths\n'
-            '• Added auto-manage FIFO storage deletion and full-storage warning dialogs\n'
-            '• Added Android system back gesture handling to prevent premature app closure\n'
-            '• Implemented flat chronological watch history that groups adjacent episode views only\n'
-            '• Resolved OkHttpExtensionsKt namespace compatibility crash for Manga search and browse catalogs',
+        version: 'v2.0.9',
+        changelog: '• Fixed player quick settings and subtitle customizer scrolling on phones\n'
+            '• Locked playback fullscreen mode to landscape orientation and restored portrait mode on exit\n'
+            '• Relocated GPU Video Quality Enhancement toggle to a new Player settings tab\n'
+            '• Restored download database persistence across app updates by using secure app documents directory\n'
+            '• Fixed downloads page progress bar and speed tracking not updating in real time',
         downloadUrl: Platform.isAndroid 
-            ? 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.8/app-arm64-v8a-release.apk'
-            : 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.8/watchany_setup_mock.exe',
+            ? 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.9/app-arm64-v8a-release.apk'
+            : 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.9/watchany_setup_mock.exe',
       );
     } finally {
       _isChecking = false;
