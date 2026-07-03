@@ -181,9 +181,7 @@ class SuwayomiService {
         throw Exception('Network request failed: $e');
       });
 
-      if (response.statusCode != 200) {
-        throw Exception('Server error: status_code=${response.statusCode}');
-      }
+      _checkResponse(response);
 
       final decoded = jsonDecode(response.body);
       if (decoded['ok'] == true) {
@@ -221,9 +219,7 @@ class SuwayomiService {
         throw Exception('Network request failed: $e');
       });
 
-      if (response.statusCode != 200) {
-        throw Exception('Server error: status_code=${response.statusCode}');
-      }
+      _checkResponse(response);
 
       final decoded = jsonDecode(response.body);
       if (decoded['ok'] == true && decoded['data']?['mangas'] != null) {
@@ -271,20 +267,19 @@ class SuwayomiService {
         Uri.parse('$_baseUrl/api/details?sourceId=$sourceId&url=${Uri.encodeComponent(mangaUrl)}'),
       ).timeout(const Duration(seconds: 15));
 
-      if (response.statusCode == 200) {
-        final decoded = jsonDecode(response.body);
-        if (decoded['ok'] == true && decoded['data'] != null) {
-          final data = Map<String, dynamic>.from(decoded['data']);
-          
-          data['id'] = id;
-          data['genre'] = data['genres'] ?? [];
+      _checkResponse(response);
+      final decoded = jsonDecode(response.body);
+      if (decoded['ok'] == true && decoded['data'] != null) {
+        final data = Map<String, dynamic>.from(decoded['data']);
+        
+        data['id'] = id;
+        data['genre'] = data['genres'] ?? [];
 
-          final coverUrl = data['thumbnailUrl']?.toString() ?? '';
-          if (coverUrl.isNotEmpty) {
-            data['thumbnailUrl'] = '$_baseUrl/api/image?url=${Uri.encodeComponent(coverUrl)}';
-          }
-          return data;
+        final coverUrl = data['thumbnailUrl']?.toString() ?? '';
+        if (coverUrl.isNotEmpty) {
+          data['thumbnailUrl'] = '$_baseUrl/api/image?url=${Uri.encodeComponent(coverUrl)}';
         }
+        return data;
       }
       return null;
     } catch (e, stack) {
@@ -306,29 +301,28 @@ class SuwayomiService {
         Uri.parse('$_baseUrl/api/chapters?sourceId=$sourceId&url=${Uri.encodeComponent(mangaUrl)}'),
       ).timeout(const Duration(seconds: 15));
 
-      if (response.statusCode == 200) {
-        final decoded = jsonDecode(response.body);
-        if (decoded['ok'] == true && decoded['data']?['chapters'] != null) {
-          final list = decoded['data']['chapters'] as List;
-          final mapped = <dynamic>[];
+      _checkResponse(response);
+      final decoded = jsonDecode(response.body);
+      if (decoded['ok'] == true && decoded['data']?['chapters'] != null) {
+        final list = decoded['data']['chapters'] as List;
+        final mapped = <dynamic>[];
 
-          for (var chapter in list) {
-            final String url = chapter['url'] ?? '';
-            if (url.isEmpty) continue;
+        for (var chapter in list) {
+          final String url = chapter['url'] ?? '';
+          if (url.isEmpty) continue;
 
-            final int hash = _generateHash('$sourceId:$url');
-            await registerChapterPath(hash, sourceId, url);
+          final int hash = _generateHash('$sourceId:$url');
+          await registerChapterPath(hash, sourceId, url);
 
-            mapped.add({
-              'id': hash,
-              'name': chapter['name'] ?? 'Chapter',
-              'chapterNumber': chapter['chapterNumber'] ?? 1.0,
-              'uploadDate': chapter['dateUpload'] ?? 0,
-              'read': false,
-            });
-          }
-          return mapped;
+          mapped.add({
+            'id': hash,
+            'name': chapter['name'] ?? 'Chapter',
+            'chapterNumber': chapter['chapterNumber'] ?? 1.0,
+            'uploadDate': chapter['dateUpload'] ?? 0,
+            'read': false,
+          });
         }
+        return mapped;
       }
       return [];
     } catch (e, stack) {
@@ -350,25 +344,37 @@ class SuwayomiService {
         Uri.parse('$_baseUrl/api/pages?sourceId=$sourceId&url=${Uri.encodeComponent(chapterUrl)}'),
       ).timeout(const Duration(seconds: 15));
 
-      if (response.statusCode == 200) {
-        final decoded = jsonDecode(response.body);
-        if (decoded['ok'] == true && decoded['data']?['pages'] != null) {
-          final list = decoded['data']['pages'] as List;
-          final pages = <String>[];
+      _checkResponse(response);
+      final decoded = jsonDecode(response.body);
+      if (decoded['ok'] == true && decoded['data']?['pages'] != null) {
+        final list = decoded['data']['pages'] as List;
+        final pages = <String>[];
 
-          for (var page in list) {
-            final String pageUrl = page['imageUrl'] ?? page['url'] ?? '';
-            if (pageUrl.isEmpty) continue;
+        for (var page in list) {
+          final String pageUrl = page['imageUrl'] ?? page['url'] ?? '';
+          if (pageUrl.isEmpty) continue;
 
-            pages.add('$_baseUrl/api/image?url=${Uri.encodeComponent(pageUrl)}');
-          }
-          return pages;
+          pages.add('$_baseUrl/api/image?url=${Uri.encodeComponent(pageUrl)}');
         }
+        return pages;
       }
       return [];
     } catch (e, stack) {
       developer.log('getChapterPages Error', name: 'SuwayomiService', error: e, stackTrace: stack);
       return [];
+    }
+  }
+  void _checkResponse(http.Response response) {
+    if (response.statusCode != 200) {
+      try {
+        final decoded = jsonDecode(response.body);
+        if (decoded['ok'] == false && decoded['error'] != null) {
+          throw Exception(decoded['error']);
+        }
+      } catch (e) {
+        if (e is Exception) rethrow;
+      }
+      throw Exception('Server error: HTTP ${response.statusCode}');
     }
   }
 }

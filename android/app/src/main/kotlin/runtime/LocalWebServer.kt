@@ -52,6 +52,7 @@ class LocalWebServer(private val context: Context, private val runtime: Extensio
         return try {
             route(session)
         } catch (error: Throwable) {
+            android.util.Log.e("watchAny-LocalWebServer", "Server error: ${error.message}", error)
             sendJson(500, errorJson(error))
         }
     }
@@ -99,6 +100,7 @@ class LocalWebServer(private val context: Context, private val runtime: Extensio
                 put("data", block())
             })
         } catch (error: Throwable) {
+            android.util.Log.e("watchAny-LocalWebServer", "API error: ${error.message}", error)
             sendJson(500, errorJson(error))
         }
     }
