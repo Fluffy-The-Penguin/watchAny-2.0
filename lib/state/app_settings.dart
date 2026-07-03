@@ -22,6 +22,10 @@ class AppSettings extends ChangeNotifier {
   bool _autoNext = true;
   bool _autoSkipIntro = false;
   bool _videoEnhancementEnabled = false;
+  bool _customEnhancementEnabled = false;
+  int _debandIterations = 4;
+  int _debandThreshold = 48;
+  int _debandRange = 16;
 
   // Downloads & Cache storage configuration
   double _downloadsLimitGB = 10.0;
@@ -58,6 +62,10 @@ class AppSettings extends ChangeNotifier {
   bool get autoNext => _autoNext;
   bool get autoSkipIntro => _autoSkipIntro;
   bool get videoEnhancementEnabled => _videoEnhancementEnabled;
+  bool get customEnhancementEnabled => _customEnhancementEnabled;
+  int get debandIterations => _debandIterations;
+  int get debandThreshold => _debandThreshold;
+  int get debandRange => _debandRange;
   double get downloadsLimitGB => _downloadsLimitGB;
   double get cacheLimitGB => _cacheLimitGB;
   String get cachePath => _cachePath;
@@ -112,6 +120,10 @@ class AppSettings extends ChangeNotifier {
     _autoNext = prefs.getBool('auto_next') ?? true;
     _autoSkipIntro = prefs.getBool('auto_skip_intro') ?? false;
     _videoEnhancementEnabled = prefs.getBool('video_enhancement_enabled') ?? false;
+    _customEnhancementEnabled = prefs.getBool('custom_enhancement_enabled') ?? false;
+    _debandIterations = prefs.getInt('deband_iterations') ?? 4;
+    _debandThreshold = prefs.getInt('deband_threshold') ?? 48;
+    _debandRange = prefs.getInt('deband_range') ?? 16;
 
     // Load Storage Settings
     final bool isMobileDevice = !kIsWeb && (Platform.isAndroid || Platform.isIOS);
@@ -186,6 +198,38 @@ class AppSettings extends ChangeNotifier {
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('video_enhancement_enabled', value);
+  }
+
+  Future<void> setCustomEnhancementEnabled(bool value) async {
+    if (_customEnhancementEnabled == value) return;
+    _customEnhancementEnabled = value;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('custom_enhancement_enabled', value);
+  }
+
+  Future<void> setDebandIterations(int value) async {
+    if (_debandIterations == value) return;
+    _debandIterations = value;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('deband_iterations', value);
+  }
+
+  Future<void> setDebandThreshold(int value) async {
+    if (_debandThreshold == value) return;
+    _debandThreshold = value;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('deband_threshold', value);
+  }
+
+  Future<void> setDebandRange(int value) async {
+    if (_debandRange == value) return;
+    _debandRange = value;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('deband_range', value);
   }
 
   Future<void> setSmoothScrollEnabled(bool value) async {

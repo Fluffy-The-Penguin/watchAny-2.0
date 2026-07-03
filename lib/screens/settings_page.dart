@@ -1008,6 +1008,155 @@ class _SettingsPageState extends State<SettingsPage> {
                 ),
               ),
             ),
+            const SizedBox(height: 16.0),
+
+            // ── Custom Enhancement Settings Toggle ──
+            _SettingsTile(
+              icon: Icons.tune,
+              title: 'Custom Enhancement Settings',
+              subtitle: 'Fine-tune debanding parameters manually. Only applies if Video Enhancement is active.',
+              trailing: Transform.scale(
+                scale: 0.9,
+                child: Switch(
+                  value: AppSettings().customEnhancementEnabled,
+                  activeColor: Colors.white,
+                  activeTrackColor: Colors.white24,
+                  inactiveThumbColor: Colors.white30,
+                  inactiveTrackColor: Colors.black26,
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  onChanged: (v) => AppSettings().setCustomEnhancementEnabled(v),
+                ),
+              ),
+            ),
+
+            if (AppSettings().customEnhancementEnabled) ...[
+              const SizedBox(height: 24.0),
+              
+              // Deband Iterations Slider
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Deband Iterations', style: TextStyle(color: Colors.white70, fontSize: 13.0, fontFamily: 'Outfit', fontWeight: FontWeight.bold)),
+                            SizedBox(height: 2),
+                            Text('Higher values improve quality but use more GPU resources.', style: TextStyle(color: Colors.white38, fontSize: 11.5, fontFamily: 'Outfit')),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 16.0),
+                      Text('${AppSettings().debandIterations}', style: const TextStyle(color: Color(0xFFFF9F1C), fontSize: 14.0, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                  const SizedBox(height: 8.0),
+                  SliderTheme(
+                    data: SliderTheme.of(context).copyWith(
+                      trackHeight: 2.0,
+                      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6.0),
+                      overlayShape: const RoundSliderOverlayShape(overlayRadius: 12.0),
+                    ),
+                    child: Slider(
+                      value: AppSettings().debandIterations.toDouble(),
+                      min: 1.0,
+                      max: 16.0,
+                      divisions: 15,
+                      activeColor: const Color(0xFFFF9F1C),
+                      inactiveColor: Colors.white10,
+                      onChanged: (val) => AppSettings().setDebandIterations(val.toInt()),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20.0),
+
+              // Deband Threshold Slider
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Deband Threshold', style: TextStyle(color: Colors.white70, fontSize: 13.0, fontFamily: 'Outfit', fontWeight: FontWeight.bold)),
+                            SizedBox(height: 2),
+                            Text('Sensitivity of banding detection. Higher values remove more banding but may blur details.', style: TextStyle(color: Colors.white38, fontSize: 11.5, fontFamily: 'Outfit')),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 16.0),
+                      Text('${AppSettings().debandThreshold}', style: const TextStyle(color: Color(0xFFFF9F1C), fontSize: 14.0, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                  const SizedBox(height: 8.0),
+                  SliderTheme(
+                    data: SliderTheme.of(context).copyWith(
+                      trackHeight: 2.0,
+                      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6.0),
+                      overlayShape: const RoundSliderOverlayShape(overlayRadius: 12.0),
+                    ),
+                    child: Slider(
+                      value: AppSettings().debandThreshold.toDouble(),
+                      min: 0.0,
+                      max: 256.0,
+                      divisions: 64,
+                      activeColor: const Color(0xFFFF9F1C),
+                      inactiveColor: Colors.white10,
+                      onChanged: (val) => AppSettings().setDebandThreshold(val.toInt()),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20.0),
+
+              // Deband Range Slider
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Deband Range', style: TextStyle(color: Colors.white70, fontSize: 13.0, fontFamily: 'Outfit', fontWeight: FontWeight.bold)),
+                            SizedBox(height: 2),
+                            Text('Search distance of debanding. Larger values cover wider gradients but increase GPU overhead.', style: TextStyle(color: Colors.white38, fontSize: 11.5, fontFamily: 'Outfit')),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 16.0),
+                      Text('${AppSettings().debandRange}', style: const TextStyle(color: Color(0xFFFF9F1C), fontSize: 14.0, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                  const SizedBox(height: 8.0),
+                  SliderTheme(
+                    data: SliderTheme.of(context).copyWith(
+                      trackHeight: 2.0,
+                      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6.0),
+                      overlayShape: const RoundSliderOverlayShape(overlayRadius: 12.0),
+                    ),
+                    child: Slider(
+                      value: AppSettings().debandRange.toDouble(),
+                      min: 1.0,
+                      max: 64.0,
+                      divisions: 63,
+                      activeColor: const Color(0xFFFF9F1C),
+                      inactiveColor: Colors.white10,
+                      onChanged: (val) => AppSettings().setDebandRange(val.toInt()),
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ],
         );
       },

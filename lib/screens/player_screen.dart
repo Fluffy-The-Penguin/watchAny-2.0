@@ -383,9 +383,20 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
       if (newValue) {
         // GPU-accelerated video enhancement parameters
         await nativePlayer.setProperty('deband', 'yes');
-        await nativePlayer.setProperty('deband-iterations', '4');
-        await nativePlayer.setProperty('deband-threshold', '48');
-        await nativePlayer.setProperty('deband-range', '16');
+        
+        final String iterations = settings.customEnhancementEnabled 
+            ? settings.debandIterations.toString() 
+            : '4';
+        final String threshold = settings.customEnhancementEnabled 
+            ? settings.debandThreshold.toString() 
+            : '48';
+        final String range = settings.customEnhancementEnabled 
+            ? settings.debandRange.toString() 
+            : '16';
+
+        await nativePlayer.setProperty('deband-iterations', iterations);
+        await nativePlayer.setProperty('deband-threshold', threshold);
+        await nativePlayer.setProperty('deband-range', range);
         await nativePlayer.setProperty('sharpen', '1.0');
         await nativePlayer.setProperty('contrast', '3');
         await nativePlayer.setProperty('saturation', '4');

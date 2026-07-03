@@ -131,9 +131,20 @@ class PlayerState extends ChangeNotifier {
       final settings = AppSettings();
       if (settings.videoEnhancementEnabled) {
         nativePlayer.setProperty('deband', 'yes');
-        nativePlayer.setProperty('deband-iterations', '4');
-        nativePlayer.setProperty('deband-threshold', '48');
-        nativePlayer.setProperty('deband-range', '16');
+        
+        final String iterations = settings.customEnhancementEnabled 
+            ? settings.debandIterations.toString() 
+            : '4';
+        final String threshold = settings.customEnhancementEnabled 
+            ? settings.debandThreshold.toString() 
+            : '48';
+        final String range = settings.customEnhancementEnabled 
+            ? settings.debandRange.toString() 
+            : '16';
+
+        nativePlayer.setProperty('deband-iterations', iterations);
+        nativePlayer.setProperty('deband-threshold', threshold);
+        nativePlayer.setProperty('deband-range', range);
         nativePlayer.setProperty('sharpen', '1.0');
         nativePlayer.setProperty('contrast', '3');
         nativePlayer.setProperty('saturation', '4');
