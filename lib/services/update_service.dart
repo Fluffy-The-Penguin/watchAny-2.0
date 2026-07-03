@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
 
 class UpdateInfo {
   final String version;
@@ -203,7 +204,9 @@ class UpdateService extends ChangeNotifier {
       final response = await http.Client().send(request);
       final contentLength = response.contentLength ?? 0;
       
-      final tempDir = Directory.systemTemp;
+      final tempDir = Platform.isAndroid 
+          ? await getTemporaryDirectory() 
+          : Directory.systemTemp;
       final ext = Platform.isAndroid ? 'apk' : 'exe';
       final filePath = '${tempDir.path}${Platform.pathSeparator}watchany_update_${_latestUpdate!.version}.$ext';
       final file = File(filePath);
