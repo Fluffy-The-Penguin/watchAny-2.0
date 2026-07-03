@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
 import '../state/app_settings.dart';
 
 enum DownloadStatus {
@@ -181,8 +183,13 @@ class DownloadService extends ChangeNotifier {
 
     String baseDir = AppSettings().downloadPath;
     if (baseDir.isEmpty) {
-      final homeDir = Platform.environment['USERPROFILE'] ?? Platform.environment['HOME'] ?? Directory.current.path;
-      baseDir = '$homeDir/Downloads/watchAny';
+      if (!kIsWeb && Platform.isAndroid) {
+        final supportDir = await getApplicationSupportDirectory();
+        baseDir = '${supportDir.path}/downloads';
+      } else {
+        final homeDir = Platform.environment['USERPROFILE'] ?? Platform.environment['HOME'] ?? Directory.current.path;
+        baseDir = '$homeDir/Downloads/watchAny';
+      }
     }
     final downloadsDir = Directory(baseDir);
     if (!downloadsDir.existsSync()) {

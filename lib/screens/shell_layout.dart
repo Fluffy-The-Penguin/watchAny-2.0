@@ -1,5 +1,9 @@
 import 'dart:io';
+import 'dart:convert';
+import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import '../state/navigation_state.dart';
 import '../state/player_state.dart';
 import '../state/library_state.dart';
@@ -626,7 +630,7 @@ class ShellLayout extends StatelessWidget {
             LibraryPage(key: const ValueKey('library_anime'), mode: AppMode.anime, navigationState: navigationState),
             SchedulePage(key: const ValueKey('schedule_anime'), navigationState: navigationState),
             DownloadsPage(key: const ValueKey('downloads_anime'), mode: AppMode.anime),
-            SettingsPage(key: const ValueKey('settings_anime')),
+            SettingsPage(key: const ValueKey('settings_anime'), mode: AppMode.anime),
             HistoryPage(key: const ValueKey('history_anime'), mode: AppMode.anime, navigationState: navigationState),
             NotificationsPage(key: const ValueKey('notifications_anime'), mode: AppMode.anime, navigationState: navigationState),
           ],
@@ -640,7 +644,7 @@ class ShellLayout extends StatelessWidget {
             SearchPage(key: const ValueKey('search_movies'), mode: AppMode.movies, navigationState: navigationState),
             LibraryPage(key: const ValueKey('library_movies'), mode: AppMode.movies, navigationState: navigationState),
             DownloadsPage(key: const ValueKey('downloads_movies'), mode: AppMode.movies),
-            SettingsPage(key: const ValueKey('settings_movies')),
+            SettingsPage(key: const ValueKey('settings_movies'), mode: AppMode.movies),
             HistoryPage(key: const ValueKey('history_movies'), mode: AppMode.movies, navigationState: navigationState),
             NotificationsPage(key: const ValueKey('notifications_movies'), mode: AppMode.movies, navigationState: navigationState),
           ],
@@ -654,7 +658,7 @@ class ShellLayout extends StatelessWidget {
             SearchPage(key: const ValueKey('search_manga'), mode: AppMode.manga, navigationState: navigationState),
             LibraryPage(key: const ValueKey('library_manga'), mode: AppMode.manga, navigationState: navigationState),
             DownloadsPage(key: const ValueKey('downloads_manga'), mode: AppMode.manga),
-            SettingsPage(key: const ValueKey('settings_manga')),
+            SettingsPage(key: const ValueKey('settings_manga'), mode: AppMode.manga),
             HistoryPage(key: const ValueKey('history_manga'), mode: AppMode.manga, navigationState: navigationState),
             NotificationsPage(key: const ValueKey('notifications_manga'), mode: AppMode.manga, navigationState: navigationState),
           ],
@@ -802,20 +806,43 @@ class _NotificationsPopupContent extends StatefulWidget {
 
 class _NotificationsPopupContentState extends State<_NotificationsPopupContent> {
   bool _isLoading = true;
+  List<Map<String, dynamic>> _allItems = [];
   List<Map<String, dynamic>> _items = [];
+  int _visibleCount = 4;
+  final ScrollController _scrollController = ScrollController();
 
   @override
   void initState() {
     super.initState();
+    _scrollController.addListener(_onScroll);
     _load();
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 20) {
+      _loadMore();
+    }
+  }
+
+  void _loadMore() {
+    if (_items.length < _allItems.length) {
+      setState(() {
+        _visibleCount += 4;
+        _items = _allItems.take(_visibleCount).toList();
+      });
+    }
   }
 
   Future<void> _load() async {
     final String localModeStr = widget.mode == AppMode.manga
         ? 'manga'
         : (widget.mode == AppMode.movies ? 'movies' : 'anime');
-        
-    final String anilistTypeStr = widget.mode == AppMode.manga ? 'MANGA' : 'ANIME';
 
     final libraryItems = LibraryState().items.where((item) => item.mode == localModeStr).toList();
     if (libraryItems.isEmpty) {
@@ -823,54 +850,104 @@ class _NotificationsPopupContentState extends State<_NotificationsPopupContent> 
       return;
     }
 
-    final ids = libraryItems.map((item) => item.id).toList();
+    final prefs = await SharedPreferences.getInstance();
+    final List<Map<String, dynamic>> generated = [];
+
     try {
-      final List<dynamic> details = await AnilistService().fetchLibraryDetails(ids, type: anilistTypeStr);
-      final List<Map<String, dynamic>> generated = [];
+      if (widget.mode == AppMode.anime) {
+        final ids = libraryItems.map((item) => item.id).toList();
+        final List<dynamic> details = await AnilistService().fetchLibraryDetails(ids, type: 'ANIME');
+        for (var media in details) {
+          final id = media['id'];
+          final localItem = libraryItems.firstWhere((item) => item.id == id);
+          
+          final int? nextEpisode = media['nextAiringEpisode']?['episode'];
+          final int totalEpisodes = media['episodes'] ?? 0;
+          final int latestReleased = nextEpisode != null ? (nextEpisode - 1) : totalEpisodes;
 
-      for (var media in details) {
-        final id = media['id'];
-        final localItem = libraryItems.firstWhere((item) => item.id == id);
-        
-        final int? nextEpisode = media['nextAiringEpisode']?['episode'];
-        final int totalEpisodes = media['episodes'] ?? 0;
-        final int totalChapters = media['chapters'] ?? 0;
-        
-        final int latestReleased = widget.mode == AppMode.manga
-            ? totalChapters
-            : (nextEpisode != null ? (nextEpisode - 1) : totalEpisodes);
-
-        final nextAiring = media['nextAiringEpisode'];
-        int releaseTime = 0;
-        if (nextAiring != null) {
-          releaseTime = (nextAiring['airingAt'] as int) - 604800;
-        } else {
-          releaseTime = media['updatedAt'] ?? 0;
-        }
-
-        if (latestReleased > localItem.watchedEpisodes) {
-          final int startNew = localItem.watchedEpisodes + 1;
-          final int endNew = latestReleased;
-
-          String message = '';
-          if (widget.mode == AppMode.manga) {
-            message = startNew == endNew
-                ? 'Chapter $startNew is out!'
-                : 'Chapters $startNew-$endNew are out!';
+          final nextAiring = media['nextAiringEpisode'];
+          int releaseTime = 0;
+          if (nextAiring != null) {
+            releaseTime = (nextAiring['airingAt'] as int) - 604800;
           } else {
-            message = startNew == endNew
-                ? 'Episode $startNew is out!'
-                : 'Episodes $startNew-$endNew are out!';
+            releaseTime = media['updatedAt'] ?? 0;
           }
 
-          generated.add({
-            'id': id,
-            'title': media['title']?['english'] ?? media['title']?['romaji'] ?? 'Untitled',
-            'cover': media['coverImage']?['large'] ?? '',
-            'message': message,
-            'releaseTime': releaseTime,
-          });
+          final int startBaseline = prefs.getInt('notif_start_episode_anime_$id') ?? latestReleased;
+          final int startNew = max(localItem.watchedEpisodes, startBaseline) + 1;
+
+          if (latestReleased >= startNew) {
+            final int endNew = latestReleased;
+            final String message = startNew == endNew
+                ? 'Episode $startNew is out!'
+                : 'Episodes $startNew-$endNew are out!';
+
+            generated.add({
+              'id': id,
+              'title': media['title']?['english'] ?? media['title']?['romaji'] ?? 'Untitled',
+              'cover': media['coverImage']?['large'] ?? '',
+              'message': message,
+              'releaseTime': releaseTime,
+            });
+          }
         }
+      } else if (widget.mode == AppMode.manga) {
+        final cache = LibraryState().mangaCache;
+        for (var item in libraryItems) {
+          final int totalChapters = item.totalEpisodes ?? 0;
+          final int startBaseline = prefs.getInt('notif_start_chapter_manga_${item.id}') ?? totalChapters;
+          final int startNew = max(item.watchedEpisodes, startBaseline) + 1;
+          if (totalChapters >= startNew) {
+            final cached = cache[item.id];
+            final int endNew = totalChapters;
+            final String message = startNew == endNew
+                ? 'Chapter $startNew is out!'
+                : 'Chapters $startNew-$endNew are out!';
+
+            generated.add({
+              'id': item.id,
+              'title': cached?['title'] ?? 'Manga #${item.id}',
+              'cover': cached?['thumbnailUrl'] ?? '',
+              'message': message,
+              'releaseTime': item.addedAt.millisecondsSinceEpoch ~/ 1000,
+            });
+          }
+        }
+      } else if (widget.mode == AppMode.movies) {
+        final futures = libraryItems.where((item) => item.format == 'SERIES').map((localItem) async {
+          final imdbId = 'tt${localItem.id.toString().padLeft(7, '0')}';
+          final url = 'https://v3-cinemeta.strem.io/meta/series/$imdbId.json';
+          try {
+            final response = await http.get(Uri.parse(url)).timeout(const Duration(seconds: 4));
+            if (response.statusCode == 200) {
+              final decoded = jsonDecode(response.body);
+              final meta = decoded['meta'];
+              if (meta != null) {
+                final videos = meta['videos'] as List? ?? [];
+                final int latestReleased = videos.length;
+                
+                final int startBaseline = prefs.getInt('notif_start_episode_movies_${localItem.id}') ?? latestReleased;
+                final int startNew = max(localItem.watchedEpisodes, startBaseline) + 1;
+
+                if (latestReleased >= startNew) {
+                  final int endNew = latestReleased;
+                  final String message = startNew == endNew
+                      ? 'Episode $startNew is out!'
+                      : 'Episodes $startNew-$endNew are out!';
+                      
+                  generated.add({
+                    'id': localItem.id,
+                    'title': meta['name'] ?? 'Untitled',
+                    'cover': meta['poster'] ?? '',
+                    'message': message,
+                    'releaseTime': DateTime.tryParse(meta['released']?.toString() ?? '')?.millisecondsSinceEpoch ?? 0,
+                  });
+                }
+              }
+            }
+          } catch (_) {}
+        });
+        await Future.wait(futures);
       }
 
       // Sort notifications by releaseTime descending (most recent first)
@@ -878,7 +955,8 @@ class _NotificationsPopupContentState extends State<_NotificationsPopupContent> 
 
       if (mounted) {
         setState(() {
-          _items = generated.take(4).toList();
+          _allItems = generated;
+          _items = _allItems.take(_visibleCount).toList();
           _isLoading = false;
         });
       }
@@ -896,6 +974,7 @@ class _NotificationsPopupContentState extends State<_NotificationsPopupContent> 
       return const Center(child: Text('All caught up!', style: TextStyle(color: Colors.white38, fontSize: 12.0)));
     }
     return ListView.builder(
+      controller: _scrollController,
       padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 4.0),
       itemCount: _items.length,
       itemBuilder: (context, index) {

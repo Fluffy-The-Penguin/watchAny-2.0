@@ -1,3 +1,4 @@
+import '../services/notification_service.dart';
 import 'dart:math';
 import 'dart:io';
 import 'dart:convert';
@@ -653,12 +654,7 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
   void _playLocalFile(DownloadTask task) {
     final file = File(task.savePath);
     if (!file.existsSync()) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Local download file not found! It might have been deleted from storage.", style: TextStyle(fontFamily: 'Outfit')),
-          backgroundColor: Colors.redAccent,
-        ),
-      );
+      NotificationService().show(context, "Local download file not found! It might have been deleted from storage.", isError: true);
       return;
     }
 

@@ -1,9 +1,11 @@
 import 'dart:convert';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import '../services/anilist_service.dart';
 import '../services/suwayomi_service.dart';
+import '../services/download_service.dart';
 import 'navigation_state.dart';
 
 class LibraryCategory {
@@ -219,7 +221,10 @@ class LibraryState extends ChangeNotifier {
     }
 
     notifyListeners();
-    updateNotificationCount();
+    // Defer notification count update to run in the background after startup to avoid lag
+    Future.delayed(const Duration(seconds: 3), () {
+      updateNotificationCount();
+    });
   }
 
   bool isSaved(int id, String mode) {
@@ -396,9 +401,24 @@ class LibraryState extends ChangeNotifier {
           final int totalEpisodes = media['episodes'] ?? 0;
           final int latestReleased = nextEpisode != null ? (nextEpisode - 1) : totalEpisodes;
           
-          int ackEp = prefs.getInt('notif_acknowledged_anime_$id') ?? localItem.watchedEpisodes;
-          if (ackEp < localItem.watchedEpisodes) {
-            ackEp = localItem.watchedEpisodes;
+          final String startEpKey = 'notif_start_episode_anime_$id';
+          int? startEp = prefs.getInt(startEpKey);
+          if (startEp == null) {
+            startEp = latestReleased;
+            await prefs.setInt(startEpKey, startEp);
+          }
+
+          final localDownloads = DownloadService().tasks.where(
+            (t) => t.anilistId == id && t.status == DownloadStatus.completed
+          );
+          final int maxDownloaded = localDownloads.isEmpty 
+              ? 0 
+              : localDownloads.map((t) => t.episodeNumber ?? 0).fold(0, max);
+
+          int ackEp = prefs.getInt('notif_acknowledged_anime_$id') ?? startEp;
+          int watchedOrDownloaded = max(localItem.watchedEpisodes, maxDownloaded);
+          if (ackEp < watchedOrDownloaded) {
+            ackEp = watchedOrDownloaded;
           }
           if (latestReleased > ackEp) {
             animeCount++;
@@ -410,24 +430,23 @@ class LibraryState extends ChangeNotifier {
     // 2. MANGA
     final mangaItems = _items.where((item) => item.mode == 'manga').toList();
     int mangaCount = 0;
-    if (mangaItems.isNotEmpty) {
-      final ids = mangaItems.map((item) => item.id).toList();
-      try {
-        final details = await AnilistService().fetchLibraryDetails(ids, type: 'MANGA');
-        for (var media in details) {
-          final id = media['id'];
-          final localItem = mangaItems.firstWhere((item) => item.id == id);
-          final int totalChapters = media['chapters'] ?? 0;
-          
-          int ackEp = prefs.getInt('notif_acknowledged_manga_$id') ?? localItem.watchedEpisodes;
-          if (ackEp < localItem.watchedEpisodes) {
-            ackEp = localItem.watchedEpisodes;
-          }
-          if (totalChapters > ackEp) {
-            mangaCount++;
-          }
-        }
-      } catch (_) {}
+    for (var item in mangaItems) {
+      final int totalChapters = item.totalEpisodes ?? 0;
+      
+      final String startChapterKey = 'notif_start_chapter_manga_${item.id}';
+      int? startChapter = prefs.getInt(startChapterKey);
+      if (startChapter == null) {
+        startChapter = totalChapters;
+        await prefs.setInt(startChapterKey, startChapter);
+      }
+
+      int ackEp = prefs.getInt('notif_acknowledged_manga_${item.id}') ?? startChapter;
+      if (ackEp < item.watchedEpisodes) {
+        ackEp = item.watchedEpisodes;
+      }
+      if (totalChapters > ackEp) {
+        mangaCount++;
+      }
     }
 
     // 3. MOVIES / TV Series notification updates using Cinemeta
@@ -444,9 +463,24 @@ class LibraryState extends ChangeNotifier {
             final videos = decoded['meta']?['videos'] as List? ?? [];
             final int latestReleased = videos.length;
             
-            int ackEp = prefs.getInt('notif_acknowledged_movies_${item.id}') ?? item.watchedEpisodes;
-            if (ackEp < item.watchedEpisodes) {
-              ackEp = item.watchedEpisodes;
+            final String startEpKey = 'notif_start_episode_movies_${item.id}';
+            int? startEp = prefs.getInt(startEpKey);
+            if (startEp == null) {
+              startEp = latestReleased;
+              await prefs.setInt(startEpKey, startEp);
+            }
+
+            final localDownloads = DownloadService().tasks.where(
+              (t) => t.anilistId == item.id && t.status == DownloadStatus.completed
+            );
+            final int maxDownloaded = localDownloads.isEmpty 
+                ? 0 
+                : localDownloads.map((t) => t.episodeNumber ?? 0).fold(0, max);
+
+            int ackEp = prefs.getInt('notif_acknowledged_movies_${item.id}') ?? startEp;
+            int watchedOrDownloaded = max(item.watchedEpisodes, maxDownloaded);
+            if (ackEp < watchedOrDownloaded) {
+              ackEp = watchedOrDownloaded;
             }
             if (latestReleased > ackEp) {
               return 1;

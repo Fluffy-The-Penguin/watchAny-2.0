@@ -1,3 +1,4 @@
+import '../services/notification_service.dart';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../state/library_state.dart';
@@ -260,9 +261,7 @@ class _LibraryPageState extends State<LibraryPage> {
     }
 
     if (savedItems.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No manga items to update.')),
-      );
+      NotificationService().show(context, 'No manga items to update.');
       return;
     }
 
@@ -388,9 +387,7 @@ class _LibraryPageState extends State<LibraryPage> {
       });
       if (mounted) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Manga update complete! Updated $updatedCount of ${savedItems.length} manga.')),
-        );
+        NotificationService().show(context, 'Manga update complete! Updated $updatedCount of ${savedItems.length} manga.');
         _loadLibraryData();
       }
     }

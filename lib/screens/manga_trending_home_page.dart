@@ -1,3 +1,4 @@
+import '../services/notification_service.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -268,12 +269,7 @@ class _MangaTrendingHomePageState extends State<MangaTrendingHomePage> {
                                         _pinnedSourceIds.remove(sId);
                                       } else {
                                         if (_pinnedSourceIds.length >= 5) {
-                                          ScaffoldMessenger.of(context).showSnackBar(
-                                            const SnackBar(
-                                              content: Text('You can only pin up to 5 extensions.', style: TextStyle(fontFamily: 'Outfit')),
-                                              backgroundColor: Colors.redAccent,
-                                            ),
-                                          );
+                                          NotificationService().show(context, 'You can only pin up to 5 extensions.', isError: true);
                                           return;
                                         }
                                         _pinnedSourceIds.add(sId);

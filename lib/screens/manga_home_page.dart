@@ -1,3 +1,4 @@
+import '../services/notification_service.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
@@ -25,6 +26,10 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
   late TabController _tabController;
   final SuwayomiService _suwayomiService = SuwayomiService();
   bool _showDebugLogs = false;
+
+  bool get _isActive =>
+      widget.navigationState.currentMode == AppMode.manga &&
+      widget.navigationState.currentPage == TabPage.search;
   
   // Extension tab state
   List<dynamic> _extensions = [];
@@ -41,6 +46,7 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
   String _catalogSearchQuery = "";
   String? _catalogError;
   final TextEditingController _searchController = TextEditingController();
+  bool _engineStarted = false;
 
   @override
   void initState() {
@@ -48,27 +54,35 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
     _tabController = TabController(length: 2, vsync: this);
     _tabController.addListener(_handleTabChange);
     
-    // Auto-start Suwayomi server if not running
-    SuwayomiManager.start().then((_) {
-      if (mounted) {
-        _loadExtensions();
-        _loadSources();
-      }
-    }).catchError((e) {
-      if (mounted) {
-        setState(() {
-          SuwayomiManager.statusNotifier.value = "Error: Failed to start Manga engine: $e";
-        });
-      }
-    });
+    widget.navigationState.addListener(_checkAndStartEngine);
+    _checkAndStartEngine();
   }
 
   @override
   void dispose() {
+    widget.navigationState.removeListener(_checkAndStartEngine);
     _tabController.removeListener(_handleTabChange);
     _tabController.dispose();
     _searchController.dispose();
     super.dispose();
+  }
+
+  void _checkAndStartEngine() {
+    if (widget.navigationState.currentMode == AppMode.manga && !_engineStarted) {
+      _engineStarted = true;
+      SuwayomiManager.start().then((_) {
+        if (mounted) {
+          _loadExtensions();
+          _loadSources();
+        }
+      }).catchError((e) {
+        if (mounted) {
+          setState(() {
+            SuwayomiManager.statusNotifier.value = "Error: Failed to start Manga engine: $e";
+          });
+        }
+      });
+    }
   }
 
   void _handleTabChange() {
@@ -149,22 +163,10 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
               extraInfo = ' | Failed to fetch repos: $e';
             }
 
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Manga: Fetched ${list.length} extensions$extraInfo'),
-                  duration: const Duration(seconds: 5),
-                ),
-              );
+            if (mounted && _isActive) {
+              NotificationService().show(context, 'Manga: Fetched ${list.length} extensions$extraInfo');
             }
           });
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Manga: Fetched ${list.length} extensions from server'),
-              duration: const Duration(seconds: 2),
-            ),
-          );
         }
       }
     } catch (e) {
@@ -228,22 +230,10 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
               extraInfo = ' | Failed to fetch installed: $e';
             }
 
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Manga: Fetched ${list.length} catalog sources$extraInfo'),
-                  duration: const Duration(seconds: 5),
-                ),
-              );
+            if (mounted && _isActive) {
+              NotificationService().show(context, 'Manga: Fetched ${list.length} catalog sources$extraInfo');
             }
           });
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Manga: Fetched ${list.length} catalog sources from server'),
-              duration: const Duration(seconds: 2),
-            ),
-          );
         }
       }
     } catch (e) {

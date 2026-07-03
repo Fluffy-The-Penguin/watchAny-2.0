@@ -40,12 +40,6 @@ void main() async {
   ExtensionService().init();
   
   final bool isDesktop = !kIsWeb && (Platform.isWindows || Platform.isMacOS || Platform.isLinux);
-  final bool isAndroid = !kIsWeb && Platform.isAndroid;
-
-  // Start TorrServer sidecar (desktop + Android)
-  if (isDesktop || isAndroid) {
-    TorrServerManager.start();
-  }
 
   if (isDesktop) {
     

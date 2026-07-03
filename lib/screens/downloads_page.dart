@@ -1,3 +1,4 @@
+import '../services/notification_service.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
@@ -171,12 +172,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
   void _playLocalFile(DownloadTask task) {
     final file = File(task.savePath);
     if (!file.existsSync()) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Local download file not found! It might have been deleted from storage.", style: TextStyle(fontFamily: 'Outfit')),
-          backgroundColor: Colors.redAccent,
-        ),
-      );
+      NotificationService().show(context, "Local download file not found! It might have been deleted from storage.", isError: true);
       return;
     }
 
@@ -330,7 +326,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
   Widget _buildSidebarNavItem(DownloadsTab tab, String label, IconData icon) {
     final bool isActive = _activeTab == tab;
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8.0),
+      padding: const EdgeInsets.only(bottom: 6.0),
       child: InkWell(
         onTap: () {
           setState(() {
@@ -342,25 +338,44 @@ class _DownloadsPageState extends State<DownloadsPage> {
         },
         borderRadius: BorderRadius.circular(8.0),
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
+          duration: const Duration(milliseconds: 200),
           padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 10.0),
           decoration: BoxDecoration(
-            color: isActive ? Colors.white : Colors.transparent,
+            color: isActive ? Colors.white.withValues(alpha: 0.06) : Colors.transparent,
             borderRadius: BorderRadius.circular(8.0),
+            border: Border.all(
+              color: isActive ? Colors.white.withValues(alpha: 0.1) : Colors.transparent,
+              width: 1.0,
+            ),
           ),
           child: Row(
             children: [
-              Icon(icon, color: isActive ? Colors.black : Colors.white70, size: 18.0),
+              Icon(
+                icon,
+                color: isActive ? const Color(0xFF3A86FF) : Colors.white54,
+                size: 18.0,
+              ),
               const SizedBox(width: 12.0),
-              Text(
-                label,
-                style: TextStyle(
-                  color: isActive ? Colors.black : Colors.white70,
-                  fontSize: 13.0,
-                  fontWeight: isActive ? FontWeight.bold : FontWeight.w600,
-                  fontFamily: 'Outfit',
+              Expanded(
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    color: isActive ? Colors.white : Colors.white54,
+                    fontSize: 13.0,
+                    fontWeight: isActive ? FontWeight.bold : FontWeight.w500,
+                    fontFamily: 'Outfit',
+                  ),
                 ),
               ),
+              if (isActive)
+                Container(
+                  width: 4.0,
+                  height: 4.0,
+                  decoration: const BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Color(0xFF3A86FF),
+                  ),
+                ),
             ],
           ),
         ),
@@ -505,11 +520,21 @@ class _DownloadsPageState extends State<DownloadsPage> {
 
                         final isCurrentTask = _selectedTaskId == task.id;
 
+                        Map<String, dynamic>? media;
+                        if (task.mediaJson != null) {
+                          try {
+                            media = jsonDecode(task.mediaJson!);
+                          } catch (_) {}
+                        }
+                        final String coverUrl = task.isMovie == true
+                            ? (media?['poster'] ?? '')
+                            : (media?['coverImage']?['large'] ?? media?['coverImage']?['medium'] ?? '');
+
                         return Container(
                           margin: const EdgeInsets.only(bottom: 10.0),
                           decoration: BoxDecoration(
-                            color: isCurrentTask ? Colors.white.withValues(alpha: 0.02) : const Color(0xFF0F0F11),
-                            borderRadius: BorderRadius.circular(10.0),
+                            color: isCurrentTask ? Colors.white.withValues(alpha: 0.025) : const Color(0xFF0F0F11),
+                            borderRadius: BorderRadius.circular(12.0),
                             border: Border.all(
                               color: isCurrentTask ? Colors.white30 : Colors.white.withValues(alpha: 0.05),
                               width: 1.0,
@@ -525,7 +550,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
                                 _activeTab = DownloadsTab.overview;
                               });
                             },
-                            borderRadius: BorderRadius.circular(9.0),
+                            borderRadius: BorderRadius.circular(11.0),
                             child: Padding(
                               padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
                               child: Row(
@@ -547,6 +572,29 @@ class _DownloadsPageState extends State<DownloadsPage> {
                                     },
                                   ),
                                   const SizedBox(width: 8.0),
+
+                                  // Poster/Cover Art image
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(6.0),
+                                    child: SizedBox(
+                                      width: 36.0,
+                                      height: 52.0,
+                                      child: coverUrl.isNotEmpty
+                                          ? Image.network(
+                                              coverUrl,
+                                              fit: BoxFit.cover,
+                                              errorBuilder: (c, e, s) => Container(
+                                                color: Colors.white.withValues(alpha: 0.03),
+                                                child: const Icon(Icons.movie_outlined, color: Colors.white24, size: 18),
+                                              ),
+                                            )
+                                          : Container(
+                                              color: Colors.white.withValues(alpha: 0.03),
+                                              child: const Icon(Icons.movie_outlined, color: Colors.white24, size: 18),
+                                            ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 14.0),
                                   
                                   // Main Task Info
                                   Expanded(
@@ -590,14 +638,37 @@ class _DownloadsPageState extends State<DownloadsPage> {
                                         ),
                                         const SizedBox(height: 8.0),
                                         
-                                        // Progress bar
-                                        ClipRRect(
-                                          borderRadius: BorderRadius.circular(2.0),
-                                          child: LinearProgressIndicator(
-                                            value: progress,
-                                            minHeight: 3.0,
-                                            backgroundColor: Colors.white.withValues(alpha: 0.04),
-                                            color: statusColor,
+                                        // Premium Custom Progress Bar
+                                        Container(
+                                          height: 4.0,
+                                          width: double.infinity,
+                                          decoration: BoxDecoration(
+                                            color: Colors.white.withValues(alpha: 0.04),
+                                            borderRadius: BorderRadius.circular(2.0),
+                                          ),
+                                          child: Align(
+                                            alignment: Alignment.centerLeft,
+                                            child: FractionallySizedBox(
+                                              widthFactor: progress.clamp(0.0, 1.0),
+                                              child: Container(
+                                                decoration: BoxDecoration(
+                                                  gradient: LinearGradient(
+                                                    colors: [
+                                                      statusColor.withValues(alpha: 0.7),
+                                                      statusColor,
+                                                    ],
+                                                  ),
+                                                  borderRadius: BorderRadius.circular(2.0),
+                                                  boxShadow: [
+                                                    BoxShadow(
+                                                      color: statusColor.withValues(alpha: 0.35),
+                                                      blurRadius: 4.0,
+                                                      spreadRadius: 1.0,
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                            ),
                                           ),
                                         ),
                                         const SizedBox(height: 6.0),
@@ -779,38 +850,71 @@ class _DownloadsPageState extends State<DownloadsPage> {
                         const Spacer(),
                         
                         // Action buttons
-                        TextButton.icon(
-                          icon: const Icon(Icons.play_arrow_outlined, size: 16, color: Colors.white70),
-                          label: const Text('Resume', style: TextStyle(color: Colors.white70, fontSize: 11.0)),
-                          onPressed: () {
-                            for (var id in _selectedTaskIds) {
-                              DownloadService().resumeDownload(id);
-                            }
-                          },
-                        ),
-                        const SizedBox(width: 8.0),
-                        TextButton.icon(
-                          icon: const Icon(Icons.pause_outlined, size: 16, color: Colors.white70),
-                          label: const Text('Pause', style: TextStyle(color: Colors.white70, fontSize: 11.0)),
-                          onPressed: () {
-                            for (var id in _selectedTaskIds) {
-                              DownloadService().pauseDownload(id);
-                            }
-                          },
-                        ),
-                        const SizedBox(width: 8.0),
-                        ElevatedButton.icon(
-                          icon: const Icon(Icons.delete_outline, size: 14, color: Colors.white),
-                          label: const Text('Delete', style: TextStyle(color: Colors.white, fontSize: 11.0, fontWeight: FontWeight.bold)),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.redAccent,
-                            padding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 8.0),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4.0)),
-                          ),
-                          onPressed: () {
-                            _showDeleteDialog(context, _selectedTaskIds.toList());
-                          },
-                        ),
+                        MediaQuery.of(context).size.width < 750
+                            ? Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  IconButton(
+                                    icon: const Icon(Icons.play_arrow_outlined, size: 20, color: Colors.white70),
+                                    onPressed: () {
+                                      for (var id in _selectedTaskIds) {
+                                        DownloadService().resumeDownload(id);
+                                      }
+                                    },
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.pause_outlined, size: 20, color: Colors.white70),
+                                    onPressed: () {
+                                      for (var id in _selectedTaskIds) {
+                                        DownloadService().pauseDownload(id);
+                                      }
+                                    },
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.delete_outline, size: 18, color: Colors.redAccent),
+                                    onPressed: () {
+                                      _showDeleteDialog(context, _selectedTaskIds.toList());
+                                    },
+                                  ),
+                                ],
+                              )
+                            : Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  TextButton.icon(
+                                    icon: const Icon(Icons.play_arrow_outlined, size: 16, color: Colors.white70),
+                                    label: const Text('Resume', style: TextStyle(color: Colors.white70, fontSize: 11.0)),
+                                    onPressed: () {
+                                      for (var id in _selectedTaskIds) {
+                                        DownloadService().resumeDownload(id);
+                                      }
+                                    },
+                                  ),
+                                  const SizedBox(width: 8.0),
+                                  TextButton.icon(
+                                    icon: const Icon(Icons.pause_outlined, size: 16, color: Colors.white70),
+                                    label: const Text('Pause', style: TextStyle(color: Colors.white70, fontSize: 11.0)),
+                                    onPressed: () {
+                                      for (var id in _selectedTaskIds) {
+                                        DownloadService().pauseDownload(id);
+                                      }
+                                    },
+                                  ),
+                                  const SizedBox(width: 8.0),
+                                  ElevatedButton.icon(
+                                    icon: const Icon(Icons.delete_outline, size: 14, color: Colors.white),
+                                    label: const Text('Delete', style: TextStyle(color: Colors.white, fontSize: 11.0, fontWeight: FontWeight.bold)),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.redAccent,
+                                      padding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 8.0),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4.0)),
+                                    ),
+                                    onPressed: () {
+                                      _showDeleteDialog(context, _selectedTaskIds.toList());
+                                    },
+                                  ),
+                                ],
+                              ),
                       ],
                     ),
                   )
@@ -931,38 +1035,78 @@ class _DownloadsPageState extends State<DownloadsPage> {
     final activePeers = _selectedTorrentInfo?.activePeers ?? 0;
     final totalPeers = _selectedTorrentInfo?.totalPeers ?? 0;
     final leechers = max(0, totalPeers - activePeers);
-    final int piecesCount = (task.totalBytes / (1024 * 1024)).ceil();
+    final int piecesCount = (task.totalBytes / (1024 * 1024)).ceil();    Map<String, dynamic>? media;
+    if (task.mediaJson != null) {
+      try {
+        media = jsonDecode(task.mediaJson!);
+      } catch (_) {}
+    }
+    final String coverUrl = task.isMovie == true
+        ? (media?['poster'] ?? '')
+        : (media?['coverImage']?['large'] ?? media?['coverImage']?['medium'] ?? '');
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Title, hash, and status badge
-          Text(
-            task.title,
-            style: const TextStyle(color: Colors.white, fontSize: 16.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
-          ),
-          const SizedBox(height: 8.0),
+          // Title, hash, and status badge side-by-side with poster preview
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 3.0),
-                decoration: BoxDecoration(
-                  color: statusColor.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(4.0),
-                ),
-                child: Text(
-                  statusLabel,
-                  style: TextStyle(color: statusColor, fontSize: 9.5, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8.0),
+                child: SizedBox(
+                  width: 64.0,
+                  height: 92.0,
+                  child: coverUrl.isNotEmpty
+                      ? Image.network(
+                          coverUrl,
+                          fit: BoxFit.cover,
+                          errorBuilder: (c, e, s) => Container(
+                            color: Colors.white.withValues(alpha: 0.03),
+                            child: const Icon(Icons.movie_outlined, color: Colors.white24, size: 24),
+                          ),
+                        )
+                      : Container(
+                          color: Colors.white.withValues(alpha: 0.03),
+                          child: const Icon(Icons.movie_outlined, color: Colors.white24, size: 24),
+                        ),
                 ),
               ),
-              const SizedBox(width: 10.0),
+              const SizedBox(width: 16.0),
               Expanded(
-                child: Text(
-                  task.hash,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: Colors.white24, fontSize: 11.0, fontFamily: 'Outfit'),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      task.title,
+                      style: const TextStyle(color: Colors.white, fontSize: 16.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                    ),
+                    const SizedBox(height: 8.0),
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 3.0),
+                          decoration: BoxDecoration(
+                            color: statusColor.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(4.0),
+                          ),
+                          child: Text(
+                            statusLabel,
+                            style: TextStyle(color: statusColor, fontSize: 9.5, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8.0),
+                    Text(
+                      'Hash: ${task.hash}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: Colors.white24, fontSize: 11.0, fontFamily: 'Outfit'),
+                    ),
+                  ],
                 ),
               ),
             ],
@@ -985,148 +1129,191 @@ class _DownloadsPageState extends State<DownloadsPage> {
           ),
           const SizedBox(height: 10.0),
           
-          // Glowing white/grey progress bar
+          // Premium Custom Progress Bar
           Container(
-            height: 8.0,
+            height: 6.0,
+            width: double.infinity,
             decoration: BoxDecoration(
               color: Colors.white.withValues(alpha: 0.04),
-              borderRadius: BorderRadius.circular(4.0),
+              borderRadius: BorderRadius.circular(3.0),
             ),
-            child: FractionallySizedBox(
+            child: Align(
               alignment: Alignment.centerLeft,
-              widthFactor: progress.clamp(0.0, 1.0),
-              child: Container(
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(4.0),
-                  boxShadow: [
-                    BoxShadow(color: Colors.white.withValues(alpha: 0.25), blurRadius: 4.0),
-                  ],
+              child: FractionallySizedBox(
+                widthFactor: progress.clamp(0.0, 1.0),
+                child: Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        statusColor.withValues(alpha: 0.7),
+                        statusColor,
+                      ],
+                    ),
+                    borderRadius: BorderRadius.circular(3.0),
+                    boxShadow: [
+                      BoxShadow(
+                        color: statusColor.withValues(alpha: 0.35),
+                        blurRadius: 4.0,
+                        spreadRadius: 1.0,
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
           ),
-          const SizedBox(height: 16.0),
+          const SizedBox(height: 20.0),
 
           // Under-bar metric tiles (Downloaded, Uploaded, Total size, Pieces)
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              _buildMetricTile(Icons.download_outlined, Colors.greenAccent, 'Downloaded', _formatBytes(task.downloadedBytes)),
-              _buildMetricTile(Icons.upload_outlined, Colors.blueAccent, 'Uploaded', _formatBytes((task.downloadedBytes * 0.05).toInt())),
-              _buildMetricTile(Icons.storage_outlined, Colors.purpleAccent, 'Total Size', _formatBytes(task.totalBytes)),
-              _buildMetricTile(Icons.extension_outlined, Colors.orangeAccent, 'Pieces', '$piecesCount × 1 MB'),
-            ],
-          ),
-          const SizedBox(height: 28.0),
+          MediaQuery.of(context).size.width < 750
+              ? Column(
+                  children: [
+                    Row(
+                      children: [
+                        _buildMetricTile(Icons.download_outlined, Colors.greenAccent, 'Downloaded', _formatBytes(task.downloadedBytes)),
+                        const SizedBox(width: 8.0),
+                        _buildMetricTile(Icons.upload_outlined, Colors.blueAccent, 'Uploaded', _formatBytes((task.downloadedBytes * 0.05).toInt())),
+                      ],
+                    ),
+                    const SizedBox(height: 8.0),
+                    Row(
+                      children: [
+                        _buildMetricTile(Icons.storage_outlined, Colors.purpleAccent, 'Total Size', _formatBytes(task.totalBytes)),
+                        const SizedBox(width: 8.0),
+                        _buildMetricTile(Icons.extension_outlined, Colors.orangeAccent, 'Pieces', '$piecesCount × 1 MB'),
+                      ],
+                    ),
+                  ],
+                )
+              : Row(
+                  children: [
+                    _buildMetricTile(Icons.download_outlined, Colors.greenAccent, 'Downloaded', _formatBytes(task.downloadedBytes)),
+                    _buildMetricTile(Icons.upload_outlined, Colors.blueAccent, 'Uploaded', _formatBytes((task.downloadedBytes * 0.05).toInt())),
+                    _buildMetricTile(Icons.storage_outlined, Colors.purpleAccent, 'Total Size', _formatBytes(task.totalBytes)),
+                    _buildMetricTile(Icons.extension_outlined, Colors.orangeAccent, 'Pieces', '$piecesCount × 1 MB'),
+                  ],
+                ),
+          const SizedBox(height: 24.0),
           
           // Divider
           Container(height: 1.0, color: Colors.white10),
-          const SizedBox(height: 24.0),
+          const SizedBox(height: 20.0),
 
           // Speed & Transfer / Time Info / Peers Grid row
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // 1. Speed & Transfer
-              Expanded(
-                child: _buildDetailsBlock(
-                  'Speed & Transfer',
-                  [
-                    _buildSubDetailTile(Icons.download, Colors.greenAccent, 'Download', _formatSpeed(task.downloadSpeed)),
-                    _buildSubDetailTile(Icons.upload, Colors.blueAccent, 'Upload', task.status == DownloadStatus.downloading ? _formatSpeed(task.downloadSpeed * 0.06) : '0 B/s'),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 16.0),
-              
-              // 2. Time Information
-              Expanded(
-                child: _buildDetailsBlock(
-                  'Time Information',
-                  [
-                    _buildSubDetailTile(Icons.hourglass_empty, Colors.orangeAccent, 'Remaining', remainingTime),
-                    _buildSubDetailTile(Icons.access_time, Colors.grey, 'Elapsed', task.status == DownloadStatus.downloading ? 'Active' : 'Finished'),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 16.0),
-              
-              // 3. Peers & Connections
-              Expanded(
-                child: _buildDetailsBlock(
-                  'Peers & Connections',
-                  [
-                    _buildSubDetailTile(Icons.arrow_upward, Colors.greenAccent, 'Seeders', '$activePeers'),
-                    _buildSubDetailTile(Icons.arrow_downward, Colors.blueAccent, 'Leechers', '$leechers'),
-                    _buildSubDetailTile(Icons.lan, Colors.purpleAccent, 'Wires', '${activePeers * 12 + 4}'),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 28.0),
-
-          // Protocol Status & Storage row
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // 1. Protocol Status
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+          MediaQuery.of(context).size.width < 750
+              ? Column(
                   children: [
-                    const Text(
-                      'Protocol Status',
-                      style: TextStyle(color: Colors.white70, fontSize: 13.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                    // 1. Speed & Transfer
+                    _buildDetailsBlock(
+                      'Speed & Transfer',
+                      [
+                        _buildSubDetailTile(Icons.download, Colors.greenAccent, 'Download', _formatSpeed(task.downloadSpeed)),
+                        _buildSubDetailTile(Icons.upload, Colors.blueAccent, 'Upload', task.status == DownloadStatus.downloading ? _formatSpeed(task.downloadSpeed * 0.06) : '0 B/s'),
+                      ],
                     ),
                     const SizedBox(height: 12.0),
-                    _buildStatusIndicatorRow(true, 'DHT', 'Distributed Hash Table for peer discovery'),
-                    _buildStatusIndicatorRow(true, 'LSD', 'Local Service Discovery on network'),
-                    _buildStatusIndicatorRow(false, 'NAT', 'NAT-PMP/UPnP automatic forwarding'),
-                    _buildStatusIndicatorRow(false, 'Forwarding', 'Accepting inbound connections'),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 16.0),
-
-              // 2. Storage
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Storage',
-                      style: TextStyle(color: Colors.white70, fontSize: 13.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                    
+                    // 2. Time Information
+                    _buildDetailsBlock(
+                      'Time Information',
+                      [
+                        _buildSubDetailTile(Icons.hourglass_empty, Colors.orangeAccent, 'Remaining', remainingTime),
+                        _buildSubDetailTile(Icons.access_time, Colors.grey, 'Elapsed', task.status == DownloadStatus.downloading ? 'Active' : 'Finished'),
+                      ],
                     ),
                     const SizedBox(height: 12.0),
-                    _buildStatusIndicatorRow(false, 'Persisting', 'Storing all torrents'),
-                    _buildStatusIndicatorRow(true, 'Streaming', 'Downloading only required pieces'),
+                    
+                    // 3. Peers & Connections
+                    _buildDetailsBlock(
+                      'Peers & Connections',
+                      [
+                        _buildSubDetailTile(Icons.arrow_upward, Colors.greenAccent, 'Seeders', '$activePeers'),
+                        _buildSubDetailTile(Icons.arrow_downward, Colors.blueAccent, 'Leechers', '$leechers'),
+                        _buildSubDetailTile(Icons.lan, Colors.purpleAccent, 'Wires', '${activePeers * 12 + 4}'),
+                      ],
+                    ),
+                  ],
+                )
+              : Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // 1. Speed & Transfer
+                    Expanded(
+                      child: _buildDetailsBlock(
+                        'Speed & Transfer',
+                        [
+                          _buildSubDetailTile(Icons.download, Colors.greenAccent, 'Download', _formatSpeed(task.downloadSpeed)),
+                          _buildSubDetailTile(Icons.upload, Colors.blueAccent, 'Upload', task.status == DownloadStatus.downloading ? _formatSpeed(task.downloadSpeed * 0.06) : '0 B/s'),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 16.0),
+                    
+                    // 2. Time Information
+                    Expanded(
+                      child: _buildDetailsBlock(
+                        'Time Information',
+                        [
+                          _buildSubDetailTile(Icons.hourglass_empty, Colors.orangeAccent, 'Remaining', remainingTime),
+                          _buildSubDetailTile(Icons.access_time, Colors.grey, 'Elapsed', task.status == DownloadStatus.downloading ? 'Active' : 'Finished'),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 16.0),
+                    
+                    // 3. Peers & Connections
+                    Expanded(
+                      child: _buildDetailsBlock(
+                        'Peers & Connections',
+                        [
+                          _buildSubDetailTile(Icons.arrow_upward, Colors.greenAccent, 'Seeders', '$activePeers'),
+                          _buildSubDetailTile(Icons.arrow_downward, Colors.blueAccent, 'Leechers', '$leechers'),
+                          _buildSubDetailTile(Icons.lan, Colors.purpleAccent, 'Wires', '${activePeers * 12 + 4}'),
+                        ],
+                      ),
+                    ),
                   ],
                 ),
-              ),
-            ],
-          ),
+          const SizedBox(height: 12.0),
         ],
       ),
     );
   }
 
   Widget _buildMetricTile(IconData icon, Color iconColor, String label, String value) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, color: iconColor, size: 20),
-        const SizedBox(width: 8.0),
-        Column(
+    return Expanded(
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 4.0),
+        padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 14.0),
+        decoration: BoxDecoration(
+          color: const Color(0xFF0F0F11),
+          borderRadius: BorderRadius.circular(10.0),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.04), width: 1.0),
+        ),
+        child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(label, style: const TextStyle(color: Colors.white38, fontSize: 10.0, fontFamily: 'Outfit')),
+            Container(
+              padding: const EdgeInsets.all(6.0),
+              decoration: BoxDecoration(
+                color: iconColor.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(6.0),
+              ),
+              child: Icon(icon, color: iconColor, size: 16),
+            ),
+            const SizedBox(height: 10.0),
+            Text(
+              label,
+              style: const TextStyle(color: Colors.white38, fontSize: 9.0, fontFamily: 'Outfit', fontWeight: FontWeight.w500),
+            ),
             const SizedBox(height: 2.0),
-            Text(value, style: const TextStyle(color: Colors.white, fontSize: 12.5, fontWeight: FontWeight.bold, fontFamily: 'Outfit')),
+            Text(
+              value,
+              style: const TextStyle(color: Colors.white, fontSize: 13.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+            ),
           ],
         ),
-      ],
+      ),
     );
   }
 
@@ -1135,7 +1322,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
       padding: const EdgeInsets.all(16.0),
       decoration: BoxDecoration(
         color: const Color(0xFF0F0F11),
-        borderRadius: BorderRadius.circular(8.0),
+        borderRadius: BorderRadius.circular(10.0),
         border: Border.all(color: Colors.white.withValues(alpha: 0.04)),
       ),
       child: Column(
@@ -1143,9 +1330,9 @@ class _DownloadsPageState extends State<DownloadsPage> {
         children: [
           Text(
             title,
-            style: const TextStyle(color: Colors.white70, fontSize: 12.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+            style: const TextStyle(color: Colors.white70, fontSize: 11.5, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
           ),
-          const SizedBox(height: 12.0),
+          const SizedBox(height: 14.0),
           ...children,
         ],
       ),
@@ -1162,44 +1349,6 @@ class _DownloadsPageState extends State<DownloadsPage> {
           Text(label, style: const TextStyle(color: Colors.white38, fontSize: 11.0, fontFamily: 'Outfit')),
           const Spacer(),
           Text(value, style: const TextStyle(color: Colors.white, fontSize: 12.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit')),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStatusIndicatorRow(bool isActive, String label, String subtitle) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12.0),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            margin: const EdgeInsets.only(top: 4.0),
-            width: 7.0,
-            height: 7.0,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: isActive ? Colors.green : Colors.redAccent,
-              boxShadow: [
-                BoxShadow(
-                  color: (isActive ? Colors.green : Colors.redAccent).withValues(alpha: 0.4),
-                  blurRadius: 4.0,
-                  spreadRadius: 1.0,
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 10.0),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(label, style: const TextStyle(color: Colors.white70, fontSize: 11.5, fontWeight: FontWeight.bold, fontFamily: 'Outfit')),
-                const SizedBox(height: 1.0),
-                Text(subtitle, style: const TextStyle(color: Colors.white24, fontSize: 9.5, fontFamily: 'Outfit')),
-              ],
-            ),
-          ),
         ],
       ),
     );
@@ -1415,7 +1564,9 @@ class _DownloadsPageState extends State<DownloadsPage> {
             decoration: InputDecoration(
               filled: true,
               fillColor: Colors.white.withValues(alpha: 0.03),
-              hintText: 'Leave empty for default (Downloads/watchAny)',
+              hintText: Platform.isAndroid
+                  ? 'Leave empty for default app storage'
+                  : 'Leave empty for default (Downloads/watchAny)',
               hintStyle: const TextStyle(color: Colors.white24),
               border: OutlineInputBorder(borderRadius: BorderRadius.circular(6.0), borderSide: const BorderSide(color: Colors.white10)),
               enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(6.0), borderSide: const BorderSide(color: Colors.white10)),
@@ -1519,12 +1670,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
                 await AppSettings().setDownloadPath(path);
 
                 if (!mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Download settings saved successfully!', style: TextStyle(fontFamily: 'Outfit')),
-                    backgroundColor: Colors.green,
-                  ),
-                );
+                NotificationService().show(context, 'Download settings saved successfully!');
               },
               child: const Text(
                 'Save Settings',

@@ -215,11 +215,17 @@ class ExtensionService extends ChangeNotifier {
       _storageFile = File('${appDir.path}\\extensions_storage.json');
       _logFile = File('${appDir.path}\\extension_debug.log');
 
-      debugPrint('[ExtensionService] Warming up Javascript engine...');
-      // Initialize a dummy JS runtime to trigger native libraries cold start setup
-      final runtime = await _createRuntime();
-      runtime.dispose();
-      debugPrint('[ExtensionService] Javascript engine warmed up successfully.');
+      // Warm up JS engine in the background after startup completes to prevent launch lag
+      Future.delayed(const Duration(seconds: 4), () async {
+        debugPrint('[ExtensionService] Warming up Javascript engine...');
+        try {
+          final runtime = await _createRuntime();
+          runtime.dispose();
+          debugPrint('[ExtensionService] Javascript engine warmed up successfully.');
+        } catch (e) {
+          debugPrint('[ExtensionService] Javascript warmup error: $e');
+        }
+      });
 
       if (await _storageFile!.exists()) {
         final content = await _storageFile!.readAsString();

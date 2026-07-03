@@ -24,6 +24,7 @@ class _SchedulePageState extends State<SchedulePage> {
   bool _myListOnly = false;
   bool _isLoading = true;
   String? _errorMessage;
+  late final ScrollController _dayScrollController;
 
   // Grouped schedules by day of month (1 to 31)
   Map<int, List<dynamic>> _schedulesByDay = {};
@@ -36,7 +37,35 @@ class _SchedulePageState extends State<SchedulePage> {
   @override
   void initState() {
     super.initState();
+    _dayScrollController = ScrollController();
     _fetchSchedule();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Future.delayed(const Duration(milliseconds: 150), () {
+        _scrollToSelectedDay(animate: false);
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _dayScrollController.dispose();
+    super.dispose();
+  }
+
+  void _scrollToSelectedDay({bool animate = true}) {
+    if (!_dayScrollController.hasClients) return;
+    final double screenWidth = MediaQuery.of(context).size.width;
+    double offset = (_selectedDay - 1) * 56.0 - (screenWidth / 2) + 28.0;
+    
+    if (animate) {
+      _dayScrollController.animateTo(
+        offset,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+      );
+    } else {
+      _dayScrollController.jumpTo(offset);
+    }
   }
 
   Future<void> _fetchSchedule() async {
@@ -88,6 +117,9 @@ class _SchedulePageState extends State<SchedulePage> {
       _selectedDay = 1;
     });
     _fetchSchedule();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _scrollToSelectedDay(animate: false);
+    });
   }
 
   void _nextMonth() {
@@ -96,6 +128,9 @@ class _SchedulePageState extends State<SchedulePage> {
       _selectedDay = 1;
     });
     _fetchSchedule();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _scrollToSelectedDay(animate: false);
+    });
   }
 
   String _getWeekdayAbbreviation(int weekday) {
@@ -300,6 +335,7 @@ class _SchedulePageState extends State<SchedulePage> {
 
   Widget _buildDayCell(int index) {
     final firstDay = DateTime(_selectedMonth.year, _selectedMonth.month, 1);
+    final lastDay = DateTime(_selectedMonth.year, _selectedMonth.month + 1, 0);
     final int leadingEmptyCells = firstDay.weekday - 1;
     
     if (index < leadingEmptyCells) {
@@ -313,6 +349,16 @@ class _SchedulePageState extends State<SchedulePage> {
     }
 
     final int dayNumber = index - leadingEmptyCells + 1;
+    if (dayNumber > lastDay.day) {
+      return Container(
+        decoration: BoxDecoration(
+          border: Border(
+            right: BorderSide(color: Colors.white.withValues(alpha: 0.05), width: 0.5),
+          ),
+        ),
+      );
+    }
+    
     final List<dynamic> daySchedules = _schedulesByDay[dayNumber] ?? [];
     
     final List<dynamic> filteredSchedules = _myListOnly
@@ -678,6 +724,7 @@ class _SchedulePageState extends State<SchedulePage> {
       height: 68.0,
       margin: const EdgeInsets.only(top: 8.0, bottom: 4.0),
       child: ListView.builder(
+        controller: _dayScrollController,
         scrollDirection: Axis.horizontal,
         itemCount: lastDay,
         padding: const EdgeInsets.symmetric(horizontal: 12.0),
@@ -694,6 +741,7 @@ class _SchedulePageState extends State<SchedulePage> {
                 setState(() {
                   _selectedDay = day;
                 });
+                _scrollToSelectedDay();
               },
               borderRadius: BorderRadius.circular(8.0),
               child: Container(

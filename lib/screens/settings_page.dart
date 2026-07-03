@@ -6,9 +6,20 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../services/suwayomi_manager.dart';
 import '../services/suwayomi_service.dart';
 import '../services/update_service.dart';
+import '../state/navigation_state.dart';
+import '../services/notification_service.dart';
+
+enum SettingsCategory {
+  general,
+  extensions,
+  addons,
+  manga,
+  about,
+}
 
 class SettingsPage extends StatefulWidget {
-  const SettingsPage({super.key});
+  final AppMode mode;
+  const SettingsPage({super.key, required this.mode});
 
   @override
   State<SettingsPage> createState() => _SettingsPageState();
@@ -24,7 +35,7 @@ class _SettingsPageState extends State<SettingsPage> {
   final TextEditingController _mangaHostController = TextEditingController();
   final TextEditingController _torrServerUrlController = TextEditingController();
   
-  int _activeCategoryIndex = 0; // 0: Extensions, 1: Addons, 2: General
+  late SettingsCategory _activeCategory;
   bool _isLoading = false;
   bool _isInstallingAddon = false;
   
@@ -36,9 +47,21 @@ class _SettingsPageState extends State<SettingsPage> {
   final Map<String, bool> _repoSyncing = {};
   List<String> _mangaRepos = [];
 
+  List<SettingsCategory> _getAvailableCategories() {
+    switch (widget.mode) {
+      case AppMode.anime:
+        return [SettingsCategory.general, SettingsCategory.extensions, SettingsCategory.about];
+      case AppMode.movies:
+        return [SettingsCategory.general, SettingsCategory.addons, SettingsCategory.about];
+      case AppMode.manga:
+        return [SettingsCategory.general, SettingsCategory.manga, SettingsCategory.about];
+    }
+  }
+
   @override
   void initState() {
     super.initState();
+    _activeCategory = SettingsCategory.general;
     _loadData();
   }
 
@@ -75,9 +98,7 @@ class _SettingsPageState extends State<SettingsPage> {
     final url = _repoUrlController.text.trim();
     final name = _repoNameController.text.trim();
     if (url.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter a repository URL.')),
-      );
+      NotificationService().show(context, 'Please enter a repository URL.');
       return;
     }
 
@@ -87,15 +108,11 @@ class _SettingsPageState extends State<SettingsPage> {
       _repoUrlController.clear();
       _repoNameController.clear();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Repository added and synced successfully.')),
-        );
+        NotificationService().show(context, 'Repository added and synced successfully.');
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to add repository: $e'), backgroundColor: Colors.redAccent),
-        );
+        NotificationService().show(context, 'Failed to add repository: $e');
       }
     } finally {
       if (mounted) {
@@ -109,15 +126,11 @@ class _SettingsPageState extends State<SettingsPage> {
     try {
       await _extensionService.syncRepo(url);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Repository synced successfully.')),
-        );
+        NotificationService().show(context, 'Repository synced successfully.');
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Sync failed: $e'), backgroundColor: Colors.redAccent),
-        );
+        NotificationService().show(context, 'Sync failed: $e');
       }
     } finally {
       if (mounted) {
@@ -153,13 +166,14 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Widget _buildSidebar() {
-    final categories = [
-      {'title': 'Extensions', 'icon': Icons.extension},
-      {'title': 'Movies/TV Addons', 'icon': Icons.movie_filter},
-      {'title': 'General', 'icon': Icons.settings_applications},
-      {'title': 'Manga Settings', 'icon': Icons.book},
-      {'title': 'About', 'icon': Icons.info_outline},
-    ];
+    final available = _getAvailableCategories();
+    final categoryData = {
+      SettingsCategory.extensions: {'title': 'Extensions', 'icon': Icons.extension},
+      SettingsCategory.addons: {'title': 'Movies/TV Addons', 'icon': Icons.movie_filter},
+      SettingsCategory.general: {'title': 'General', 'icon': Icons.settings_applications},
+      SettingsCategory.manga: {'title': 'Manga Settings', 'icon': Icons.book},
+      SettingsCategory.about: {'title': 'About', 'icon': Icons.info_outline},
+    };
 
     return Container(
       width: 200,
@@ -170,9 +184,11 @@ class _SettingsPageState extends State<SettingsPage> {
       ),
       child: ListView.builder(
         padding: const EdgeInsets.symmetric(vertical: 24.0, horizontal: 8.0),
-        itemCount: categories.length,
+        itemCount: available.length,
         itemBuilder: (context, index) {
-          final isSelected = _activeCategoryIndex == index;
+          final cat = available[index];
+          final isSelected = _activeCategory == cat;
+          final data = categoryData[cat]!;
           return Padding(
             padding: const EdgeInsets.only(bottom: 8.0),
             child: Material(
@@ -184,12 +200,12 @@ class _SettingsPageState extends State<SettingsPage> {
                   borderRadius: BorderRadius.circular(8.0),
                 ),
                 leading: Icon(
-                  categories[index]['icon'] as IconData,
+                  data['icon'] as IconData,
                   color: isSelected ? Colors.white : Colors.white54,
                   size: 20,
                 ),
                 title: Text(
-                  categories[index]['title'] as String,
+                  data['title'] as String,
                   style: TextStyle(
                     color: isSelected ? Colors.white : Colors.white70,
                     fontSize: 14,
@@ -199,7 +215,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 ),
                 onTap: () {
                   setState(() {
-                    _activeCategoryIndex = index;
+                    _activeCategory = cat;
                   });
                 },
               ),
@@ -906,13 +922,14 @@ class _SettingsPageState extends State<SettingsPage> {
       );
 
   Widget _buildTopCategoryBar() {
-    final categories = [
-      {'title': 'Extensions', 'icon': Icons.extension},
-      {'title': 'Addons', 'icon': Icons.movie_filter},
-      {'title': 'General', 'icon': Icons.settings_applications},
-      {'title': 'Manga', 'icon': Icons.book},
-      {'title': 'About', 'icon': Icons.info_outline},
-    ];
+    final available = _getAvailableCategories();
+    final categoryData = {
+      SettingsCategory.extensions: {'title': 'Extensions', 'icon': Icons.extension},
+      SettingsCategory.addons: {'title': 'Addons', 'icon': Icons.movie_filter},
+      SettingsCategory.general: {'title': 'General', 'icon': Icons.settings_applications},
+      SettingsCategory.manga: {'title': 'Manga', 'icon': Icons.book},
+      SettingsCategory.about: {'title': 'About', 'icon': Icons.info_outline},
+    };
 
     return Container(
       decoration: const BoxDecoration(
@@ -921,11 +938,13 @@ class _SettingsPageState extends State<SettingsPage> {
         ),
       ),
       child: Row(
-        children: List.generate(categories.length, (index) {
-          final isSelected = _activeCategoryIndex == index;
+        children: List.generate(available.length, (index) {
+          final cat = available[index];
+          final isSelected = _activeCategory == cat;
+          final data = categoryData[cat]!;
           return Expanded(
             child: InkWell(
-              onTap: () => setState(() => _activeCategoryIndex = index),
+              onTap: () => setState(() => _activeCategory = cat),
               child: Container(
                 padding: const EdgeInsets.symmetric(vertical: 16.0),
                 decoration: BoxDecoration(
@@ -940,13 +959,13 @@ class _SettingsPageState extends State<SettingsPage> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Icon(
-                      categories[index]['icon'] as IconData,
+                      data['icon'] as IconData,
                       color: isSelected ? Colors.white : Colors.white54,
                       size: 18,
                     ),
                     const SizedBox(width: 8.0),
                     Text(
-                      categories[index]['title'] as String,
+                      data['title'] as String,
                       style: TextStyle(
                         color: isSelected ? Colors.white : Colors.white70,
                         fontSize: 13,
@@ -1004,19 +1023,19 @@ class _SettingsPageState extends State<SettingsPage> {
           const SizedBox(height: 24.0),
           
           // Display Active category content
-          if (_activeCategoryIndex == 0) ...[
+          if (_activeCategory == SettingsCategory.extensions) ...[
             _buildRepoSection(isMobile),
             const SizedBox(height: 36.0),
             Container(height: 1.0, color: Colors.white10),
             const SizedBox(height: 24.0),
             _buildExtensionsSection(isMobile),
-          ] else if (_activeCategoryIndex == 1) ...[
+          ] else if (_activeCategory == SettingsCategory.addons) ...[
             _buildStremioAddonsSection(isMobile),
-          ] else if (_activeCategoryIndex == 2) ...[
+          ] else if (_activeCategory == SettingsCategory.general) ...[
             _buildGeneralSection(),
-          ] else if (_activeCategoryIndex == 3) ...[
+          ] else if (_activeCategory == SettingsCategory.manga) ...[
             _buildMangaSettingsSection(isMobile),
-          ] else if (_activeCategoryIndex == 4) ...[
+          ] else if (_activeCategory == SettingsCategory.about) ...[
             _buildAboutSection(),
           ],
         ],
@@ -1052,9 +1071,7 @@ class _SettingsPageState extends State<SettingsPage> {
   Future<void> _installStremioAddon() async {
     final url = _stremioUrlController.text.trim();
     if (url.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter a manifest URL.')),
-      );
+      NotificationService().show(context, 'Please enter a manifest URL.');
       return;
     }
 
@@ -1066,15 +1083,11 @@ class _SettingsPageState extends State<SettingsPage> {
       await StremioAddonService().installAddon(url);
       _stremioUrlController.clear();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Stremio Addon installed successfully.')),
-        );
+        NotificationService().show(context, 'Stremio Addon installed successfully.');
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to install addon: ${e.toString().replaceAll('Exception: ', '')}')),
-        );
+        NotificationService().show(context, 'Failed to install addon: ${e.toString().replaceAll('Exception: ', '')}');
       }
     } finally {
       if (mounted) {
@@ -1372,15 +1385,11 @@ class _SettingsPageState extends State<SettingsPage> {
   Future<void> _addMangaRepo() async {
     final url = _mangaRepoUrlController.text.trim();
     if (url.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter a repository URL.')),
-      );
+      NotificationService().show(context, 'Please enter a repository URL.');
       return;
     }
     if (_mangaRepos.contains(url)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Repository already exists.')),
-      );
+      NotificationService().show(context, 'Repository already exists.');
       return;
     }
     
@@ -1396,15 +1405,11 @@ class _SettingsPageState extends State<SettingsPage> {
       await SuwayomiManager.start();
       
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Manga repository added and engine restarted successfully.')),
-        );
+        NotificationService().show(context, 'Manga repository added and engine restarted successfully.');
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to add repository: $e'), backgroundColor: Colors.redAccent),
-        );
+        NotificationService().show(context, 'Failed to add repository: $e');
       }
     } finally {
       if (mounted) {
@@ -1425,15 +1430,11 @@ class _SettingsPageState extends State<SettingsPage> {
       await SuwayomiManager.start();
       
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Manga repository removed and engine restarted.')),
-        );
+        NotificationService().show(context, 'Manga repository removed and engine restarted.');
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to remove repository: $e'), backgroundColor: Colors.redAccent),
-        );
+        NotificationService().show(context, 'Failed to remove repository: $e');
       }
     } finally {
       if (mounted) {
@@ -1446,9 +1447,7 @@ class _SettingsPageState extends State<SettingsPage> {
     final portStr = _mangaPortController.text.trim();
     final port = int.tryParse(portStr);
     if (port == null || port < 1024 || port > 65535) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter a valid port number between 1024 and 65535.')),
-      );
+      NotificationService().show(context, 'Please enter a valid port number between 1024 and 65535.');
       return;
     }
     
@@ -1465,15 +1464,11 @@ class _SettingsPageState extends State<SettingsPage> {
       await SuwayomiManager.start();
       
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Manga server port updated.')),
-        );
+        NotificationService().show(context, 'Manga server port updated.');
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to update port: $e'), backgroundColor: Colors.redAccent),
-        );
+        NotificationService().show(context, 'Failed to update port: $e');
       }
     } finally {
       if (mounted) {
@@ -1485,9 +1480,7 @@ class _SettingsPageState extends State<SettingsPage> {
   Future<void> _saveMangaHost() async {
     final host = _mangaHostController.text.trim();
     if (host.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter a valid IP address or hostname.')),
-      );
+      NotificationService().show(context, 'Please enter a valid IP address or hostname.');
       return;
     }
     
@@ -1504,15 +1497,11 @@ class _SettingsPageState extends State<SettingsPage> {
       await SuwayomiManager.start();
       
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Manga server host updated.')),
-        );
+        NotificationService().show(context, 'Manga server host updated.');
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to update host: $e'), backgroundColor: Colors.redAccent),
-        );
+        NotificationService().show(context, 'Failed to update host: $e');
       }
     } finally {
       if (mounted) {
@@ -1524,9 +1513,7 @@ class _SettingsPageState extends State<SettingsPage> {
   Future<void> _saveTorrServerUrl() async {
     final url = _torrServerUrlController.text.trim();
     if (url.isEmpty || !url.startsWith('http')) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter a valid URL starting with http:// or https://.')),
-      );
+      NotificationService().show(context, 'Please enter a valid URL starting with http:// or https://.');
       return;
     }
     
@@ -1534,15 +1521,11 @@ class _SettingsPageState extends State<SettingsPage> {
     try {
       await AppSettings().setTorrServerUrl(url);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('TorrServer URL updated successfully.')),
-        );
+        NotificationService().show(context, 'TorrServer URL updated successfully.');
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to update URL: $e'), backgroundColor: Colors.redAccent),
-        );
+        NotificationService().show(context, 'Failed to update URL: $e');
       }
     } finally {
       if (mounted) {
@@ -1932,12 +1915,11 @@ class _SettingsPageState extends State<SettingsPage> {
                             : () async {
                                 final hasUpdate = await updateService.checkForUpdates();
                                 if (context.mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: Text(hasUpdate
-                                          ? 'A new update (v${updateService.latestUpdate!.version}) is available!'
-                                          : 'watchAny is up to date!'),
-                                    ),
+                                  NotificationService().show(
+                                    context,
+                                    hasUpdate
+                                        ? 'A new update (v${updateService.latestUpdate!.version}) is available!'
+                                        : 'watchAny is up to date!',
                                   );
                                 }
                               },
@@ -2199,12 +2181,7 @@ class _StremioHomepageConfigPanelState extends State<StremioHomepageConfigPanel>
                       setState(() {
                         if (val == true) {
                           if (_selectedAddons.length >= 5) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('You can select a maximum of 5 addons for the homepage.'),
-                                backgroundColor: Colors.redAccent,
-                              ),
-                            );
+                            NotificationService().show(context, 'You can select a maximum of 5 addons for the homepage.');
                             return;
                           }
                           _selectedAddons.add(addon.id);
@@ -2256,12 +2233,7 @@ class _StremioHomepageConfigPanelState extends State<StremioHomepageConfigPanel>
                                     setState(() {
                                       if (selected) {
                                         if (currentSelected.length >= 5) {
-                                          ScaffoldMessenger.of(context).showSnackBar(
-                                            const SnackBar(
-                                              content: Text('You can select a maximum of 5 catalogs per addon.'),
-                                              backgroundColor: Colors.redAccent,
-                                            ),
-                                          );
+                                          NotificationService().show(context, 'You can select a maximum of 5 catalogs per addon.');
                                           return;
                                         }
                                         currentSelected.add(catId);

@@ -9,6 +9,7 @@ import '../state/app_settings.dart';
 
 class TorrServerManager {
   static Process? _process;
+  static bool _isStarting = false;
   static int _port = 8090;
   static int get port => _port;
   static String? lastStartupError;
@@ -72,16 +73,18 @@ class TorrServerManager {
   }
 
   static Future<void> start() async {
-    if (_process != null) {
+    if (_process != null || _isStarting) {
       developer.log('TorrServer already running or starting...', name: 'TorrServerManager');
       return;
     }
+    _isStarting = true;
 
     final bool isDesktop = !kIsWeb && (Platform.isWindows || Platform.isMacOS || Platform.isLinux);
     final bool isAndroid = !kIsWeb && Platform.isAndroid;
 
     if (!isDesktop && !isAndroid) {
       developer.log('TorrServerManager start skipped on unsupported platform.', name: 'TorrServerManager');
+      _isStarting = false;
       return;
     }
 
@@ -92,6 +95,7 @@ class TorrServerManager {
       if (await _isTorrServerRunning(_port)) {
         developer.log('Reusing existing TorrServer instance on port $_port.', name: 'TorrServerManager');
         _applySettings(_port);
+        _isStarting = false;
         return;
       }
 
@@ -102,6 +106,8 @@ class TorrServerManager {
       }
     } catch (e, stack) {
       developer.log('Error starting TorrServer', name: 'TorrServerManager', error: e, stackTrace: stack);
+    } finally {
+      _isStarting = false;
     }
   }
 

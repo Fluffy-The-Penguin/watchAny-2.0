@@ -1,9 +1,12 @@
 import 'dart:convert';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import '../state/navigation_state.dart';
 import '../state/library_state.dart';
 import '../services/anilist_service.dart';
+import '../services/download_service.dart';
 
 class NotificationsPage extends StatefulWidget {
   final AppMode mode;
@@ -24,11 +27,10 @@ class _NotificationsPageState extends State<NotificationsPage> {
   bool _isLoading = true;
   String? _errorMessage;
   List<Map<String, dynamic>> _notifications = [];
-
+  
   @override
   void initState() {
     super.initState();
-    LibraryState().clearNotificationBadge(widget.mode);
     _fetchNotifications();
   }
 
@@ -49,9 +51,12 @@ class _NotificationsPageState extends State<NotificationsPage> {
           _notifications = [];
           _isLoading = false;
         });
+        LibraryState().clearNotificationBadge(widget.mode);
       }
       return;
     }
+
+    final prefs = await SharedPreferences.getInstance();
 
     if (widget.mode == AppMode.movies) {
       final List<Map<String, dynamic>> generated = [];
@@ -67,9 +72,16 @@ class _NotificationsPageState extends State<NotificationsPage> {
               if (meta != null) {
                 final videos = meta['videos'] as List? ?? [];
                 final int latestReleased = videos.length;
+                final int startBaseline = prefs.getInt('notif_start_episode_movies_${localItem.id}') ?? latestReleased;
+                final localDownloads = DownloadService().tasks.where(
+                  (t) => t.anilistId == localItem.id && t.status == DownloadStatus.completed
+                );
+                final int maxDownloaded = localDownloads.isEmpty 
+                    ? 0 
+                    : localDownloads.map((t) => t.episodeNumber ?? 0).fold(0, max);
+                final int startNew = max(max(localItem.watchedEpisodes, maxDownloaded), startBaseline) + 1;
                 
-                if (latestReleased > localItem.watchedEpisodes) {
-                  final int startNew = localItem.watchedEpisodes + 1;
+                if (latestReleased >= startNew) {
                   final int endNew = latestReleased;
                   
                   final String message = startNew == endNew
@@ -102,6 +114,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
             _notifications = generated;
             _isLoading = false;
           });
+          LibraryState().clearNotificationBadge(widget.mode);
         }
       } catch (e) {
         if (mounted) {
@@ -109,69 +122,88 @@ class _NotificationsPageState extends State<NotificationsPage> {
             _errorMessage = e.toString();
             _isLoading = false;
           });
+          LibraryState().clearNotificationBadge(widget.mode);
         }
       }
       return;
     }
 
-    final String anilistTypeStr = widget.mode == AppMode.manga ? 'MANGA' : 'ANIME';
-    final ids = libraryItems.map((item) => item.id).toList();
-
     try {
-      final List<dynamic> details = await _anilistService.fetchLibraryDetails(ids, type: anilistTypeStr);
       final List<Map<String, dynamic>> generated = [];
 
-      for (var media in details) {
-        final id = media['id'];
-        final localItem = libraryItems.firstWhere((item) => item.id == id);
+      if (widget.mode == AppMode.anime) {
+        final ids = libraryItems.map((item) => item.id).toList();
+        final List<dynamic> details = await _anilistService.fetchLibraryDetails(ids, type: 'ANIME');
+        for (var media in details) {
+          final id = media['id'];
+          final localItem = libraryItems.firstWhere((item) => item.id == id);
 
-        // Determine latest released episode or chapter
-        final int? nextEpisode = media['nextAiringEpisode']?['episode'];
-        final int totalEpisodes = media['episodes'] ?? 0;
-        final int totalChapters = media['chapters'] ?? 0;
-        
-        final int latestReleased = widget.mode == AppMode.manga
-            ? totalChapters
-            : (nextEpisode != null ? (nextEpisode - 1) : totalEpisodes);
+          final int? nextEpisode = media['nextAiringEpisode']?['episode'];
+          final int totalEpisodes = media['episodes'] ?? 0;
+          final int latestReleased = nextEpisode != null ? (nextEpisode - 1) : totalEpisodes;
 
-        final nextAiring = media['nextAiringEpisode'];
-        int releaseTime = 0;
-        if (nextAiring != null) {
-          releaseTime = (nextAiring['airingAt'] as int) - 604800;
-        } else {
-          releaseTime = media['updatedAt'] ?? 0;
-        }
-
-        if (latestReleased > localItem.watchedEpisodes) {
-          final int startNew = localItem.watchedEpisodes + 1;
-          final int endNew = latestReleased;
-
-          String message = '';
-          if (widget.mode == AppMode.manga) {
-            if (startNew == endNew) {
-              message = 'Chapter $startNew is now available!';
-            } else {
-              message = 'Chapters $startNew-$endNew are now available!';
-            }
+          final nextAiring = media['nextAiringEpisode'];
+          int releaseTime = 0;
+          if (nextAiring != null) {
+            releaseTime = (nextAiring['airingAt'] as int) - 604800;
           } else {
-            if (startNew == endNew) {
-              message = 'Episode $startNew is now available!';
-            } else {
-              message = 'Episodes $startNew-$endNew are now available!';
-            }
+            releaseTime = media['updatedAt'] ?? 0;
           }
 
-          generated.add({
-            'id': id,
-            'media': media,
-            'title': media['title']?['english'] ?? media['title']?['romaji'] ?? 'Untitled',
-            'coverImage': media['coverImage']?['large'] ?? '',
-            'message': message,
-            'latestReleased': latestReleased,
-            'watchedCount': localItem.watchedEpisodes,
-            'status': media['status'] ?? '',
-            'releaseTime': releaseTime,
-          });
+          final int startBaseline = prefs.getInt('notif_start_episode_anime_$id') ?? latestReleased;
+          final localDownloads = DownloadService().tasks.where(
+            (t) => t.anilistId == id && t.status == DownloadStatus.completed
+          );
+          final int maxDownloaded = localDownloads.isEmpty 
+              ? 0 
+              : localDownloads.map((t) => t.episodeNumber ?? 0).fold(0, max);
+          final int startNew = max(max(localItem.watchedEpisodes, maxDownloaded), startBaseline) + 1;
+
+          if (latestReleased >= startNew) {
+            final int endNew = latestReleased;
+
+            final String message = startNew == endNew
+                ? 'Episode $startNew is now available!'
+                : 'Episodes $startNew-$endNew are now available!';
+
+            generated.add({
+              'id': id,
+              'media': media,
+              'title': media['title']?['english'] ?? media['title']?['romaji'] ?? 'Untitled',
+              'coverImage': media['coverImage']?['large'] ?? '',
+              'message': message,
+              'latestReleased': latestReleased,
+              'watchedCount': localItem.watchedEpisodes,
+              'status': media['status'] ?? '',
+              'releaseTime': releaseTime,
+            });
+          }
+        }
+      } else if (widget.mode == AppMode.manga) {
+        final cache = LibraryState().mangaCache;
+        for (var item in libraryItems) {
+          final int totalChapters = item.totalEpisodes ?? 0;
+          final int startBaseline = prefs.getInt('notif_start_chapter_manga_${item.id}') ?? totalChapters;
+          final int startNew = max(item.watchedEpisodes, startBaseline) + 1;
+          if (totalChapters >= startNew) {
+            final cached = cache[item.id];
+            final int endNew = totalChapters;
+            final String message = startNew == endNew
+                ? 'Chapter $startNew is now available!'
+                : 'Chapters $startNew-$endNew are now available!';
+
+            generated.add({
+              'id': item.id,
+              'media': cached ?? {},
+              'title': cached?['title'] ?? 'Manga #${item.id}',
+              'coverImage': cached?['thumbnailUrl'] ?? '',
+              'message': message,
+              'latestReleased': totalChapters,
+              'watchedCount': item.watchedEpisodes,
+              'status': cached?['status'] ?? '',
+              'releaseTime': item.addedAt.millisecondsSinceEpoch,
+            });
+          }
         }
       }
 
@@ -183,6 +215,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
           _notifications = generated;
           _isLoading = false;
         });
+        LibraryState().clearNotificationBadge(widget.mode);
       }
     } catch (e) {
       if (mounted) {
@@ -190,6 +223,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
           _errorMessage = e.toString().replaceAll('Exception: ', '');
           _isLoading = false;
         });
+        LibraryState().clearNotificationBadge(widget.mode);
       }
     }
   }

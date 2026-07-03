@@ -1,3 +1,4 @@
+import '../services/notification_service.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
@@ -1185,12 +1186,7 @@ class PlaybackProgressDialogState extends State<PlaybackProgressDialog> {
 
           if (!mounted) return;
           Navigator.of(context).pop(); // pop progress dialog
-          ScaffoldMessenger.of(widget.parentContext).showSnackBar(
-            SnackBar(
-              content: Text('Added to downloads: $displayName', style: const TextStyle(fontFamily: 'Outfit')),
-              backgroundColor: Colors.green,
-            ),
-          );
+          NotificationService().show(widget.parentContext, 'Added to downloads: $displayName');
           return;
         }
 
@@ -1302,12 +1298,7 @@ class PlaybackProgressDialogState extends State<PlaybackProgressDialog> {
                         episodesJson: widget.episodes != null ? jsonEncode(widget.episodes) : null,
                         tmdbEpisodesMapJson: widget.tmdbEpisodesMap != null ? jsonEncode(widget.tmdbEpisodesMap!.map((k, v) => MapEntry(k.toString(), v))) : null,
                       );
-                      ScaffoldMessenger.of(widget.parentContext).showSnackBar(
-                        SnackBar(
-                          content: Text('Added to downloads: $displayName', style: const TextStyle(fontFamily: 'Outfit')),
-                          backgroundColor: Colors.green,
-                        ),
-                      );
+                      NotificationService().show(widget.parentContext, 'Added to downloads: $displayName');
                     } else {
                       // Show buffering progress dialog
                       showDialog(

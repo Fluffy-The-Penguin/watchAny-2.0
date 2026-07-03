@@ -195,6 +195,7 @@ class AnilistService {
       query($id: Int) {
         Media(id: $id, type: ANIME) {
           id
+          idMal
           startDate {
             year
             month
@@ -483,16 +484,25 @@ class AnilistService {
 
   // Fetch airing schedule within a time range (Epoch seconds)
   Future<List<dynamic>> fetchAiringSchedule(int startTimestamp, int endTimestamp) async {
-    List<dynamic> allSchedules = [];
-    int page = 1;
-    bool hasNextPage = true;
+    // Fetch 15 pages (up to 1500 entries) in parallel, spacing each request by 80ms to avoid burst rate limit locks
+    final futures = List.generate(15, (index) async {
+      if (index > 0) {
+        await Future.delayed(Duration(milliseconds: index * 80));
+      }
+      return _fetchAiringSchedulePage(startTimestamp, endTimestamp, index + 1);
+    });
+    try {
+      final results = await Future.wait(futures);
+      return results.expand((x) => x).toList();
+    } catch (e) {
+      throw Exception('Failed to load airing schedules: $e');
+    }
+  }
 
+  Future<List<dynamic>> _fetchAiringSchedulePage(int start, int end, int page) async {
     const query = r'''
       query($start: Int, $end: Int, $page: Int) {
         Page(page: $page, perPage: 100) {
-          pageInfo {
-            hasNextPage
-          }
           airingSchedules(airingAt_greater: $start, airingAt_lesser: $end, sort: TIME) {
             id
             airingAt
@@ -521,13 +531,13 @@ class AnilistService {
       }
     ''';
 
-    while (hasNextPage) {
-      final variables = {
-        'start': startTimestamp,
-        'end': endTimestamp,
-        'page': page,
-      };
+    final variables = {
+      'start': start,
+      'end': end,
+      'page': page,
+    };
 
+    for (int attempt = 0; attempt < 3; attempt++) {
       try {
         final response = await http.post(
           Uri.parse(_endpoint),
@@ -539,29 +549,27 @@ class AnilistService {
             'query': query,
             'variables': variables,
           }),
-        );
+        ).timeout(const Duration(seconds: 4));
 
         if (response.statusCode == 200) {
           final body = jsonDecode(response.body);
           if (body['data'] != null && body['data']['Page'] != null) {
             final pageData = body['data']['Page'];
-            final schedules = pageData['airingSchedules'] as List<dynamic>;
-            allSchedules.addAll(schedules);
-            hasNextPage = pageData['pageInfo']['hasNextPage'] == true;
-            page++;
-            if (page > 10) break; // Avoid infinite loops
-          } else {
-            throw Exception('GraphQL error: ${body['errors']}');
+            return pageData['airingSchedules'] as List<dynamic>? ?? [];
           }
-        } else {
-          throw Exception('HTTP Request failed with status: ${response.statusCode}');
+        } else if (response.statusCode == 429) {
+          // Rate limited, wait based on headers or default to 2s, then retry
+          final retryAfter = response.headers['retry-after'];
+          final waitSeconds = retryAfter != null ? int.tryParse(retryAfter) ?? 2 : 2;
+          await Future.delayed(Duration(seconds: waitSeconds));
+          continue;
         }
-      } catch (e) {
-        throw Exception('Failed to load airing schedules: $e');
-      }
+      } catch (_) {}
+      
+      // Minor delay on generic network errors before retry
+      await Future.delayed(const Duration(milliseconds: 300));
     }
-
-    return allSchedules;
+    return [];
   }
 
   Future<List<dynamic>> fetchLibraryDetails(List<int> ids, {String type = 'ANIME'}) async {

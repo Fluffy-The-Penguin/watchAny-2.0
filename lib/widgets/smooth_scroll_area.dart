@@ -1,14 +1,15 @@
+import 'dart:math' as math;
 import 'package:flutter/foundation.dart' show clampDouble;
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import '../state/app_settings.dart';
 
 // ---------------------------------------------------------------------------
 // SmoothScrollController + SmoothScrollPosition
 //
 // Overrides ScrollPosition.pointerScroll so that mouse-wheel events animate
-// instead of jumping.  The Scrollable still claims the pointer-signal event
-// through the normal resolver path, but our override turns the jumpTo into
-// an animateTo.
+// smoothly using a frame-rate independent LERP ticker instead of jumping
+// or starting/canceling animation controllers repeatedly.
 // ---------------------------------------------------------------------------
 
 class SmoothScrollController extends ScrollController {
@@ -46,6 +47,8 @@ class SmoothScrollPosition extends ScrollPositionWithSingleContext {
   });
 
   double? _targetPixels;
+  Ticker? _ticker;
+  double _lastElapsedSeconds = 0.0;
 
   @override
   void pointerScroll(double delta) {
@@ -57,24 +60,77 @@ class SmoothScrollPosition extends ScrollPositionWithSingleContext {
 
     if (!hasPixels) return;
 
-    // If we are not currently performing a smooth animation, or if the target has not been set yet,
-    // sync our target with the current actual pixels (e.g. after dragging or scrollbar usage).
-    if (activity is! DrivenScrollActivity || _targetPixels == null) {
+    // Sync target with actual pixels if we aren't currently smooth-scrolling
+    if (_ticker == null || !_ticker!.isActive || _targetPixels == null) {
       _targetPixels = pixels;
     }
 
     // Accumulate the delta onto our target pixels for a smooth progressive scroll.
     _targetPixels = clampDouble(
-      _targetPixels! + delta * 2.5,
+      _targetPixels! + delta * 2.0,
       minScrollExtent,
       maxScrollExtent,
     );
 
-    animateTo(
-      _targetPixels!,
-      duration: const Duration(milliseconds: 350),
-      curve: Curves.easeOutCubic,
-    );
+    _startTicker();
+  }
+
+  void _startTicker() {
+    _lastElapsedSeconds = 0.0;
+
+    _ticker ??= context.vsync.createTicker((Duration elapsed) {
+      if (!hasPixels || _targetPixels == null) {
+        if (_ticker != null && _ticker!.isActive) {
+          _ticker!.stop();
+        }
+        return;
+      }
+
+      final double elapsedSeconds = elapsed.inMicroseconds / 1000000.0;
+      final double dt = elapsedSeconds - _lastElapsedSeconds;
+      _lastElapsedSeconds = elapsedSeconds;
+
+      if (dt <= 0.0) return;
+
+      final double current = pixels;
+      final double target = _targetPixels!;
+
+      // Frame-rate independent exponential decay
+      final double lerpFactor = 1.0 - math.exp(-14.0 * dt);
+      final double next = current + (target - current) * lerpFactor;
+
+      // Snap to target if very close to prevent micro-movements
+      if ((next - target).abs() < 0.5) {
+        jumpTo(target);
+        if (_ticker != null && _ticker!.isActive) {
+          _ticker!.stop();
+        }
+      } else {
+        jumpTo(next);
+      }
+    });
+
+    if (!_ticker!.isActive) {
+      _ticker!.start();
+    }
+  }
+
+  @override
+  void beginActivity(ScrollActivity? newActivity) {
+    // If the user starts dragging (scrollbar, touch) or flinging, stop smooth scroll
+    if (newActivity != null && newActivity.isScrolling) {
+      if (_ticker != null && _ticker!.isActive) {
+        _ticker!.stop();
+      }
+      _targetPixels = null;
+    }
+    super.beginActivity(newActivity);
+  }
+
+  @override
+  void dispose() {
+    _ticker?.dispose();
+    super.dispose();
   }
 }
 

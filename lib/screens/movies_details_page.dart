@@ -1,3 +1,4 @@
+import '../services/notification_service.dart';
 import 'dart:convert';
 import 'dart:math';
 import 'dart:developer' as developer;
@@ -369,10 +370,7 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
 
     if (allStreams.isEmpty) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-              content: Text('No streams found. Install a stream addon like Torrentio.')),
-        );
+        NotificationService().show(context, 'No streams found. Install a stream addon like Torrentio.');
       }
       return;
     }
@@ -524,9 +522,7 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
     // Direct URL stream
     final String streamUrl = stream['url']?.toString() ?? '';
     if (streamUrl.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('This stream has no playable URL or hash.')),
-      );
+      NotificationService().show(context, 'This stream has no playable URL or hash.');
       return;
     }
 

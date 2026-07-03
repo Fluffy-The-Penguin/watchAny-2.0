@@ -1,3 +1,4 @@
+import '../services/notification_service.dart';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../services/suwayomi_service.dart';
@@ -141,9 +142,7 @@ class _MangaReaderPageState extends State<MangaReaderPage> {
         _updateLibraryProgress();
       }
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('You have reached the latest chapter.')),
-      );
+      NotificationService().show(context, 'You have reached the latest chapter.');
     }
   }
 
@@ -167,9 +166,7 @@ class _MangaReaderPageState extends State<MangaReaderPage> {
         _updateLibraryProgress();
       }
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No previous chapters available.')),
-      );
+      NotificationService().show(context, 'No previous chapters available.');
     }
   }
 

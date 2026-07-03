@@ -1,5 +1,7 @@
+import '../services/notification_service.dart';
 import 'dart:async';
 import 'dart:convert';
+import 'dart:developer' as developer;
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -17,6 +19,7 @@ import '../services/extension_service.dart';
 import '../state/app_settings.dart';
 import '../services/torrserver_service.dart';
 import '../services/batch_mapping_service.dart';
+import '../services/aniskip_service.dart';
 
 class PlayerScreen extends StatefulWidget {
   final String streamUrl;
@@ -65,6 +68,14 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
   final List<StreamSubscription> _subscriptions = [];
   final TorrServerService _torrServerService = TorrServerService();
 
+  // AniSkip state
+  List<SkipInterval> _skipIntervals = [];
+  bool _hasFetchedSkipTimes = false;
+  bool _showSkipButton = false;
+  SkipInterval? _activeSkipInterval;
+  StreamSubscription<Duration>? _positionSubscription;
+  StreamSubscription<Duration>? _durationSubscription;
+
   void _handlePlayerStateChange() {
     final playerState = PlayerState();
     final bool isDesktop = !kIsWeb && (Platform.isWindows || Platform.isMacOS || Platform.isLinux);
@@ -78,10 +89,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
         ]);
       } else {
         SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-        SystemChrome.setPreferredOrientations([
-          DeviceOrientation.landscapeLeft,
-          DeviceOrientation.landscapeRight,
-        ]);
+        SystemChrome.setPreferredOrientations([]); // Allow both portrait and landscape rotation
       }
     }
   }
@@ -96,8 +104,28 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
         _playNextEpisode();
       }
     }));
+    _subscriptions.add(player.stream.width.listen((_) {
+      if (mounted) setState(() {});
+    }));
+    _subscriptions.add(player.stream.height.listen((_) {
+      if (mounted) setState(() {});
+    }));
     PlayerState().addListener(_handlePlayerStateChange);
     _handlePlayerStateChange();
+
+    // Fetch skip times once duration is loaded
+    if (widget.anilistId != null && widget.episodeNumber != null) {
+      _durationSubscription = player.stream.duration.listen((duration) {
+        if (duration.inSeconds > 0 && !_hasFetchedSkipTimes) {
+          _hasFetchedSkipTimes = true;
+          _fetchSkipTimes(duration.inSeconds.toDouble());
+        }
+      });
+
+      _positionSubscription = player.stream.position.listen((position) {
+        _checkSkipTimes(position.inSeconds.toDouble());
+      });
+    }
   }
 
   @override
@@ -106,6 +134,8 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
     for (var sub in _subscriptions) {
       sub.cancel();
     }
+    _positionSubscription?.cancel();
+    _durationSubscription?.cancel();
     _overlayEntry?.remove();
     _overlayEntry = null;
     windowManager.removeListener(this);
@@ -138,6 +168,74 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
         });
       }
     } catch (_) {}
+  }
+
+  Future<void> _fetchSkipTimes(double durationSeconds) async {
+    if (widget.anilistId == null || widget.episodeNumber == null) return;
+    try {
+      final intervals = await AniSkipService().fetchSkipTimes(
+        anilistId: widget.anilistId!,
+        episodeNumber: widget.episodeNumber!,
+        episodeLength: durationSeconds,
+      );
+      if (mounted) {
+        setState(() {
+          _skipIntervals = intervals;
+        });
+      }
+    } catch (e) {
+      developer.log('Error fetching skip times: $e', name: 'watchAny.PlayerScreen');
+    }
+  }
+
+  void _checkSkipTimes(double positionSeconds) {
+    if (_skipIntervals.isEmpty) return;
+
+    SkipInterval? matchingInterval;
+    for (var interval in _skipIntervals) {
+      if (positionSeconds >= interval.startTime && positionSeconds <= interval.endTime) {
+        matchingInterval = interval;
+        break;
+      }
+    }
+
+    if (matchingInterval != null) {
+      if (AppSettings().autoSkipIntro) {
+        final target = matchingInterval.endTime.toInt();
+        if (player.state.position.inSeconds < target - 1) {
+          player.seek(Duration(seconds: target));
+          developer.log(
+            'Auto-skipped ${matchingInterval.skipType} to ${target}s',
+            name: 'watchAny.PlayerScreen',
+          );
+          return;
+        }
+      }
+
+      if (_activeSkipInterval != matchingInterval) {
+        setState(() {
+          _activeSkipInterval = matchingInterval;
+          _showSkipButton = true;
+        });
+      }
+    } else {
+      if (_showSkipButton) {
+        setState(() {
+          _showSkipButton = false;
+          _activeSkipInterval = null;
+        });
+      }
+    }
+  }
+
+  void _performSkip() {
+    if (_activeSkipInterval == null) return;
+    final target = _activeSkipInterval!.endTime.toInt();
+    player.seek(Duration(seconds: target));
+    setState(() {
+      _showSkipButton = false;
+      _activeSkipInterval = null;
+    });
   }
 
   @override
@@ -422,9 +520,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
 
     if (allStreams.isEmpty) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('No stream links found for this title.')),
-        );
+        NotificationService().show(context, 'No stream links found for this title.');
       }
       return;
     }
@@ -638,245 +734,382 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
         // 1. Desktop custom controls theme configuration
     final desktopTheme = MaterialDesktopVideoControlsTheme(
       normal: MaterialDesktopVideoControlsThemeData(
+        displaySeekBar: false,
+        buttonBarHeight: 88.0,
         controlsHoverDuration: _controlsHoverDuration,
         seekBarBufferColor: Colors.white24,
         seekBarPositionColor: Colors.amber,
         seekBarColor: Colors.white12,
         seekBarThumbColor: Colors.amber,
         bottomButtonBar: [
-          const MaterialDesktopPlayOrPauseButton(),
-          if (widget.isMovie != true)
-            MaterialDesktopCustomButton(
-              onPressed: _playNextEpisode,
-              icon: const Icon(Icons.skip_next, color: Colors.white),
-            ),
-          const MaterialDesktopVolumeButton(),
-          const MaterialDesktopPositionIndicator(),
-          const Spacer(),
-          if (widget.episodes != null && widget.episodes!.isNotEmpty)
-            MaterialDesktopCustomButton(
-              onPressed: _openEpisodesPanel,
-              icon: const Icon(
-                Icons.keyboard_arrow_up,
-                color: Colors.white,
-              ),
-            ),
-          if (widget.episodes != null && widget.episodes!.isNotEmpty)
-            const Spacer(),
-          // Quality Enhancement Button
-          ValueListenableBuilder<bool>(
-            valueListenable: _isQualityEnhancedNotifier,
-            builder: (context, isEnhanced, _) {
-              return MaterialDesktopCustomButton(
-                onPressed: _toggleQualityEnhancement,
-                icon: Icon(
-                  Icons.auto_awesome,
-                  color: isEnhanced ? Colors.amber : Colors.white38,
+          Expanded(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16.0),
+                  child: MaterialDesktopSeekBar(),
                 ),
-              );
-            },
-          ),
-          // Subtitles On/Off Button (CC)
-          MaterialDesktopCustomButton(
-            onPressed: () {
-              final isOff = player.state.track.subtitle.id == 'no';
-              if (isOff) {
-                final firstTrack = player.state.tracks.subtitle.firstWhere(
-                  (t) => t.id != 'no' && t.id != 'auto',
-                  orElse: () => player.state.tracks.subtitle.first,
-                );
-                player.setSubtitleTrack(firstTrack);
-              } else {
-                player.setSubtitleTrack(SubtitleTrack.no());
-              }
-              setState(() {});
-            },
-            icon: StreamBuilder(
-              stream: player.stream.track,
-              builder: (context, _) {
-                final isOff = player.state.track.subtitle.id == 'no';
-                return Icon(
-                  isOff ? Icons.closed_caption_disabled : Icons.closed_caption,
-                  color: isOff ? Colors.white38 : Colors.white,
-                );
-              },
+                const SizedBox(height: 4.0),
+                Row(
+                  children: [
+                    const MaterialDesktopPlayOrPauseButton(),
+                    if (widget.isMovie != true)
+                      MaterialDesktopCustomButton(
+                        onPressed: _playNextEpisode,
+                        icon: const Icon(Icons.skip_next, color: Colors.white),
+                      ),
+                    const MaterialDesktopVolumeButton(),
+                    const MaterialDesktopPositionIndicator(),
+                    const Spacer(),
+                    if (widget.episodes != null && widget.episodes!.isNotEmpty)
+                      MaterialDesktopCustomButton(
+                        onPressed: _openEpisodesPanel,
+                        icon: const Icon(
+                          Icons.keyboard_arrow_up,
+                          color: Colors.white,
+                        ),
+                      ),
+                    if (widget.episodes != null && widget.episodes!.isNotEmpty)
+                      const Spacer(),
+                    // Quality Enhancement Button
+                    ValueListenableBuilder<bool>(
+                      valueListenable: _isQualityEnhancedNotifier,
+                      builder: (context, isEnhanced, _) {
+                        return MaterialDesktopCustomButton(
+                          onPressed: _toggleQualityEnhancement,
+                          icon: Icon(
+                            Icons.auto_awesome,
+                            color: isEnhanced ? Colors.amber : Colors.white38,
+                          ),
+                        );
+                      },
+                    ),
+                    // Subtitles On/Off Button (CC)
+                    MaterialDesktopCustomButton(
+                      onPressed: () {
+                        final isOff = player.state.track.subtitle.id == 'no';
+                        if (isOff) {
+                          final firstTrack = player.state.tracks.subtitle.firstWhere(
+                            (t) => t.id != 'no' && t.id != 'auto',
+                            orElse: () => player.state.tracks.subtitle.first,
+                          );
+                          player.setSubtitleTrack(firstTrack);
+                        } else {
+                          player.setSubtitleTrack(SubtitleTrack.no());
+                        }
+                        setState(() {});
+                      },
+                      icon: StreamBuilder(
+                        stream: player.stream.track,
+                        builder: (context, _) {
+                          final isOff = player.state.track.subtitle.id == 'no';
+                          return Icon(
+                            isOff ? Icons.closed_caption_disabled : Icons.closed_caption,
+                            color: isOff ? Colors.white38 : Colors.white,
+                          );
+                        },
+                      ),
+                    ),
+                    // Change Stream Button
+                    if (widget.anilistId != null)
+                      MaterialDesktopCustomButton(
+                        onPressed: () {
+                          _hideSettingsMenu();
+                          _openTorrentSelectorPanel();
+                        },
+                        icon: const Icon(Icons.swap_horizontal_circle, color: Colors.white),
+                      ),
+                    // Settings Button with Target Link
+                    CompositedTransformTarget(
+                      link: _layerLink,
+                      child: MaterialDesktopCustomButton(
+                        onPressed: _toggleSettingsMenu,
+                        icon: const Icon(Icons.settings, color: Colors.white),
+                      ),
+                    ),
+                    const MaterialDesktopFullscreenButton(),
+                  ],
+                ),
+              ],
             ),
           ),
-          // Change Stream Button
-          if (widget.anilistId != null)
-            MaterialDesktopCustomButton(
-              onPressed: () {
-                _hideSettingsMenu();
-                _openTorrentSelectorPanel();
-              },
-              icon: const Icon(Icons.swap_horizontal_circle, color: Colors.white),
-            ),
-          // Settings Button with Target Link
-          CompositedTransformTarget(
-            link: _layerLink,
-            child: MaterialDesktopCustomButton(
-              onPressed: _toggleSettingsMenu,
-              icon: const Icon(Icons.settings, color: Colors.white),
-            ),
-          ),
-          const MaterialDesktopFullscreenButton(),
         ],
       ),
       fullscreen: MaterialDesktopVideoControlsThemeData(
+        displaySeekBar: false,
+        buttonBarHeight: 88.0,
         controlsHoverDuration: _controlsHoverDuration,
         seekBarBufferColor: Colors.white24,
         seekBarPositionColor: Colors.amber,
         seekBarColor: Colors.white12,
         seekBarThumbColor: Colors.amber,
         bottomButtonBar: [
-          const MaterialDesktopPlayOrPauseButton(),
-          if (widget.isMovie != true)
-            MaterialDesktopCustomButton(
-              onPressed: _playNextEpisode,
-              icon: const Icon(Icons.skip_next, color: Colors.white),
-            ),
-          const MaterialDesktopVolumeButton(),
-          const MaterialDesktopPositionIndicator(),
-          const Spacer(),
-          if (widget.episodes != null && widget.episodes!.isNotEmpty)
-            MaterialDesktopCustomButton(
-              onPressed: _openEpisodesPanel,
-              icon: const Icon(
-                Icons.keyboard_arrow_up,
-                color: Colors.white,
-              ),
-            ),
-          if (widget.episodes != null && widget.episodes!.isNotEmpty)
-            const Spacer(),
-          // Quality Enhancement Button
-          ValueListenableBuilder<bool>(
-            valueListenable: _isQualityEnhancedNotifier,
-            builder: (context, isEnhanced, _) {
-              return MaterialDesktopCustomButton(
-                onPressed: _toggleQualityEnhancement,
-                icon: Icon(
-                  Icons.auto_awesome,
-                  color: isEnhanced ? Colors.amber : Colors.white38,
+          Expanded(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16.0),
+                  child: MaterialDesktopSeekBar(),
                 ),
-              );
-            },
-          ),
-          // Subtitles On/Off Button (CC)
-          MaterialDesktopCustomButton(
-            onPressed: () {
-              final isOff = player.state.track.subtitle.id == 'no';
-              if (isOff) {
-                final firstTrack = player.state.tracks.subtitle.firstWhere(
-                  (t) => t.id != 'no' && t.id != 'auto',
-                  orElse: () => player.state.tracks.subtitle.first,
-                );
-                player.setSubtitleTrack(firstTrack);
-              } else {
-                player.setSubtitleTrack(SubtitleTrack.no());
-              }
-              setState(() {});
-            },
-            icon: StreamBuilder(
-              stream: player.stream.track,
-              builder: (context, _) {
-                final isOff = player.state.track.subtitle.id == 'no';
-                return Icon(
-                  isOff ? Icons.closed_caption_disabled : Icons.closed_caption,
-                  color: isOff ? Colors.white38 : Colors.white,
-                );
-              },
+                const SizedBox(height: 4.0),
+                Row(
+                  children: [
+                    const MaterialDesktopPlayOrPauseButton(),
+                    if (widget.isMovie != true)
+                      MaterialDesktopCustomButton(
+                        onPressed: _playNextEpisode,
+                        icon: const Icon(Icons.skip_next, color: Colors.white),
+                      ),
+                    const MaterialDesktopVolumeButton(),
+                    const MaterialDesktopPositionIndicator(),
+                    const Spacer(),
+                    if (widget.episodes != null && widget.episodes!.isNotEmpty)
+                      MaterialDesktopCustomButton(
+                        onPressed: _openEpisodesPanel,
+                        icon: const Icon(
+                          Icons.keyboard_arrow_up,
+                          color: Colors.white,
+                        ),
+                      ),
+                    if (widget.episodes != null && widget.episodes!.isNotEmpty)
+                      const Spacer(),
+                    // Quality Enhancement Button
+                    ValueListenableBuilder<bool>(
+                      valueListenable: _isQualityEnhancedNotifier,
+                      builder: (context, isEnhanced, _) {
+                        return MaterialDesktopCustomButton(
+                          onPressed: _toggleQualityEnhancement,
+                          icon: Icon(
+                            Icons.auto_awesome,
+                            color: isEnhanced ? Colors.amber : Colors.white38,
+                          ),
+                        );
+                      },
+                    ),
+                    // Subtitles On/Off Button (CC)
+                    MaterialDesktopCustomButton(
+                      onPressed: () {
+                        final isOff = player.state.track.subtitle.id == 'no';
+                        if (isOff) {
+                          final firstTrack = player.state.tracks.subtitle.firstWhere(
+                            (t) => t.id != 'no' && t.id != 'auto',
+                            orElse: () => player.state.tracks.subtitle.first,
+                          );
+                          player.setSubtitleTrack(firstTrack);
+                        } else {
+                          player.setSubtitleTrack(SubtitleTrack.no());
+                        }
+                        setState(() {});
+                      },
+                      icon: StreamBuilder(
+                        stream: player.stream.track,
+                        builder: (context, _) {
+                          final isOff = player.state.track.subtitle.id == 'no';
+                          return Icon(
+                            isOff ? Icons.closed_caption_disabled : Icons.closed_caption,
+                            color: isOff ? Colors.white38 : Colors.white,
+                          );
+                        },
+                      ),
+                    ),
+                    // Change Stream Button
+                    if (widget.anilistId != null)
+                      MaterialDesktopCustomButton(
+                        onPressed: () {
+                          _hideSettingsMenu();
+                          _openTorrentSelectorPanel();
+                        },
+                        icon: const Icon(Icons.swap_horizontal_circle, color: Colors.white),
+                      ),
+                    // Settings Button with Target Link
+                    CompositedTransformTarget(
+                      link: _layerLink,
+                      child: MaterialDesktopCustomButton(
+                        onPressed: _toggleSettingsMenu,
+                        icon: const Icon(Icons.settings, color: Colors.white),
+                      ),
+                    ),
+                    const MaterialDesktopFullscreenButton(),
+                  ],
+                ),
+              ],
             ),
           ),
-          // Change Stream Button
-          if (widget.anilistId != null)
-            MaterialDesktopCustomButton(
-              onPressed: () {
-                _hideSettingsMenu();
-                _openTorrentSelectorPanel();
-              },
-              icon: const Icon(Icons.swap_horizontal_circle, color: Colors.white),
-            ),
-          // Settings Button with Target Link
-          CompositedTransformTarget(
-            link: _layerLink,
-            child: MaterialDesktopCustomButton(
-              onPressed: _toggleSettingsMenu,
-              icon: const Icon(Icons.settings, color: Colors.white),
-            ),
-          ),
-          const MaterialDesktopFullscreenButton(),
         ],
       ),
-      child: StreamBuilder<int?>(
-        stream: player.stream.width,
-        builder: (context, widthSnapshot) {
-          return StreamBuilder<int?>(
-            stream: player.stream.height,
-            builder: (context, heightSnapshot) {
-              final w = widthSnapshot.data ?? player.state.width;
-              final h = heightSnapshot.data ?? player.state.height;
+      child: Builder(
+        builder: (context) {
+          final videoWidth = player.state.width;
+          final videoHeight = player.state.height;
+          final videoAspectRatio = videoWidth != null && videoHeight != null && videoWidth > 0 && videoHeight > 0
+              ? (videoWidth / videoHeight)
+              : 16 / 9;
+
+          // Scale subtitles font size dynamically based on the current window/screen width
+          final screenWidth = MediaQuery.of(context).size.width;
+          final screenHeight = MediaQuery.of(context).size.height;
+          final double subtitleFontSize = (screenWidth / 600.0 * 16.0).clamp(12.0, 30.0);
+
+          // Calculate vertical letterbox padding so subtitles are always drawn on the video frame
+          double bottomPadding = 24.0;
+          if (screenWidth > 0 && screenHeight > 0) {
+            final double screenAspectRatio = screenWidth / screenHeight;
+            if (screenAspectRatio < videoAspectRatio) {
+              // Top and bottom black bars exist
+              final double videoRenderedHeight = screenWidth / videoAspectRatio;
+              final double blackBarHeight = (screenHeight - videoRenderedHeight) / 2.0;
+              bottomPadding += blackBarHeight;
+            }
+          }
+
+          final subtitleConfig = SubtitleViewConfiguration(
+            style: TextStyle(
+              height: 1.4,
+              fontSize: subtitleFontSize,
+              letterSpacing: 0.0,
+              wordSpacing: 0.0,
+              color: const Color(0xffffffff),
+              fontWeight: FontWeight.normal,
+              fontFamily: 'Outfit',
+              shadows: const [
+                Shadow(offset: Offset(-1.5, -1.5), color: Colors.black),
+                Shadow(offset: Offset(1.5, -1.5), color: Colors.black),
+                Shadow(offset: Offset(1.5, 1.5), color: Colors.black),
+                Shadow(offset: Offset(-1.5, 1.5), color: Colors.black),
+              ],
+            ),
+            textAlign: TextAlign.center,
+            padding: EdgeInsets.fromLTRB(16.0, 16.0, 16.0, bottomPadding),
+          );
+
+          Widget videoWidget = Video(
+            controller: controller,
+            subtitleViewConfiguration: subtitleConfig,
+            onEnterFullscreen: () async {
+              PlayerState().enterFullscreen();
+              if (isDesktop) {
+                try {
+                  await windowManager.setFullScreen(true);
+                } catch (_) {}
+                await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+              } else {
+                await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+                await SystemChrome.setPreferredOrientations([]); // allow both vertical/horizontal in fullscreen
+              }
+            },
+            onExitFullscreen: () async {
+              PlayerState().exitFullscreen();
+              if (isDesktop) {
+                try {
+                  await windowManager.setFullScreen(false);
+                } catch (_) {}
+                await SystemChrome.setEnabledSystemUIMode(
+                  SystemUiMode.manual,
+                  overlays: SystemUiOverlay.values,
+                );
+              } else {
+                await SystemChrome.setEnabledSystemUIMode(
+                  SystemUiMode.manual,
+                  overlays: SystemUiOverlay.values,
+                );
+                await SystemChrome.setPreferredOrientations([]); // allow both vertical/horizontal on exit
+              }
+            },
+            controls: (state) {
+              final bool isDesktopPlatform = [
+                TargetPlatform.windows,
+                TargetPlatform.linux,
+                TargetPlatform.macOS,
+              ].contains(Theme.of(state.context).platform);
               
-              Widget videoWidget = Video(
-                controller: controller,
-                onEnterFullscreen: () async {
-                  PlayerState().enterFullscreen();
-                  if (isDesktop) {
-                    try {
-                      await windowManager.setFullScreen(true);
-                    } catch (_) {}
-                    await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-                  } else {
-                    await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-                    await SystemChrome.setPreferredOrientations([
-                      DeviceOrientation.landscapeLeft,
-                      DeviceOrientation.landscapeRight,
-                    ]);
-                  }
-                },
-                onExitFullscreen: () async {
-                  PlayerState().exitFullscreen();
-                  if (isDesktop) {
-                    try {
-                      await windowManager.setFullScreen(false);
-                    } catch (_) {}
-                    await SystemChrome.setEnabledSystemUIMode(
-                      SystemUiMode.manual,
-                      overlays: SystemUiOverlay.values,
-                    );
-                  } else {
-                    await SystemChrome.setEnabledSystemUIMode(
-                      SystemUiMode.manual,
-                      overlays: SystemUiOverlay.values,
-                    );
-                    await SystemChrome.setPreferredOrientations([]);
-                  }
-                },
-                controls: (state) {
-                  final bool isDesktop = [
-                    TargetPlatform.windows,
-                    TargetPlatform.linux,
-                    TargetPlatform.macOS,
-                  ].contains(Theme.of(state.context).platform);
-                  return KeyedSubtree(
-                    key: ValueKey(_overlayEntry != null),
-                    child: isDesktop
-                        ? MaterialDesktopVideoControls(state)
-                        : MaterialVideoControls(state),
-                  );
-                },
+              final double width = MediaQuery.of(state.context).size.width;
+              final bool useMobileControls = !isDesktopPlatform || width < 600;
+
+              final Widget controlsWidget = KeyedSubtree(
+                key: ValueKey(_overlayEntry != null),
+                child: useMobileControls
+                    ? MaterialVideoControls(state)
+                    : MaterialDesktopVideoControls(state),
               );
 
-              if (w != null && h != null && w > 0 && h > 0) {
-                return Center(
-                  child: AspectRatio(
-                    aspectRatio: w / h,
-                    child: videoWidget,
-                  ),
-                );
-              }
-              return videoWidget;
+              return Stack(
+                fit: StackFit.expand,
+                children: [
+                  controlsWidget,
+                  if (_showSkipButton && _activeSkipInterval != null)
+                    Positioned(
+                      bottom: 96.0,
+                      right: 24.0,
+                      child: AnimatedOpacity(
+                        opacity: _showSkipButton ? 1.0 : 0.0,
+                        duration: const Duration(milliseconds: 300),
+                        child: Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            onTap: _performSkip,
+                            borderRadius: BorderRadius.circular(8.0),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 18.0, vertical: 10.0),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withOpacity(0.75),
+                                borderRadius: BorderRadius.circular(8.0),
+                                border: Border.all(color: Colors.amber.withOpacity(0.5), width: 1.5),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.amber.withOpacity(0.15),
+                                    blurRadius: 10,
+                                    spreadRadius: 1,
+                                  )
+                                ],
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    _activeSkipInterval!.skipType == 'ed'
+                                        ? Icons.skip_next
+                                        : Icons.fast_forward,
+                                    color: Colors.amber,
+                                    size: 20,
+                                  ),
+                                  const SizedBox(width: 8.0),
+                                  Text(
+                                    _activeSkipInterval!.skipType == 'ed'
+                                        ? 'Skip Ending'
+                                        : _activeSkipInterval!.skipType == 'op'
+                                            ? 'Skip Opening'
+                                            : 'Skip Recap',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontFamily: 'Outfit',
+                                      fontSize: 14.0,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              );
             },
           );
+
+          Widget finalWidget = Stack(
+            fit: StackFit.expand,
+            children: [
+              videoWidget,
+            ],
+          );
+
+          return finalWidget;
         },
       ),
     );
@@ -884,28 +1117,33 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
     // 2. Mobile custom controls theme configuration (just in case)
     final mobileTheme = MaterialVideoControlsTheme(
       normal: MaterialVideoControlsThemeData(
+        displaySeekBar: false,
+        buttonBarHeight: 88.0,
         controlsHoverDuration: _controlsHoverDuration,
         seekBarBufferColor: Colors.white24,
         seekBarPositionColor: Colors.amber,
         seekBarColor: Colors.white12,
         seekBarThumbColor: Colors.amber,
         topButtonBar: [
-          MaterialCustomButton(
-            onPressed: () {
-              PlayerState().minimize();
-            },
-            icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 18),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              currentTitle,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: Colors.white, fontSize: 14.0, fontFamily: 'Outfit', fontWeight: FontWeight.bold),
+          if (!isDesktop) ...[
+            MaterialCustomButton(
+              onPressed: () {
+                PlayerState().minimize();
+              },
+              icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 18),
             ),
-          ),
-          const SizedBox(width: 8),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                currentTitle,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: Colors.white, fontSize: 14.0, fontFamily: 'Outfit', fontWeight: FontWeight.bold),
+              ),
+            ),
+            const SizedBox(width: 8),
+          ] else
+            const Spacer(),
           if (widget.episodes != null && widget.episodes!.isNotEmpty)
             MaterialCustomButton(
               onPressed: _openEpisodesPanel,
@@ -925,44 +1163,63 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
           ),
         ],
         bottomButtonBar: [
-          const MaterialPlayOrPauseButton(),
-          if (widget.isMovie != true)
-            MaterialCustomButton(
-              onPressed: _playNextEpisode,
-              icon: const Icon(Icons.skip_next, color: Colors.white),
-            ),
-          const MaterialPositionIndicator(),
-          const Spacer(),
-          // Subtitles On/Off Button (CC)
-          MaterialCustomButton(
-            onPressed: () {
-              final isOff = player.state.track.subtitle.id == 'no';
-              if (isOff) {
-                final firstTrack = player.state.tracks.subtitle.firstWhere(
-                  (t) => t.id != 'no' && t.id != 'auto',
-                  orElse: () => player.state.tracks.subtitle.first,
-                );
-                player.setSubtitleTrack(firstTrack);
-              } else {
-                player.setSubtitleTrack(SubtitleTrack.no());
-              }
-              setState(() {});
-            },
-            icon: StreamBuilder(
-              stream: player.stream.track,
-              builder: (context, _) {
-                final isOff = player.state.track.subtitle.id == 'no';
-                return Icon(
-                  isOff ? Icons.closed_caption_disabled : Icons.closed_caption,
-                  color: isOff ? Colors.white38 : Colors.white,
-                );
-              },
+          Expanded(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16.0),
+                  child: MaterialSeekBar(),
+                ),
+                const SizedBox(height: 4.0),
+                Row(
+                  children: [
+                    const MaterialPlayOrPauseButton(),
+                    if (widget.isMovie != true)
+                      MaterialCustomButton(
+                        onPressed: _playNextEpisode,
+                        icon: const Icon(Icons.skip_next, color: Colors.white),
+                      ),
+                    const MaterialPositionIndicator(),
+                    const Spacer(),
+                    // Subtitles On/Off Button (CC)
+                    MaterialCustomButton(
+                      onPressed: () {
+                        final isOff = player.state.track.subtitle.id == 'no';
+                        if (isOff) {
+                          final firstTrack = player.state.tracks.subtitle.firstWhere(
+                            (t) => t.id != 'no' && t.id != 'auto',
+                            orElse: () => player.state.tracks.subtitle.first,
+                          );
+                          player.setSubtitleTrack(firstTrack);
+                        } else {
+                          player.setSubtitleTrack(SubtitleTrack.no());
+                        }
+                        setState(() {});
+                      },
+                      icon: StreamBuilder(
+                        stream: player.stream.track,
+                        builder: (context, _) {
+                          final isOff = player.state.track.subtitle.id == 'no';
+                          return Icon(
+                            isOff ? Icons.closed_caption_disabled : Icons.closed_caption,
+                            color: isOff ? Colors.white38 : Colors.white,
+                          );
+                        },
+                      ),
+                    ),
+                    const MaterialFullscreenButton(),
+                  ],
+                ),
+              ],
             ),
           ),
-          const MaterialFullscreenButton(),
         ],
       ),
       fullscreen: MaterialVideoControlsThemeData(
+        displaySeekBar: false,
+        buttonBarHeight: 88.0,
         controlsHoverDuration: _controlsHoverDuration,
         seekBarBufferColor: Colors.white24,
         seekBarPositionColor: Colors.amber,
@@ -1004,41 +1261,58 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
           ),
         ],
         bottomButtonBar: [
-          const MaterialPlayOrPauseButton(),
-          if (widget.isMovie != true)
-            MaterialCustomButton(
-              onPressed: _playNextEpisode,
-              icon: const Icon(Icons.skip_next, color: Colors.white),
-            ),
-          const MaterialPositionIndicator(),
-          const Spacer(),
-          // Subtitles On/Off Button (CC)
-          MaterialCustomButton(
-            onPressed: () {
-              final isOff = player.state.track.subtitle.id == 'no';
-              if (isOff) {
-                final firstTrack = player.state.tracks.subtitle.firstWhere(
-                  (t) => t.id != 'no' && t.id != 'auto',
-                  orElse: () => player.state.tracks.subtitle.first,
-                );
-                player.setSubtitleTrack(firstTrack);
-              } else {
-                player.setSubtitleTrack(SubtitleTrack.no());
-              }
-              setState(() {});
-            },
-            icon: StreamBuilder(
-              stream: player.stream.track,
-              builder: (context, _) {
-                final isOff = player.state.track.subtitle.id == 'no';
-                return Icon(
-                  isOff ? Icons.closed_caption_disabled : Icons.closed_caption,
-                  color: isOff ? Colors.white38 : Colors.white,
-                );
-              },
+          Expanded(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16.0),
+                  child: MaterialSeekBar(),
+                ),
+                const SizedBox(height: 4.0),
+                Row(
+                  children: [
+                    const MaterialPlayOrPauseButton(),
+                    if (widget.isMovie != true)
+                      MaterialCustomButton(
+                        onPressed: _playNextEpisode,
+                        icon: const Icon(Icons.skip_next, color: Colors.white),
+                      ),
+                    const MaterialPositionIndicator(),
+                    const Spacer(),
+                    // Subtitles On/Off Button (CC)
+                    MaterialCustomButton(
+                      onPressed: () {
+                        final isOff = player.state.track.subtitle.id == 'no';
+                        if (isOff) {
+                          final firstTrack = player.state.tracks.subtitle.firstWhere(
+                            (t) => t.id != 'no' && t.id != 'auto',
+                            orElse: () => player.state.tracks.subtitle.first,
+                          );
+                          player.setSubtitleTrack(firstTrack);
+                        } else {
+                          player.setSubtitleTrack(SubtitleTrack.no());
+                        }
+                        setState(() {});
+                      },
+                      icon: StreamBuilder(
+                        stream: player.stream.track,
+                        builder: (context, _) {
+                          final isOff = player.state.track.subtitle.id == 'no';
+                          return Icon(
+                            isOff ? Icons.closed_caption_disabled : Icons.closed_caption,
+                            color: isOff ? Colors.white38 : Colors.white,
+                          );
+                        },
+                      ),
+                    ),
+                    const MaterialFullscreenButton(),
+                  ],
+                ),
+              ],
             ),
           ),
-          const MaterialFullscreenButton(),
         ],
       ),
       child: desktopTheme,
@@ -1208,9 +1482,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
 
     if (allStreams.isEmpty) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('No streams found for this episode.')),
-        );
+        NotificationService().show(context, 'No streams found for this episode.');
       }
       return;
     }
@@ -1721,6 +1993,27 @@ class _SettingsOverlayCardState extends State<_SettingsOverlayCard> {
             ),
           ),
         ),
+        if (widget.anilistId != null)
+          ListTile(
+            dense: true,
+            leading: const Icon(Icons.skip_next_outlined, color: Colors.white70, size: 18),
+            title: const Text("Auto Skip Intro/Outro", style: TextStyle(color: Colors.white, fontSize: 13.0, fontFamily: 'Outfit')),
+            trailing: SizedBox(
+              height: 24,
+              child: ListenableBuilder(
+                listenable: AppSettings(),
+                builder: (context, _) {
+                  return Switch(
+                    value: AppSettings().autoSkipIntro,
+                    activeColor: Colors.amber,
+                    onChanged: (val) {
+                      AppSettings().setAutoSkipIntro(val);
+                    },
+                  );
+                },
+              ),
+            ),
+          ),
         if (widget.anilistId != null) ...[
           const Divider(color: Colors.white10, height: 1),
           ListTile(

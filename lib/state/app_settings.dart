@@ -17,6 +17,7 @@ class AppSettings extends ChangeNotifier {
   String _startupPageStr = 'home';
   bool _autoPlay = true;
   bool _autoNext = true;
+  bool _autoSkipIntro = false;
 
   bool get smoothScrollEnabled => _smoothScrollEnabled;
   String get torrServerUrl => _torrServerUrl;
@@ -26,6 +27,7 @@ class AppSettings extends ChangeNotifier {
   String get startupPageStr => _startupPageStr;
   bool get autoPlay => _autoPlay;
   bool get autoNext => _autoNext;
+  bool get autoSkipIntro => _autoSkipIntro;
 
   AppMode get startupMode {
     switch (_startupModeStr) {
@@ -56,7 +58,16 @@ class AppSettings extends ChangeNotifier {
     _startupPageStr = prefs.getString('startup_page') ?? 'home';
     _autoPlay = prefs.getBool('auto_play') ?? true;
     _autoNext = prefs.getBool('auto_next') ?? true;
+    _autoSkipIntro = prefs.getBool('auto_skip_intro') ?? false;
     notifyListeners();
+  }
+
+  Future<void> setAutoSkipIntro(bool value) async {
+    if (_autoSkipIntro == value) return;
+    _autoSkipIntro = value;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('auto_skip_intro', value);
   }
 
   Future<void> setAutoPlay(bool value) async {
