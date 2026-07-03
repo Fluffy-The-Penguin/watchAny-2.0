@@ -173,6 +173,7 @@ class _SettingsPageState extends State<SettingsPage> {
       SettingsCategory.extensions: {'title': 'Extensions', 'icon': Icons.extension},
       SettingsCategory.addons: {'title': 'Movies/TV Addons', 'icon': Icons.movie_filter},
       SettingsCategory.general: {'title': 'General', 'icon': Icons.settings_applications},
+      SettingsCategory.subtitles: {'title': 'Subtitles', 'icon': Icons.subtitles},
       SettingsCategory.manga: {'title': 'Manga Settings', 'icon': Icons.book},
       SettingsCategory.about: {'title': 'About', 'icon': Icons.info_outline},
     };
