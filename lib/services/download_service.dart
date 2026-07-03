@@ -402,4 +402,104 @@ class DownloadService extends ChangeNotifier {
     // Run next task in queue
     _runNextTask();
   }
+
+  /// Calculates total size of the downloads directory in bytes.
+  Future<int> getDownloadsDirectorySize() async {
+    try {
+      String baseDir = AppSettings().downloadPath;
+      if (baseDir.isEmpty) {
+        if (!kIsWeb && Platform.isAndroid) {
+          final supportDir = await getApplicationSupportDirectory();
+          baseDir = '${supportDir.path}/downloads';
+        } else {
+          final homeDir = Platform.environment['USERPROFILE'] ?? Platform.environment['HOME'] ?? Directory.current.path;
+          baseDir = '$homeDir/Downloads/watchAny';
+        }
+      }
+      final dir = Directory(baseDir);
+      if (!await dir.exists()) return 0;
+      int totalSize = 0;
+      await for (final file in dir.list(recursive: true, followLinks: false)) {
+        if (file is File) {
+          totalSize += await file.length();
+        }
+      }
+      return totalSize;
+    } catch (e) {
+      debugPrint("Error calculating downloads directory size: $e");
+      return 0;
+    }
+  }
+
+  /// Checks if adding the new file exceeds the storage limit.
+  /// If autoManageStorage is enabled, it automatically evicts completed files.
+  Future<bool> preCheckStorageLimit(int incomingFileBytes) async {
+    try {
+      final limitBytes = (AppSettings().downloadsLimitGB * 1024 * 1024 * 1024).round();
+      final currentSize = await getDownloadsDirectorySize();
+      if (currentSize + incomingFileBytes <= limitBytes) {
+        return true;
+      }
+      if (AppSettings().autoManageStorage) {
+        return await forceAutoDeleteToFit(incomingFileBytes);
+      }
+      return false;
+    } catch (e) {
+      debugPrint("Error prechecking storage limit: $e");
+      return true; // Don't block downloads if checks error out
+    }
+  }
+
+  /// Evicts oldest completed downloads until the incoming file fits under the limit.
+  Future<bool> forceAutoDeleteToFit(int incomingFileBytes) async {
+    try {
+      final limitBytes = (AppSettings().downloadsLimitGB * 1024 * 1024 * 1024).round();
+      int currentSize = await getDownloadsDirectorySize();
+      if (currentSize + incomingFileBytes <= limitBytes) return true;
+
+      // Get all completed tasks
+      final completedTasks = _tasks.where((t) => t.status == DownloadStatus.completed).toList();
+      if (completedTasks.isEmpty) return false;
+
+      // Fetch modification times of local files
+      final List<MapEntry<DownloadTask, DateTime>> taskTimes = [];
+      for (final task in completedTasks) {
+        final file = File(task.savePath);
+        if (await file.exists()) {
+          final stat = await file.stat();
+          taskTimes.add(MapEntry(task, stat.modified));
+        }
+      }
+
+      // Sort by modified date (oldest first)
+      taskTimes.sort((a, b) => a.value.compareTo(b.value));
+
+      for (final entry in taskTimes) {
+        final task = entry.key;
+        try {
+          final file = File(task.savePath);
+          final size = await file.length();
+          await file.delete();
+          
+          // Keep task entry but mark failed/removed
+          task.status = DownloadStatus.failed;
+          task.downloadedBytes = 0;
+          
+          currentSize -= size;
+          if (currentSize + incomingFileBytes <= limitBytes) {
+            await _saveTasks();
+            notifyListeners();
+            return true;
+          }
+        } catch (_) {}
+      }
+
+      await _saveTasks();
+      notifyListeners();
+      return currentSize + incomingFileBytes <= limitBytes;
+    } catch (e) {
+      debugPrint("Error executing auto-manage storage cleanup: $e");
+      return false;
+    }
+  }
 }

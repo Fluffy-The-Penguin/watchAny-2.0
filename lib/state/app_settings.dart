@@ -1,4 +1,6 @@
 import 'dart:convert';
+import 'dart:io' show Platform;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -20,6 +22,12 @@ class AppSettings extends ChangeNotifier {
   bool _autoNext = true;
   bool _autoSkipIntro = false;
   bool _videoEnhancementEnabled = false;
+
+  // Downloads & Cache storage configuration
+  double _downloadsLimitGB = 10.0;
+  double _cacheLimitGB = 10.0;
+  String _cachePath = '';
+  bool _autoManageStorage = false;
 
   // Custom Subtitles configuration
   bool _subtitlesCustomStylesEnabled = true;
@@ -50,6 +58,10 @@ class AppSettings extends ChangeNotifier {
   bool get autoNext => _autoNext;
   bool get autoSkipIntro => _autoSkipIntro;
   bool get videoEnhancementEnabled => _videoEnhancementEnabled;
+  double get downloadsLimitGB => _downloadsLimitGB;
+  double get cacheLimitGB => _cacheLimitGB;
+  String get cachePath => _cachePath;
+  bool get autoManageStorage => _autoManageStorage;
 
   // Custom Subtitles getters
   bool get subtitlesCustomStylesEnabled => _subtitlesCustomStylesEnabled;
@@ -100,6 +112,14 @@ class AppSettings extends ChangeNotifier {
     _autoNext = prefs.getBool('auto_next') ?? true;
     _autoSkipIntro = prefs.getBool('auto_skip_intro') ?? false;
     _videoEnhancementEnabled = prefs.getBool('video_enhancement_enabled') ?? false;
+
+    // Load Storage Settings
+    final bool isMobileDevice = !kIsWeb && (Platform.isAndroid || Platform.isIOS);
+    final double defaultLimitGB = isMobileDevice ? 5.0 : 10.0;
+    _downloadsLimitGB = prefs.getDouble('downloads_limit_gb') ?? defaultLimitGB;
+    _cacheLimitGB = prefs.getDouble('cache_limit_gb') ?? defaultLimitGB;
+    _cachePath = prefs.getString('cache_path') ?? '';
+    _autoManageStorage = prefs.getBool('auto_manage_storage') ?? false;
 
     // Subtitles settings initialization
     _subtitlesCustomStylesEnabled = prefs.getBool('subtitles_custom_styles_enabled') ?? true;
@@ -190,6 +210,38 @@ class AppSettings extends ChangeNotifier {
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('download_path', value);
+  }
+
+  Future<void> setDownloadsLimitGB(double value) async {
+    if (_downloadsLimitGB == value) return;
+    _downloadsLimitGB = value;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble('downloads_limit_gb', value);
+  }
+
+  Future<void> setCacheLimitGB(double value) async {
+    if (_cacheLimitGB == value) return;
+    _cacheLimitGB = value;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble('cache_limit_gb', value);
+  }
+
+  Future<void> setCachePath(String value) async {
+    if (_cachePath == value) return;
+    _cachePath = value;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('cache_path', value);
+  }
+
+  Future<void> setAutoManageStorage(bool value) async {
+    if (_autoManageStorage == value) return;
+    _autoManageStorage = value;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('auto_manage_storage', value);
   }
 
   Future<void> setHardwareAccelerationEnabled(bool value) async {

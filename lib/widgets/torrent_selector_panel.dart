@@ -11,6 +11,7 @@ import '../models/torrent.dart';
 import '../services/download_service.dart';
 import '../state/player_state.dart';
 import '../state/app_settings.dart';
+import '../state/navigation_state.dart';
 import 'package:flutter/gestures.dart';
 
 extension TorrentStreamExtension on TorrentStream {
@@ -1169,6 +1170,30 @@ class PlaybackProgressDialogState extends State<PlaybackProgressDialog> {
           final fileName = file.path.split('/').last.split('\\').last;
           final displayName = fileName.isNotEmpty ? fileName : file.name;
           
+          final fits = await DownloadService().preCheckStorageLimit(file.length);
+          if (!fits) {
+            if (!mounted) return;
+            Navigator.of(context).pop(); // pop progress dialog
+            showStorageFullDialog(context, file.length, () async {
+              await DownloadService().addDownloadTask(
+                hash: torrentInfo.hash,
+                fileIndex: file.index,
+                title: displayName,
+                streamUrl: streamUrl,
+                anilistId: widget.anilistId,
+                titles: widget.titles,
+                episodeCount: widget.episodeCount,
+                episodeNumber: widget.episodeNumber,
+                isMovie: widget.isMovie,
+                mediaJson: widget.media != null ? jsonEncode(widget.media) : null,
+                episodesJson: widget.episodes != null ? jsonEncode(widget.episodes) : null,
+                tmdbEpisodesMapJson: widget.tmdbEpisodesMap != null ? jsonEncode(widget.tmdbEpisodesMap!.map((k, v) => MapEntry(k.toString(), v))) : null,
+              );
+              NotificationService().show(widget.parentContext, 'Added to downloads: $displayName');
+            });
+            return;
+          }
+
           await DownloadService().addDownloadTask(
             hash: torrentInfo.hash,
             fileIndex: file.index,
@@ -1280,11 +1305,35 @@ class PlaybackProgressDialogState extends State<PlaybackProgressDialog> {
                     file.sizeLabel,
                     style: const TextStyle(color: Colors.white38, fontSize: 11.0),
                   ),
-                  onTap: () {
+                  onTap: () async {
                     Navigator.of(context).pop(); // pop selection dialog
                     if (widget.isDownload) {
                       final streamUrl = _torrServerService.getStreamUrl(hash, file.index);
-                      DownloadService().addDownloadTask(
+                      
+                      final fits = await DownloadService().preCheckStorageLimit(file.length);
+                      if (!fits) {
+                        if (!context.mounted) return;
+                        showStorageFullDialog(context, file.length, () async {
+                          await DownloadService().addDownloadTask(
+                            hash: hash,
+                            fileIndex: file.index,
+                            title: displayName,
+                            streamUrl: streamUrl,
+                            anilistId: widget.anilistId,
+                            titles: widget.titles,
+                            episodeCount: widget.episodeCount,
+                            episodeNumber: widget.episodeNumber,
+                            isMovie: widget.isMovie,
+                            mediaJson: widget.media != null ? jsonEncode(widget.media) : null,
+                            episodesJson: widget.episodes != null ? jsonEncode(widget.episodes) : null,
+                            tmdbEpisodesMapJson: widget.tmdbEpisodesMap != null ? jsonEncode(widget.tmdbEpisodesMap!.map((k, v) => MapEntry(k.toString(), v))) : null,
+                          );
+                          NotificationService().show(widget.parentContext, 'Added to downloads: $displayName');
+                        });
+                        return;
+                      }
+
+                      await DownloadService().addDownloadTask(
                         hash: hash,
                         fileIndex: file.index,
                         title: displayName,
@@ -1596,4 +1645,74 @@ class BufferingProgressDialogState extends State<BufferingProgressDialog> {
       ),
     );
   }
+}
+
+void showStorageFullDialog(BuildContext context, int fileBytes, VoidCallback onRetry) {
+  final double fileGB = fileBytes / (1024 * 1024 * 1024);
+  final limitGB = AppSettings().downloadsLimitGB;
+
+  showDialog(
+    context: context,
+    builder: (dialogContext) {
+      return AlertDialog(
+        backgroundColor: const Color(0xFF16161a),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
+        title: const Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: Colors.amber, size: 28),
+            SizedBox(width: 8),
+            Text(
+              "Downloads Storage Full",
+              style: TextStyle(color: Colors.white, fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 18),
+            ),
+          ],
+        ),
+        content: Text(
+          "This download requires ${fileGB.toStringAsFixed(2)} GB, which exceeds your storage limit of ${limitGB.toStringAsFixed(1)} GB.\n\n"
+          "Would you like to auto-delete the oldest completed downloads to make room, or manually manage your storage?",
+          style: const TextStyle(color: Colors.white70, fontSize: 14, height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.of(dialogContext).pop();
+            },
+            child: const Text("Cancel", style: TextStyle(color: Colors.white54)),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.of(dialogContext).pop();
+              // Redirect user to downloads page
+              NavigationState().setPage(TabPage.downloads);
+            },
+            child: const Text("Manage Storage", style: TextStyle(color: Color(0xFFFF9F1C))),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFFF9F1C),
+              foregroundColor: Colors.black,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6.0)),
+            ),
+            onPressed: () async {
+              Navigator.of(dialogContext).pop();
+              // Attempt to auto-delete
+              final success = await DownloadService().forceAutoDeleteToFit(fileBytes);
+              if (success) {
+                onRetry();
+              } else {
+                if (!context.mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text("Failed to free up enough space. Please manually delete older downloads."),
+                    backgroundColor: Colors.redAccent,
+                  ),
+                );
+              }
+            },
+            child: const Text("Auto-Delete Oldest", style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+        ],
+      );
+    },
+  );
 }

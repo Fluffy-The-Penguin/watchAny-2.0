@@ -9,10 +9,14 @@ import '../services/suwayomi_service.dart';
 import '../services/update_service.dart';
 import '../state/navigation_state.dart';
 import '../services/notification_service.dart';
+import '../services/cache_service.dart';
+import '../services/download_service.dart';
+import 'package:file_picker/file_picker.dart';
 
 enum SettingsCategory {
   general,
   subtitles,
+  downloads,
   extensions,
   addons,
   manga,
@@ -50,14 +54,52 @@ class _SettingsPageState extends State<SettingsPage> {
   final Map<String, bool> _repoSyncing = {};
   List<String> _mangaRepos = [];
 
+  int _downloadsFolderSize = 0;
+  int _cacheFolderSize = 0;
+  bool _isScanningSize = false;
+
+  Future<void> _updateStorageSizes() async {
+    if (mounted) {
+      setState(() {
+        _isScanningSize = true;
+      });
+    }
+    final dSize = await DownloadService().getDownloadsDirectorySize();
+    final cSize = await CacheService().getCacheSize();
+    if (mounted) {
+      setState(() {
+        _downloadsFolderSize = dSize;
+        _cacheFolderSize = cSize;
+        _isScanningSize = false;
+      });
+    }
+  }
+
   List<SettingsCategory> _getAvailableCategories() {
     switch (widget.mode) {
       case AppMode.anime:
-        return [SettingsCategory.general, SettingsCategory.subtitles, SettingsCategory.extensions, SettingsCategory.about];
+        return [
+          SettingsCategory.general,
+          SettingsCategory.subtitles,
+          SettingsCategory.downloads,
+          SettingsCategory.extensions,
+          SettingsCategory.about,
+        ];
       case AppMode.movies:
-        return [SettingsCategory.general, SettingsCategory.subtitles, SettingsCategory.addons, SettingsCategory.about];
+        return [
+          SettingsCategory.general,
+          SettingsCategory.subtitles,
+          SettingsCategory.downloads,
+          SettingsCategory.addons,
+          SettingsCategory.about,
+        ];
       case AppMode.manga:
-        return [SettingsCategory.general, SettingsCategory.manga, SettingsCategory.about];
+        return [
+          SettingsCategory.general,
+          SettingsCategory.downloads,
+          SettingsCategory.manga,
+          SettingsCategory.about,
+        ];
     }
   }
 
@@ -79,6 +121,7 @@ class _SettingsPageState extends State<SettingsPage> {
     _mangaPortController.text = (prefs.getInt('manga_server_port') ?? 4567).toString();
     _mangaHostController.text = prefs.getString('manga_server_host') ?? '127.0.0.1';
     _torrServerUrlController.text = AppSettings().torrServerUrl;
+    await _updateStorageSizes();
 
     if (mounted) {
       setState(() => _isLoading = false);
@@ -175,6 +218,7 @@ class _SettingsPageState extends State<SettingsPage> {
       SettingsCategory.addons: {'title': 'Movies/TV Addons', 'icon': Icons.movie_filter},
       SettingsCategory.general: {'title': 'General', 'icon': Icons.settings_applications},
       SettingsCategory.subtitles: {'title': 'Subtitles', 'icon': Icons.subtitles},
+      SettingsCategory.downloads: {'title': 'Downloads & Storage', 'icon': Icons.storage},
       SettingsCategory.manga: {'title': 'Manga Settings', 'icon': Icons.book},
       SettingsCategory.about: {'title': 'About', 'icon': Icons.info_outline},
     };
@@ -912,6 +956,322 @@ class _SettingsPageState extends State<SettingsPage> {
                   }
                 },
               ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildDownloadsSection(bool isMobile) {
+    return ListenableBuilder(
+      listenable: AppSettings(),
+      builder: (context, _) {
+        final settings = AppSettings();
+        
+        final double downloadsLimitBytes = settings.downloadsLimitGB * 1024 * 1024 * 1024;
+        final double downloadsPercent = (_downloadsFolderSize / downloadsLimitBytes).clamp(0.0, 1.0);
+        final String downloadsSizeLabel = "${(_downloadsFolderSize / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB used of ${settings.downloadsLimitGB.toStringAsFixed(0)} GB";
+
+        final double cacheLimitBytes = settings.cacheLimitGB * 1024 * 1024 * 1024;
+        final double cachePercent = (_cacheFolderSize / cacheLimitBytes).clamp(0.0, 1.0);
+        final String cacheSizeLabel = "${(_cacheFolderSize / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB used of ${settings.cacheLimitGB.toStringAsFixed(0)} GB";
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Downloads & Storage',
+              style: TextStyle(color: Colors.white, fontSize: 20.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+            ),
+            const SizedBox(height: 6.0),
+            const Text(
+              'Configure directories, storage caps, and automatic resource cleanups.',
+              style: TextStyle(color: Colors.white38, fontSize: 13.0),
+            ),
+            const SizedBox(height: 24.0),
+
+            // ── Auto-Manage Storage ──
+            _SettingsTile(
+              icon: Icons.auto_delete_outlined,
+              title: 'Auto-Manage Storage',
+              subtitle: 'Automatically delete oldest completed downloads and prune cache when limits are reached.',
+              trailing: Transform.scale(
+                scale: 0.9,
+                child: Switch(
+                  value: settings.autoManageStorage,
+                  activeColor: const Color(0xFFFF9F1C),
+                  activeTrackColor: const Color(0xFFFF9F1C).withValues(alpha: 0.2),
+                  inactiveThumbColor: Colors.white30,
+                  inactiveTrackColor: Colors.black26,
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  onChanged: (v) => settings.setAutoManageStorage(v),
+                ),
+              ),
+            ),
+            const SizedBox(height: 24.0),
+            const Divider(color: Colors.white10, height: 1.0),
+            const SizedBox(height: 24.0),
+
+            // ── Downloads Storage Header ──
+            const Row(
+              children: [
+                Icon(Icons.download_for_offline, color: Color(0xFFFF9F1C), size: 20),
+                SizedBox(width: 8.0),
+                Text(
+                  'Downloads Storage',
+                  style: TextStyle(color: Colors.white, fontSize: 16.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16.0),
+
+            // Downloads Path
+            FutureBuilder<String>(
+              future: Future.value(settings.downloadPath.isNotEmpty ? settings.downloadPath : "Default Downloads Folder"),
+              builder: (context, snapshot) {
+                return _SettingsTile(
+                  icon: Icons.folder_open_outlined,
+                  title: 'Downloads Folder',
+                  subtitle: snapshot.data ?? 'Resolving path...',
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (settings.downloadPath.isNotEmpty)
+                        TextButton(
+                          onPressed: () async {
+                            await settings.setDownloadPath("");
+                            await _updateStorageSizes();
+                          },
+                          child: const Text('Reset', style: TextStyle(color: Colors.redAccent, fontSize: 13.0)),
+                        ),
+                      const SizedBox(width: 8.0),
+                      IconButton(
+                        icon: const Icon(Icons.drive_file_move_outlined, color: Colors.white70),
+                        onPressed: () async {
+                          final path = await FilePicker.getDirectoryPath();
+                          if (path != null) {
+                            await settings.setDownloadPath(path);
+                            await _updateStorageSizes();
+                          }
+                        },
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+            const SizedBox(height: 16.0),
+
+            // Downloads Limit GB
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('Downloads Storage Limit', style: TextStyle(color: Colors.white70, fontSize: 13.0, fontFamily: 'Outfit')),
+                    Text('${settings.downloadsLimitGB.toStringAsFixed(0)} GB', style: const TextStyle(color: Color(0xFFFF9F1C), fontSize: 14.0, fontWeight: FontWeight.bold)),
+                  ],
+                ),
+                Slider(
+                  value: settings.downloadsLimitGB,
+                  min: 1.0,
+                  max: 100.0,
+                  divisions: 99,
+                  activeColor: const Color(0xFFFF9F1C),
+                  inactiveColor: Colors.white10,
+                  onChanged: (val) => settings.setDownloadsLimitGB(val),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16.0),
+
+            // Downloads Size Bar
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('Storage Usage', style: TextStyle(color: Colors.white38, fontSize: 12.0)),
+                    if (_isScanningSize)
+                      const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 1.5, valueColor: AlwaysStoppedAnimation(Colors.white54)))
+                    else
+                      Text(downloadsSizeLabel, style: const TextStyle(color: Colors.white54, fontSize: 12.0)),
+                  ],
+                ),
+                const SizedBox(height: 8.0),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(4.0),
+                  child: Container(
+                    height: 8.0,
+                    width: double.infinity,
+                    color: Colors.white10,
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: FractionallySizedBox(
+                        widthFactor: downloadsPercent,
+                        child: Container(
+                          decoration: const BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [Color(0xFFFF9F1C), Color(0xFFFFBF00)],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24.0),
+            const Divider(color: Colors.white10, height: 1.0),
+            const SizedBox(height: 24.0),
+
+            // ── Cache Storage Header ──
+            const Row(
+              children: [
+                Icon(Icons.cached, color: Color(0xFFFF9F1C), size: 20),
+                SizedBox(width: 8.0),
+                Text(
+                  'Temporary Cache Storage',
+                  style: TextStyle(color: Colors.white, fontSize: 16.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16.0),
+
+            // Cache Path
+            FutureBuilder<String>(
+              future: CacheService().getEffectiveCachePath(),
+              builder: (context, snapshot) {
+                return _SettingsTile(
+                  icon: Icons.folder_zip_outlined,
+                  title: 'Cache Folder',
+                  subtitle: snapshot.data ?? 'Resolving path...',
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (settings.cachePath.isNotEmpty)
+                        TextButton(
+                          onPressed: () async {
+                            await settings.setCachePath("");
+                            await _updateStorageSizes();
+                          },
+                          child: const Text('Reset', style: TextStyle(color: Colors.redAccent, fontSize: 13.0)),
+                        ),
+                      const SizedBox(width: 8.0),
+                      IconButton(
+                        icon: const Icon(Icons.drive_file_move_outlined, color: Colors.white70),
+                        onPressed: () async {
+                          final path = await FilePicker.getDirectoryPath();
+                          if (path != null) {
+                            await settings.setCachePath(path);
+                            await _updateStorageSizes();
+                          }
+                        },
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+            const SizedBox(height: 16.0),
+
+            // Cache Limit GB
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('Cache Storage Limit', style: TextStyle(color: Colors.white70, fontSize: 13.0, fontFamily: 'Outfit')),
+                    Text('${settings.cacheLimitGB.toStringAsFixed(0)} GB', style: const TextStyle(color: Color(0xFFFF9F1C), fontSize: 14.0, fontWeight: FontWeight.bold)),
+                  ],
+                ),
+                Slider(
+                  value: settings.cacheLimitGB,
+                  min: 1.0,
+                  max: 50.0,
+                  divisions: 49,
+                  activeColor: const Color(0xFFFF9F1C),
+                  inactiveColor: Colors.white10,
+                  onChanged: (val) => settings.setCacheLimitGB(val),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16.0),
+
+            // Cache Size Bar & Clear Button
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('Cache Usage', style: TextStyle(color: Colors.white38, fontSize: 12.0)),
+                    Text(cacheSizeLabel, style: const TextStyle(color: Colors.white54, fontSize: 12.0)),
+                  ],
+                ),
+                const SizedBox(height: 8.0),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(4.0),
+                  child: Container(
+                    height: 8.0,
+                    width: double.infinity,
+                    color: Colors.white10,
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: FractionallySizedBox(
+                        widthFactor: cachePercent,
+                        child: Container(
+                          decoration: const BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [Color(0xFFE91E63), Color(0xFFFF4081)],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16.0),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: ListenableBuilder(
+                    listenable: CacheService(),
+                    builder: (context, _) {
+                      final isClearing = CacheService().isCleaning;
+                      return ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.white10,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6.0)),
+                          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+                        ),
+                        onPressed: isClearing
+                            ? null
+                            : () async {
+                                await CacheService().clearCache();
+                                await _updateStorageSizes();
+                              },
+                        icon: isClearing
+                            ? const SizedBox(
+                                width: 14.0,
+                                height: 14.0,
+                                child: CircularProgressIndicator(strokeWidth: 2.0, valueColor: AlwaysStoppedAnimation(Colors.white)),
+                              )
+                            : const Icon(Icons.delete_sweep_outlined, size: 16),
+                        label: Text(
+                          isClearing ? 'Clearing...' : 'Clear Cache Folder',
+                          style: const TextStyle(fontFamily: 'Outfit', fontSize: 12.0, fontWeight: FontWeight.w600),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
             ),
           ],
         );
@@ -1999,6 +2359,7 @@ class _SettingsPageState extends State<SettingsPage> {
       SettingsCategory.addons: {'title': 'Addons', 'icon': Icons.movie_filter},
       SettingsCategory.general: {'title': 'General', 'icon': Icons.settings_applications},
       SettingsCategory.subtitles: {'title': 'Subtitles', 'icon': Icons.subtitles},
+      SettingsCategory.downloads: {'title': 'Storage', 'icon': Icons.storage},
       SettingsCategory.manga: {'title': 'Manga', 'icon': Icons.book},
       SettingsCategory.about: {'title': 'About', 'icon': Icons.info_outline},
     };
@@ -2107,6 +2468,8 @@ class _SettingsPageState extends State<SettingsPage> {
             _buildGeneralSection(),
           ] else if (_activeCategory == SettingsCategory.subtitles) ...[
             _buildSubtitlesSection(isMobile),
+          ] else if (_activeCategory == SettingsCategory.downloads) ...[
+            _buildDownloadsSection(isMobile),
           ] else if (_activeCategory == SettingsCategory.manga) ...[
             _buildMangaSettingsSection(isMobile),
           ] else if (_activeCategory == SettingsCategory.about) ...[
