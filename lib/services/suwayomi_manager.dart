@@ -14,6 +14,7 @@ class SuwayomiManager {
   static int get port => _port;
   static bool _isDownloading = false;
   static double _downloadProgress = 0.0;
+  static final List<String> processLogs = [];
 
   static bool get isDownloading => _isDownloading;
   static double get downloadProgress => _downloadProgress;
@@ -177,6 +178,7 @@ class SuwayomiManager {
       final prefs = await SharedPreferences.getInstance();
       final savedPort = prefs.getInt('manga_server_port') ?? 4567;
       _port = await _findAvailablePort(savedPort);
+      SuwayomiService.port = _port;
       final repos = prefs.getStringList('manga_repos') ?? <String>[];
 
       if (await isSuwayomiRunning(_port)) {
@@ -222,10 +224,16 @@ class SuwayomiManager {
 
       // Log process output for debugging
       _process!.stdout.transform(utf8.decoder).listen((data) {
-        developer.log(data.trim(), name: 'MangaEngine-stdout');
+        final line = data.trim();
+        developer.log(line, name: 'MangaEngine-stdout');
+        processLogs.add('[STDOUT] $line');
+        if (processLogs.length > 50) processLogs.removeAt(0);
       });
       _process!.stderr.transform(utf8.decoder).listen((data) {
-        developer.log(data.trim(), name: 'MangaEngine-stderr');
+        final line = data.trim();
+        developer.log(line, name: 'MangaEngine-stderr');
+        processLogs.add('[STDERR] $line');
+        if (processLogs.length > 50) processLogs.removeAt(0);
       });
 
       // Poll until the REST API responds
@@ -266,7 +274,9 @@ class SuwayomiManager {
       }
     } catch (e, stack) {
       developer.log('Failed to start Manga engine', name: 'SuwayomiManager', error: e, stackTrace: stack);
-      statusNotifier.value = "Engine startup failed";
+      processLogs.add('[ERROR] $e');
+      processLogs.add('[STACK] $stack');
+      statusNotifier.value = "Engine startup failed: $e";
       _process = null;
       rethrow;
     }

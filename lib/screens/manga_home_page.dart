@@ -24,6 +24,7 @@ class MangaHomePage extends StatefulWidget {
 class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProviderStateMixin {
   late TabController _tabController;
   final SuwayomiService _suwayomiService = SuwayomiService();
+  bool _showDebugLogs = false;
   
   // Extension tab state
   List<dynamic> _extensions = [];
@@ -53,6 +54,12 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
         _loadExtensions();
         _loadSources();
       }
+    }).catchError((e) {
+      if (mounted) {
+        setState(() {
+          SuwayomiManager.statusNotifier.value = "Error: Failed to start Manga engine: $e";
+        });
+      }
     });
   }
 
@@ -79,10 +86,18 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
         SuwayomiManager.statusNotifier.value = "Checking connection...";
       });
     }
-    await SuwayomiManager.start();
-    if (mounted) {
-      await _loadExtensions();
-      await _loadSources();
+    try {
+      await SuwayomiManager.start();
+      if (mounted) {
+        await _loadExtensions();
+        await _loadSources();
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          SuwayomiManager.statusNotifier.value = "Error: Failed to start Manga engine: $e";
+        });
+      }
     }
   }
 
@@ -362,33 +377,93 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
 
   Widget _buildErrorScreen(String error) {
     return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32.0),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.error_outline, color: Colors.redAccent, size: 48.0),
-            const SizedBox(height: 16.0),
-            Text(
-              error,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: Colors.white70,
-                fontSize: 14.0,
-                fontFamily: 'Outfit',
+      child: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.all(32.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              const Icon(Icons.error_outline, color: Colors.redAccent, size: 48.0),
+              const SizedBox(height: 16.0),
+              Text(
+                error,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Colors.white70,
+                  fontSize: 14.0,
+                  fontFamily: 'Outfit',
+                ),
               ),
-            ),
-            const SizedBox(height: 24.0),
-            ElevatedButton(
-              onPressed: _retryConnection,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFFF9F1C),
-                foregroundColor: Colors.black,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6.0)),
+              const SizedBox(height: 24.0),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  ElevatedButton(
+                    onPressed: _retryConnection,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFFF9F1C),
+                      foregroundColor: Colors.black,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6.0)),
+                    ),
+                    child: const Text('Retry Startup', style: TextStyle(fontWeight: FontWeight.bold)),
+                  ),
+                  const SizedBox(width: 16.0),
+                  TextButton.icon(
+                    onPressed: () {
+                      setState(() {
+                        _showDebugLogs = !_showDebugLogs;
+                      });
+                    },
+                    icon: Icon(
+                      _showDebugLogs ? Icons.expand_less : Icons.expand_more,
+                      color: Colors.white60,
+                    ),
+                    label: Text(
+                      _showDebugLogs ? 'Hide Logs' : 'Show Logs',
+                      style: const TextStyle(color: Colors.white60),
+                    ),
+                  ),
+                ],
               ),
-              child: const Text('Retry Startup', style: TextStyle(fontWeight: FontWeight.bold)),
-            ),
-          ],
+              if (_showDebugLogs) ...[
+                const SizedBox(height: 24.0),
+                Container(
+                  constraints: const BoxConstraints(maxHeight: 250, maxWidth: 600),
+                  decoration: BoxDecoration(
+                    color: Colors.black45,
+                    border: Border.all(color: Colors.white10),
+                    borderRadius: BorderRadius.circular(6.0),
+                  ),
+                  padding: const EdgeInsets.all(12.0),
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: SuwayomiManager.processLogs.length,
+                    itemBuilder: (context, index) {
+                      final logLine = SuwayomiManager.processLogs[index];
+                      Color logColor = Colors.white70;
+                      if (logLine.contains('[ERROR]') || logLine.contains('[STDERR]')) {
+                        logColor = Colors.redAccent;
+                      } else if (logLine.contains('[STDOUT]')) {
+                        logColor = Colors.greenAccent;
+                      }
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 4.0),
+                        child: Text(
+                          logLine,
+                          style: TextStyle(
+                            color: logColor,
+                            fontSize: 11.0,
+                            fontFamily: 'monospace',
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ],
+          ),
         ),
       ),
     );
