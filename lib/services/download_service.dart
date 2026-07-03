@@ -114,8 +114,20 @@ class DownloadService extends ChangeNotifier {
   List<DownloadTask> get tasks => List.unmodifiable(_tasks);
   DownloadTask? get activeTask => _activeTask;
 
-  File get _dbFile {
-    return File('${Directory.current.path}/downloads.json');
+  Future<File> get _dbFile async {
+    final dir = await getApplicationDocumentsDirectory();
+    final newFile = File('${dir.path}/downloads.json');
+    // Migrate legacy file if it exists
+    final legacyFile = File('${Directory.current.path}/downloads.json');
+    if (legacyFile.existsSync() && !newFile.existsSync()) {
+      try {
+        legacyFile.copySync(newFile.path);
+        legacyFile.deleteSync();
+      } catch (e) {
+        debugPrint("Error migrating downloads database: $e");
+      }
+    }
+    return newFile;
   }
 
   Future<void> init() async {
@@ -126,8 +138,9 @@ class DownloadService extends ChangeNotifier {
 
   Future<void> _loadTasks() async {
     try {
-      if (await _dbFile.exists()) {
-        final content = await _dbFile.readAsString();
+      final file = await _dbFile;
+      if (await file.exists()) {
+        final content = await file.readAsString();
         final List<dynamic> list = jsonDecode(content);
         _tasks.clear();
         for (var item in list) {
@@ -148,8 +161,9 @@ class DownloadService extends ChangeNotifier {
 
   Future<void> _saveTasks() async {
     try {
+      final file = await _dbFile;
       final list = _tasks.map((t) => t.toJson()).toList();
-      await _dbFile.writeAsString(jsonEncode(list));
+      await file.writeAsString(jsonEncode(list));
     } catch (e) {
       debugPrint("Error saving download tasks: $e");
     }

@@ -83,12 +83,12 @@ class _DownloadsPageState extends State<DownloadsPage> {
 
   void _onDownloadTasksChanged() {
     if (mounted) {
-      final tasks = _tasks;
-      if (_selectedTaskId == null && tasks.isNotEmpty) {
-        setState(() {
+      setState(() {
+        final tasks = _tasks;
+        if (_selectedTaskId == null && tasks.isNotEmpty) {
           _selectedTaskId = tasks.first.id;
-        });
-      }
+        }
+      });
     }
   }
 

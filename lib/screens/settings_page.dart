@@ -15,6 +15,7 @@ import 'package:file_picker/file_picker.dart';
 
 enum SettingsCategory {
   general,
+  player,
   subtitles,
   downloads,
   extensions,
@@ -80,6 +81,7 @@ class _SettingsPageState extends State<SettingsPage> {
       case AppMode.anime:
         return [
           SettingsCategory.general,
+          SettingsCategory.player,
           SettingsCategory.subtitles,
           SettingsCategory.downloads,
           SettingsCategory.extensions,
@@ -88,6 +90,7 @@ class _SettingsPageState extends State<SettingsPage> {
       case AppMode.movies:
         return [
           SettingsCategory.general,
+          SettingsCategory.player,
           SettingsCategory.subtitles,
           SettingsCategory.downloads,
           SettingsCategory.addons,
@@ -217,6 +220,7 @@ class _SettingsPageState extends State<SettingsPage> {
       SettingsCategory.extensions: {'title': 'Extensions', 'icon': Icons.extension},
       SettingsCategory.addons: {'title': 'Movies/TV Addons', 'icon': Icons.movie_filter},
       SettingsCategory.general: {'title': 'General', 'icon': Icons.settings_applications},
+      SettingsCategory.player: {'title': 'Player', 'icon': Icons.play_circle_outline},
       SettingsCategory.subtitles: {'title': 'Subtitles', 'icon': Icons.subtitles},
       SettingsCategory.downloads: {'title': 'Downloads & Storage', 'icon': Icons.storage},
       SettingsCategory.manga: {'title': 'Manga Settings', 'icon': Icons.book},
@@ -955,6 +959,53 @@ class _SettingsPageState extends State<SettingsPage> {
                     AppSettings().setStartupPageStr(val);
                   }
                 },
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildPlayerSection() {
+    return ListenableBuilder(
+      listenable: AppSettings(),
+      builder: (context, _) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Player',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 20.0,
+                fontWeight: FontWeight.bold,
+                fontFamily: 'Outfit',
+              ),
+            ),
+            const SizedBox(height: 6.0),
+            const Text(
+              'Configure video playback engine and hardware settings.',
+              style: TextStyle(color: Colors.white38, fontSize: 13.0),
+            ),
+            const SizedBox(height: 24.0),
+
+            // ── Video Quality Enhancement ──
+            _SettingsTile(
+              icon: Icons.auto_awesome,
+              title: 'Hardware-Accelerated Video Enhancement',
+              subtitle: 'Uses native GPU shader pipelines to apply real-time debanding, sharpening, high-quality scaling, and color enhancement.',
+              trailing: Transform.scale(
+                scale: 0.9,
+                child: Switch(
+                  value: AppSettings().videoEnhancementEnabled,
+                  activeColor: Colors.white,
+                  activeTrackColor: Colors.white24,
+                  inactiveThumbColor: Colors.white30,
+                  inactiveTrackColor: Colors.black26,
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  onChanged: (v) => AppSettings().setVideoEnhancementEnabled(v),
+                ),
               ),
             ),
           ],
@@ -2358,6 +2409,7 @@ class _SettingsPageState extends State<SettingsPage> {
       SettingsCategory.extensions: {'title': 'Extensions', 'icon': Icons.extension},
       SettingsCategory.addons: {'title': 'Addons', 'icon': Icons.movie_filter},
       SettingsCategory.general: {'title': 'General', 'icon': Icons.settings_applications},
+      SettingsCategory.player: {'title': 'Player', 'icon': Icons.play_circle_outline},
       SettingsCategory.subtitles: {'title': 'Subtitles', 'icon': Icons.subtitles},
       SettingsCategory.downloads: {'title': 'Storage', 'icon': Icons.storage},
       SettingsCategory.manga: {'title': 'Manga', 'icon': Icons.book},
@@ -2466,6 +2518,8 @@ class _SettingsPageState extends State<SettingsPage> {
             _buildStremioAddonsSection(isMobile),
           ] else if (_activeCategory == SettingsCategory.general) ...[
             _buildGeneralSection(),
+          ] else if (_activeCategory == SettingsCategory.player) ...[
+            _buildPlayerSection(),
           ] else if (_activeCategory == SettingsCategory.subtitles) ...[
             _buildSubtitlesSection(isMobile),
           ] else if (_activeCategory == SettingsCategory.downloads) ...[

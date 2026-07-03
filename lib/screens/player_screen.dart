@@ -183,7 +183,9 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
     final bool isDesktop = !kIsWeb && (Platform.isWindows || Platform.isMacOS || Platform.isLinux);
     if (!isDesktop) {
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: SystemUiOverlay.values);
-      SystemChrome.setPreferredOrientations([]);
+      SystemChrome.setPreferredOrientations([
+        DeviceOrientation.portraitUp,
+      ]);
     } else {
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: SystemUiOverlay.values);
     }
@@ -1078,7 +1080,10 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
                 await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
               } else {
                 await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-                await SystemChrome.setPreferredOrientations([]); // allow both vertical/horizontal in fullscreen
+                await SystemChrome.setPreferredOrientations([
+                  DeviceOrientation.landscapeLeft,
+                  DeviceOrientation.landscapeRight,
+                ]); // force landscape in fullscreen
               }
             },
             onExitFullscreen: () async {
@@ -1096,7 +1101,12 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
                   SystemUiMode.manual,
                   overlays: SystemUiOverlay.values,
                 );
-                await SystemChrome.setPreferredOrientations([]); // allow both vertical/horizontal on exit
+                await SystemChrome.setPreferredOrientations([
+                  DeviceOrientation.portraitUp,
+                  DeviceOrientation.portraitDown,
+                  DeviceOrientation.landscapeLeft,
+                  DeviceOrientation.landscapeRight,
+                ]); // allow both vertical/horizontal on exit
               }
             },
             controls: (state) {
@@ -1943,16 +1953,35 @@ class _SettingsOverlayCardState extends State<_SettingsOverlayCard> {
 
   @override
   Widget build(BuildContext context) {
+    Widget child;
     switch (_pageIndex) {
       case 1:
-        return _buildSpeedMenu();
+        child = _buildSpeedMenu();
+        break;
       case 2:
-        return _buildAudioMenu();
+        child = _buildAudioMenu();
+        break;
       case 3:
-        return _buildSubtitlesMenu();
+        child = _buildSubtitlesMenu();
+        break;
       default:
-        return _buildMainMenu();
+        child = _buildMainMenu();
+        break;
     }
+
+    final mediaQuery = MediaQuery.of(context);
+    final isMobileLandscape = mediaQuery.size.height < 500.0;
+    final maxOverlayHeight = isMobileLandscape
+        ? (mediaQuery.size.height - 60.0)
+        : 380.0;
+
+    return ConstrainedBox(
+      constraints: BoxConstraints(maxHeight: maxOverlayHeight),
+      child: SingleChildScrollView(
+        physics: const ClampingScrollPhysics(),
+        child: child,
+      ),
+    );
   }
 
   Widget _buildMainMenu() {
@@ -2156,25 +2185,23 @@ class _SettingsOverlayCardState extends State<_SettingsOverlayCard> {
             child: Text("No audio tracks found", style: TextStyle(color: Colors.white38, fontSize: 12.0)),
           )
         else
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxHeight: 250.0),
-            child: ListView.builder(
-              shrinkWrap: true,
-              itemCount: audioTracks.length,
-              itemBuilder: (context, index) {
-                final track = audioTracks[index];
-                final isSelected = currentAudio == track;
-                return ListTile(
-                  dense: true,
-                  title: Text(_getAudioTrackLabel(track), style: const TextStyle(color: Colors.white, fontSize: 13.0, fontFamily: 'Outfit')),
-                  trailing: isSelected ? const Icon(Icons.check, color: Colors.white, size: 16) : null,
-                  onTap: () async {
-                    await widget.player.setAudioTrack(track);
-                    if (mounted) setState(() {});
-                  },
-                );
-              },
-            ),
+          ListView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: audioTracks.length,
+            itemBuilder: (context, index) {
+              final track = audioTracks[index];
+              final isSelected = currentAudio == track;
+              return ListTile(
+                dense: true,
+                title: Text(_getAudioTrackLabel(track), style: const TextStyle(color: Colors.white, fontSize: 13.0, fontFamily: 'Outfit')),
+                trailing: isSelected ? const Icon(Icons.check, color: Colors.white, size: 16) : null,
+                onTap: () async {
+                  await widget.player.setAudioTrack(track);
+                  if (mounted) setState(() {});
+                },
+              );
+            },
           ),
       ],
     );
@@ -2304,25 +2331,23 @@ class _SettingsOverlayCardState extends State<_SettingsOverlayCard> {
             child: Text("No subtitle tracks found", style: TextStyle(color: Colors.white38, fontSize: 12.0)),
           )
         else
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxHeight: 250.0),
-            child: ListView.builder(
-              shrinkWrap: true,
-              itemCount: subtitleTracks.length,
-              itemBuilder: (context, index) {
-                final track = subtitleTracks[index];
-                final isSelected = currentSubtitle == track;
-                return ListTile(
-                  dense: true,
-                  title: Text(_getSubtitleTrackLabel(track), style: const TextStyle(color: Colors.white, fontSize: 13.0, fontFamily: 'Outfit')),
-                  trailing: isSelected ? const Icon(Icons.check, color: Colors.white, size: 16) : null,
-                  onTap: () async {
-                    await widget.player.setSubtitleTrack(track);
-                    if (mounted) setState(() {});
-                  },
-                );
-              },
-            ),
+          ListView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: subtitleTracks.length,
+            itemBuilder: (context, index) {
+              final track = subtitleTracks[index];
+              final isSelected = currentSubtitle == track;
+              return ListTile(
+                dense: true,
+                title: Text(_getSubtitleTrackLabel(track), style: const TextStyle(color: Colors.white, fontSize: 13.0, fontFamily: 'Outfit')),
+                trailing: isSelected ? const Icon(Icons.check, color: Colors.white, size: 16) : null,
+                onTap: () async {
+                  await widget.player.setSubtitleTrack(track);
+                  if (mounted) setState(() {});
+                },
+              );
+            },
           ),
       ],
     );
@@ -2413,211 +2438,214 @@ class _SettingsOverlayCardState extends State<_SettingsOverlayCard> {
               ),
               content: SizedBox(
                 width: 440.0,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    // 1. Drag & Drop Screen Position Panel
-                    const Text(
-                      "Drag text inside panel to adjust position:",
-                      style: TextStyle(color: Colors.white38, fontSize: 11.5, fontFamily: 'Outfit'),
-                    ),
-                    const SizedBox(height: 8.0),
-                    LayoutBuilder(
-                      builder: (context, constraints) {
-                        final boxWidth = constraints.maxWidth;
-                        const boxHeight = 180.0;
+                child: SingleChildScrollView(
+                  physics: const ClampingScrollPhysics(),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      // 1. Drag & Drop Screen Position Panel
+                      const Text(
+                        "Drag text inside panel to adjust position:",
+                        style: TextStyle(color: Colors.white38, fontSize: 11.5, fontFamily: 'Outfit'),
+                      ),
+                      const SizedBox(height: 8.0),
+                      LayoutBuilder(
+                        builder: (context, constraints) {
+                          final boxWidth = constraints.maxWidth;
+                          const boxHeight = 180.0;
 
-                        const minY = 10.0;
-                        const maxY = boxHeight - 45.0;
-                        const minOffset = 10.0;
-                        const maxOffset = 500.0;
+                          const minY = 10.0;
+                          const maxY = boxHeight - 45.0;
+                          const minOffset = 10.0;
+                          const maxOffset = 500.0;
 
-                        const minOffsetX = -400.0;
-                        const maxOffsetX = 400.0;
-                        final maxX = boxWidth / 2.0 - 80.0;
+                          const minOffsetX = -400.0;
+                          const maxOffsetX = 400.0;
+                          final maxX = boxWidth / 2.0 - 80.0;
 
-                        final double currentBottom = minY + ((settings.subtitlesPositionOffset - minOffset) / (maxOffset - minOffset)) * (maxY - minY);
-                        final double currentX = (settings.subtitlesXOffset / maxOffsetX) * maxX;
+                          final double currentBottom = minY + ((settings.subtitlesPositionOffset - minOffset) / (maxOffset - minOffset)) * (maxY - minY);
+                          final double currentX = (settings.subtitlesXOffset / maxOffsetX) * maxX;
 
-                        return GestureDetector(
-                          onPanUpdate: (details) {
-                            final double dy = details.delta.dy;
-                            final double dx = details.delta.dx;
+                          return GestureDetector(
+                            onPanUpdate: (details) {
+                              final double dy = details.delta.dy;
+                              final double dx = details.delta.dx;
 
-                            final double newOffset = (settings.subtitlesPositionOffset - (dy * (maxOffset - minOffset) / (maxY - minY)))
-                                .clamp(minOffset, maxOffset);
-                            final double newXOffset = (settings.subtitlesXOffset + (dx * maxOffsetX / maxX))
-                                .clamp(minOffsetX, maxOffsetX);
+                              final double newOffset = (settings.subtitlesPositionOffset - (dy * (maxOffset - minOffset) / (maxY - minY)))
+                                  .clamp(minOffset, maxOffset);
+                              final double newXOffset = (settings.subtitlesXOffset + (dx * maxOffsetX / maxX))
+                                  .clamp(minOffsetX, maxOffsetX);
 
-                            settings.setSubtitlesXOffset(newXOffset, save: false);
-                            settings.setSubtitlesPositionOffset(newOffset, save: false);
-                            setDialogState(() {});
-                          },
-                          onPanEnd: (_) => settings.saveSubtitlesPosition(),
-                          onPanCancel: () => settings.saveSubtitlesPosition(),
-                          child: MouseRegion(
-                            cursor: SystemMouseCursors.grab,
-                            child: Container(
-                              height: boxHeight,
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(12.0),
-                                border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
-                                gradient: const LinearGradient(
-                                  begin: Alignment.topCenter,
-                                  end: Alignment.bottomCenter,
-                                  colors: [Color(0xFF1E2026), Color(0xFF0F1013)],
-                                ),
-                              ),
-                              child: Stack(
-                                alignment: Alignment.bottomCenter,
-                                children: [
-                                  // Playback preview background mockup lines
-                                  Positioned(
-                                    top: 40,
-                                    child: Icon(
-                                      Icons.movie_outlined,
-                                      color: Colors.white.withValues(alpha: 0.03),
-                                      size: 100,
-                                    ),
-                                  ),
-                                  Positioned(
-                                    top: 20,
-                                    left: 20,
-                                    child: Container(
-                                      width: 80,
-                                      height: 6,
-                                      decoration: BoxDecoration(
-                                        color: Colors.white.withValues(alpha: 0.05),
-                                        borderRadius: BorderRadius.circular(3),
-                                      ),
-                                    ),
-                                  ),
-                                  Positioned(
-                                    top: 32,
-                                    left: 20,
-                                    child: Container(
-                                      width: 50,
-                                      height: 6,
-                                      decoration: BoxDecoration(
-                                        color: Colors.white.withValues(alpha: 0.05),
-                                        borderRadius: BorderRadius.circular(3),
-                                      ),
-                                    ),
-                                  ),
-                                  
-                                  // Center line guide
-                                  Positioned.fill(
-                                    child: Align(
-                                      alignment: Alignment.center,
-                                      child: Container(
-                                        height: 0.5,
-                                        color: Colors.white.withValues(alpha: 0.03),
-                                      ),
-                                    ),
-                                  ),
-
-                                  // Preview text block
-                                  Positioned(
-                                    bottom: currentBottom,
-                                    left: 16.0 + currentX,
-                                    right: 16.0 - currentX,
-                                    child: Center(
-                                      child: Text(
-                                        "Subtitles look like this",
-                                        style: subtitlePreviewStyle,
-                                        textAlign: TextAlign.center,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        );
-                      }
-                    ),
-                    const SizedBox(height: 16.0),
-
-                    // 2. Font size slider
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            const Text(
-                              "Quick Font Size",
-                              style: TextStyle(color: Colors.white70, fontSize: 12.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
-                            ),
-                            Text(
-                              "${fontSize.toInt()} px",
-                              style: const TextStyle(color: Color(0xFF3A86FF), fontSize: 12.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
-                            ),
-                          ],
-                        ),
-                        SliderTheme(
-                          data: SliderTheme.of(context).copyWith(
-                            trackHeight: 2.0,
-                            thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6.0),
-                            overlayShape: const RoundSliderOverlayShape(overlayRadius: 12.0),
-                            activeTrackColor: const Color(0xFF3A86FF),
-                            inactiveTrackColor: Colors.white10,
-                            thumbColor: Colors.white,
-                          ),
-                          child: Slider(
-                            value: fontSize,
-                            min: 10.0,
-                            max: 40.0,
-                            onChanged: (val) {
-                              settings.setSubtitlesFontSize(val);
+                              settings.setSubtitlesXOffset(newXOffset, save: false);
+                              settings.setSubtitlesPositionOffset(newOffset, save: false);
                               setDialogState(() {});
                             },
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12.0),
+                            onPanEnd: (_) => settings.saveSubtitlesPosition(),
+                            onPanCancel: () => settings.saveSubtitlesPosition(),
+                            child: MouseRegion(
+                              cursor: SystemMouseCursors.grab,
+                              child: Container(
+                                height: boxHeight,
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(12.0),
+                                  border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+                                  gradient: const LinearGradient(
+                                    begin: Alignment.topCenter,
+                                    end: Alignment.bottomCenter,
+                                    colors: [Color(0xFF1E2026), Color(0xFF0F1013)],
+                                  ),
+                                ),
+                                child: Stack(
+                                  alignment: Alignment.bottomCenter,
+                                  children: [
+                                    // Playback preview background mockup lines
+                                    Positioned(
+                                      top: 40,
+                                      child: Icon(
+                                        Icons.movie_outlined,
+                                        color: Colors.white.withValues(alpha: 0.03),
+                                        size: 100,
+                                      ),
+                                    ),
+                                    Positioned(
+                                      top: 20,
+                                      left: 20,
+                                      child: Container(
+                                        width: 80,
+                                        height: 6,
+                                        decoration: BoxDecoration(
+                                          color: Colors.white.withValues(alpha: 0.05),
+                                          borderRadius: BorderRadius.circular(3),
+                                        ),
+                                      ),
+                                    ),
+                                    Positioned(
+                                      top: 32,
+                                      left: 20,
+                                      child: Container(
+                                        width: 50,
+                                        height: 6,
+                                        decoration: BoxDecoration(
+                                          color: Colors.white.withValues(alpha: 0.05),
+                                          borderRadius: BorderRadius.circular(3),
+                                        ),
+                                      ),
+                                    ),
+                                    
+                                    // Center line guide
+                                    Positioned.fill(
+                                      child: Align(
+                                        alignment: Alignment.center,
+                                        child: Container(
+                                          height: 0.5,
+                                          color: Colors.white.withValues(alpha: 0.03),
+                                        ),
+                                      ),
+                                    ),
 
-                    // 3. Navigation link to detailed settings page
-                    ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF3A86FF),
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 14.0),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8.0),
-                        ),
-                      ),
-                      onPressed: () {
-                        // Close quick dialog
-                        Navigator.pop(dialogContext);
-                        
-                        // Push main app settings with subtitles category pre-selected
-                        final AppMode appMode = widget.anilistId != null ? AppMode.anime : AppMode.movies;
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => SettingsPage(
-                              mode: appMode,
-                              initialCategory: SettingsCategory.subtitles,
+                                    // Preview text block
+                                    Positioned(
+                                      bottom: currentBottom,
+                                      left: 16.0 + currentX,
+                                      right: 16.0 - currentX,
+                                      child: Center(
+                                        child: Text(
+                                          "Subtitles look like this",
+                                          style: subtitlePreviewStyle,
+                                          textAlign: TextAlign.center,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
                             ),
-                          ),
-                        );
-                      },
-                      child: const Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
+                          );
+                        }
+                      ),
+                      const SizedBox(height: 16.0),
+
+                      // 2. Font size slider
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Icon(Icons.tune, size: 16.0),
-                          SizedBox(width: 8.0),
-                          Text(
-                            "All Subtitle Settings...",
-                            style: TextStyle(fontSize: 13.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text(
+                                "Quick Font Size",
+                                style: TextStyle(color: Colors.white70, fontSize: 12.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                              ),
+                              Text(
+                                "${fontSize.toInt()} px",
+                                style: const TextStyle(color: Color(0xFF3A86FF), fontSize: 12.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                              ),
+                            ],
+                          ),
+                          SliderTheme(
+                            data: SliderTheme.of(context).copyWith(
+                              trackHeight: 2.0,
+                              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6.0),
+                              overlayShape: const RoundSliderOverlayShape(overlayRadius: 12.0),
+                              activeTrackColor: const Color(0xFF3A86FF),
+                              inactiveTrackColor: Colors.white10,
+                              thumbColor: Colors.white,
+                            ),
+                            child: Slider(
+                              value: fontSize,
+                              min: 10.0,
+                              max: 40.0,
+                              onChanged: (val) {
+                                settings.setSubtitlesFontSize(val);
+                                setDialogState(() {});
+                              },
+                            ),
                           ),
                         ],
                       ),
-                    ),
-                  ],
+                      const SizedBox(height: 12.0),
+
+                      // 3. Navigation link to detailed settings page
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF3A86FF),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 14.0),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8.0),
+                          ),
+                        ),
+                        onPressed: () {
+                          // Close quick dialog
+                          Navigator.pop(dialogContext);
+                          
+                          // Push main app settings with subtitles category pre-selected
+                          final AppMode appMode = widget.anilistId != null ? AppMode.anime : AppMode.movies;
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => SettingsPage(
+                                mode: appMode,
+                                initialCategory: SettingsCategory.subtitles,
+                              ),
+                            ),
+                          );
+                        },
+                        child: const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.tune, size: 16.0),
+                            SizedBox(width: 8.0),
+                            Text(
+                              "All Subtitle Settings...",
+                              style: TextStyle(fontSize: 13.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             );
