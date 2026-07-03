@@ -313,11 +313,24 @@ class ShellLayout extends StatelessWidget {
                 )
               : null,
           body: PopScope(
-            canPop: !showFullPlayer,
+            canPop: !(showFullPlayer ||
+                navigationState.activeChapterId != null ||
+                isDetailsOpen ||
+                currentPage != TabPage.home),
             onPopInvokedWithResult: (didPop, result) {
               if (didPop) return;
               if (showFullPlayer) {
                 playerState.minimize();
+              } else if (navigationState.activeChapterId != null) {
+                navigationState.stopReading();
+              } else if (navigationState.selectedAnimeId != null) {
+                navigationState.selectAnime(null);
+              } else if (navigationState.selectedMovieId != null) {
+                navigationState.selectMovie(null);
+              } else if (navigationState.selectedMangaId != null) {
+                navigationState.selectManga(null);
+              } else if (currentPage != TabPage.home) {
+                navigationState.setPage(TabPage.home);
               }
             },
             child: Stack(
