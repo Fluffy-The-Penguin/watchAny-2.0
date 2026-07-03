@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../services/extension_service.dart';
 import '../services/stremio_addon_service.dart';
@@ -981,7 +982,69 @@ class _SettingsPageState extends State<SettingsPage> {
       settings.setSubtitlesBgColor(0xFFFFFFFF);
       settings.setSubtitlesBgOpacity(0.8);
       settings.setSubtitlesShadowEnabled(false);
+    } else {
+      settings.applyCustomSubtitlePreset(name);
     }
+  }
+
+  void _showSavePresetDialog(BuildContext context, AppSettings settings) {
+    final TextEditingController controller = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF0F0F11),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16.0),
+            side: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+          ),
+          title: const Text(
+            'Save Custom Preset',
+            style: TextStyle(color: Colors.white, fontFamily: 'Outfit', fontWeight: FontWeight.bold),
+          ),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            style: const TextStyle(color: Colors.white, fontFamily: 'Outfit'),
+            decoration: InputDecoration(
+              hintText: 'Enter preset name...',
+              hintStyle: const TextStyle(color: Colors.white30, fontFamily: 'Outfit'),
+              filled: true,
+              fillColor: Colors.white.withValues(alpha: 0.03),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8.0),
+                borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8.0),
+                borderSide: const BorderSide(color: Colors.amber),
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel', style: TextStyle(color: Colors.white70, fontFamily: 'Outfit')),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                final name = controller.text.trim();
+                if (name.isNotEmpty) {
+                  settings.saveCustomSubtitlePreset(name);
+                }
+                Navigator.pop(dialogContext);
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.amber,
+                foregroundColor: Colors.black,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
+              ),
+              child: const Text('Save', style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold)),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   Widget _buildSubtitlesSection(bool isMobile) {
@@ -1291,9 +1354,29 @@ class _SettingsPageState extends State<SettingsPage> {
                     const SizedBox(height: 24.0),
 
                     // ── Presets Profile Selector ──
-                    const Text(
-                      'Preset Style Profiles',
-                      style: TextStyle(color: Colors.white70, fontSize: 14.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Preset Style Profiles',
+                          style: TextStyle(color: Colors.white70, fontSize: 14.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                        ),
+                        TextButton.icon(
+                          onPressed: () {
+                            _showSavePresetDialog(context, settings);
+                          },
+                          icon: const Icon(Icons.add, size: 16.0, color: Colors.amber),
+                          label: const Text(
+                            'Save Current',
+                            style: TextStyle(color: Colors.amber, fontSize: 12.0, fontFamily: 'Outfit', fontWeight: FontWeight.w600),
+                          ),
+                          style: TextButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 6.0),
+                            backgroundColor: Colors.amber.withValues(alpha: 0.08),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6.0)),
+                          ),
+                        ),
+                      ],
                     ),
                     const SizedBox(height: 12.0),
                     Wrap(
@@ -1315,6 +1398,77 @@ class _SettingsPageState extends State<SettingsPage> {
                           ),
                         );
                       }).toList(),
+                    ),
+                    
+                    Builder(
+                      builder: (context) {
+                        final List<String> customPresetNames = settings.customSubtitlePresets.map((p) {
+                          try {
+                            return jsonDecode(p)['name'] as String;
+                          } catch (_) {
+                            return '';
+                          }
+                        }).where((name) => name.isNotEmpty).toList();
+
+                        if (customPresetNames.isEmpty) return const SizedBox.shrink();
+
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const SizedBox(height: 20.0),
+                            const Text(
+                              'Your Custom Presets',
+                              style: TextStyle(color: Colors.white54, fontSize: 12.0, fontFamily: 'Outfit', fontWeight: FontWeight.w600),
+                            ),
+                            const SizedBox(height: 10.0),
+                            Wrap(
+                              spacing: 10.0,
+                              runSpacing: 10.0,
+                              children: customPresetNames.map((name) {
+                                return Container(
+                                  decoration: BoxDecoration(
+                                    color: Colors.amber.withValues(alpha: 0.05),
+                                    borderRadius: BorderRadius.circular(8.0),
+                                    border: Border.all(color: Colors.amber.withValues(alpha: 0.15)),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      InkWell(
+                                        onTap: () => _applySubtitlePreset(name),
+                                        borderRadius: const BorderRadius.only(
+                                          topLeft: Radius.circular(8.0),
+                                          bottomLeft: Radius.circular(8.0),
+                                        ),
+                                        child: Padding(
+                                          padding: const EdgeInsets.only(left: 12.0, right: 8.0, top: 8.0, bottom: 8.0),
+                                          child: Text(
+                                            name,
+                                            style: const TextStyle(color: Colors.amber, fontSize: 12.0, fontWeight: FontWeight.w600, fontFamily: 'Outfit'),
+                                          ),
+                                        ),
+                                      ),
+                                      Container(
+                                        width: 1.0,
+                                        height: 20.0,
+                                        color: Colors.amber.withValues(alpha: 0.15),
+                                      ),
+                                      IconButton(
+                                        icon: const Icon(Icons.close, size: 14.0, color: Colors.redAccent),
+                                        padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                                        constraints: const BoxConstraints(),
+                                        onPressed: () {
+                                          settings.deleteCustomSubtitlePreset(name);
+                                        },
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              }).toList(),
+                            ),
+                          ],
+                        );
+                      },
                     ),
                     const SizedBox(height: 24.0),
 

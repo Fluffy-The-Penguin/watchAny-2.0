@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -36,6 +37,7 @@ class AppSettings extends ChangeNotifier {
   double _subtitlesShadowOpacity = 0.8;
   double _subtitlesShadowBlurRadius = 2.0;
   double _subtitlesShadowOffset = 1.5;
+  List<String> _customSubtitlePresets = [];
 
   bool get smoothScrollEnabled => _smoothScrollEnabled;
   String get torrServerUrl => _torrServerUrl;
@@ -127,6 +129,7 @@ class AppSettings extends ChangeNotifier {
     _subtitlesShadowOpacity = prefs.getDouble('subtitles_shadow_opacity') ?? 0.8;
     _subtitlesShadowBlurRadius = prefs.getDouble('subtitles_shadow_blur_radius') ?? 2.0;
     _subtitlesShadowOffset = prefs.getDouble('subtitles_shadow_offset') ?? 1.5;
+    _customSubtitlePresets = prefs.getStringList('custom_subtitle_presets') ?? [];
     notifyListeners();
   }
 
@@ -387,5 +390,109 @@ class AppSettings extends ChangeNotifier {
     await prefs.setDouble('subtitles_shadow_opacity', 0.8);
     await prefs.setDouble('subtitles_shadow_blur_radius', 2.0);
     await prefs.setDouble('subtitles_shadow_offset', 1.5);
+  }
+
+  List<String> get customSubtitlePresets => _customSubtitlePresets;
+
+  Future<void> saveCustomSubtitlePreset(String name) async {
+    final prefs = await SharedPreferences.getInstance();
+    // Remove if already exists with the same name to prevent duplicates
+    _customSubtitlePresets.removeWhere((p) {
+      try {
+        final decoded = jsonDecode(p);
+        return decoded['name'] == name;
+      } catch (_) {
+        return false;
+      }
+    });
+
+    final presetMap = {
+      'name': name,
+      'textColor': _subtitlesTextColor,
+      'bgEnabled': _subtitlesBgEnabled,
+      'bgColor': _subtitlesBgColor,
+      'bgOpacity': _subtitlesBgOpacity,
+      'fontFamily': _subtitlesFontFamily,
+      'fontSize': _subtitlesFontSize,
+      'bold': _subtitlesBold,
+      'italic': _subtitlesItalic,
+      'shadowEnabled': _subtitlesShadowEnabled,
+      'shadowColor': _subtitlesShadowColor,
+      'shadowOpacity': _subtitlesShadowOpacity,
+      'shadowBlurRadius': _subtitlesShadowBlurRadius,
+      'shadowOffset': _subtitlesShadowOffset,
+      'positionOffset': _subtitlesPositionOffset,
+      'xOffset': _subtitlesXOffset,
+    };
+
+    _customSubtitlePresets.add(jsonEncode(presetMap));
+    await prefs.setStringList('custom_subtitle_presets', _customSubtitlePresets);
+    notifyListeners();
+  }
+
+  Future<void> deleteCustomSubtitlePreset(String name) async {
+    final prefs = await SharedPreferences.getInstance();
+    _customSubtitlePresets.removeWhere((p) {
+      try {
+        final decoded = jsonDecode(p);
+        return decoded['name'] == name;
+      } catch (_) {
+        return false;
+      }
+    });
+    await prefs.setStringList('custom_subtitle_presets', _customSubtitlePresets);
+    notifyListeners();
+  }
+
+  Future<void> applyCustomSubtitlePreset(String name) async {
+    Map<String, dynamic>? targetPreset;
+    for (final p in _customSubtitlePresets) {
+      try {
+        final decoded = jsonDecode(p);
+        if (decoded['name'] == name) {
+          targetPreset = decoded;
+          break;
+        }
+      } catch (_) {}
+    }
+
+    if (targetPreset == null) return;
+
+    _subtitlesTextColor = targetPreset['textColor'] ?? 0xFFFFFFFF;
+    _subtitlesBgEnabled = targetPreset['bgEnabled'] ?? false;
+    _subtitlesBgColor = targetPreset['bgColor'] ?? 0xFF000000;
+    _subtitlesBgOpacity = (targetPreset['bgOpacity'] as num?)?.toDouble() ?? 0.5;
+    _subtitlesFontFamily = targetPreset['fontFamily'] ?? 'Outfit';
+    _subtitlesFontSize = (targetPreset['fontSize'] as num?)?.toDouble() ?? 16.0;
+    _subtitlesBold = targetPreset['bold'] ?? false;
+    _subtitlesItalic = targetPreset['italic'] ?? false;
+    _subtitlesShadowEnabled = targetPreset['shadowEnabled'] ?? true;
+    _subtitlesShadowColor = targetPreset['shadowColor'] ?? 0xFF000000;
+    _subtitlesShadowOpacity = (targetPreset['shadowOpacity'] as num?)?.toDouble() ?? 0.8;
+    _subtitlesShadowBlurRadius = (targetPreset['shadowBlurRadius'] as num?)?.toDouble() ?? 2.0;
+    _subtitlesShadowOffset = (targetPreset['shadowOffset'] as num?)?.toDouble() ?? 1.5;
+    _subtitlesPositionOffset = (targetPreset['positionOffset'] as num?)?.toDouble() ?? 24.0;
+    _subtitlesXOffset = (targetPreset['xOffset'] as num?)?.toDouble() ?? 0.0;
+    _subtitlesCustomStylesEnabled = true;
+
+    notifyListeners();
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('subtitles_text_color', _subtitlesTextColor);
+    await prefs.setBool('subtitles_bg_enabled', _subtitlesBgEnabled);
+    await prefs.setInt('subtitles_bg_color', _subtitlesBgColor);
+    await prefs.setDouble('subtitles_bg_opacity', _subtitlesBgOpacity);
+    await prefs.setString('subtitles_font_family', _subtitlesFontFamily);
+    await prefs.setDouble('subtitles_font_size', _subtitlesFontSize);
+    await prefs.setBool('subtitles_bold', _subtitlesBold);
+    await prefs.setBool('subtitles_italic', _subtitlesItalic);
+    await prefs.setBool('subtitles_shadow_enabled', _subtitlesShadowEnabled);
+    await prefs.setInt('subtitles_shadow_color', _subtitlesShadowColor);
+    await prefs.setDouble('subtitles_shadow_opacity', _subtitlesShadowOpacity);
+    await prefs.setDouble('subtitles_shadow_blur_radius', _subtitlesShadowBlurRadius);
+    await prefs.setDouble('subtitles_shadow_offset', _subtitlesShadowOffset);
+    await prefs.setDouble('subtitles_position_offset', _subtitlesPositionOffset);
+    await prefs.setDouble('subtitles_x_offset', _subtitlesXOffset);
+    await prefs.setBool('subtitles_custom_styles_enabled', true);
   }
 }
