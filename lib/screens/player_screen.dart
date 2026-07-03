@@ -1015,6 +1015,14 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
               final double blackBarHeight = (playerHeight - videoRenderedHeight) / 2.0;
               bottomPadding += blackBarHeight;
             }
+
+            // Clamp bottomPadding dynamically to prevent shifting subtitles to the top in landscape or portrait
+            final isLandscape = playerWidth > playerHeight;
+            if (isLandscape) {
+              bottomPadding = bottomPadding.clamp(0.0, playerHeight * 0.22);
+            } else {
+              bottomPadding = bottomPadding.clamp(0.0, playerHeight * 0.45);
+            }
           }
 
           debugPrint('[Subtitles] playerWidth=$playerWidth, playerHeight=$playerHeight, videoWidth=$videoWidth, videoHeight=$videoHeight, videoAspectRatio=$videoAspectRatio, bottomPadding=$bottomPadding, fontSize=$subtitleFontSize');
