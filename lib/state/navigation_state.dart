@@ -29,7 +29,10 @@ class NavigationState extends ChangeNotifier {
     AppMode.movies: TabPage.home,
   };
 
-  NavigationState() {
+  static final NavigationState _instance = NavigationState._internal();
+  factory NavigationState() => _instance;
+
+  NavigationState._internal() {
     final savedMode = AppSettings().startupMode;
     final savedPage = AppSettings().startupPage;
     _currentMode = savedMode;

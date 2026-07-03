@@ -221,6 +221,7 @@ class _TorrentSelectorPanelState extends State<TorrentSelectorPanel> {
           episodes: widget.episodes,
           tmdbEpisodesMap: widget.tmdbEpisodesMap,
           onStreamSelected: widget.onStreamSelected,
+          isFromPlayer: widget.isFromPlayer,
         );
       },
     );
@@ -904,6 +905,7 @@ class _TorrentSelectorPanelState extends State<TorrentSelectorPanel> {
                                                 tmdbEpisodesMap: widget.tmdbEpisodesMap,
                                                 onStreamSelected: widget.onStreamSelected,
                                                 isDownload: true,
+                                                isFromPlayer: widget.isFromPlayer,
                                               );
                                             },
                                           );
@@ -929,6 +931,7 @@ class _TorrentSelectorPanelState extends State<TorrentSelectorPanel> {
                                                 episodes: widget.episodes,
                                                 tmdbEpisodesMap: widget.tmdbEpisodesMap,
                                                 onStreamSelected: widget.onStreamSelected,
+                                                isFromPlayer: widget.isFromPlayer,
                                               );
                                             },
                                           );
@@ -981,6 +984,7 @@ class PlaybackProgressDialog extends StatefulWidget {
   final Map<int, dynamic>? tmdbEpisodesMap;
   final void Function(String streamUrl, String title)? onStreamSelected;
   final bool isDownload;
+  final bool isFromPlayer;
 
   const PlaybackProgressDialog({
     super.key,
@@ -997,6 +1001,7 @@ class PlaybackProgressDialog extends StatefulWidget {
     this.tmdbEpisodesMap,
     this.onStreamSelected,
     this.isDownload = false,
+    this.isFromPlayer = false,
   });
 
   @override
@@ -1190,7 +1195,7 @@ class PlaybackProgressDialogState extends State<PlaybackProgressDialog> {
                 tmdbEpisodesMapJson: widget.tmdbEpisodesMap != null ? jsonEncode(widget.tmdbEpisodesMap!.map((k, v) => MapEntry(k.toString(), v))) : null,
               );
               NotificationService().show(widget.parentContext, 'Added to downloads: $displayName');
-            });
+            }, isFromPlayer: widget.isFromPlayer);
             return;
           }
 
@@ -1329,7 +1334,7 @@ class PlaybackProgressDialogState extends State<PlaybackProgressDialog> {
                             tmdbEpisodesMapJson: widget.tmdbEpisodesMap != null ? jsonEncode(widget.tmdbEpisodesMap!.map((k, v) => MapEntry(k.toString(), v))) : null,
                           );
                           NotificationService().show(widget.parentContext, 'Added to downloads: $displayName');
-                        });
+                        }, isFromPlayer: widget.isFromPlayer);
                         return;
                       }
 
@@ -1647,7 +1652,7 @@ class BufferingProgressDialogState extends State<BufferingProgressDialog> {
   }
 }
 
-void showStorageFullDialog(BuildContext context, int fileBytes, VoidCallback onRetry) {
+void showStorageFullDialog(BuildContext context, int fileBytes, VoidCallback onRetry, {bool isFromPlayer = false}) {
   final double fileGB = fileBytes / (1024 * 1024 * 1024);
   final limitGB = AppSettings().downloadsLimitGB;
 
@@ -1682,6 +1687,9 @@ void showStorageFullDialog(BuildContext context, int fileBytes, VoidCallback onR
           TextButton(
             onPressed: () {
               Navigator.of(dialogContext).pop();
+              if (isFromPlayer) {
+                Navigator.of(context).pop();
+              }
               // Redirect user to downloads page
               NavigationState().setPage(TabPage.downloads);
             },
