@@ -977,31 +977,35 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
           ),
         ],
       ),
-      child: Builder(
-        builder: (context) {
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final double playerWidth = constraints.maxWidth;
+          final double playerHeight = constraints.maxHeight;
+
           final videoWidth = player.state.width;
           final videoHeight = player.state.height;
           final videoAspectRatio = videoWidth != null && videoHeight != null && videoWidth > 0 && videoHeight > 0
               ? (videoWidth / videoHeight)
               : 16 / 9;
 
-          // Scale subtitles font size dynamically based on the current window/screen width
-          final screenWidth = MediaQuery.of(context).size.width;
-          final screenHeight = MediaQuery.of(context).size.height;
+          // Scale subtitles font size dynamically based on the current layout width
           final settings = AppSettings();
-          final double subtitleFontSize = (screenWidth / 600.0 * settings.subtitlesFontSize).clamp(10.0, 60.0);
+          final double scale = (playerWidth / 720.0).clamp(0.85, 3.0);
+          final double subtitleFontSize = (scale * settings.subtitlesFontSize).clamp(14.0, 72.0);
 
           // Calculate vertical letterbox padding so subtitles are always drawn on the video frame
           double bottomPadding = settings.subtitlesPositionOffset;
-          if (screenWidth > 0 && screenHeight > 0) {
-            final double screenAspectRatio = screenWidth / screenHeight;
-            if (screenAspectRatio < videoAspectRatio) {
+          if (playerWidth > 0 && playerHeight > 0) {
+            final double playerAspectRatio = playerWidth / playerHeight;
+            if (playerAspectRatio < videoAspectRatio) {
               // Top and bottom black bars exist
-              final double videoRenderedHeight = screenWidth / videoAspectRatio;
-              final double blackBarHeight = (screenHeight - videoRenderedHeight) / 2.0;
+              final double videoRenderedHeight = playerWidth / videoAspectRatio;
+              final double blackBarHeight = (playerHeight - videoRenderedHeight) / 2.0;
               bottomPadding += blackBarHeight;
             }
           }
+
+          debugPrint('[Subtitles] playerWidth=$playerWidth, playerHeight=$playerHeight, videoWidth=$videoWidth, videoHeight=$videoHeight, videoAspectRatio=$videoAspectRatio, bottomPadding=$bottomPadding, fontSize=$subtitleFontSize');
 
           final subtitleConfig = !settings.subtitlesCustomStylesEnabled
               ? const SubtitleViewConfiguration()
@@ -2252,6 +2256,7 @@ class _SettingsOverlayCardState extends State<_SettingsOverlayCard> {
           padding: const EdgeInsets.only(left: 16.0, right: 16.0, bottom: 12.0),
           child: InkWell(
             onTap: () {
+              widget.onClose(); // Hide the settings overlay menu first
               _showSubtitleCustomizationDialog();
             },
             borderRadius: BorderRadius.circular(6.0),
