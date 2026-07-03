@@ -65,7 +65,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
 
   // Track settings open/close hover state
   Duration _controlsHoverDuration = const Duration(seconds: 3);
-  final ValueNotifier<bool> _isQualityEnhancedNotifier = ValueNotifier<bool>(false);
+  final ValueNotifier<bool> _isQualityEnhancedNotifier = ValueNotifier<bool>(AppSettings().videoEnhancementEnabled);
   
   final List<StreamSubscription> _subscriptions = [];
   final TorrServerService _torrServerService = TorrServerService();
@@ -371,21 +371,31 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
   }
 
   Future<void> _toggleQualityEnhancement() async {
-    _isQualityEnhancedNotifier.value = !_isQualityEnhancedNotifier.value;
+    final settings = AppSettings();
+    final bool newValue = !settings.videoEnhancementEnabled;
+    await settings.setVideoEnhancementEnabled(newValue);
+    _isQualityEnhancedNotifier.value = newValue;
+
     try {
       final nativePlayer = player.platform as NativePlayer;
-      if (_isQualityEnhancedNotifier.value) {
-        // Add sharpening + debanding filters
+      if (newValue) {
+        // GPU-accelerated video enhancement parameters
         await nativePlayer.setProperty('deband', 'yes');
         await nativePlayer.setProperty('deband-iterations', '4');
         await nativePlayer.setProperty('deband-threshold', '48');
         await nativePlayer.setProperty('deband-range', '16');
-        await nativePlayer.command(
-          ['vf', 'add', '@enhance:lavfi=[unsharp=lx=5:ly=5:la=0.3:cx=5:cy=5:ca=0.3]'],
-        );
+        await nativePlayer.setProperty('sharpen', '1.0');
+        await nativePlayer.setProperty('contrast', '3');
+        await nativePlayer.setProperty('saturation', '4');
+        await nativePlayer.setProperty('scale', 'spline36');
+        await nativePlayer.setProperty('cscale', 'spline36');
       } else {
         await nativePlayer.setProperty('deband', 'no');
-        await nativePlayer.command(['vf', 'remove', '@enhance']);
+        await nativePlayer.setProperty('sharpen', '0.0');
+        await nativePlayer.setProperty('contrast', '0');
+        await nativePlayer.setProperty('saturation', '0');
+        await nativePlayer.setProperty('scale', 'bilinear');
+        await nativePlayer.setProperty('cscale', 'bilinear');
       }
     } catch (_) {}
   }

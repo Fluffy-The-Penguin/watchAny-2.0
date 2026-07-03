@@ -126,6 +126,20 @@ class PlayerState extends ChangeNotifier {
       nativePlayer.setProperty('cache-pause', 'yes');
       nativePlayer.setProperty('network-timeout', '60');         // Wait up to 60s for read operations
       nativePlayer.setProperty('demuxer-lavf-timeout', '60');     // Wait up to 60s for initial metadata/opening
+      
+      // Auto-apply persisted Video Enhancement if enabled
+      final settings = AppSettings();
+      if (settings.videoEnhancementEnabled) {
+        nativePlayer.setProperty('deband', 'yes');
+        nativePlayer.setProperty('deband-iterations', '4');
+        nativePlayer.setProperty('deband-threshold', '48');
+        nativePlayer.setProperty('deband-range', '16');
+        nativePlayer.setProperty('sharpen', '1.0');
+        nativePlayer.setProperty('contrast', '3');
+        nativePlayer.setProperty('saturation', '4');
+        nativePlayer.setProperty('scale', 'spline36');
+        nativePlayer.setProperty('cscale', 'spline36');
+      }
     } catch (e) {
       debugPrint('[PlayerState] Error setting player performance options: $e');
     }

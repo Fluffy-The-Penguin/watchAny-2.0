@@ -19,6 +19,7 @@ class AppSettings extends ChangeNotifier {
   bool _autoPlay = true;
   bool _autoNext = true;
   bool _autoSkipIntro = false;
+  bool _videoEnhancementEnabled = false;
 
   // Custom Subtitles configuration
   bool _subtitlesCustomStylesEnabled = true;
@@ -48,6 +49,7 @@ class AppSettings extends ChangeNotifier {
   bool get autoPlay => _autoPlay;
   bool get autoNext => _autoNext;
   bool get autoSkipIntro => _autoSkipIntro;
+  bool get videoEnhancementEnabled => _videoEnhancementEnabled;
 
   // Custom Subtitles getters
   bool get subtitlesCustomStylesEnabled => _subtitlesCustomStylesEnabled;
@@ -97,6 +99,7 @@ class AppSettings extends ChangeNotifier {
     _autoPlay = prefs.getBool('auto_play') ?? true;
     _autoNext = prefs.getBool('auto_next') ?? true;
     _autoSkipIntro = prefs.getBool('auto_skip_intro') ?? false;
+    _videoEnhancementEnabled = prefs.getBool('video_enhancement_enabled') ?? false;
 
     // Subtitles settings initialization
     _subtitlesCustomStylesEnabled = prefs.getBool('subtitles_custom_styles_enabled') ?? true;
@@ -155,6 +158,14 @@ class AppSettings extends ChangeNotifier {
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('auto_next', value);
+  }
+
+  Future<void> setVideoEnhancementEnabled(bool value) async {
+    if (_videoEnhancementEnabled == value) return;
+    _videoEnhancementEnabled = value;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('video_enhancement_enabled', value);
   }
 
   Future<void> setSmoothScrollEnabled(bool value) async {
