@@ -479,20 +479,81 @@ class PlayerState extends ChangeNotifier {
 
   void _addToHistory(String id, int episodeNumber) async {
     final prefs = await SharedPreferences.getInstance();
-    final String key = 'watched_episodes_$id';
-    List<String> list = prefs.getStringList(key) ?? [];
-    final String epStr = episodeNumber.toString();
-    if (!list.contains(epStr)) {
-      list.add(epStr);
-      await prefs.setStringList(key, list);
+    
+    // 1. Determine mode and metadata
+    var isAnime = true;
+    var metadataStr = prefs.getString('anime_continue_watching_metadata_$id');
+    if (metadataStr == null) {
+      metadataStr = prefs.getString('movie_continue_watching_metadata_$id');
+      isAnime = false;
     }
-    await prefs.setInt('history_last_watched_timestamp_$id', DateTime.now().millisecondsSinceEpoch);
+    if (metadataStr == null) return; // No metadata saved yet, skip adding to history
+
+    Map<String, dynamic> metadata;
+    try {
+      metadata = jsonDecode(metadataStr);
+    } catch (_) {
+      return;
+    }
+
+    // 2. Load existing flat records list
+    List<Map<String, dynamic>> records = [];
+    final String? flatRecordsStr = prefs.getString('watch_history_flat_records');
+    if (flatRecordsStr != null) {
+      try {
+        final List<dynamic> decodedList = jsonDecode(flatRecordsStr);
+        records = decodedList.map((e) => Map<String, dynamic>.from(e)).toList();
+      } catch (_) {}
+    } else {
+      // Migrate legacy history if present
+      records = await _migrateLegacyHistory(prefs);
+    }
+
+    // 3. Update or insert record
+    final now = DateTime.now().millisecondsSinceEpoch;
+    
+    // Check if the most recent record (index 0) is the same show
+    if (records.isNotEmpty && records[0]['id'] == id) {
+      // Continuous watch! Merge into existing most-recent record
+      final List<dynamic> epList = records[0]['episodes'] ?? [];
+      final List<int> eps = epList.map((e) => e as int).toList();
+      if (!eps.contains(episodeNumber)) {
+        eps.add(episodeNumber);
+        records[0]['episodes'] = eps;
+      }
+      records[0]['timestamp'] = now;
+    } else {
+      // Not continuous watch! Create a brand new history entry at the top
+      records.insert(0, {
+        'id': id,
+        'isAnime': isAnime,
+        'media': metadata,
+        'episodes': [episodeNumber],
+        'timestamp': now,
+      });
+    }
+
+    // Keep history at a reasonable limit (e.g. 200 items)
+    if (records.length > 200) {
+      records = records.sublist(0, 200);
+    }
+
+    // 4. Save flat records
+    await prefs.setString('watch_history_flat_records', jsonEncode(records));
+
+    // Also keep legacy keys updated for compatibility/resuming
+    final String legacyKey = 'watched_episodes_$id';
+    List<String> legacyList = prefs.getStringList(legacyKey) ?? [];
+    final String epStr = episodeNumber.toString();
+    if (!legacyList.contains(epStr)) {
+      legacyList.add(epStr);
+      await prefs.setStringList(legacyKey, legacyList);
+    }
+    await prefs.setInt('history_last_watched_timestamp_$id', now);
   }
 
-  static Future<List<Map<String, dynamic>>> getHistoryList() async {
-    final prefs = await SharedPreferences.getInstance();
-    final List<Map<String, dynamic>> history = [];
-    
+  static Future<List<Map<String, dynamic>>> _migrateLegacyHistory(SharedPreferences prefs) async {
+    final List<Map<String, dynamic>> records = [];
     final keys = prefs.getKeys();
     for (var key in keys) {
       if (key.startsWith('watched_episodes_')) {
@@ -511,7 +572,7 @@ class PlayerState extends ChangeNotifier {
           final List<String> epStrs = prefs.getStringList(key) ?? [];
           final List<int> eps = epStrs.map((e) => int.tryParse(e) ?? 0).toList();
           
-          history.add({
+          records.add({
             'id': id,
             'isAnime': isAnime,
             'media': metadata,
@@ -521,13 +582,43 @@ class PlayerState extends ChangeNotifier {
         } catch (_) {}
       }
     }
+    records.sort((a, b) => b['timestamp'].compareTo(a['timestamp']));
+    return records;
+  }
+
+  static Future<List<Map<String, dynamic>>> getHistoryList() async {
+    final prefs = await SharedPreferences.getInstance();
+    final String? flatRecordsStr = prefs.getString('watch_history_flat_records');
     
-    history.sort((a, b) => b['timestamp'].compareTo(a['timestamp']));
-    return history;
+    if (flatRecordsStr != null) {
+      try {
+        final List<dynamic> decodedList = jsonDecode(flatRecordsStr);
+        final List<Map<String, dynamic>> records = [];
+        for (var item in decodedList) {
+          final map = Map<String, dynamic>.from(item);
+          if (map['episodes'] != null) {
+            final List<dynamic> epsDecoded = map['episodes'];
+            map['episodes'] = epsDecoded.map((e) => e as int).toList();
+          } else {
+            map['episodes'] = <int>[];
+          }
+          records.add(map);
+        }
+        return records;
+      } catch (_) {}
+    }
+
+    // Migration / Fallback if flat records do not exist yet
+    final migrated = await _migrateLegacyHistory(prefs);
+    if (migrated.isNotEmpty) {
+      await prefs.setString('watch_history_flat_records', jsonEncode(migrated));
+    }
+    return migrated;
   }
 
   static Future<void> clearHistory() async {
     final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('watch_history_flat_records');
     final keys = prefs.getKeys();
     for (var key in keys) {
       if (key.startsWith('watched_episodes_') || key.startsWith('history_last_watched_timestamp_')) {
