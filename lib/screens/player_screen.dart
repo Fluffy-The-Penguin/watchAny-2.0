@@ -77,6 +77,9 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
   SkipInterval? _activeSkipInterval;
   StreamSubscription<Duration>? _positionSubscription;
   StreamSubscription<Duration>? _durationSubscription;
+  int? _currentEpNum;
+  String? _currentStreamUrl;
+  final Set<SkipInterval> _autoSkippedIntervals = {};
 
   void _handlePlayerStateChange() {
     final playerState = PlayerState();
@@ -92,6 +95,21 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
       } else {
         SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
         SystemChrome.setPreferredOrientations([]); // Allow both portrait and landscape rotation
+      }
+    }
+
+    // Detect active episode change
+    final activeEp = playerState.episodeNumber ?? widget.episodeNumber;
+    final activeUrl = playerState.streamUrl ?? widget.streamUrl;
+    if (activeEp != _currentEpNum || activeUrl != _currentStreamUrl) {
+      _currentEpNum = activeEp;
+      _currentStreamUrl = activeUrl;
+      if (mounted) {
+        setState(() {
+          _skipIntervals = [];
+          _autoSkippedIntervals.clear();
+          _hasFetchedSkipTimes = false;
+        });
       }
     }
   }
@@ -118,12 +136,16 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
     _subscriptions.add(player.stream.height.listen((_) {
       if (mounted) setState(() {});
     }));
+
+    _currentEpNum = PlayerState().episodeNumber ?? widget.episodeNumber;
+    _currentStreamUrl = PlayerState().streamUrl ?? widget.streamUrl;
+
     PlayerState().addListener(_handlePlayerStateChange);
     _handlePlayerStateChange();
     AppSettings().addListener(_onSettingsChanged);
 
     // Fetch skip times once duration is loaded
-    if (widget.anilistId != null && widget.episodeNumber != null) {
+    if (widget.anilistId != null) {
       _durationSubscription = player.stream.duration.listen((duration) {
         if (duration.inSeconds > 0 && !_hasFetchedSkipTimes) {
           _hasFetchedSkipTimes = true;
@@ -181,11 +203,12 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
   }
 
   Future<void> _fetchSkipTimes(double durationSeconds) async {
-    if (widget.anilistId == null || widget.episodeNumber == null) return;
+    final targetEpNum = _currentEpNum ?? widget.episodeNumber;
+    if (widget.anilistId == null || targetEpNum == null) return;
     try {
       final intervals = await AniSkipService().fetchSkipTimes(
         anilistId: widget.anilistId!,
-        episodeNumber: widget.episodeNumber!,
+        episodeNumber: targetEpNum,
         episodeLength: durationSeconds,
       );
       if (mounted) {
@@ -213,11 +236,14 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
       if (AppSettings().autoSkipIntro) {
         final target = matchingInterval.endTime.toInt();
         if (player.state.position.inSeconds < target - 1) {
-          player.seek(Duration(seconds: target));
-          developer.log(
-            'Auto-skipped ${matchingInterval.skipType} to ${target}s',
-            name: 'watchAny.PlayerScreen',
-          );
+          if (!_autoSkippedIntervals.contains(matchingInterval)) {
+            _autoSkippedIntervals.add(matchingInterval);
+            player.seek(Duration(seconds: target));
+            developer.log(
+              'Auto-skipped ${matchingInterval.skipType} to ${target}s',
+              name: 'watchAny.PlayerScreen',
+            );
+          }
           return;
         }
       }
@@ -2303,18 +2329,12 @@ class _SettingsOverlayCardState extends State<_SettingsOverlayCard> {
             final double fontSize = settings.subtitlesFontSize;
             final bool isBold = settings.subtitlesBold;
             final bool isItalic = settings.subtitlesItalic;
-            final double offset = settings.subtitlesPositionOffset;
             final int textColor = settings.subtitlesTextColor;
             final bool shadowEnabled = settings.subtitlesShadowEnabled;
             final int shadowColor = settings.subtitlesShadowColor;
             final double shadowOpacity = settings.subtitlesShadowOpacity;
             final double shadowBlurRadius = settings.subtitlesShadowBlurRadius;
             final double shadowOffset = settings.subtitlesShadowOffset;
-
-            // Map AppSettings offset (10.0 to 250.0) to local preview bottom padding (10.0 to 120.0) inside the 180px high box
-            final double previewBottom = ((offset - 10.0) / 240.0) * 110.0 + 10.0;
-            // Map AppSettings X offset (-150.0 to 150.0) to local preview X offset (-120.0 to 120.0)
-            final double previewX = (settings.subtitlesXOffset / 150.0) * 120.0;
 
             final subtitlePreviewStyle = TextStyle(
               height: 1.4,
@@ -2388,99 +2408,119 @@ class _SettingsOverlayCardState extends State<_SettingsOverlayCard> {
                       style: TextStyle(color: Colors.white38, fontSize: 11.5, fontFamily: 'Outfit'),
                     ),
                     const SizedBox(height: 8.0),
-                    GestureDetector(
-                      onPanUpdate: (details) {
-                        // Drag smoothly on both X and Y using details.delta without committing to SharedPreferences on every step
-                        settings.setSubtitlesXOffset(
-                          (settings.subtitlesXOffset + details.delta.dx).clamp(-150.0, 150.0),
-                          save: false,
-                        );
-                        settings.setSubtitlesPositionOffset(
-                          (settings.subtitlesPositionOffset - details.delta.dy).clamp(10.0, 250.0),
-                          save: false,
-                        );
-                        setDialogState(() {});
-                      },
-                      onPanEnd: (_) => settings.saveSubtitlesPosition(),
-                      onPanCancel: () => settings.saveSubtitlesPosition(),
-                      child: MouseRegion(
-                        cursor: SystemMouseCursors.grab,
-                        child: Container(
-                          height: 180.0,
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(12.0),
-                            border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
-                            gradient: const LinearGradient(
-                              begin: Alignment.topCenter,
-                              end: Alignment.bottomCenter,
-                              colors: [Color(0xFF1E2026), Color(0xFF0F1013)],
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        final boxWidth = constraints.maxWidth;
+                        const boxHeight = 180.0;
+
+                        const minY = 10.0;
+                        const maxY = boxHeight - 45.0;
+                        const minOffset = 10.0;
+                        const maxOffset = 500.0;
+
+                        const minOffsetX = -400.0;
+                        const maxOffsetX = 400.0;
+                        final maxX = boxWidth / 2.0 - 80.0;
+
+                        final double currentBottom = minY + ((settings.subtitlesPositionOffset - minOffset) / (maxOffset - minOffset)) * (maxY - minY);
+                        final double currentX = (settings.subtitlesXOffset / maxOffsetX) * maxX;
+
+                        return GestureDetector(
+                          onPanUpdate: (details) {
+                            final double dy = details.delta.dy;
+                            final double dx = details.delta.dx;
+
+                            final double newOffset = (settings.subtitlesPositionOffset - (dy * (maxOffset - minOffset) / (maxY - minY)))
+                                .clamp(minOffset, maxOffset);
+                            final double newXOffset = (settings.subtitlesXOffset + (dx * maxOffsetX / maxX))
+                                .clamp(minOffsetX, maxOffsetX);
+
+                            settings.setSubtitlesXOffset(newXOffset, save: false);
+                            settings.setSubtitlesPositionOffset(newOffset, save: false);
+                            setDialogState(() {});
+                          },
+                          onPanEnd: (_) => settings.saveSubtitlesPosition(),
+                          onPanCancel: () => settings.saveSubtitlesPosition(),
+                          child: MouseRegion(
+                            cursor: SystemMouseCursors.grab,
+                            child: Container(
+                              height: boxHeight,
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(12.0),
+                                border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+                                gradient: const LinearGradient(
+                                  begin: Alignment.topCenter,
+                                  end: Alignment.bottomCenter,
+                                  colors: [Color(0xFF1E2026), Color(0xFF0F1013)],
+                                ),
+                              ),
+                              child: Stack(
+                                alignment: Alignment.bottomCenter,
+                                children: [
+                                  // Playback preview background mockup lines
+                                  Positioned(
+                                    top: 40,
+                                    child: Icon(
+                                      Icons.movie_outlined,
+                                      color: Colors.white.withValues(alpha: 0.03),
+                                      size: 100,
+                                    ),
+                                  ),
+                                  Positioned(
+                                    top: 20,
+                                    left: 20,
+                                    child: Container(
+                                      width: 80,
+                                      height: 6,
+                                      decoration: BoxDecoration(
+                                        color: Colors.white.withValues(alpha: 0.05),
+                                        borderRadius: BorderRadius.circular(3),
+                                      ),
+                                    ),
+                                  ),
+                                  Positioned(
+                                    top: 32,
+                                    left: 20,
+                                    child: Container(
+                                      width: 50,
+                                      height: 6,
+                                      decoration: BoxDecoration(
+                                        color: Colors.white.withValues(alpha: 0.05),
+                                        borderRadius: BorderRadius.circular(3),
+                                      ),
+                                    ),
+                                  ),
+                                  
+                                  // Center line guide
+                                  Positioned.fill(
+                                    child: Align(
+                                      alignment: Alignment.center,
+                                      child: Container(
+                                        height: 0.5,
+                                        color: Colors.white.withValues(alpha: 0.03),
+                                      ),
+                                    ),
+                                  ),
+
+                                  // Preview text block
+                                  Positioned(
+                                    bottom: currentBottom,
+                                    left: 16.0 + currentX,
+                                    right: 16.0 - currentX,
+                                    child: Center(
+                                      child: Text(
+                                        "Subtitles look like this",
+                                        style: subtitlePreviewStyle,
+                                        textAlign: TextAlign.center,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
-                          child: Stack(
-                            alignment: Alignment.bottomCenter,
-                            children: [
-                              // Playback preview background mockup lines
-                              Positioned(
-                                top: 40,
-                                child: Icon(
-                                  Icons.movie_outlined,
-                                  color: Colors.white.withValues(alpha: 0.03),
-                                  size: 100,
-                                ),
-                              ),
-                              Positioned(
-                                top: 20,
-                                left: 20,
-                                child: Container(
-                                  width: 80,
-                                  height: 6,
-                                  decoration: BoxDecoration(
-                                    color: Colors.white.withValues(alpha: 0.05),
-                                    borderRadius: BorderRadius.circular(3),
-                                  ),
-                                ),
-                              ),
-                              Positioned(
-                                top: 32,
-                                left: 20,
-                                child: Container(
-                                  width: 50,
-                                  height: 6,
-                                  decoration: BoxDecoration(
-                                    color: Colors.white.withValues(alpha: 0.05),
-                                    borderRadius: BorderRadius.circular(3),
-                                  ),
-                                ),
-                              ),
-                              
-                              // Center line guide
-                              Positioned.fill(
-                                child: Align(
-                                  alignment: Alignment.center,
-                                  child: Container(
-                                    height: 0.5,
-                                    color: Colors.white.withValues(alpha: 0.03),
-                                  ),
-                                ),
-                              ),
-
-                              // Preview text block
-                              Positioned(
-                                bottom: previewBottom,
-                                left: 16.0 + previewX,
-                                right: 16.0 - previewX,
-                                child: Center(
-                                  child: Text(
-                                    "Subtitles look like this",
-                                    style: subtitlePreviewStyle,
-                                    textAlign: TextAlign.center,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
+                        );
+                      }
                     ),
                     const SizedBox(height: 16.0),
 

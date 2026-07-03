@@ -86,7 +86,7 @@ class AniSkipService {
     );
 
     try {
-      final response = await http.get(url).timeout(const Duration(seconds: 4));
+      var response = await http.get(url).timeout(const Duration(seconds: 4));
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         if (data['found'] == true) {
@@ -98,11 +98,29 @@ class AniSkipService {
           );
           return intervals;
         }
-      } else {
-        developer.log(
-          'API request failed with status: ${response.statusCode}',
-          name: 'watchAny.AniSkipService',
-        );
+      }
+
+      // Fallback: Query without episodeLength for local files / downloads with duration mismatches
+      developer.log(
+        'Skip times not found with episodeLength, attempting fallback query without length',
+        name: 'watchAny.AniSkipService',
+      );
+      final fallbackUrl = Uri.parse(
+        'https://api.aniskip.com/v2/skip-times/$malId/$episodeNumber'
+        '?types[]=op&types[]=ed&types[]=mixed-op&types[]=mixed-ed&types[]=recap',
+      );
+      response = await http.get(fallbackUrl).timeout(const Duration(seconds: 4));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data['found'] == true) {
+          final results = data['results'] as List<dynamic>? ?? [];
+          final intervals = results.map((r) => SkipInterval.fromJson(r)).toList();
+          developer.log(
+            'Found ${intervals.length} skip intervals in fallback query for MAL $malId',
+            name: 'watchAny.AniSkipService',
+          );
+          return intervals;
+        }
       }
     } catch (e) {
       developer.log(

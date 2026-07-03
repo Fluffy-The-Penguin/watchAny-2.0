@@ -1044,11 +1044,6 @@ class _SettingsPageState extends State<SettingsPage> {
         final double shadowBlurRadius = settings.subtitlesShadowBlurRadius;
         final double shadowOffset = settings.subtitlesShadowOffset;
 
-        // Map AppSettings offset (10.0 to 250.0) to local preview bottom padding (10.0 to 120.0) inside the 180px high box
-        final double previewBottom = ((offset - 10.0) / 240.0) * 110.0 + 10.0;
-        // Map AppSettings X offset (-150.0 to 150.0) to local preview X offset (-120.0 to 120.0)
-        final double previewX = (xOffset / 150.0) * 120.0;
-
         final subtitlePreviewStyle = TextStyle(
           height: 1.4,
           fontSize: (fontSize * 0.95).clamp(10.0, 36.0),
@@ -1179,96 +1174,116 @@ class _SettingsPageState extends State<SettingsPage> {
                         constraints: const BoxConstraints(maxWidth: 480.0),
                         child: AspectRatio(
                           aspectRatio: 16 / 9,
-                          child: GestureDetector(
-                            onPanUpdate: (details) {
-                              // Drag smoothly on both X and Y using details.delta without committing to SharedPreferences on every step
-                              settings.setSubtitlesXOffset(
-                                (settings.subtitlesXOffset + details.delta.dx).clamp(-150.0, 150.0),
-                                save: false,
-                              );
-                              settings.setSubtitlesPositionOffset(
-                                (settings.subtitlesPositionOffset - details.delta.dy).clamp(10.0, 250.0),
-                                save: false,
-                              );
-                            },
-                            onPanEnd: (_) => settings.saveSubtitlesPosition(),
-                            onPanCancel: () => settings.saveSubtitlesPosition(),
-                            child: MouseRegion(
-                              cursor: SystemMouseCursors.grab,
-                              child: Container(
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(12.0),
-                                  border: Border.all(color: Colors.white10),
-                                  gradient: const LinearGradient(
-                                    begin: Alignment.topCenter,
-                                    end: Alignment.bottomCenter,
-                                    colors: [Color(0xFF16161A), Color(0xFF0C0C0E)],
+                          child: LayoutBuilder(
+                            builder: (context, constraints) {
+                              final boxWidth = constraints.maxWidth;
+                              final boxHeight = constraints.maxHeight;
+
+                              const minY = 10.0;
+                              final maxY = boxHeight - 50.0;
+                              const minOffset = 10.0;
+                              const maxOffset = 500.0;
+
+                              const minOffsetX = -400.0;
+                              const maxOffsetX = 400.0;
+                              final maxX = boxWidth / 2.0 - 80.0;
+
+                              final double currentBottom = minY + ((offset - minOffset) / (maxOffset - minOffset)) * (maxY - minY);
+                              final double currentX = (xOffset / maxOffsetX) * maxX;
+
+                              return GestureDetector(
+                                onPanUpdate: (details) {
+                                  final double dy = details.delta.dy;
+                                  final double dx = details.delta.dx;
+
+                                  final double newOffset = (settings.subtitlesPositionOffset - (dy * (maxOffset - minOffset) / (maxY - minY)))
+                                      .clamp(minOffset, maxOffset);
+                                  final double newXOffset = (settings.subtitlesXOffset + (dx * maxOffsetX / maxX))
+                                      .clamp(minOffsetX, maxOffsetX);
+
+                                  settings.setSubtitlesXOffset(newXOffset, save: false);
+                                  settings.setSubtitlesPositionOffset(newOffset, save: false);
+                                },
+                                onPanEnd: (_) => settings.saveSubtitlesPosition(),
+                                onPanCancel: () => settings.saveSubtitlesPosition(),
+                                child: MouseRegion(
+                                  cursor: SystemMouseCursors.grab,
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(12.0),
+                                      border: Border.all(color: Colors.white10),
+                                      gradient: const LinearGradient(
+                                        begin: Alignment.topCenter,
+                                        end: Alignment.bottomCenter,
+                                        colors: [Color(0xFF16161A), Color(0xFF0C0C0E)],
+                                      ),
+                                    ),
+                                    child: Stack(
+                                      alignment: Alignment.bottomCenter,
+                                      children: [
+                                        // Video mockup guidelines
+                                        Center(
+                                          child: Icon(
+                                            Icons.movie_outlined,
+                                            color: Colors.white.withValues(alpha: 0.02),
+                                            size: 100,
+                                          ),
+                                        ),
+                                        Positioned(
+                                          top: 24.0,
+                                          left: 24.0,
+                                          child: Container(
+                                            width: 100.0,
+                                            height: 8.0,
+                                            decoration: BoxDecoration(
+                                              color: Colors.white.withValues(alpha: 0.05),
+                                              borderRadius: BorderRadius.circular(4.0),
+                                            ),
+                                          ),
+                                        ),
+                                        Positioned(
+                                          top: 38.0,
+                                          left: 24.0,
+                                          child: Container(
+                                            width: 60.0,
+                                            height: 8.0,
+                                            decoration: BoxDecoration(
+                                              color: Colors.white.withValues(alpha: 0.05),
+                                              borderRadius: BorderRadius.circular(4.0),
+                                            ),
+                                          ),
+                                        ),
+
+                                        // Center divider lines
+                                        Positioned.fill(
+                                          child: Align(
+                                            alignment: Alignment.center,
+                                            child: Container(
+                                              height: 0.5,
+                                              color: Colors.white.withValues(alpha: 0.04),
+                                            ),
+                                          ),
+                                        ),
+
+                                        // Draggable Subtitle Box
+                                        Positioned(
+                                          bottom: currentBottom,
+                                          left: 24.0 + currentX,
+                                          right: 24.0 - currentX,
+                                          child: Center(
+                                            child: Text(
+                                              "Subtitles look like this",
+                                              style: subtitlePreviewStyle,
+                                              textAlign: TextAlign.center,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                   ),
                                 ),
-                                child: Stack(
-                                  alignment: Alignment.bottomCenter,
-                                  children: [
-                                    // Video mockup guidelines
-                                    Center(
-                                      child: Icon(
-                                        Icons.movie_outlined,
-                                        color: Colors.white.withValues(alpha: 0.02),
-                                        size: 100,
-                                      ),
-                                    ),
-                                    Positioned(
-                                      top: 24.0,
-                                      left: 24.0,
-                                      child: Container(
-                                        width: 100.0,
-                                        height: 8.0,
-                                        decoration: BoxDecoration(
-                                          color: Colors.white.withValues(alpha: 0.05),
-                                          borderRadius: BorderRadius.circular(4.0),
-                                        ),
-                                      ),
-                                    ),
-                                    Positioned(
-                                      top: 38.0,
-                                      left: 24.0,
-                                      child: Container(
-                                        width: 60.0,
-                                        height: 8.0,
-                                        decoration: BoxDecoration(
-                                          color: Colors.white.withValues(alpha: 0.05),
-                                          borderRadius: BorderRadius.circular(4.0),
-                                        ),
-                                      ),
-                                    ),
-
-                                    // Center divider lines
-                                    Positioned.fill(
-                                      child: Align(
-                                        alignment: Alignment.center,
-                                        child: Container(
-                                          height: 0.5,
-                                          color: Colors.white.withValues(alpha: 0.04),
-                                        ),
-                                      ),
-                                    ),
-
-                                    // Draggable Subtitle Box
-                                    Positioned(
-                                      bottom: previewBottom,
-                                      left: 24.0 + previewX,
-                                      right: 24.0 - previewX,
-                                      child: Center(
-                                        child: Text(
-                                          "Subtitles look like this",
-                                          style: subtitlePreviewStyle,
-                                          textAlign: TextAlign.center,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
+                              );
+                            },
                           ),
                         ),
                       ),
