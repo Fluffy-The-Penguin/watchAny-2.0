@@ -66,7 +66,7 @@ class UpdateService extends ChangeNotifier {
   factory UpdateService() => _instance;
   UpdateService._internal();
 
-  static const String currentVersion = '2.0.7';
+  static const String currentVersion = '2.0.8';
   
   // GitHub Releases API Endpoint
   static const String gitHubReleasesUrl = 'https://api.github.com/repos/Fluffy-The-Penguin/watchAny-2.0/releases/latest';
@@ -166,15 +166,15 @@ class UpdateService extends ChangeNotifier {
       // Fallback mock update in case of failure
       _error = 'Live check failed ($e). Showing fallback updates.';
       _latestUpdate = UpdateInfo(
-        version: 'v2.0.7',
+        version: 'v2.0.8',
         changelog: '• Added Downloads & Cache storage limits and customizable folder paths\n'
             '• Added auto-manage FIFO storage deletion and full-storage warning dialogs\n'
             '• Added Android system back gesture handling to prevent premature app closure\n'
             '• Implemented flat chronological watch history that groups adjacent episode views only\n'
-            '• Extracted and propagated detailed native server exception details in Manga search errors',
+            '• Resolved OkHttpExtensionsKt namespace compatibility crash for Manga search and browse catalogs',
         downloadUrl: Platform.isAndroid 
-            ? 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.7/app-arm64-v8a-release.apk'
-            : 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.7/watchany_setup_mock.exe',
+            ? 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.8/app-arm64-v8a-release.apk'
+            : 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.8/watchany_setup_mock.exe',
       );
     } finally {
       _isChecking = false;
