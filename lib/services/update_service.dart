@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:url_launcher/url_launcher.dart';
 
 class UpdateInfo {
   final String version;
@@ -15,14 +16,37 @@ class UpdateInfo {
   });
 
   factory UpdateInfo.fromJson(Map<String, dynamic> json) {
-    // Locate the first executable asset
+    // Locate the correct asset
     final assets = json['assets'] as List<dynamic>? ?? [];
     String downloadUrl = '';
-    for (final asset in assets) {
-      final name = asset['name'] as String? ?? '';
-      if (name.endsWith('.exe')) {
-        downloadUrl = asset['browser_download_url'] as String? ?? '';
-        break;
+    
+    if (Platform.isAndroid) {
+      // Find APK. Prefer arm64-v8a asset.
+      for (final asset in assets) {
+        final name = asset['name'] as String? ?? '';
+        if (name.endsWith('.apk') && name.contains('arm64-v8a')) {
+          downloadUrl = asset['browser_download_url'] as String? ?? '';
+          break;
+        }
+      }
+      // Fallback to any APK
+      if (downloadUrl.isEmpty) {
+        for (final asset in assets) {
+          final name = asset['name'] as String? ?? '';
+          if (name.endsWith('.apk')) {
+            downloadUrl = asset['browser_download_url'] as String? ?? '';
+            break;
+          }
+        }
+      }
+    } else {
+      // Locate the first executable (.exe) asset
+      for (final asset in assets) {
+        final name = asset['name'] as String? ?? '';
+        if (name.endsWith('.exe')) {
+          downloadUrl = asset['browser_download_url'] as String? ?? '';
+          break;
+        }
       }
     }
 
@@ -145,7 +169,9 @@ class UpdateService extends ChangeNotifier {
         changelog: '• Added Downloads & Cache storage limits and customizable folder paths\n'
             '• Added auto-manage FIFO storage deletion and full-storage warning dialogs\n'
             '• Added Android system back gesture handling to prevent premature app closure',
-        downloadUrl: 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.4/watchany_setup_mock.exe',
+        downloadUrl: Platform.isAndroid 
+            ? 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.4/app-arm64-v8a-release.apk'
+            : 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.4/watchany_setup_mock.exe',
       );
     } finally {
       _isChecking = false;
@@ -157,6 +183,21 @@ class UpdateService extends ChangeNotifier {
 
   Future<void> startUpdate() async {
     if (_latestUpdate == null || _isDownloading) return;
+
+    if (Platform.isAndroid) {
+      final url = Uri.parse(_latestUpdate!.downloadUrl);
+      try {
+        if (await canLaunchUrl(url)) {
+          await launchUrl(url, mode: LaunchMode.externalApplication);
+        } else {
+          throw Exception("Cannot open download link in web browser.");
+        }
+      } catch (e) {
+        _error = 'Failed to launch update link: $e';
+        notifyListeners();
+      }
+      return;
+    }
 
     _isDownloading = true;
     _downloadProgress = 0.0;
