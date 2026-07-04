@@ -1292,6 +1292,19 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
                       ),
                     const MaterialPositionIndicator(),
                     const Spacer(),
+                    // Quality Enhancement toggle shortcut
+                    ValueListenableBuilder<bool>(
+                      valueListenable: _isQualityEnhancedNotifier,
+                      builder: (context, isEnhanced, _) {
+                        return MaterialCustomButton(
+                          onPressed: _toggleQualityEnhancement,
+                          icon: Icon(
+                            Icons.auto_awesome,
+                            color: isEnhanced ? Colors.amber : Colors.white38,
+                          ),
+                        );
+                      },
+                    ),
                     // Subtitles On/Off Button (CC)
                     MaterialCustomButton(
                       onPressed: () {
@@ -1390,6 +1403,19 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
                       ),
                     const MaterialPositionIndicator(),
                     const Spacer(),
+                    // Quality Enhancement toggle shortcut
+                    ValueListenableBuilder<bool>(
+                      valueListenable: _isQualityEnhancedNotifier,
+                      builder: (context, isEnhanced, _) {
+                        return MaterialCustomButton(
+                          onPressed: _toggleQualityEnhancement,
+                          icon: Icon(
+                            Icons.auto_awesome,
+                            color: isEnhanced ? Colors.amber : Colors.white38,
+                          ),
+                        );
+                      },
+                    ),
                     // Subtitles On/Off Button (CC)
                     MaterialCustomButton(
                       onPressed: () {

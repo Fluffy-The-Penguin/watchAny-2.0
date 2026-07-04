@@ -1716,48 +1716,68 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
           ),
           const SizedBox(height: 20.0),
         ],
-
         // Grid View of Paged Episodes
-        GridView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: isMobile ? 2 : 3,
-            crossAxisSpacing: isMobile ? 10.0 : 14.0,
-            mainAxisSpacing: isMobile ? 10.0 : 14.0,
-            childAspectRatio: 1.45,
-          ),
-          itemCount: pagedList.length,
-          itemBuilder: (context, index) {
-            final ep = pagedList[index];
-            final String epTitle = ep['title'] ?? '';
-            final String thumbnail = ep['thumbnail'] ?? '';
-            final int epNum = ep['isPlaceholder'] == true ? (startIdx + index + 1) : _extractEpNum(epTitle, startIdx + index + 1);
-            final String cleanTitle = ep['isPlaceholder'] == true ? epTitle : _cleanEpTitle(epTitle);
-            final String site = ep['site'] ?? '';
+        ListenableBuilder(
+          listenable: Listenable.merge([PlayerState(), DownloadService()]),
+          builder: (context, _) {
+            final downloadedEps = DownloadService()
+                .tasks
+                .where((t) => t.anilistId == widget.animeId && t.status == DownloadStatus.completed)
+                .map((t) => t.episodeNumber)
+                .toSet();
 
-            // Check TMDB overrides
-            final tmdbEp = _tmdbEpisodesMap[epNum];
-            final String finalTitle = tmdbEp?['name'] ?? cleanTitle;
-            final String finalThumbnail = tmdbEp?['still_path'] ?? thumbnail;
-            final String finalSite = site;
+            return GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: isMobile ? 2 : 3,
+                crossAxisSpacing: isMobile ? 10.0 : 14.0,
+                mainAxisSpacing: isMobile ? 10.0 : 14.0,
+                childAspectRatio: 1.45,
+              ),
+              itemCount: pagedList.length,
+              itemBuilder: (context, index) {
+                final ep = pagedList[index];
+                final String epTitle = ep['title'] ?? '';
+                final String thumbnail = ep['thumbnail'] ?? '';
+                final int epNum = ep['isPlaceholder'] == true ? (startIdx + index + 1) : _extractEpNum(epTitle, startIdx + index + 1);
+                final String cleanTitle = ep['isPlaceholder'] == true ? epTitle : _cleanEpTitle(epTitle);
+                final String site = ep['site'] ?? '';
 
-            return _EpisodeCard(
-              animeId: widget.animeId,
-              epNum: epNum,
-              title: finalTitle,
-              thumbnail: finalThumbnail,
-              site: finalSite,
-              onTap: () {
-                final String overview = tmdbEp?['overview'] ?? '';
-                final String airDate = tmdbEp?['air_date'] ?? '';
-                _showEpisodeDetails(
+                // Check TMDB overrides
+                final tmdbEp = _tmdbEpisodesMap[epNum];
+                final String finalTitle = tmdbEp?['name'] ?? cleanTitle;
+                final String finalThumbnail = tmdbEp?['still_path'] ?? thumbnail;
+                final String finalSite = site;
+
+                final progress = PlayerState().getProgress(widget.animeId, epNum);
+                final double ratio = progress != null && progress.duration > 0
+                    ? (progress.position / progress.duration).clamp(0.0, 1.0)
+                    : 0.0;
+                final bool isWatched = ratio >= 0.90;
+                final bool isDownloaded = downloadedEps.contains(epNum);
+
+                return _EpisodeCard(
+                  animeId: widget.animeId,
                   epNum: epNum,
                   title: finalTitle,
                   thumbnail: finalThumbnail,
                   site: finalSite,
-                  overview: overview,
-                  airDate: airDate,
+                  isDownloaded: isDownloaded,
+                  isWatched: isWatched,
+                  ratio: ratio,
+                  onTap: () {
+                    final String overview = tmdbEp?['overview'] ?? '';
+                    final String airDate = tmdbEp?['air_date'] ?? '';
+                    _showEpisodeDetails(
+                      epNum: epNum,
+                      title: finalTitle,
+                      thumbnail: finalThumbnail,
+                      site: finalSite,
+                      overview: overview,
+                      airDate: airDate,
+                    );
+                  },
                 );
               },
             );
@@ -1827,204 +1847,193 @@ class _EpisodeCardState extends State<_EpisodeCard> {
 
   @override
   Widget build(BuildContext context) {
-    return ListenableBuilder(
-      listenable: Listenable.merge([PlayerState(), DownloadService()]),
-      builder: (context, _) {
-        final progress = PlayerState().getProgress(widget.animeId, widget.epNum);
-        final double ratio = progress != null && progress.duration > 0
-            ? (progress.position / progress.duration).clamp(0.0, 1.0)
-            : 0.0;
-        final bool isWatched = ratio >= 0.90;
-        final isDownloaded = DownloadService().tasks.any((t) =>
-            t.anilistId == widget.animeId &&
-            t.episodeNumber == widget.epNum &&
-            t.status == DownloadStatus.completed);
+    final isWatched = widget.isWatched;
+    final isDownloaded = widget.isDownloaded;
+    final ratio = widget.ratio;
 
-        return MouseRegion(
-          onEnter: (_) => setState(() => _isHovered = true),
-          onExit: (_) => setState(() => _isHovered = false),
-          child: GestureDetector(
-            onTap: widget.onTap,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Image area
-                Expanded(
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 150),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(6.0),
-                      border: Border.all(
-                        color: _isHovered ? Colors.white30 : Colors.white10,
-                        width: 1.0,
-                      ),
-                      boxShadow: _isHovered
-                          ? [
-                              BoxShadow(
-                                color: Colors.white.withValues(alpha: 0.05),
-                                blurRadius: 6.0,
-                                spreadRadius: 1.0,
-                              )
-                            ]
-                          : [],
-                    ),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(5.0),
-                      child: ColorFiltered(
-                        colorFilter: isWatched
-                            ? const ColorFilter.matrix(<double>[
-                                0.2126, 0.7152, 0.0722, 0, 0,
-                                0.2126, 0.7152, 0.0722, 0, 0,
-                                0.2126, 0.7152, 0.0722, 0, 0,
-                                0,      0,      0,      1, 0,
-                              ])
-                            : const ColorFilter.mode(Colors.transparent, BlendMode.multiply),
-                        child: Opacity(
-                          opacity: isWatched ? 0.5 : 1.0,
-                          child: Stack(
-                            children: [
-                              // Thumbnail image
-                              Positioned.fill(
-                                child: AnimatedScale(
-                                  scale: _isHovered ? 1.05 : 1.0,
-                                  duration: const Duration(milliseconds: 150),
-                                  child: widget.thumbnail.isNotEmpty
-                                      ? Image.network(
-                                          widget.thumbnail,
-                                          fit: BoxFit.cover,
-                                          cacheWidth: 320, // Optimize episode thumbnail caching (width is ~160px)
-                                          loadingBuilder: (context, child, progress) {
-                                            if (progress == null) return child;
-                                            return Container(color: Colors.grey[950]);
-                                          },
-                                          errorBuilder: (context, error, stackTrace) =>
-                                              _buildEpisodePlaceholder(),
-                                        )
-                                      : _buildEpisodePlaceholder(),
-                                ),
-                              ),
-                              
-                              // Play Icon overlay
-                              Positioned.fill(
-                                child: AnimatedOpacity(
-                                  opacity: _isHovered ? 1.0 : 0.0,
-                                  duration: const Duration(milliseconds: 150),
-                                  child: Container(
-                                    color: Colors.black.withValues(alpha: 0.4),
-                                    child: const Center(
-                                      child: CircleAvatar(
-                                        radius: 18.0,
-                                        backgroundColor: Colors.white,
-                                        child: Icon(Icons.play_arrow, color: Colors.black, size: 20.0),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-
-                              // Episode Number Badge (Top-Left)
-                              Positioned(
-                                top: 8.0,
-                                left: 8.0,
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 6.0, vertical: 3.0),
-                                  decoration: BoxDecoration(
-                                    color: Colors.black.withValues(alpha: 0.75),
-                                    borderRadius: BorderRadius.circular(4.0),
-                                  ),
-                                  child: Text(
-                                    'EP ${widget.epNum}',
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 9.0,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              if (isDownloaded)
-                                Positioned(
-                                  top: 8.0,
-                                  right: 8.0,
-                                  child: Container(
-                                    padding: const EdgeInsets.all(4.0),
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFF2EC4B6).withValues(alpha: 0.85),
-                                      shape: BoxShape.circle,
-                                    ),
-                                    child: const Icon(
-                                      Icons.download_done,
-                                      color: Colors.white,
-                                      size: 11.0,
-                                    ),
-                                  ),
-                                ),
-
-                              // Site badge (Bottom-Right)
-                              if (widget.site.isNotEmpty)
-                                Positioned(
-                                  bottom: 6.0,
-                                  right: 6.0,
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 5.0, vertical: 2.0),
-                                    decoration: BoxDecoration(
-                                      color: Colors.black.withValues(alpha: 0.65),
-                                      borderRadius: BorderRadius.circular(3.0),
-                                    ),
-                                    child: Text(
-                                      widget.site,
-                                      style: const TextStyle(
-                                        color: Colors.white70,
-                                        fontSize: 8.5,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-
-                              // Progress Bar overlay
-                              if (ratio > 0)
-                                Positioned(
-                                  left: 0,
-                                  right: 0,
-                                  bottom: 0,
-                                  height: 3.5,
-                                  child: Container(
-                                    color: Colors.white24,
-                                    alignment: Alignment.centerLeft,
-                                    child: FractionallySizedBox(
-                                      widthFactor: ratio,
-                                      child: Container(
-                                        color: Colors.white,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                            ],
+    return MouseRegion(
+      onEnter: (_) => setState(() => _isHovered = true),
+      onExit: (_) => setState(() => _isHovered = false),
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Image area
+            Expanded(
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 150),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(6.0),
+                  border: Border.all(
+                    color: _isHovered ? Colors.white30 : Colors.white10,
+                    width: 1.0,
+                  ),
+                  boxShadow: _isHovered
+                      ? [
+                          BoxShadow(
+                            color: Colors.white.withValues(alpha: 0.05),
+                            blurRadius: 6.0,
+                            spreadRadius: 1.0,
+                          )
+                        ]
+                      : [],
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(5.0),
+                  child: ColorFiltered(
+                    colorFilter: isWatched
+                        ? const ColorFilter.matrix(<double>[
+                            0.2126, 0.7152, 0.0722, 0, 0,
+                            0.2126, 0.7152, 0.0722, 0, 0,
+                            0.2126, 0.7152, 0.0722, 0, 0,
+                            0,      0,      0,      1, 0,
+                          ])
+                        : const ColorFilter.mode(Colors.transparent, BlendMode.multiply),
+                    child: Opacity(
+                      opacity: isWatched ? 0.5 : 1.0,
+                      child: Stack(
+                        children: [
+                          // Thumbnail image
+                          Positioned.fill(
+                            child: AnimatedScale(
+                              scale: _isHovered ? 1.05 : 1.0,
+                              duration: const Duration(milliseconds: 150),
+                              child: widget.thumbnail.isNotEmpty
+                                  ? Image.network(
+                                      widget.thumbnail,
+                                      fit: BoxFit.cover,
+                                      cacheWidth: 320, // Optimize episode thumbnail caching (width is ~160px)
+                                      loadingBuilder: (context, child, progress) {
+                                        if (progress == null) return child;
+                                        return Container(color: Colors.grey[950]);
+                                      },
+                                      errorBuilder: (context, error, stackTrace) =>
+                                          _buildEpisodePlaceholder(),
+                                    )
+                                  : _buildEpisodePlaceholder(),
+                            ),
                           ),
-                        ),
+                          
+                          // Play Icon overlay
+                          Positioned.fill(
+                            child: AnimatedOpacity(
+                              opacity: _isHovered ? 1.0 : 0.0,
+                              duration: const Duration(milliseconds: 150),
+                              child: Container(
+                                color: Colors.black.withValues(alpha: 0.4),
+                                child: const Center(
+                                  child: CircleAvatar(
+                                    radius: 18.0,
+                                    backgroundColor: Colors.white,
+                                    child: Icon(Icons.play_arrow, color: Colors.black, size: 20.0),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+
+                          // Episode Number Badge (Top-Left)
+                          Positioned(
+                            top: 8.0,
+                            left: 8.0,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6.0, vertical: 3.0),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withValues(alpha: 0.75),
+                                borderRadius: BorderRadius.circular(4.0),
+                              ),
+                              child: Text(
+                                'EP ${widget.epNum}',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 9.0,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ),
+                          if (isDownloaded)
+                            Positioned(
+                              top: 8.0,
+                              right: 8.0,
+                              child: Container(
+                                padding: const EdgeInsets.all(4.0),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF2EC4B6).withValues(alpha: 0.85),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Icon(
+                                  Icons.download_done,
+                                  color: Colors.white,
+                                  size: 11.0,
+                                ),
+                              ),
+                            ),
+
+                          // Site badge (Bottom-Right)
+                          if (widget.site.isNotEmpty)
+                            Positioned(
+                              bottom: 6.0,
+                              right: 6.0,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 5.0, vertical: 2.0),
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withValues(alpha: 0.65),
+                                  borderRadius: BorderRadius.circular(3.0),
+                                ),
+                                child: Text(
+                                  widget.site,
+                                  style: const TextStyle(
+                                    color: Colors.white70,
+                                    fontSize: 8.5,
+                                  ),
+                                ),
+                              ),
+                            ),
+
+                          // Progress Bar overlay
+                          if (ratio > 0)
+                            Positioned(
+                              left: 0,
+                              right: 0,
+                              bottom: 0,
+                              height: 3.5,
+                              child: Container(
+                                color: Colors.white24,
+                                alignment: Alignment.centerLeft,
+                                child: FractionallySizedBox(
+                                  widthFactor: ratio,
+                                  child: Container(
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
                       ),
                     ),
                   ),
                 ),
-                const SizedBox(height: 6.0),
-                
-                // Episode Title under card
-                Text(
-                  widget.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: _isHovered ? Colors.white : Colors.white70,
-                    fontSize: 12.0,
-                    fontWeight: FontWeight.w500,
-                    fontFamily: 'Outfit',
-                  ),
-                ),
-              ],
+              ),
             ),
-          ),
-        );
-      },
+            const SizedBox(height: 6.0),
+            
+            // Episode Title under card
+            Text(
+              widget.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: _isHovered ? Colors.white : Colors.white70,
+                fontSize: 12.0,
+                fontWeight: FontWeight.w500,
+                fontFamily: 'Outfit',
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
