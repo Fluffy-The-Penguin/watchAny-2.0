@@ -67,7 +67,7 @@ class UpdateService extends ChangeNotifier {
   factory UpdateService() => _instance;
   UpdateService._internal();
 
-  static const String currentVersion = '2.0.11';
+  static const String currentVersion = '2.0.12';
   
   // GitHub Releases API Endpoint
   static const String gitHubReleasesUrl = 'https://api.github.com/repos/Fluffy-The-Penguin/watchAny-2.0/releases/latest';
@@ -167,8 +167,11 @@ class UpdateService extends ChangeNotifier {
       // Fallback mock update in case of failure
       _error = 'Live check failed ($e). Showing fallback updates.';
       _latestUpdate = UpdateInfo(
-        version: 'v2.0.11',
-        changelog: '• Added custom Video Enhancement settings (deband iterations, threshold, range sliders)\n'
+        version: 'v2.0.12',
+        changelog: '• Fixed settings category tab overlap and clipping on mobile by making the bar horizontally scrollable\n'
+            '• Added custom Video Enhancement settings (deband iterations, threshold, range sliders)\n'
+            '• Optimized Anime Details page performance by removing redundant rebuild list listeners\n'
+            '• Added shortcut button to toggle Video Quality Enhancement directly on the mobile player controls\n'
             '• Fixed subtitles showing at the top of the screen in horizontal/landscape fullscreen mode on phone\n'
             '• Fixed player quick settings and subtitle customizer scrolling on phones\n'
             '• Locked playback fullscreen mode to landscape orientation and restored portrait mode on exit\n'
@@ -176,8 +179,8 @@ class UpdateService extends ChangeNotifier {
             '• Restored download database persistence across app updates by using secure app documents directory\n'
             '• Fixed downloads page progress bar and speed tracking not updating in real time',
         downloadUrl: Platform.isAndroid 
-            ? 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.11/app-arm64-v8a-release.apk'
-            : 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.11/watchany_setup_mock.exe',
+            ? 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.12/app-arm64-v8a-release.apk'
+            : 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.12/watchany_setup_mock.exe',
       );
     } finally {
       _isChecking = false;
