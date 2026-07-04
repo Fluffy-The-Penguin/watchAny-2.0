@@ -184,48 +184,7 @@ class _MangaDetailsPageState extends State<MangaDetailsPage> {
       backgroundColor: Colors.black,
       body: Stack(
         children: [
-          // 1. Faded blurred banner background (fixed behind scroll)
-          if (coverUrl.isNotEmpty)
-            Positioned(
-              top: 0,
-              left: 0,
-              right: 0,
-              height: 380.0,
-              child: RepaintBoundary(
-                child: CachedNetworkImage(
-                  imageUrl: coverUrl,
-                  fit: BoxFit.cover,
-                  memCacheWidth: 300,
-                  color: Colors.black.withValues(alpha: 0.85),
-                  colorBlendMode: BlendMode.darken,
-                  placeholder: (context, url) => Container(color: Colors.black),
-                  errorWidget: (context, url, error) => Container(color: Colors.black),
-                ),
-              ),
-            ),
 
-          // Banner gradient fade to black
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            height: 382.0,
-            child: Container(
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    Colors.black,
-                    Colors.transparent,
-                    Colors.transparent,
-                    Colors.black,
-                  ],
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  stops: [0.0, 0.2, 0.6, 1.0],
-                ),
-              ),
-            ),
-          ),
 
           // 2. Main scrollable content — CustomScrollView for lazy chapter loading
           Positioned.fill(

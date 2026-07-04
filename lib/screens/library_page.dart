@@ -458,30 +458,41 @@ class _LibraryPageState extends State<LibraryPage> {
     );
   }
 
-  Widget _buildCategoryGrid(String categoryId, bool isMobile) {
-    final modeStr = widget.mode.name;
-    var items = _fetchedMedia.where((media) {
-      final savedItem = LibraryState().getItem(media['id'], modeStr);
-      if (categoryId == 'UNCATEGORIZED') {
-        return savedItem == null || savedItem.categoryIds.isEmpty;
-      } else {
-        return savedItem != null && savedItem.categoryIds.contains(categoryId);
-      }
-    }).toList();
-
+  List<dynamic> _applyFilters(List<dynamic> items) {
     // 1. Search Query
     if (_searchQuery.isNotEmpty) {
       final query = _searchQuery.toLowerCase();
       items = items.where((media) {
+        if (widget.mode == AppMode.manga) {
+          final title = (media['title'] ?? '').toString().toLowerCase();
+          return title.contains(query);
+        }
         final title = (media['title']?['english'] ?? media['title']?['romaji'] ?? '').toString().toLowerCase();
         final nativeTitle = (media['title']?['native'] ?? '').toString().toLowerCase();
         return title.contains(query) || nativeTitle.contains(query);
       }).toList();
     }
 
-    // 2. Format Filter
+    // 2. Format / Read Status Filter
     if (_selectedFormat != 'ALL') {
       items = items.where((media) {
+        if (widget.mode == AppMode.manga) {
+          final savedItem = LibraryState().getItem(media['id'], 'manga');
+          if (savedItem == null) return false;
+          final readCount = savedItem.watchedEpisodes;
+          final totalCount = savedItem.totalEpisodes ?? 0;
+          
+          final sel = _selectedFormat.toUpperCase();
+          if (sel == 'UNREAD') {
+            return readCount == 0;
+          } else if (sel == 'STARTED') {
+            return readCount > 0 && (totalCount == 0 || readCount < totalCount);
+          } else if (sel == 'COMPLETED') {
+            return readCount > 0 && totalCount > 0 && readCount == totalCount;
+          }
+          return true;
+        }
+
         final fmt = (media['format'] ?? '').toString().toUpperCase();
         final sel = _selectedFormat.toUpperCase();
         if (sel == 'TV') {
@@ -500,7 +511,21 @@ class _LibraryPageState extends State<LibraryPage> {
     }
 
     // 4. Sort
-    items = _sortItems(items);
+    return _sortItems(items);
+  }
+
+  Widget _buildCategoryGrid(String categoryId, bool isMobile) {
+    final modeStr = widget.mode.name;
+    var items = _fetchedMedia.where((media) {
+      final savedItem = LibraryState().getItem(media['id'], modeStr);
+      if (categoryId == 'UNCATEGORIZED') {
+        return savedItem == null || savedItem.categoryIds.isEmpty;
+      } else {
+        return savedItem != null && savedItem.categoryIds.contains(categoryId);
+      }
+    }).toList();
+
+    items = _applyFilters(items);
 
     if (items.isEmpty) {
       return _buildEmptyStateForCategory(categoryId);
@@ -1304,39 +1329,7 @@ class _LibraryPageState extends State<LibraryPage> {
         items = items.where((media) => _getLibraryStatus(media['id']) == _activeStatusTab).toList();
       }
     }
-
-    // 2. Filter by Search Query
-    if (_searchQuery.isNotEmpty) {
-      final query = _searchQuery.toLowerCase();
-      items = items.where((media) {
-        final title = (media['title']?['english'] ?? media['title']?['romaji'] ?? '').toString().toLowerCase();
-        final nativeTitle = (media['title']?['native'] ?? '').toString().toLowerCase();
-        return title.contains(query) || nativeTitle.contains(query);
-      }).toList();
-    }
-
-    // 3. Filter by Format
-    if (_selectedFormat != 'ALL') {
-      items = items.where((media) {
-        final fmt = (media['format'] ?? '').toString().toUpperCase();
-        final sel = _selectedFormat.toUpperCase();
-        if (sel == 'TV') {
-          return fmt == 'TV' || fmt == 'SERIES';
-        }
-        return fmt == sel;
-      }).toList();
-    }
-
-    // 4. Filter by Status (API)
-    if (_selectedStatus != 'ALL') {
-      items = items.where((media) {
-        final stat = (media['status'] ?? '').toString().replaceAll('_', ' ').toUpperCase();
-        return stat == _selectedStatus.toUpperCase();
-      }).toList();
-    }
-
-    // 5. Sort
-    return _sortItems(items);
+    return _applyFilters(items);
   }
 
   Widget _buildStatusTabs(bool isMobile) {

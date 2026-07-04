@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../state/navigation_state.dart';
 import '../state/player_state.dart';
 import '../state/library_state.dart';
+import '../services/update_service.dart';
 import '../services/anilist_service.dart';
 import '../widgets/custom_title_bar.dart';
 import '../widgets/sidebar.dart';
@@ -181,9 +182,10 @@ class ShellLayout extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListenableBuilder(
-      listenable: Listenable.merge([navigationState, PlayerState()]),
-      builder: (context, _) {
+    return StartupUpdateChecker(
+      child: ListenableBuilder(
+        listenable: Listenable.merge([navigationState, PlayerState()]),
+        builder: (context, _) {
         final currentMode = navigationState.currentMode;
         final currentPage = navigationState.currentPage;
         final selectedAnimeId = navigationState.selectedAnimeId;
@@ -450,8 +452,9 @@ class ShellLayout extends StatelessWidget {
           ),
         );
       },
-    );
-  }
+    ),
+  );
+}
 
   void _showSidebarPopup({
     required BuildContext context,
@@ -1027,4 +1030,165 @@ class _NotificationsPopupContentState extends State<_NotificationsPopupContent> 
       },
     );
   }
+}
+
+class StartupUpdateChecker extends StatefulWidget {
+  final Widget child;
+  const StartupUpdateChecker({super.key, required this.child});
+
+  @override
+  State<StartupUpdateChecker> createState() => _StartupUpdateCheckerState();
+}
+
+class _StartupUpdateCheckerState extends State<StartupUpdateChecker> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkUpdatesOnStartup();
+    });
+  }
+
+  void _checkUpdatesOnStartup() async {
+    final updateService = UpdateService();
+    final hasUpdate = await updateService.checkForUpdates();
+    if (!hasUpdate || updateService.latestUpdate == null) return;
+
+    if (!mounted) return;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF16161A),
+          title: Text(
+            'Update Available (${updateService.latestUpdate!.version})',
+            style: const TextStyle(
+              color: Colors.white,
+              fontFamily: 'Outfit',
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'A new version of watchAny is available! What\'s new:',
+                  style: TextStyle(color: Colors.white70, fontFamily: 'Outfit', fontSize: 13.5),
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.05),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.white10),
+                  ),
+                  child: Text(
+                    updateService.latestUpdate!.changelog,
+                    style: const TextStyle(
+                      color: Colors.white60,
+                      fontFamily: 'Outfit',
+                      fontSize: 12.0,
+                      height: 1.4,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Later', style: TextStyle(color: Colors.white38, fontFamily: 'Outfit')),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFFF9F1C),
+                foregroundColor: Colors.black,
+              ),
+              onPressed: () {
+                Navigator.pop(context);
+                _showDownloadProgressDialog();
+              },
+              child: const Text('Download Now', style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showDownloadProgressDialog() {
+    final updateService = UpdateService();
+    updateService.startUpdate(); // start download and install
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return ListenableBuilder(
+          listenable: updateService,
+          builder: (context, _) {
+            final progress = updateService.downloadProgress;
+            final isDownloading = updateService.isDownloading;
+            final error = updateService.error;
+
+            return AlertDialog(
+              backgroundColor: const Color(0xFF16161A),
+              title: Text(
+                error != null ? 'Update Failed' : 'Downloading Update...',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontFamily: 'Outfit',
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (error != null) ...[
+                    Text(
+                      error,
+                      style: const TextStyle(color: Colors.redAccent, fontFamily: 'Outfit', fontSize: 13.5),
+                    ),
+                    const SizedBox(height: 16),
+                  ] else ...[
+                    LinearProgressIndicator(
+                      value: progress,
+                      backgroundColor: Colors.white12,
+                      color: const Color(0xFFFF9F1C),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      '${(progress * 100).toStringAsFixed(1)}%',
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontFamily: 'Outfit',
+                        fontSize: 14.0,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+              actions: [
+                if (error != null || !isDownloading)
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Close', style: TextStyle(color: Colors.white70, fontFamily: 'Outfit')),
+                  ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }

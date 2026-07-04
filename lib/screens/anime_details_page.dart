@@ -842,7 +842,7 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
   }
 
   void _showLibraryEditDialog(BuildContext context) {
-    final String modeStr = widget.navigationState.currentMode.name;
+    const String modeStr = 'anime';
     final savedItem = LibraryState().getItem(widget.animeId, modeStr);
     final int? totalEpisodes = _details?['episodes'] ?? 
         (_mergedEpisodes.isNotEmpty ? _mergedEpisodes.length : null);
@@ -932,47 +932,6 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
       backgroundColor: Colors.black,
       body: Stack(
         children: [
-          // 1. Faded Banner Background (Fitted & Cached)
-          if (bannerUrl.isNotEmpty)
-            Positioned(
-              top: 0,
-              left: 0,
-              right: 0,
-              height: 380.0,
-              child: Opacity(
-                opacity: 0.35,
-                child: Image.network(
-                  bannerUrl,
-                  fit: BoxFit.cover,
-                  cacheWidth: 1280, // Restrict memory consumption of large banner
-                  errorBuilder: (context, e, s) => Container(color: Colors.black),
-                ),
-              ),
-            ),
-
-          // Banner bottom gradient fade to black
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            height: 382.0,
-            child: Container(
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    Colors.black,
-                    Colors.transparent,
-                    Colors.transparent,
-                    Colors.black,
-                  ],
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  stops: [0.0, 0.2, 0.6, 1.0],
-                ),
-              ),
-            ),
-          ),
-
           // 2. Main Page Layout (Unified scroll view, scrolling columns side-by-side below)
           Positioned.fill(
             child: SingleChildScrollView(
@@ -1022,7 +981,7 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
                           ListenableBuilder(
                             listenable: LibraryState(),
                             builder: (context, _) {
-                              final String modeStr = widget.navigationState.currentMode.name;
+                              const String modeStr = 'anime';
                               final bool isSaved = LibraryState().isSaved(widget.animeId, modeStr);
                               return IconButton(
                                 icon: Icon(

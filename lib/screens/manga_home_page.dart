@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import '../services/suwayomi_manager.dart';
 import '../services/suwayomi_service.dart';
 import '../state/navigation_state.dart';
@@ -48,9 +49,48 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
   final TextEditingController _searchController = TextEditingController();
   bool _engineStarted = false;
 
+  SharedPreferences? _prefs;
+  String? _selectedExtensionName;
+
+  Future<void> _initPrefs() async {
+    _prefs = await SharedPreferences.getInstance();
+    if (mounted) setState(() {});
+  }
+
+  String _getCleanName(String name) {
+    return name
+        .replaceFirst('Tachiyomi: ', '')
+        .replaceFirst('Keiyoushi: ', '')
+        .trim();
+  }
+
+  bool _isLanguageEnabled(String extName, String lang) {
+    if (_prefs == null) return true;
+    final key = 'manga_ext_lang_${_getCleanName(extName)}_${lang.toLowerCase()}';
+    return _prefs!.getBool(key) ?? true;
+  }
+
+  Future<void> _setLanguageEnabled(String extName, String lang, bool enabled) async {
+    if (_prefs == null) return;
+    final key = 'manga_ext_lang_${_getCleanName(extName)}_${lang.toLowerCase()}';
+    await _prefs!.setBool(key, enabled);
+    if (mounted) setState(() {});
+  }
+
+  List<dynamic> _getLanguagesForExtension(String extName) {
+    final cleanExt = _getCleanName(extName).toLowerCase();
+    final matches = _sources.where((s) {
+      final cleanSrc = _getCleanName(s['name']?.toString() ?? '').toLowerCase();
+      return cleanSrc == cleanExt;
+    }).toList();
+    matches.sort((a, b) => (a['lang']?.toString() ?? '').compareTo(b['lang']?.toString() ?? ''));
+    return matches;
+  }
+
   @override
   void initState() {
     super.initState();
+    _initPrefs();
     _tabController = TabController(length: 2, vsync: this);
     _tabController.addListener(_handleTabChange);
     
@@ -197,10 +237,32 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
       if (mounted) {
         setState(() {
           _sources = list;
+          
+          final List<String> distinctExtensionNames = _sources
+              .map((s) => _getCleanName(s['name']?.toString() ?? ''))
+              .where((name) => name.isNotEmpty)
+              .toSet()
+              .toList();
+          distinctExtensionNames.sort();
+
+          if (_selectedExtensionName == null && distinctExtensionNames.isNotEmpty) {
+            _selectedExtensionName = distinctExtensionNames.first;
+          }
+
+          if (_selectedExtensionName != null) {
+            final extSources = _sources.where((s) => _getCleanName(s['name']?.toString() ?? '') == _selectedExtensionName).toList();
+            final enabled = extSources.where((s) => _isLanguageEnabled(_selectedExtensionName!, s['lang']?.toString() ?? 'en')).toList();
+            final target = enabled.isNotEmpty ? enabled : extSources;
+            if (target.isNotEmpty) {
+              _selectedSourceId = target.first['id']?.toString();
+            }
+          }
+
           if (_selectedSourceId == null && _sources.isNotEmpty) {
             _selectedSourceId = _sources.first['id']?.toString();
-            _loadCatalog();
           }
+
+          _loadCatalog();
         });
 
         if (list.isEmpty) {
@@ -515,8 +577,44 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
 
   Widget _buildCatalogTab() {
     final double screenWidth = MediaQuery.of(context).size.width;
-    final bool isMobile = screenWidth < 650;
     final crossAxisCount = (screenWidth / 160).floor().clamp(2, 8);
+
+    final List<String> distinctExtensionNames = _sources
+        .map((s) => _getCleanName(s['name']?.toString() ?? ''))
+        .where((name) => name.isNotEmpty)
+        .toSet()
+        .toList();
+    distinctExtensionNames.sort();
+
+    if (_selectedExtensionName == null && _selectedSourceId != null && _sources.isNotEmpty) {
+      final selectedSrc = _sources.firstWhere(
+        (s) => s['id']?.toString() == _selectedSourceId,
+        orElse: () => null,
+      );
+      if (selectedSrc != null) {
+        _selectedExtensionName = _getCleanName(selectedSrc['name']?.toString() ?? '');
+      }
+    }
+    if (_selectedExtensionName == null && distinctExtensionNames.isNotEmpty) {
+      _selectedExtensionName = distinctExtensionNames.first;
+    }
+
+    final currentExtSources = _sources.where((s) {
+      return _getCleanName(s['name']?.toString() ?? '') == _selectedExtensionName;
+    }).toList();
+
+    final enabledSources = currentExtSources.where((s) {
+      final lang = s['lang']?.toString() ?? 'en';
+      return _isLanguageEnabled(_selectedExtensionName ?? '', lang);
+    }).toList();
+
+    final displayedSources = enabledSources.isNotEmpty ? enabledSources : currentExtSources;
+
+    // Ensure selection is valid
+    final hasSelectedId = displayedSources.any((s) => s['id']?.toString() == _selectedSourceId);
+    if (!hasSelectedId && displayedSources.isNotEmpty) {
+      _selectedSourceId = displayedSources.first['id']?.toString();
+    }
 
     return SmoothScrollArea(
       builder: (controller, physics) => SingleChildScrollView(
@@ -529,7 +627,49 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
             // Sources dropdown & Search Input Row
             Row(
               children: [
-                if (_sources.isNotEmpty)
+                if (_sources.isNotEmpty) ...[
+                  // 1. Extension Dropdown
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12.0),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF0F0F11),
+                      borderRadius: BorderRadius.circular(8.0),
+                      border: Border.all(color: Colors.white10),
+                    ),
+                    child: DropdownButton<String>(
+                      value: _selectedExtensionName,
+                      dropdownColor: const Color(0xFF0F0F11),
+                      underline: const SizedBox.shrink(),
+                      style: const TextStyle(color: Colors.white, fontFamily: 'Outfit', fontWeight: FontWeight.bold),
+                      icon: const Icon(Icons.arrow_drop_down, color: Colors.white54),
+                      items: distinctExtensionNames.map<DropdownMenuItem<String>>((extName) {
+                        return DropdownMenuItem<String>(
+                          value: extName,
+                          child: Text(extName),
+                        );
+                      }).toList(),
+                      onChanged: (value) {
+                        if (value != null) {
+                          setState(() {
+                            _selectedExtensionName = value;
+                            final extSources = _sources.where((s) => _getCleanName(s['name']?.toString() ?? '') == value).toList();
+                            final enabled = extSources.where((s) => _isLanguageEnabled(value, s['lang']?.toString() ?? 'en')).toList();
+                            final target = enabled.isNotEmpty ? enabled : extSources;
+                            if (target.isNotEmpty) {
+                              _selectedSourceId = target.first['id']?.toString();
+                            }
+                            _currentPage = 1;
+                            _catalogManga = [];
+                          });
+                          _loadCatalog();
+                        }
+                      },
+                    ),
+                  ),
+                  
+                  const SizedBox(width: 8.0),
+
+                  // 2. Language Dropdown
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 12.0),
                     decoration: BoxDecoration(
@@ -543,10 +683,10 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
                       underline: const SizedBox.shrink(),
                       style: const TextStyle(color: Colors.white, fontFamily: 'Outfit', fontWeight: FontWeight.bold),
                       icon: const Icon(Icons.arrow_drop_down, color: Colors.white54),
-                      items: _sources.map<DropdownMenuItem<String>>((source) {
+                      items: displayedSources.map<DropdownMenuItem<String>>((source) {
                         return DropdownMenuItem<String>(
                           value: source['id']?.toString(),
-                          child: Text('${source['name']} (${source['lang']})'),
+                          child: Text((source['lang']?.toString() ?? 'en').toUpperCase()),
                         );
                       }).toList(),
                       onChanged: (value) {
@@ -560,9 +700,9 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
                         }
                       },
                     ),
-                  )
-                else
-                  const Text('No sources installed', style: TextStyle(color: Colors.white30, fontFamily: 'Outfit')),
+                  ),
+                ] else
+                  const Text('No sources installed', style: TextStyle(color: Colors.white38, fontFamily: 'Outfit')),
                 
                 const SizedBox(width: 12.0),
                 
@@ -814,6 +954,26 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
       ),
       child: ListTile(
         contentPadding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 6.0),
+        leading: ClipRRect(
+          borderRadius: BorderRadius.circular(6.0),
+          child: Container(
+            width: 40.0,
+            height: 40.0,
+            color: Colors.white.withValues(alpha: 0.05),
+            child: CachedNetworkImage(
+              imageUrl: 'http://${SuwayomiService.host}:${SuwayomiService.port}/api/installed/icon?pkgName=${ext['pkgName']}',
+              width: 40.0,
+              height: 40.0,
+              fit: BoxFit.cover,
+              placeholder: (context, url) => const Center(
+                child: Icon(Icons.extension_outlined, color: Colors.white24, size: 20.0),
+              ),
+              errorWidget: (context, url, error) => const Center(
+                child: Icon(Icons.extension_outlined, color: Colors.white24, size: 20.0),
+              ),
+            ),
+          ),
+        ),
         title: Row(
           children: [
             Flexible(
@@ -842,19 +1002,131 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
           'Language: $lang',
           style: const TextStyle(color: Colors.white38, fontSize: 12.0, fontFamily: 'Outfit'),
         ),
-        trailing: ElevatedButton(
-          onPressed: () => _toggleExtensionInstall(ext),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: isInstalled ? Colors.redAccent : const Color(0xFFFF9F1C),
-            foregroundColor: Colors.black,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6.0)),
-          ),
-          child: Text(
-            isInstalled ? 'Uninstall' : 'Install',
-            style: const TextStyle(fontWeight: FontWeight.bold),
-          ),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (isInstalled) ...[
+              IconButton(
+                icon: const Icon(Icons.settings_outlined, color: Color(0xFFFF9F1C)),
+                tooltip: 'Configure languages',
+                onPressed: () => _showConfigureLanguagesDialog(ext),
+              ),
+              const SizedBox(width: 8.0),
+            ],
+            ElevatedButton(
+              onPressed: () => _toggleExtensionInstall(ext),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: isInstalled ? Colors.redAccent : const Color(0xFFFF9F1C),
+                foregroundColor: Colors.black,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6.0)),
+              ),
+              child: Text(
+                isInstalled ? 'Uninstall' : 'Install',
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
         ),
       ),
+    );
+  }
+
+  void _showConfigureLanguagesDialog(Map<String, dynamic> ext) {
+    final extName = ext['name']?.toString() ?? '';
+    final cleanName = _getCleanName(extName);
+    final matches = _getLanguagesForExtension(extName);
+    
+    final displaySources = matches.isNotEmpty 
+        ? matches 
+        : [{
+            'id': ext['pkgName'],
+            'name': extName,
+            'lang': ext['lang'] ?? 'en',
+          }];
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              backgroundColor: const Color(0xFF0F0F11),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12.0),
+                side: const BorderSide(color: Colors.white10),
+              ),
+              title: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    cleanName,
+                    style: const TextStyle(color: Colors.white, fontFamily: 'Outfit', fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 4.0),
+                  const Text(
+                    'Enable or disable languages for this extension.',
+                    style: TextStyle(color: Colors.white38, fontSize: 12.0, fontFamily: 'Outfit'),
+                  ),
+                ],
+              ),
+              content: SizedBox(
+                width: double.maxFinite,
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: displaySources.length,
+                  itemBuilder: (context, index) {
+                    final src = displaySources[index];
+                    final String lang = src['lang']?.toString() ?? 'en';
+                    final bool isEnabled = _isLanguageEnabled(extName, lang);
+
+                    return CheckboxListTile(
+                      title: Text(
+                        lang.toUpperCase(),
+                        style: const TextStyle(color: Colors.white, fontFamily: 'Outfit', fontWeight: FontWeight.w600),
+                      ),
+                      value: isEnabled,
+                      activeColor: const Color(0xFFFF9F1C),
+                      checkColor: Colors.black,
+                      onChanged: (bool? val) async {
+                        if (val != null) {
+                          // Prevent disabling the last language
+                          final enabledCount = displaySources.where((s) {
+                            final l = s['lang']?.toString() ?? 'en';
+                            return _isLanguageEnabled(extName, l);
+                          }).length;
+
+                          if (!val && enabledCount <= 1) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('At least one language must be enabled.'),
+                                duration: Duration(seconds: 2),
+                              ),
+                            );
+                            return;
+                          }
+
+                          await _setLanguageEnabled(extName, lang, val);
+                          setDialogState(() {});
+                          setState(() {});
+                        }
+                      },
+                    );
+                  },
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text(
+                    'Done',
+                    style: TextStyle(color: Color(0xFFFF9F1C), fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 

@@ -41,6 +41,9 @@ class _SearchPageState extends State<SearchPage> {
   String _selectedSource = 'global'; // 'global', 'tmdb', or '<addon_id>'
   String _selectedCatalogId = 'all'; // 'all', or '${catalog['id']}_${catalog['type']}'
 
+  // Manga Grouped Search State
+  Map<String, List<dynamic>> _mangaGroupedResults = {};
+
   bool get _hasActiveFilters {
     return _selectedGenres.isNotEmpty ||
         _selectedYear != 'ALL' ||
@@ -286,6 +289,283 @@ class _SearchPageState extends State<SearchPage> {
       _currentPage++;
       _performSearch(isLoadMore: true);
     }
+  }
+
+  Widget _buildResultsSection() {
+    if (widget.mode == AppMode.manga) {
+      if (_isLoading && _mangaGroupedResults.isEmpty) {
+        return const Center(
+          child: CircularProgressIndicator(
+            color: Color(0xFFFF9F1C),
+            strokeWidth: 2.0,
+          ),
+        );
+      }
+      if (_errorMessage != null) {
+        return _buildErrorView();
+      }
+      return _buildMangaGroupedResults();
+    }
+
+    if (_isLoading && _results.isEmpty) {
+      return const Center(
+        child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.0),
+      );
+    }
+    if (_errorMessage != null) {
+      return _buildErrorView();
+    }
+    if (_results.isEmpty) {
+      return _buildEmptyView();
+    }
+
+    return NotificationListener<ScrollNotification>(
+      onNotification: (scrollInfo) {
+        if (scrollInfo.metrics.pixels >= scrollInfo.metrics.maxScrollExtent - 200) {
+          _loadMore();
+        }
+        return false;
+      },
+      child: GridView.builder(
+        padding: const EdgeInsets.all(16.0),
+        gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+          maxCrossAxisExtent: 150.0,
+          mainAxisExtent: 240.0,
+          crossAxisSpacing: 14.0,
+          mainAxisSpacing: 14.0,
+        ),
+        itemCount: _results.length + (_hasNextPage ? 1 : 0),
+        itemBuilder: (context, index) {
+          if (index == _results.length) {
+            return const Center(
+              child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.0),
+            );
+          }
+          final media = _results[index];
+          return _SearchMediaCard(
+            media: media,
+            mode: widget.mode,
+            onTap: () {
+              if (widget.mode == AppMode.movies) {
+                final idStr = media['id']?.toString() ?? '';
+                final isTv = media['format'] == 'TV' || media['type']?.toString() == 'series';
+                final typeStr = isTv ? 'series' : 'movie';
+                widget.navigationState.selectMovie('$typeStr:$idStr');
+              } else {
+                widget.navigationState.selectAnime(media['id']);
+              }
+            },
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildErrorView() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.error_outline, color: Colors.redAccent, size: 40.0),
+            const SizedBox(height: 12.0),
+            Text(
+              _errorMessage!,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.white70, fontSize: 13.0, fontFamily: 'Outfit'),
+            ),
+            const SizedBox(height: 16.0),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.white,
+                foregroundColor: Colors.black,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6.0)),
+              ),
+              onPressed: () => _performSearch(),
+              child: const Text('Retry', style: TextStyle(fontWeight: FontWeight.bold)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEmptyView() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.search_off_outlined, color: Colors.white24, size: 44.0),
+          const SizedBox(height: 12.0),
+          Text(
+            _searchController.text.trim().isNotEmpty &&
+                    _selectedSource != 'tmdb' &&
+                    _selectedSource != 'global' &&
+                    _availableCatalogsForSelectedAddon.isNotEmpty &&
+                    !_availableCatalogsForSelectedAddon.any((c) =>
+                        c['extra'] != null &&
+                        (c['extra'] as List)
+                            .any((e) => e is Map && e['name'] == 'search'))
+                ? 'Search is not supported by this addon.'
+                : 'No results found.',
+            style: const TextStyle(color: Colors.white38, fontSize: 14.0, fontFamily: 'Outfit'),
+          ),
+          const SizedBox(height: 4.0),
+          Text(
+            _searchController.text.trim().isNotEmpty &&
+                    _selectedSource != 'tmdb' &&
+                    _selectedSource != 'global' &&
+                    _availableCatalogsForSelectedAddon.isNotEmpty &&
+                    !_availableCatalogsForSelectedAddon.any((c) =>
+                        c['extra'] != null &&
+                        (c['extra'] as List)
+                            .any((e) => e is Map && e['name'] == 'search'))
+                ? 'Try searching globally or browsing the catalog categories.'
+                : 'Try expanding your filters or query text.',
+            style: const TextStyle(color: Colors.white24, fontSize: 11.5, fontFamily: 'Outfit'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMangaGroupedResults() {
+    if (_mangaGroupedResults.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.search_off_outlined, color: Colors.white24, size: 44.0),
+            const SizedBox(height: 12.0),
+            Text(
+              _searchController.text.trim().isEmpty
+                  ? 'Type to search globally across active extensions.'
+                  : 'No results found on any active extension.',
+              style: const TextStyle(color: Colors.white38, fontSize: 14.0, fontFamily: 'Outfit'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(vertical: 12.0),
+      itemCount: _mangaGroupedResults.length,
+      itemBuilder: (context, index) {
+        final entry = _mangaGroupedResults.entries.elementAt(index);
+        final sourceName = entry.key;
+        final list = entry.value;
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(4.0),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFF9F1C).withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(4.0),
+                    ),
+                    child: const Icon(Icons.extension_outlined, color: Color(0xFFFF9F1C), size: 16),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    sourceName,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontFamily: 'Outfit',
+                      fontSize: 15.0,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 0.3,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    '(${list.length})',
+                    style: const TextStyle(
+                      color: Colors.white38,
+                      fontFamily: 'Outfit',
+                      fontSize: 13.0,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8.0),
+            SizedBox(
+              height: 255.0,
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 12.0),
+                itemCount: list.length,
+                itemBuilder: (context, idx) {
+                  final item = list[idx];
+                  return Container(
+                    width: 130.0,
+                    margin: const EdgeInsets.symmetric(horizontal: 6.0),
+                    child: InkWell(
+                      onTap: () {
+                        widget.navigationState.selectManga(item['id'].toString());
+                      },
+                      borderRadius: BorderRadius.circular(10.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(10.0),
+                            child: AspectRatio(
+                              aspectRatio: 3 / 4.2,
+                              child: Container(
+                                color: Colors.white.withValues(alpha: 0.03),
+                                child: item['thumbnailUrl'] != null && (item['thumbnailUrl'] as String).isNotEmpty
+                                    ? CachedNetworkImage(
+                                        imageUrl: item['thumbnailUrl'],
+                                        fit: BoxFit.cover,
+                                        placeholder: (context, url) => Container(color: Colors.black26),
+                                        errorWidget: (context, url, err) => const Center(
+                                          child: Icon(Icons.broken_image, color: Colors.white24, size: 24.0),
+                                        ),
+                                      )
+                                    : const Center(
+                                        child: Icon(Icons.image, color: Colors.white24, size: 24.0),
+                                      ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 8.0),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 2.0),
+                            child: Text(
+                              item['title'] ?? 'Unknown Manga',
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: Colors.white.withValues(alpha: 0.85),
+                                fontFamily: 'Outfit',
+                                fontSize: 12.0,
+                                fontWeight: FontWeight.w600,
+                                height: 1.25,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 12.0),
+            const Divider(color: Colors.white10, height: 1.0, indent: 16.0, endIndent: 16.0),
+            const SizedBox(height: 12.0),
+          ],
+        );
+      },
+    );
   }
 
   // TMDB Genre to ID mapping
@@ -1128,115 +1408,7 @@ class _SearchPageState extends State<SearchPage> {
 
             // Bottom Section: Search Results Grid
             Expanded(
-              child: _isLoading && _results.isEmpty
-                  ? const Center(
-                      child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.0),
-                    )
-                  : _errorMessage != null
-                      ? Center(
-                          child: Padding(
-                            padding: const EdgeInsets.all(24.0),
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                const Icon(Icons.error_outline, color: Colors.redAccent, size: 40.0),
-                                const SizedBox(height: 12.0),
-                                Text(
-                                  _errorMessage!,
-                                  textAlign: TextAlign.center,
-                                  style: const TextStyle(color: Colors.white70, fontSize: 13.0, fontFamily: 'Outfit'),
-                                ),
-                                const SizedBox(height: 16.0),
-                                ElevatedButton(
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: Colors.white,
-                                    foregroundColor: Colors.black,
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6.0)),
-                                  ),
-                                  onPressed: () => _performSearch(),
-                                  child: const Text('Retry', style: TextStyle(fontWeight: FontWeight.bold)),
-                                ),
-                              ],
-                            ),
-                          ),
-                        )
-                      : _results.isEmpty
-                           ? Center(
-                               child: Column(
-                                 mainAxisAlignment: MainAxisAlignment.center,
-                                 children: [
-                                   const Icon(Icons.search_off_outlined, color: Colors.white24, size: 44.0),
-                                   const SizedBox(height: 12.0),
-                                  Text(
-                                    _searchController.text.trim().isNotEmpty &&
-                                            _selectedSource != 'tmdb' &&
-                                            _selectedSource != 'global' &&
-                                            _availableCatalogsForSelectedAddon.isNotEmpty &&
-                                            !_availableCatalogsForSelectedAddon.any((c) =>
-                                                c['extra'] != null &&
-                                                (c['extra'] as List)
-                                                    .any((e) => e is Map && e['name'] == 'search'))
-                                        ? 'Search is not supported by this addon.'
-                                        : 'No results found.',
-                                    style: const TextStyle(color: Colors.white38, fontSize: 14.0, fontFamily: 'Outfit'),
-                                  ),
-                                  const SizedBox(height: 4.0),
-                                  Text(
-                                    _searchController.text.trim().isNotEmpty &&
-                                            _selectedSource != 'tmdb' &&
-                                            _selectedSource != 'global' &&
-                                            _availableCatalogsForSelectedAddon.isNotEmpty &&
-                                            !_availableCatalogsForSelectedAddon.any((c) =>
-                                                c['extra'] != null &&
-                                                (c['extra'] as List)
-                                                    .any((e) => e is Map && e['name'] == 'search'))
-                                        ? 'Try searching globally or browsing the catalog categories.'
-                                        : 'Try expanding your filters or query text.',
-                                    style: const TextStyle(color: Colors.white24, fontSize: 11.5, fontFamily: 'Outfit'),
-                                  ),
-                                ],
-                              ),
-                            )
-                          : NotificationListener<ScrollNotification>(
-                              onNotification: (scrollInfo) {
-                                if (scrollInfo.metrics.pixels >= scrollInfo.metrics.maxScrollExtent - 200) {
-                                  _loadMore();
-                                }
-                                return false;
-                              },
-                              child: GridView.builder(
-                                padding: const EdgeInsets.all(16.0),
-                                gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                                  maxCrossAxisExtent: 150.0,
-                                  mainAxisExtent: 240.0,
-                                  crossAxisSpacing: 14.0,
-                                  mainAxisSpacing: 14.0,
-                                ),
-                                itemCount: _results.length + (_hasNextPage ? 1 : 0),
-                                itemBuilder: (context, index) {
-                                  if (index == _results.length) {
-                                    return const Center(
-                                      child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.0),
-                                    );
-                                  }
-                                  final media = _results[index];
-                                  return _SearchMediaCard(
-                                    media: media,
-                                    mode: widget.mode,
-                                    onTap: () {
-                                      if (widget.mode == AppMode.movies) {
-                                        final idStr = media['id']?.toString() ?? '';
-                                        final isTv = media['format'] == 'TV' || media['type']?.toString() == 'series';
-                                        final typeStr = isTv ? 'series' : 'movie';
-                                        widget.navigationState.selectMovie('$typeStr:$idStr');
-                                      } else {
-                                        widget.navigationState.selectAnime(media['id']);
-                                      }
-                                    },
-                                  );
-                                },
-                              ),
-                            ),
+              child: _buildResultsSection(),
             ),
           ],
         ),
