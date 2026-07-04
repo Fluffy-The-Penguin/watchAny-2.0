@@ -7,6 +7,7 @@ import 'package:media_kit/media_kit.dart';
 import 'services/torrserver_manager.dart';
 import 'services/extension_service.dart';
 import 'services/download_service.dart';
+import 'services/backup_service.dart';
 import 'state/navigation_state.dart';
 import 'state/app_settings.dart';
 import 'state/library_state.dart';
@@ -27,14 +28,25 @@ void main() async {
   // Initialize MediaKit
   MediaKit.ensureInitialized();
   
-  // Initialize Download Service
-  await DownloadService().init();
+  // Try to restore any backed up databases from external directory on launch
+  await BackupService().restoreAll();
   
   // Load persisted app settings (smooth scroll etc.)
   await AppSettings().init();
   
   // Initialize Library state
   await LibraryState().init();
+  
+  // Initialize Download Service
+  await DownloadService().init();
+  
+  // Attach change listeners to write database exports to storage in background
+  AppSettings().addListener(() {
+    BackupService().backupAll();
+  });
+  LibraryState().addListener(() {
+    BackupService().backupAll();
+  });
   
   // Initialize ExtensionService early to load local extensions on startup
   ExtensionService().init();

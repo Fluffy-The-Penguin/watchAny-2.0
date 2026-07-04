@@ -11,6 +11,7 @@ import '../state/navigation_state.dart';
 import '../services/notification_service.dart';
 import '../services/cache_service.dart';
 import '../services/download_service.dart';
+import '../services/backup_service.dart';
 import 'package:file_picker/file_picker.dart';
 
 enum SettingsCategory {
@@ -1407,6 +1408,8 @@ class _SettingsPageState extends State<SettingsPage> {
                           if (path != null) {
                             await settings.setDownloadPath(path);
                             await _updateStorageSizes();
+                            // Restore settings/database backups if they exist in the new directory
+                            await BackupService().restoreFromPath(path);
                           }
                         },
                       ),

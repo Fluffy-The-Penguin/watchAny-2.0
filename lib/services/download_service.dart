@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import '../state/app_settings.dart';
+import 'backup_service.dart';
 
 enum DownloadStatus {
   queued,
@@ -164,6 +165,8 @@ class DownloadService extends ChangeNotifier {
       final file = await _dbFile;
       final list = _tasks.map((t) => t.toJson()).toList();
       await file.writeAsString(jsonEncode(list));
+      // Trigger background export to public backup folder
+      BackupService().backupAll();
     } catch (e) {
       debugPrint("Error saving download tasks: $e");
     }
@@ -198,8 +201,7 @@ class DownloadService extends ChangeNotifier {
     String baseDir = AppSettings().downloadPath;
     if (baseDir.isEmpty) {
       if (!kIsWeb && Platform.isAndroid) {
-        final supportDir = await getApplicationSupportDirectory();
-        baseDir = '${supportDir.path}/downloads';
+        baseDir = '/storage/emulated/0/Download/watchAny';
       } else {
         final homeDir = Platform.environment['USERPROFILE'] ?? Platform.environment['HOME'] ?? Directory.current.path;
         baseDir = '$homeDir/Downloads/watchAny';
@@ -423,8 +425,7 @@ class DownloadService extends ChangeNotifier {
       String baseDir = AppSettings().downloadPath;
       if (baseDir.isEmpty) {
         if (!kIsWeb && Platform.isAndroid) {
-          final supportDir = await getApplicationSupportDirectory();
-          baseDir = '${supportDir.path}/downloads';
+          baseDir = '/storage/emulated/0/Download/watchAny';
         } else {
           final homeDir = Platform.environment['USERPROFILE'] ?? Platform.environment['HOME'] ?? Directory.current.path;
           baseDir = '$homeDir/Downloads/watchAny';
