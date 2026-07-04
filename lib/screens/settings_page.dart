@@ -2571,16 +2571,18 @@ class _SettingsPageState extends State<SettingsPage> {
           bottom: BorderSide(color: Colors.white10, width: 1.0),
         ),
       ),
-      child: Row(
-        children: List.generate(available.length, (index) {
-          final cat = available[index];
-          final isSelected = _activeCategory == cat;
-          final data = categoryData[cat]!;
-          return Expanded(
-            child: InkWell(
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        physics: const BouncingScrollPhysics(),
+        child: Row(
+          children: List.generate(available.length, (index) {
+            final cat = available[index];
+            final isSelected = _activeCategory == cat;
+            final data = categoryData[cat]!;
+            return InkWell(
               onTap: () => setState(() => _activeCategory = cat),
               child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 16.0),
+                padding: const EdgeInsets.symmetric(vertical: 16.0, horizontal: 16.0),
                 decoration: BoxDecoration(
                   border: Border(
                     bottom: BorderSide(
@@ -2610,9 +2612,9 @@ class _SettingsPageState extends State<SettingsPage> {
                   ],
                 ),
               ),
-            ),
-          );
-        }),
+            );
+          }),
+        ),
       ),
     );
   }
