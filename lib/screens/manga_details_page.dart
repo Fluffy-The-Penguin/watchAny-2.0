@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'dart:math';
-import 'dart:ui';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -30,10 +29,6 @@ class _MangaDetailsPageState extends State<MangaDetailsPage> {
 
   Map<String, dynamic>? _details;
   List<dynamic> _chapters = [];
-  bool _isChaptersReversed = false;
-  String _chapterSearchQuery = '';
-  String _chapterFilter = 'ALL'; // 'ALL', 'UNREAD', 'READ'
-
   int get _parsedMangaId => int.tryParse(widget.mangaId) ?? 0;
 
   @override
@@ -90,6 +85,7 @@ class _MangaDetailsPageState extends State<MangaDetailsPage> {
         return _MangaLibraryEditPanel(
           mangaId: _parsedMangaId,
           title: _details!['title'] ?? 'Manga Details',
+          chapters: _chapters,
           totalChapters: _chapters.length,
           savedItem: savedItem,
           mangaDetails: _details!,
@@ -180,54 +176,7 @@ class _MangaDetailsPageState extends State<MangaDetailsPage> {
     final libraryItem = libraryState.getItem(_parsedMangaId, 'manga');
     final bool inLibrary = libraryItem != null;
 
-    Widget _buildChapterFilterChip(String value, String label) {
-      final bool isSelected = _chapterFilter == value;
-      return ChoiceChip(
-        label: Text(
-          label,
-          style: TextStyle(
-            color: isSelected ? Colors.black : Colors.white70,
-            fontSize: 11.0,
-            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-            fontFamily: 'Outfit',
-          ),
-        ),
-        selected: isSelected,
-        selectedColor: Colors.white,
-        backgroundColor: Colors.transparent,
-        checkmarkColor: Colors.black,
-        side: BorderSide(
-          color: isSelected ? Colors.white : Colors.white24,
-        ),
-        onSelected: (selected) {
-          if (selected) {
-            setState(() => _chapterFilter = value);
-          }
-        },
-      );
-    }
 
-    var displayChapters = _isChaptersReversed ? _chapters.reversed.toList() : _chapters;
-    
-    if (_chapterSearchQuery.trim().isNotEmpty) {
-      final q = _chapterSearchQuery.trim().toLowerCase();
-      displayChapters = displayChapters.where((ch) {
-        final name = (ch['name'] ?? '').toString().toLowerCase();
-        final chNum = (ch['chapterNumber'] ?? '').toString().toLowerCase();
-        return name.contains(q) || chNum.contains(q);
-      }).toList();
-    }
-
-    if (_chapterFilter != 'ALL') {
-      displayChapters = displayChapters.where((ch) {
-        final double? chNum = double.tryParse(ch['chapterNumber']?.toString() ?? '');
-        final int currentChapterIdx = (chNum?.toInt() ?? 1);
-        final bool read = ch['read'] ?? false;
-        final bool locallyRead = inLibrary && libraryItem.watchedEpisodes >= currentChapterIdx;
-        final bool isRead = read || locallyRead;
-        return _chapterFilter == 'READ' ? isRead : !isRead;
-      }).toList();
-    }
 
 
 
@@ -242,14 +191,16 @@ class _MangaDetailsPageState extends State<MangaDetailsPage> {
               left: 0,
               right: 0,
               height: 380.0,
-              child: CachedNetworkImage(
-                imageUrl: coverUrl,
-                fit: BoxFit.cover,
-                memCacheWidth: 400,
-                color: Colors.black.withOpacity(0.82),
-                colorBlendMode: BlendMode.darken,
-                placeholder: (context, url) => Container(color: Colors.black),
-                errorWidget: (context, url, error) => Container(color: Colors.black),
+              child: RepaintBoundary(
+                child: CachedNetworkImage(
+                  imageUrl: coverUrl,
+                  fit: BoxFit.cover,
+                  memCacheWidth: 300,
+                  color: Colors.black.withValues(alpha: 0.85),
+                  colorBlendMode: BlendMode.darken,
+                  placeholder: (context, url) => Container(color: Colors.black),
+                  errorWidget: (context, url, error) => Container(color: Colors.black),
+                ),
               ),
             ),
 
@@ -483,141 +434,26 @@ class _MangaDetailsPageState extends State<MangaDetailsPage> {
 
                         const SizedBox(height: 24.0),
 
-                        // Chapter search bar
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 24.0),
-                          child: Container(
-                            height: 38.0,
-                            decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.03),
-                              borderRadius: BorderRadius.circular(8.0),
-                              border: Border.all(color: Colors.white10),
-                            ),
-                            child: TextField(
-                              style: const TextStyle(color: Colors.white, fontSize: 13.0, fontFamily: 'Outfit'),
-                              decoration: const InputDecoration(
-                                hintText: 'Search chapters by name or number...',
-                                hintStyle: TextStyle(color: Colors.white24, fontSize: 12.0),
-                                prefixIcon: Icon(Icons.search, color: Colors.white38, size: 16),
-                                border: InputBorder.none,
-                                contentPadding: EdgeInsets.symmetric(vertical: 8.0),
-                              ),
-                              onChanged: (val) => setState(() => _chapterSearchQuery = val),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 12.0),
+                        const SizedBox(height: 24.0),
 
-                        // Choice chip filters
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 24.0),
-                          child: SingleChildScrollView(
-                            scrollDirection: Axis.horizontal,
-                            physics: const BouncingScrollPhysics(),
-                            child: Row(
-                              children: [
-                                _buildChapterFilterChip('ALL', 'All Chapters'),
-                                const SizedBox(width: 8.0),
-                                _buildChapterFilterChip('UNREAD', 'Unread'),
-                                const SizedBox(width: 8.0),
-                                _buildChapterFilterChip('READ', 'Read'),
-                              ],
-                            ),
-                          ),
+                        _MangaChaptersSection(
+                          chapters: _chapters,
+                          mangaId: _parsedMangaId,
+                          title: title,
+                          inLibrary: inLibrary,
+                          libraryItem: libraryItem,
+                          navigationState: widget.navigationState,
+                          onSetChapterReadStatus: (chapterId, read) async {
+                            await libraryState.setChapterReadStatus(_parsedMangaId, chapterId, read);
+                            setState(() {});
+                          },
+                          onUpdated: () {
+                            setState(() {});
+                          },
                         ),
-
-                        const SizedBox(height: 20.0),
-
-                        // Chapters Section Header
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 24.0),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text(
-                                'Chapters (${displayChapters.length})',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 16.0,
-                                  fontWeight: FontWeight.bold,
-                                  fontFamily: 'Outfit',
-                                ),
-                              ),
-                              IconButton(
-                                icon: Icon(
-                                  _isChaptersReversed ? Icons.arrow_upward : Icons.arrow_downward,
-                                  color: Colors.white54,
-                                  size: 18.0,
-                                ),
-                                onPressed: () {
-                                  setState(() => _isChaptersReversed = !_isChaptersReversed);
-                                },
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 12.0),
                       ],
                     ),
                   ),
-                ),
-
-                // Lazy-loaded chapter list (only visible items are built)
-                SliverList.builder(
-                  itemCount: displayChapters.length,
-                  itemBuilder: (context, index) {
-                    final chapter = displayChapters[index];
-                    final String chName = chapter['name'] ?? 'Chapter';
-                    final String chId = chapter['id']?.toString() ?? '';
-                    final double? chNum = double.tryParse(chapter['chapterNumber']?.toString() ?? '');
-                    final bool read = chapter['read'] ?? false;
-
-                    final int currentChapterIdx = (chNum?.toInt() ?? 1);
-                    final bool locallyRead = inLibrary && libraryItem.watchedEpisodes >= currentChapterIdx;
-                    final bool isRead = read || locallyRead;
-
-                    return Container(
-                      margin: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 4.0),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF0F0F11),
-                        borderRadius: BorderRadius.circular(6.0),
-                        border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
-                      ),
-                      child: ListTile(
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
-                        title: Text(
-                          chName,
-                          style: TextStyle(
-                            color: isRead ? Colors.white38 : Colors.white,
-                            fontSize: 13.5,
-                            fontWeight: FontWeight.bold,
-                            fontFamily: 'Outfit',
-                          ),
-                        ),
-                        trailing: Icon(
-                          isRead ? Icons.check_circle : Icons.play_circle_outline,
-                          color: isRead ? const Color(0xFFFF9F1C).withValues(alpha: 0.5) : Colors.white54,
-                        ),
-                        onTap: () {
-                          if (chId.isNotEmpty) {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => MangaReaderPage(
-                                  chapterId: chId,
-                                  chapterNumber: currentChapterIdx,
-                                  mangaId: widget.mangaId,
-                                  mangaTitle: title,
-                                  chapters: _chapters,
-                                  navigationState: widget.navigationState,
-                                ),
-                              ),
-                            );
-                          }
-                        },
-                      ),
-                    );
-                  },
                 ),
 
                 // Safety bottom padding
@@ -636,6 +472,7 @@ class _MangaDetailsPageState extends State<MangaDetailsPage> {
 class _MangaLibraryEditPanel extends StatefulWidget {
   final int mangaId;
   final String title;
+  final List<dynamic> chapters;
   final int totalChapters;
   final LibraryItem? savedItem;
   final Map<String, dynamic> mangaDetails;
@@ -644,6 +481,7 @@ class _MangaLibraryEditPanel extends StatefulWidget {
   const _MangaLibraryEditPanel({
     required this.mangaId,
     required this.title,
+    required this.chapters,
     required this.totalChapters,
     required this.savedItem,
     required this.mangaDetails,
@@ -1157,6 +995,19 @@ class _MangaLibraryEditPanelState extends State<_MangaLibraryEditPanel> {
                             final int finalChaptersRead = int.tryParse(_chaptersController.text)?.clamp(0, widget.totalChapters > 0 ? widget.totalChapters : 99999) ?? _chaptersRead;
                             final double finalRating = double.tryParse(_scoreController.text)?.clamp(0.0, 10.0) ?? _activeRating;
 
+                            // Sync read chapter IDs with manually entered watchedEpisodes progress
+                            final libraryState = LibraryState();
+                            final List<String> readChapterIds = libraryState.getReadChapterIds(widget.mangaId);
+                            if (readChapterIds.length != finalChaptersRead) {
+                              final list = widget.chapters.reversed.toList();
+                              for (int i = 0; i < list.length; i++) {
+                                final id = list[i]['id']?.toString() ?? '';
+                                if (id.isNotEmpty) {
+                                  await libraryState.setChapterReadStatus(widget.mangaId, id, i < finalChaptersRead);
+                                }
+                              }
+                            }
+
                             await LibraryState().updateMangaCache(widget.mangaId, widget.mangaDetails);
                             await LibraryState().saveItem(
                               id: widget.mangaId,
@@ -1190,6 +1041,326 @@ class _MangaLibraryEditPanelState extends State<_MangaLibraryEditPanel> {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _MangaChaptersSection extends StatefulWidget {
+  final List<dynamic> chapters;
+  final int mangaId;
+  final String title;
+  final bool inLibrary;
+  final LibraryItem? libraryItem;
+  final NavigationState navigationState;
+  final Function(String, bool) onSetChapterReadStatus;
+  final VoidCallback onUpdated;
+
+  const _MangaChaptersSection({
+    required this.chapters,
+    required this.mangaId,
+    required this.title,
+    required this.inLibrary,
+    required this.libraryItem,
+    required this.navigationState,
+    required this.onSetChapterReadStatus,
+    required this.onUpdated,
+  });
+
+  @override
+  State<_MangaChaptersSection> createState() => _MangaChaptersSectionState();
+}
+
+class _MangaChaptersSectionState extends State<_MangaChaptersSection> {
+  String _chapterSearchQuery = '';
+  String _chapterFilter = 'ALL'; // 'ALL', 'UNREAD', 'READ'
+  bool _isChaptersReversed = false;
+
+  Widget _buildChapterFilterChip(String value, String label) {
+    final bool isSelected = _chapterFilter == value;
+    return ChoiceChip(
+      label: Text(
+        label,
+        style: TextStyle(
+          color: isSelected ? Colors.black : Colors.white70,
+          fontSize: 11.0,
+          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+          fontFamily: 'Outfit',
+        ),
+      ),
+      selected: isSelected,
+      selectedColor: Colors.white,
+      backgroundColor: Colors.transparent,
+      checkmarkColor: Colors.black,
+      side: BorderSide(
+        color: isSelected ? Colors.white : Colors.white24,
+      ),
+      onSelected: (selected) {
+        if (selected) {
+          setState(() => _chapterFilter = value);
+        }
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final libraryState = LibraryState();
+    final List<String> readChapterIds = libraryState.getReadChapterIds(widget.mangaId);
+
+    // Auto-migration check: If they have sequential progress but empty read chapter list
+    if (widget.inLibrary && widget.libraryItem != null && widget.libraryItem!.watchedEpisodes > 0 && readChapterIds.isEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        final list = widget.chapters.reversed.toList();
+        final int episodes = widget.libraryItem!.watchedEpisodes;
+        final chaptersToMark = list.take(episodes > list.length ? list.length : episodes);
+        for (var ch in chaptersToMark) {
+          final id = ch['id']?.toString() ?? '';
+          if (id.isNotEmpty) {
+            await libraryState.setChapterReadStatus(widget.mangaId, id, true);
+          }
+        }
+        if (mounted) {
+          setState(() {}); // trigger rebuild after migration
+        }
+      });
+    }
+
+    var displayChapters = _isChaptersReversed ? widget.chapters.reversed.toList() : widget.chapters;
+
+    // Filter by search query
+    if (_chapterSearchQuery.trim().isNotEmpty) {
+      final q = _chapterSearchQuery.trim().toLowerCase();
+      displayChapters = displayChapters.where((ch) {
+        final name = (ch['name'] ?? '').toString().toLowerCase();
+        final chNum = (ch['chapterNumber'] ?? '').toString().toLowerCase();
+        return name.contains(q) || chNum.contains(q);
+      }).toList();
+    }
+
+    // Filter by Read/Unread
+    if (_chapterFilter != 'ALL') {
+      displayChapters = displayChapters.where((ch) {
+        final String chId = ch['id']?.toString() ?? '';
+        final bool isRead = readChapterIds.contains(chId);
+        return _chapterFilter == 'READ' ? isRead : !isRead;
+      }).toList();
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Chapter search bar
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24.0),
+          child: Container(
+            height: 38.0,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.03),
+              borderRadius: BorderRadius.circular(8.0),
+              border: Border.all(color: Colors.white10),
+            ),
+            child: TextField(
+              style: const TextStyle(color: Colors.white, fontSize: 13.0, fontFamily: 'Outfit'),
+              decoration: const InputDecoration(
+                hintText: 'Search chapters by name or number...',
+                hintStyle: TextStyle(color: Colors.white24, fontSize: 12.0),
+                prefixIcon: Icon(Icons.search, color: Colors.white38, size: 16),
+                border: InputBorder.none,
+                contentPadding: EdgeInsets.symmetric(vertical: 8.0),
+              ),
+              onChanged: (val) => setState(() => _chapterSearchQuery = val),
+            ),
+          ),
+        ),
+        const SizedBox(height: 12.0),
+
+        // Choice chip filters
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24.0),
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            physics: const BouncingScrollPhysics(),
+            child: Row(
+              children: [
+                _buildChapterFilterChip('ALL', 'All Chapters'),
+                const SizedBox(width: 8.0),
+                _buildChapterFilterChip('UNREAD', 'Unread'),
+                const SizedBox(width: 8.0),
+                _buildChapterFilterChip('READ', 'Read'),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 20.0),
+
+        // Chapters Section Header
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24.0),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Chapters (${displayChapters.length})',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 16.0,
+                  fontWeight: FontWeight.bold,
+                  fontFamily: 'Outfit',
+                ),
+              ),
+              IconButton(
+                icon: Icon(
+                  _isChaptersReversed ? Icons.arrow_upward : Icons.arrow_downward,
+                  color: Colors.white54,
+                  size: 18.0,
+                ),
+                onPressed: () {
+                  setState(() => _isChaptersReversed = !_isChaptersReversed);
+                },
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12.0),
+
+        // Chapters list
+        ListView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: displayChapters.length,
+          itemBuilder: (context, index) {
+            final chapter = displayChapters[index];
+            final String chName = chapter['name'] ?? 'Chapter';
+            final String chId = chapter['id']?.toString() ?? '';
+            final double? chNum = double.tryParse(chapter['chapterNumber']?.toString() ?? '');
+            final bool isRead = readChapterIds.contains(chId);
+
+            final int currentChapterIdx = (chNum?.toInt() ?? 1);
+
+            return Container(
+              margin: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 4.0),
+              decoration: BoxDecoration(
+                color: const Color(0xFF0F0F11),
+                borderRadius: BorderRadius.circular(6.0),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
+              ),
+              child: ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
+                title: Text(
+                  chName,
+                  style: TextStyle(
+                    color: isRead ? Colors.white38 : Colors.white,
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: 'Outfit',
+                  ),
+                ),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      icon: Icon(
+                        isRead ? Icons.check_circle : Icons.check_circle_outline,
+                        color: isRead ? const Color(0xFFFF9F1C) : Colors.white24,
+                        size: 18.0,
+                      ),
+                      onPressed: () {
+                        widget.onSetChapterReadStatus(chId, !isRead);
+                      },
+                    ),
+                    PopupMenuButton<String>(
+                      icon: const Icon(Icons.more_vert, color: Colors.white54, size: 20.0),
+                      color: const Color(0xFF16161A),
+                      offset: const Offset(0, 30),
+                      onSelected: (action) async {
+                        final libraryState = LibraryState();
+                        final list = widget.chapters.reversed.toList();
+                        final currentIdx = list.indexWhere((ch) => ch['id']?.toString() == chId);
+                        if (currentIdx == -1) return;
+
+                        if (action == 'toggle') {
+                          await libraryState.setChapterReadStatus(widget.mangaId, chId, !isRead);
+                        } else if (action == 'prev_read') {
+                          for (int i = 0; i <= currentIdx; i++) {
+                            final id = list[i]['id']?.toString() ?? '';
+                            if (id.isNotEmpty) {
+                              await libraryState.setChapterReadStatus(widget.mangaId, id, true);
+                            }
+                          }
+                        } else if (action == 'prev_unread') {
+                          for (int i = 0; i <= currentIdx; i++) {
+                            final id = list[i]['id']?.toString() ?? '';
+                            if (id.isNotEmpty) {
+                              await libraryState.setChapterReadStatus(widget.mangaId, id, false);
+                            }
+                          }
+                        } else if (action == 'next_read') {
+                          for (int i = currentIdx; i < list.length; i++) {
+                            final id = list[i]['id']?.toString() ?? '';
+                            if (id.isNotEmpty) {
+                              await libraryState.setChapterReadStatus(widget.mangaId, id, true);
+                            }
+                          }
+                        } else if (action == 'next_unread') {
+                          for (int i = currentIdx; i < list.length; i++) {
+                            final id = list[i]['id']?.toString() ?? '';
+                            if (id.isNotEmpty) {
+                              await libraryState.setChapterReadStatus(widget.mangaId, id, false);
+                            }
+                          }
+                        }
+                        setState(() {});
+                        widget.onUpdated();
+                      },
+                      itemBuilder: (context) => [
+                        PopupMenuItem(
+                          value: 'toggle',
+                          child: Text(isRead ? 'Mark as Unread' : 'Mark as Read', style: const TextStyle(color: Colors.white, fontFamily: 'Outfit')),
+                        ),
+                        const PopupMenuItem(
+                          value: 'prev_read',
+                          child: Text('Mark Previous as Read', style: TextStyle(color: Colors.white, fontFamily: 'Outfit')),
+                        ),
+                        const PopupMenuItem(
+                          value: 'prev_unread',
+                          child: Text('Mark Previous as Unread', style: TextStyle(color: Colors.white, fontFamily: 'Outfit')),
+                        ),
+                        const PopupMenuItem(
+                          value: 'next_read',
+                          child: Text('Mark Next as Read', style: TextStyle(color: Colors.white, fontFamily: 'Outfit')),
+                        ),
+                        const PopupMenuItem(
+                          value: 'next_unread',
+                          child: Text('Mark Next as Unread', style: TextStyle(color: Colors.white, fontFamily: 'Outfit')),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+                onTap: () {
+                  if (chId.isNotEmpty) {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => MangaReaderPage(
+                          chapterId: chId,
+                          chapterNumber: currentChapterIdx,
+                          mangaId: widget.mangaId.toString(),
+                          mangaTitle: widget.title,
+                          chapters: widget.chapters,
+                          navigationState: widget.navigationState,
+                        ),
+                      ),
+                    ).then((_) {
+                      setState(() {});
+                    });
+                  }
+                },
+              ),
+            );
+          },
+        ),
+      ],
     );
   }
 }

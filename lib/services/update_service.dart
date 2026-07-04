@@ -67,7 +67,7 @@ class UpdateService extends ChangeNotifier {
   factory UpdateService() => _instance;
   UpdateService._internal();
 
-  static const String currentVersion = '2.0.15';
+  static const String currentVersion = '2.0.16';
   
   // GitHub Releases API Endpoint
   static const String gitHubReleasesUrl = 'https://api.github.com/repos/Fluffy-The-Penguin/watchAny-2.0/releases/latest';
@@ -167,15 +167,18 @@ class UpdateService extends ChangeNotifier {
       // Fallback mock update in case of failure
       _error = 'Live check failed ($e). Showing fallback updates.';
       _latestUpdate = UpdateInfo(
-        version: 'v2.0.15',
-        changelog: '• Optimized Manga Details page scrolling lag and scope rebuild performance\n'
+        version: 'v2.0.16',
+        changelog: '• Optimized player buffering parameters for instant seeking and caching\n'
+            '• Implemented full video player keyboard shortcuts (Space, Arrows seeking/volume, F fullscreen)\n'
+            '• Added custom HoverSeekBar widget with real-time hover timestamp preview tooltips\n'
+            '• Optimized Manga Details page scrolling lag and scope rebuild performance\n'
             '• Implemented granular ID-based chapter read status tracking and auto-migration\n'
             '• Added Mihon-style bulk check actions and context menus to detail page chapters\n'
             '• Integrated custom GPU matrix image enhancers (Grayscale, OLED Inverted, Sepia, Warm, Color Boost)\n'
             '• Implemented margin touch gestures, RTL paging formats, landscape Double-Page layout, and adjacent page pre-caching',
         downloadUrl: Platform.isAndroid 
-            ? 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.15/app-arm64-v8a-release.apk'
-            : 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.15/watchany_setup.exe',
+            ? 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.16/app-arm64-v8a-release.apk'
+            : 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.16/watchany_setup.exe',
       );
     } finally {
       _isChecking = false;

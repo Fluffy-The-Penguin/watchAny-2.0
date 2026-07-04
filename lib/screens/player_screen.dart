@@ -57,6 +57,7 @@ class PlayerScreen extends StatefulWidget {
 class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
   late final Player player = PlayerState().player!;
   late final VideoController controller = PlayerState().controller!;
+  late final FocusNode _playerFocusNode = FocusNode();
   bool _isMaximized = false;
 
   final LayerLink _layerLink = LayerLink();
@@ -164,6 +165,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
   void dispose() {
     AppSettings().removeListener(_onSettingsChanged);
     PlayerState().removeListener(_handlePlayerStateChange);
+    _playerFocusNode.dispose();
     for (var sub in _subscriptions) {
       sub.cancel();
     }
@@ -818,9 +820,9 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 16.0),
-                  child: MaterialDesktopSeekBar(),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                  child: HoverSeekBar(player: player),
                 ),
                 const SizedBox(height: 4.0),
                 Row(
@@ -922,9 +924,9 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 16.0),
-                  child: MaterialDesktopSeekBar(),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                  child: HoverSeekBar(player: player),
                 ),
                 const SizedBox(height: 4.0),
                 Row(
@@ -1275,9 +1277,9 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 16.0),
-                  child: MaterialSeekBar(),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                  child: HoverSeekBar(player: player),
                 ),
                 const SizedBox(height: 4.0),
                 Row(
@@ -1385,9 +1387,9 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 16.0),
-                  child: MaterialSeekBar(),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                  child: HoverSeekBar(player: player),
                 ),
                 const SizedBox(height: 4.0),
                 Row(
@@ -1437,77 +1439,90 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
       child: desktopTheme,
     );
 
-    return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: isDesktop
-          ? AppBar(
-              backgroundColor: Colors.black,
-              elevation: 0,
-              toolbarHeight: 36.0,
-              titleSpacing: 0,
-              actionsPadding: EdgeInsets.zero,
-              title: GestureDetector(
-                behavior: HitTestBehavior.translucent,
-                onPanStart: (details) {
-                  windowManager.startDragging();
-                },
-                onDoubleTap: () async {
-                  final isMax = await windowManager.isMaximized();
-                  if (isMax) {
-                    await windowManager.unmaximize();
-                  } else {
-                    await windowManager.maximize();
-                  }
-                  _checkMaximizedState();
-                },
-                child: Container(
-                  width: double.infinity,
-                  height: 36.0,
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    currentTitle,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.white, fontSize: 15.0, fontFamily: 'Outfit', fontWeight: FontWeight.bold),
-                  ),
-                ),
-              ),
-              leading: SizedBox(
-                width: 40.0,
-                height: 36.0,
-                child: IconButton(
-                  padding: EdgeInsets.zero,
-                  icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 16.0),
-                  onPressed: () async {
-                    if (isDesktop) {
-                      try {
-                        final isFullScreen = await windowManager.isFullScreen();
-                        if (isFullScreen) {
-                          await windowManager.setFullScreen(false);
-                        }
-                      } catch (_) {}
-                    } else {
-                      PlayerState().exitFullscreen();
-                      SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: SystemUiOverlay.values);
-                    }
-                    PlayerState().minimize();
+    return Focus(
+      focusNode: _playerFocusNode,
+      autofocus: true,
+      onKeyEvent: (FocusNode node, KeyEvent event) {
+        if (event is KeyDownEvent) {
+          final primaryFocus = FocusManager.instance.primaryFocus;
+          if (primaryFocus != null && primaryFocus.context != null) {
+            final w = primaryFocus.context!.widget;
+            if (w is EditableText) {
+              return KeyEventResult.ignored;
+            }
+          }
+
+          final key = event.logicalKey;
+          if (key == LogicalKeyboardKey.arrowLeft) {
+            final current = player.state.position;
+            final target = (current.inSeconds - 10).clamp(0, player.state.duration.inSeconds);
+            player.seek(Duration(seconds: target));
+            return KeyEventResult.handled;
+          } else if (key == LogicalKeyboardKey.arrowRight) {
+            final current = player.state.position;
+            final target = (current.inSeconds + 10).clamp(0, player.state.duration.inSeconds);
+            player.seek(Duration(seconds: target));
+            return KeyEventResult.handled;
+          } else if (key == LogicalKeyboardKey.space) {
+            player.playOrPause();
+            return KeyEventResult.handled;
+          } else if (key == LogicalKeyboardKey.arrowUp) {
+            final vol = (player.state.volume + 5.0).clamp(0.0, 100.0);
+            player.setVolume(vol);
+            return KeyEventResult.handled;
+          } else if (key == LogicalKeyboardKey.arrowDown) {
+            final vol = (player.state.volume - 5.0).clamp(0.0, 100.0);
+            player.setVolume(vol);
+            return KeyEventResult.handled;
+          } else if (key == LogicalKeyboardKey.keyF) {
+            final isFull = PlayerState().isFullscreen;
+            if (isFull) {
+              PlayerState().exitFullscreen();
+              if (isDesktop) {
+                windowManager.setFullScreen(false);
+                SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: SystemUiOverlay.values);
+              } else {
+                SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: SystemUiOverlay.values);
+                SystemChrome.setPreferredOrientations([
+                  DeviceOrientation.portraitUp,
+                  DeviceOrientation.portraitDown,
+                  DeviceOrientation.landscapeLeft,
+                  DeviceOrientation.landscapeRight
+                ]);
+              }
+            } else {
+              PlayerState().enterFullscreen();
+              if (isDesktop) {
+                windowManager.setFullScreen(true);
+                SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+              } else {
+                SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+                SystemChrome.setPreferredOrientations([
+                  DeviceOrientation.landscapeLeft,
+                  DeviceOrientation.landscapeRight
+                ]);
+              }
+            }
+            return KeyEventResult.handled;
+          }
+        }
+        return KeyEventResult.ignored;
+      },
+      child: Scaffold(
+        backgroundColor: Colors.black,
+        appBar: isDesktop
+            ? AppBar(
+                backgroundColor: Colors.black,
+                elevation: 0,
+                toolbarHeight: 36.0,
+                titleSpacing: 0,
+                actionsPadding: EdgeInsets.zero,
+                title: GestureDetector(
+                  behavior: HitTestBehavior.translucent,
+                  onPanStart: (details) {
+                    windowManager.startDragging();
                   },
-                ),
-              ),
-              actions: [
-                // Minimize
-                _PlayerTitleBarButton(
-                  icon: Icons.remove,
-                  onPressed: () async {
-                    await windowManager.minimize();
-                  },
-                  hoverColor: Colors.white10,
-                  iconSize: 16.0,
-                ),
-                // Maximize / Restore
-                _PlayerTitleBarButton(
-                  icon: _isMaximized ? Icons.filter_none : Icons.crop_square,
-                  onPressed: () async {
+                  onDoubleTap: () async {
                     final isMax = await windowManager.isMaximized();
                     if (isMax) {
                       await windowManager.unmaximize();
@@ -1516,23 +1531,80 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
                     }
                     _checkMaximizedState();
                   },
-                  hoverColor: Colors.white10,
-                  iconSize: 12.0,
+                  child: Container(
+                    width: double.infinity,
+                    height: 36.0,
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      currentTitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: Colors.white, fontSize: 15.0, fontFamily: 'Outfit', fontWeight: FontWeight.bold),
+                    ),
+                  ),
                 ),
-                // Close
-                _PlayerTitleBarButton(
-                  icon: Icons.close,
-                  onPressed: () async {
-                    await windowManager.close();
-                  },
-                  hoverColor: Colors.red.withValues(alpha: 0.8),
-                  hoverIconColor: Colors.white,
-                  iconSize: 16.0,
+                leading: SizedBox(
+                  width: 40.0,
+                  height: 36.0,
+                  child: IconButton(
+                    padding: EdgeInsets.zero,
+                    icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 16.0),
+                    onPressed: () async {
+                      if (isDesktop) {
+                        try {
+                          final isFullScreen = await windowManager.isFullScreen();
+                          if (isFullScreen) {
+                            await windowManager.setFullScreen(false);
+                          }
+                        } catch (_) {}
+                      } else {
+                        PlayerState().exitFullscreen();
+                        SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: SystemUiOverlay.values);
+                      }
+                      PlayerState().minimize();
+                    },
+                  ),
                 ),
-              ],
-            )
-          : null,
-      body: mobileTheme,
+                actions: [
+                  // Minimize
+                  _PlayerTitleBarButton(
+                    icon: Icons.remove,
+                    onPressed: () async {
+                      await windowManager.minimize();
+                    },
+                    hoverColor: Colors.white10,
+                    iconSize: 16.0,
+                  ),
+                  // Maximize / Restore
+                  _PlayerTitleBarButton(
+                    icon: _isMaximized ? Icons.filter_none : Icons.crop_square,
+                    onPressed: () async {
+                      final isMax = await windowManager.isMaximized();
+                      if (isMax) {
+                        await windowManager.unmaximize();
+                      } else {
+                        await windowManager.maximize();
+                      }
+                      _checkMaximizedState();
+                    },
+                    hoverColor: Colors.white10,
+                    iconSize: 12.0,
+                  ),
+                  // Close
+                  _PlayerTitleBarButton(
+                    icon: Icons.close,
+                    onPressed: () async {
+                      await windowManager.close();
+                    },
+                    hoverColor: Colors.red.withValues(alpha: 0.8),
+                    hoverIconColor: Colors.white,
+                    iconSize: 16.0,
+                  ),
+                ],
+              )
+            : null,
+        body: mobileTheme,
+      ),
     );
       },
     );
@@ -2950,3 +3022,210 @@ class DynamicSubtitlePadding extends EdgeInsets {
   @override
   double get top => 16.0;
 }
+
+class HoverSeekBar extends StatefulWidget {
+  final Player player;
+  const HoverSeekBar({super.key, required this.player});
+
+  @override
+  State<HoverSeekBar> createState() => _HoverSeekBarState();
+}
+
+class _HoverSeekBarState extends State<HoverSeekBar> {
+  double? _hoverX;
+  bool _isHovering = false;
+  Duration _position = Duration.zero;
+  Duration _duration = Duration.zero;
+  Duration _buffer = Duration.zero;
+
+  final List<StreamSubscription> _subscriptions = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _position = widget.player.state.position;
+    _duration = widget.player.state.duration;
+    _buffer = widget.player.state.buffer;
+
+    _subscriptions.add(widget.player.stream.position.listen((p) {
+      if (mounted) setState(() => _position = p);
+    }));
+    _subscriptions.add(widget.player.stream.duration.listen((d) {
+      if (mounted) setState(() => _duration = d);
+    }));
+    _subscriptions.add(widget.player.stream.buffer.listen((b) {
+      if (mounted) setState(() => _buffer = b);
+    }));
+  }
+
+  @override
+  void dispose() {
+    for (var s in _subscriptions) {
+      s.cancel();
+    }
+    super.dispose();
+  }
+
+  String _formatDuration(Duration d) {
+    final int hours = d.inHours;
+    final int minutes = d.inMinutes.remainder(60);
+    final int seconds = d.inSeconds.remainder(60);
+    
+    if (hours > 0) {
+      return '$hours:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+    }
+    return '$minutes:${seconds.toString().padLeft(2, '0')}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_duration.inMilliseconds == 0) return const SizedBox(height: 24.0);
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        
+        final posMs = _position.inMilliseconds.toDouble();
+        final durMs = _duration.inMilliseconds.toDouble();
+        final bufMs = _buffer.inMilliseconds.toDouble();
+
+        final double posPercent = (posMs / durMs).clamp(0.0, 1.0);
+        final double bufPercent = (bufMs / durMs).clamp(0.0, 1.0);
+
+        // Hover calculations
+        Duration? hoverTime;
+        if (_isHovering && _hoverX != null && width > 0) {
+          final double percent = (_hoverX! / width).clamp(0.0, 1.0);
+          hoverTime = Duration(milliseconds: (percent * durMs).toInt());
+        }
+
+        void seekToPercent(double percent) {
+          final targetMs = (percent * durMs).toInt();
+          widget.player.seek(Duration(milliseconds: targetMs));
+        }
+
+        return MouseRegion(
+          onEnter: (_) => setState(() => _isHovering = true),
+          onExit: (_) => setState(() => _isHovering = false),
+          onHover: (event) {
+            setState(() {
+              _hoverX = event.localPosition.dx;
+              _isHovering = true;
+            });
+          },
+          cursor: SystemMouseCursors.click,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onHorizontalDragUpdate: (details) {
+              final box = context.findRenderObject() as RenderBox;
+              final localPos = box.globalToLocal(details.globalPosition);
+              final double percent = (localPos.dx / width).clamp(0.0, 1.0);
+              seekToPercent(percent);
+            },
+            onTapDown: (details) {
+              final double percent = (details.localPosition.dx / width).clamp(0.0, 1.0);
+              seekToPercent(percent);
+            },
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                // Track Container
+                Container(
+                  height: 24.0,
+                  alignment: Alignment.center,
+                  child: Stack(
+                    children: [
+                      // Base Track
+                      Container(
+                        height: 5.0,
+                        decoration: BoxDecoration(
+                          color: Colors.white12,
+                          borderRadius: BorderRadius.circular(2.5),
+                        ),
+                      ),
+                      // Buffer Track
+                      FractionallySizedBox(
+                        widthFactor: bufPercent,
+                        child: Container(
+                          height: 5.0,
+                          decoration: BoxDecoration(
+                            color: Colors.white24,
+                            borderRadius: BorderRadius.circular(2.5),
+                          ),
+                        ),
+                      ),
+                      // Position Track
+                      FractionallySizedBox(
+                        widthFactor: posPercent,
+                        child: Container(
+                          height: 5.0,
+                          decoration: BoxDecoration(
+                            color: Colors.amber,
+                            borderRadius: BorderRadius.circular(2.5),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                // Hover / Seeking Indicator Tooltip (Float above seeking track)
+                if (_isHovering && hoverTime != null && _hoverX != null)
+                  Positioned(
+                    left: (_hoverX! - 45.0).clamp(0.0, width - 90.0), // center tooltip and keep within bounds
+                    top: -30.0, // float above
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF16161A),
+                        borderRadius: BorderRadius.circular(4.0),
+                        border: Border.all(color: Colors.white24, width: 0.5),
+                        boxShadow: const [
+                          BoxShadow(
+                            color: Colors.black54,
+                            blurRadius: 5.0,
+                            offset: Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Text(
+                        _formatDuration(hoverTime),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 11.0,
+                          fontWeight: FontWeight.bold,
+                          fontFamily: 'Outfit',
+                        ),
+                      ),
+                    ),
+                  ),
+
+                // Thumb handle
+                Positioned(
+                  left: (posPercent * width) - 6.0,
+                  top: 6.0,
+                  child: Container(
+                    width: 12.0,
+                    height: 12.0,
+                    decoration: const BoxDecoration(
+                      color: Colors.amber,
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black26,
+                          blurRadius: 3.0,
+                          spreadRadius: 1.0,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+

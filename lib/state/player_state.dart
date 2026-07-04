@@ -119,10 +119,10 @@ class PlayerState extends ChangeNotifier {
       final nativePlayer = _player!.platform as NativePlayer;
       nativePlayer.setProperty('hr-seek', 'no');
       nativePlayer.setProperty('cache', 'yes');
-      nativePlayer.setProperty('demuxer-seekable-cache', 'no');
-      nativePlayer.setProperty('demuxer-max-bytes', '104857600'); // 100MB max buffer
-      nativePlayer.setProperty('demuxer-max-back-bytes', '26214400'); // 25MB max back buffer
-      nativePlayer.setProperty('demuxer-readahead-secs', '10'); // 10s readahead
+      nativePlayer.setProperty('demuxer-seekable-cache', 'yes');
+      nativePlayer.setProperty('demuxer-max-bytes', '157286400'); // 150MB max buffer
+      nativePlayer.setProperty('demuxer-max-back-bytes', '52428800'); // 50MB max back buffer
+      nativePlayer.setProperty('demuxer-readahead-secs', '30'); // 30s readahead
       nativePlayer.setProperty('cache-pause', 'yes');
       nativePlayer.setProperty('network-timeout', '60');         // Wait up to 60s for read operations
       nativePlayer.setProperty('demuxer-lavf-timeout', '60');     // Wait up to 60s for initial metadata/opening

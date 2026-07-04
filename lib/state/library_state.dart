@@ -520,4 +520,52 @@ class LibraryState extends ChangeNotifier {
     notifyListeners();
     await _persist();
   }
+
+  // Get the list of read chapter IDs for a manga
+  List<String> getReadChapterIds(int mangaId) {
+    final cache = _mangaCache[mangaId];
+    if (cache == null) return [];
+    final list = cache['readChapterIds'] as List?;
+    if (list == null) return [];
+    return list.map((e) => e.toString()).toList();
+  }
+
+  // Mark a chapter as read/unread for a manga
+  Future<void> setChapterReadStatus(int mangaId, String chapterId, bool read) async {
+    final cache = _mangaCache[mangaId] ?? {};
+    final list = List<String>.from(cache['readChapterIds'] ?? []);
+    if (read) {
+      if (!list.contains(chapterId)) {
+        list.add(chapterId);
+      }
+    } else {
+      list.remove(chapterId);
+    }
+    cache['readChapterIds'] = list;
+    
+    // Also update watchedEpisodes in LibraryItem to count how many chapters are read
+    final item = getItem(mangaId, 'manga');
+    if (item != null) {
+      _items = _items.map((i) {
+        if (i.id == mangaId && i.mode == 'manga') {
+          return LibraryItem(
+            id: i.id,
+            mode: i.mode,
+            format: i.format,
+            addedAt: i.addedAt,
+            libraryStatus: i.libraryStatus,
+            rating: i.rating,
+            watchedEpisodes: list.length,
+            totalEpisodes: i.totalEpisodes,
+            categoryIds: i.categoryIds,
+          );
+        }
+        return i;
+      }).toList();
+    }
+
+    _mangaCache[mangaId] = cache;
+    notifyListeners();
+    await _persist();
+  }
 }
