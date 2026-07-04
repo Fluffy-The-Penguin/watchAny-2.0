@@ -1827,6 +1827,9 @@ class _EpisodeCard extends StatefulWidget {
   final String title;
   final String thumbnail;
   final String site;
+  final bool isDownloaded;
+  final bool isWatched;
+  final double ratio;
   final VoidCallback onTap;
 
   const _EpisodeCard({
@@ -1835,6 +1838,9 @@ class _EpisodeCard extends StatefulWidget {
     required this.title,
     required this.thumbnail,
     required this.site,
+    required this.isDownloaded,
+    required this.isWatched,
+    required this.ratio,
     required this.onTap,
   });
 
