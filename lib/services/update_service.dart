@@ -67,7 +67,7 @@ class UpdateService extends ChangeNotifier {
   factory UpdateService() => _instance;
   UpdateService._internal();
 
-  static const String currentVersion = '2.0.13';
+  static const String currentVersion = '2.0.14';
   
   // GitHub Releases API Endpoint
   static const String gitHubReleasesUrl = 'https://api.github.com/repos/Fluffy-The-Penguin/watchAny-2.0/releases/latest';
@@ -167,21 +167,14 @@ class UpdateService extends ChangeNotifier {
       // Fallback mock update in case of failure
       _error = 'Live check failed ($e). Showing fallback updates.';
       _latestUpdate = UpdateInfo(
-        version: 'v2.0.13',
-        changelog: '• Fixed subtitles showing at the top of the screen in horizontal fullscreen on Android\n'
-            '• Moved Video Quality Enhancement shortcut toggle to top button bar on mobile player controls\n'
-            '• Added custom sliders for Video Brightness, Contrast, and Saturation settings\n'
-            '• Added a button to reset all Custom Video Enhancement parameters to their default values\n'
-            '• Fixed settings category tab overlap and clipping on mobile by making the bar horizontally scrollable\n'
-            '• Optimized Anime Details page performance by removing redundant rebuild list listeners\n'
-            '• Fixed player quick settings and subtitle customizer scrolling on phones\n'
-            '• Locked playback fullscreen mode to landscape orientation and restored portrait mode on exit\n'
-            '• Relocated GPU Video Quality Enhancement toggle to a new Player settings tab\n'
-            '• Restored download database persistence across app updates by using secure app documents directory\n'
-            '• Fixed downloads page progress bar and speed tracking not updating in real time',
+        version: 'v2.0.14',
+        changelog: '• Implemented external database backup manager to automatically sync library items, categories, and settings\n'
+            '• Restored download queue database from public folder on fresh app installations and updates\n'
+            '• Changed default Android downloads directory to public Downloads folder so files survive uninstalls\n'
+            '• Added auto-recovery trigger when choosing an existing downloads folder in settings',
         downloadUrl: Platform.isAndroid 
-            ? 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.13/app-arm64-v8a-release.apk'
-            : 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.13/watchany_setup_mock.exe',
+            ? 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.14/app-arm64-v8a-release.apk'
+            : 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.14/watchany_setup.exe',
       );
     } finally {
       _isChecking = false;
