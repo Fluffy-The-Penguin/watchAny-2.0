@@ -26,6 +26,9 @@ class AppSettings extends ChangeNotifier {
   int _debandIterations = 4;
   int _debandThreshold = 48;
   int _debandRange = 16;
+  int _colorBrightness = 0;
+  int _colorContrast = 3;
+  int _colorSaturation = 4;
 
   // Downloads & Cache storage configuration
   double _downloadsLimitGB = 10.0;
@@ -66,6 +69,9 @@ class AppSettings extends ChangeNotifier {
   int get debandIterations => _debandIterations;
   int get debandThreshold => _debandThreshold;
   int get debandRange => _debandRange;
+  int get colorBrightness => _colorBrightness;
+  int get colorContrast => _colorContrast;
+  int get colorSaturation => _colorSaturation;
   double get downloadsLimitGB => _downloadsLimitGB;
   double get cacheLimitGB => _cacheLimitGB;
   String get cachePath => _cachePath;
@@ -124,6 +130,9 @@ class AppSettings extends ChangeNotifier {
     _debandIterations = prefs.getInt('deband_iterations') ?? 4;
     _debandThreshold = prefs.getInt('deband_threshold') ?? 48;
     _debandRange = prefs.getInt('deband_range') ?? 16;
+    _colorBrightness = prefs.getInt('color_brightness') ?? 0;
+    _colorContrast = prefs.getInt('color_contrast') ?? 3;
+    _colorSaturation = prefs.getInt('color_saturation') ?? 4;
 
     // Load Storage Settings
     final bool isMobileDevice = !kIsWeb && (Platform.isAndroid || Platform.isIOS);
@@ -230,6 +239,47 @@ class AppSettings extends ChangeNotifier {
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt('deband_range', value);
+  }
+
+  Future<void> setColorBrightness(int value) async {
+    if (_colorBrightness == value) return;
+    _colorBrightness = value;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('color_brightness', value);
+  }
+
+  Future<void> setColorContrast(int value) async {
+    if (_colorContrast == value) return;
+    _colorContrast = value;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('color_contrast', value);
+  }
+
+  Future<void> setColorSaturation(int value) async {
+    if (_colorSaturation == value) return;
+    _colorSaturation = value;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('color_saturation', value);
+  }
+
+  Future<void> resetCustomEnhancementToDefault() async {
+    _debandIterations = 4;
+    _debandThreshold = 48;
+    _debandRange = 16;
+    _colorBrightness = 0;
+    _colorContrast = 3;
+    _colorSaturation = 4;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('deband_iterations', 4);
+    await prefs.setInt('deband_threshold', 48);
+    await prefs.setInt('deband_range', 16);
+    await prefs.setInt('color_brightness', 0);
+    await prefs.setInt('color_contrast', 3);
+    await prefs.setInt('color_saturation', 4);
   }
 
   Future<void> setSmoothScrollEnabled(bool value) async {

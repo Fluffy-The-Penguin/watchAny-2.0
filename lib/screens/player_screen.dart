@@ -3,6 +3,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:developer' as developer;
 import 'dart:io';
+import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -393,13 +394,23 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
         final String range = settings.customEnhancementEnabled 
             ? settings.debandRange.toString() 
             : '16';
+        final String brightness = settings.customEnhancementEnabled
+            ? settings.colorBrightness.toString()
+            : '0';
+        final String contrast = settings.customEnhancementEnabled
+            ? settings.colorContrast.toString()
+            : '3';
+        final String saturation = settings.customEnhancementEnabled
+            ? settings.colorSaturation.toString()
+            : '4';
 
         await nativePlayer.setProperty('deband-iterations', iterations);
         await nativePlayer.setProperty('deband-threshold', threshold);
         await nativePlayer.setProperty('deband-range', range);
+        await nativePlayer.setProperty('brightness', brightness);
+        await nativePlayer.setProperty('contrast', contrast);
+        await nativePlayer.setProperty('saturation', saturation);
         await nativePlayer.setProperty('sharpen', '1.0');
-        await nativePlayer.setProperty('contrast', '3');
-        await nativePlayer.setProperty('saturation', '4');
         await nativePlayer.setProperty('scale', 'spline36');
         await nativePlayer.setProperty('cscale', 'spline36');
       } else {
@@ -407,6 +418,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
         await nativePlayer.setProperty('sharpen', '0.0');
         await nativePlayer.setProperty('contrast', '0');
         await nativePlayer.setProperty('saturation', '0');
+        await nativePlayer.setProperty('brightness', '0');
         await nativePlayer.setProperty('scale', 'bilinear');
         await nativePlayer.setProperty('cscale', 'bilinear');
       }
@@ -1003,40 +1015,14 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
       child: LayoutBuilder(
         builder: (context, constraints) {
           final double playerWidth = constraints.maxWidth;
-          final double playerHeight = constraints.maxHeight;
 
           final videoWidth = player.state.width;
           final videoHeight = player.state.height;
-          final videoAspectRatio = videoWidth != null && videoHeight != null && videoWidth > 0 && videoHeight > 0
-              ? (videoWidth / videoHeight)
-              : 16 / 9;
 
           // Scale subtitles font size dynamically based on the current layout width
           final settings = AppSettings();
           final double scale = (playerWidth / 720.0).clamp(0.85, 3.0);
           final double subtitleFontSize = (scale * settings.subtitlesFontSize).clamp(14.0, 72.0);
-
-          // Calculate vertical letterbox padding so subtitles are always drawn on the video frame
-          double bottomPadding = settings.subtitlesPositionOffset;
-          if (playerWidth > 0 && playerHeight > 0) {
-            final double playerAspectRatio = playerWidth / playerHeight;
-            if (playerAspectRatio < videoAspectRatio) {
-              // Top and bottom black bars exist
-              final double videoRenderedHeight = playerWidth / videoAspectRatio;
-              final double blackBarHeight = (playerHeight - videoRenderedHeight) / 2.0;
-              bottomPadding += blackBarHeight;
-            }
-
-            // Clamp bottomPadding dynamically to prevent shifting subtitles to the top in landscape or portrait
-            final isLandscape = playerWidth > playerHeight;
-            if (isLandscape) {
-              bottomPadding = bottomPadding.clamp(0.0, playerHeight * 0.22);
-            } else {
-              bottomPadding = bottomPadding.clamp(0.0, playerHeight * 0.45);
-            }
-          }
-
-          debugPrint('[Subtitles] playerWidth=$playerWidth, playerHeight=$playerHeight, videoWidth=$videoWidth, videoHeight=$videoHeight, videoAspectRatio=$videoAspectRatio, bottomPadding=$bottomPadding, fontSize=$subtitleFontSize');
 
           final subtitleConfig = !settings.subtitlesCustomStylesEnabled
               ? const SubtitleViewConfiguration()
@@ -1079,11 +1065,11 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
                   : null,
             ),
             textAlign: TextAlign.center,
-            padding: EdgeInsets.fromLTRB(
-              16.0 + (settings.subtitlesXOffset > 0 ? settings.subtitlesXOffset : 0.0),
-              16.0,
-              16.0 + (settings.subtitlesXOffset < 0 ? -settings.subtitlesXOffset : 0.0),
-              bottomPadding,
+            padding: DynamicSubtitlePadding(
+              baseOffset: settings.subtitlesPositionOffset,
+              subtitlesXOffset: settings.subtitlesXOffset,
+              videoWidth: (videoWidth ?? 0).toDouble(),
+              videoHeight: (videoHeight ?? 0).toDouble(),
             ),
           );
 
@@ -1266,6 +1252,18 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
               },
               icon: const Icon(Icons.swap_horizontal_circle, color: Colors.white),
             ),
+          ValueListenableBuilder<bool>(
+            valueListenable: _isQualityEnhancedNotifier,
+            builder: (context, isEnhanced, _) {
+              return MaterialCustomButton(
+                onPressed: _toggleQualityEnhancement,
+                icon: Icon(
+                  Icons.auto_awesome,
+                  color: isEnhanced ? Colors.amber : Colors.white38,
+                ),
+              );
+            },
+          ),
           MaterialCustomButton(
             onPressed: _toggleSettingsMenu,
             icon: const Icon(Icons.settings, color: Colors.white),
@@ -1292,19 +1290,6 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
                       ),
                     const MaterialPositionIndicator(),
                     const Spacer(),
-                    // Quality Enhancement toggle shortcut
-                    ValueListenableBuilder<bool>(
-                      valueListenable: _isQualityEnhancedNotifier,
-                      builder: (context, isEnhanced, _) {
-                        return MaterialCustomButton(
-                          onPressed: _toggleQualityEnhancement,
-                          icon: Icon(
-                            Icons.auto_awesome,
-                            color: isEnhanced ? Colors.amber : Colors.white38,
-                          ),
-                        );
-                      },
-                    ),
                     // Subtitles On/Off Button (CC)
                     MaterialCustomButton(
                       onPressed: () {
@@ -1377,6 +1362,18 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
               },
               icon: const Icon(Icons.swap_horizontal_circle, color: Colors.white),
             ),
+          ValueListenableBuilder<bool>(
+            valueListenable: _isQualityEnhancedNotifier,
+            builder: (context, isEnhanced, _) {
+              return MaterialCustomButton(
+                onPressed: _toggleQualityEnhancement,
+                icon: Icon(
+                  Icons.auto_awesome,
+                  color: isEnhanced ? Colors.amber : Colors.white38,
+                ),
+              );
+            },
+          ),
           MaterialCustomButton(
             onPressed: _toggleSettingsMenu,
             icon: const Icon(Icons.settings, color: Colors.white),
@@ -1403,19 +1400,6 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
                       ),
                     const MaterialPositionIndicator(),
                     const Spacer(),
-                    // Quality Enhancement toggle shortcut
-                    ValueListenableBuilder<bool>(
-                      valueListenable: _isQualityEnhancedNotifier,
-                      builder: (context, isEnhanced, _) {
-                        return MaterialCustomButton(
-                          onPressed: _toggleQualityEnhancement,
-                          icon: Icon(
-                            Icons.auto_awesome,
-                            color: isEnhanced ? Colors.amber : Colors.white38,
-                          ),
-                        );
-                      },
-                    ),
                     // Subtitles On/Off Button (CC)
                     MaterialCustomButton(
                       onPressed: () {
@@ -2908,4 +2892,61 @@ class _PlayerTitleBarButtonState extends State<_PlayerTitleBarButton> {
       ),
     );
   }
+}
+
+class DynamicSubtitlePadding extends EdgeInsets {
+  final double baseOffset;
+  final double subtitlesXOffset;
+  final double videoWidth;
+  final double videoHeight;
+
+  const DynamicSubtitlePadding({
+    required this.baseOffset,
+    required this.subtitlesXOffset,
+    required this.videoWidth,
+    required this.videoHeight,
+  }) : super.only();
+
+  @override
+  double get bottom {
+    final view = ui.PlatformDispatcher.instance.implicitView;
+    if (view == null) return baseOffset;
+
+    final double screenWidth = view.physicalSize.width / view.devicePixelRatio;
+    final double screenHeight = view.physicalSize.height / view.devicePixelRatio;
+
+    final videoAspectRatio = videoWidth > 0 && videoHeight > 0
+        ? (videoWidth / videoHeight)
+        : 16 / 9;
+
+    double bottomPadding = baseOffset;
+    if (screenWidth > 0 && screenHeight > 0) {
+      final double playerAspectRatio = screenWidth / screenHeight;
+      if (playerAspectRatio < videoAspectRatio) {
+        // Top and bottom black bars exist (portrait mode)
+        final double videoRenderedHeight = screenWidth / videoAspectRatio;
+        final double blackBarHeight = (screenHeight - videoRenderedHeight) / 2.0;
+        bottomPadding += blackBarHeight;
+      }
+    }
+
+    // Clamp bottomPadding dynamically to prevent shifting subtitles to the top in landscape or portrait
+    final isLandscape = screenWidth > screenHeight;
+    if (isLandscape) {
+      bottomPadding = bottomPadding.clamp(0.0, screenHeight * 0.22);
+    } else {
+      bottomPadding = bottomPadding.clamp(0.0, screenHeight * 0.45);
+    }
+
+    return bottomPadding;
+  }
+
+  @override
+  double get left => 16.0 + (subtitlesXOffset > 0 ? subtitlesXOffset : 0.0);
+
+  @override
+  double get right => 16.0 + (subtitlesXOffset < 0 ? -subtitlesXOffset : 0.0);
+
+  @override
+  double get top => 16.0;
 }

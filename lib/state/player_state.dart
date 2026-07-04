@@ -141,13 +141,23 @@ class PlayerState extends ChangeNotifier {
         final String range = settings.customEnhancementEnabled 
             ? settings.debandRange.toString() 
             : '16';
+        final String brightness = settings.customEnhancementEnabled
+            ? settings.colorBrightness.toString()
+            : '0';
+        final String contrast = settings.customEnhancementEnabled
+            ? settings.colorContrast.toString()
+            : '3';
+        final String saturation = settings.customEnhancementEnabled
+            ? settings.colorSaturation.toString()
+            : '4';
 
         nativePlayer.setProperty('deband-iterations', iterations);
         nativePlayer.setProperty('deband-threshold', threshold);
         nativePlayer.setProperty('deband-range', range);
+        nativePlayer.setProperty('brightness', brightness);
+        nativePlayer.setProperty('contrast', contrast);
+        nativePlayer.setProperty('saturation', saturation);
         nativePlayer.setProperty('sharpen', '1.0');
-        nativePlayer.setProperty('contrast', '3');
-        nativePlayer.setProperty('saturation', '4');
         nativePlayer.setProperty('scale', 'spline36');
         nativePlayer.setProperty('cscale', 'spline36');
       }

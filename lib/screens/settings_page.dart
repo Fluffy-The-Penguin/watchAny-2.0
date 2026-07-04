@@ -1156,6 +1156,160 @@ class _SettingsPageState extends State<SettingsPage> {
                   ),
                 ],
               ),
+
+              const SizedBox(height: 16.0),
+
+              // Brightness Slider
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Video Brightness', style: TextStyle(color: Colors.white70, fontSize: 13.0, fontFamily: 'Outfit', fontWeight: FontWeight.bold)),
+                            SizedBox(height: 2),
+                            Text('Adjust video stream brightness level.', style: TextStyle(color: Colors.white38, fontSize: 11.5, fontFamily: 'Outfit')),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 16.0),
+                      Text('${AppSettings().colorBrightness}', style: const TextStyle(color: Color(0xFFFF9F1C), fontSize: 14.0, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                  const SizedBox(height: 8.0),
+                  SliderTheme(
+                    data: SliderTheme.of(context).copyWith(
+                      trackHeight: 2.0,
+                      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6.0),
+                      overlayShape: const RoundSliderOverlayShape(overlayRadius: 12.0),
+                    ),
+                    child: Slider(
+                      value: AppSettings().colorBrightness.toDouble(),
+                      min: -100.0,
+                      max: 100.0,
+                      divisions: 200,
+                      activeColor: const Color(0xFFFF9F1C),
+                      inactiveColor: Colors.white10,
+                      onChanged: (val) => AppSettings().setColorBrightness(val.toInt()),
+                    ),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 16.0),
+
+              // Contrast Slider
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Video Contrast', style: TextStyle(color: Colors.white70, fontSize: 13.0, fontFamily: 'Outfit', fontWeight: FontWeight.bold)),
+                            SizedBox(height: 2),
+                            Text('Adjust video stream contrast level.', style: TextStyle(color: Colors.white38, fontSize: 11.5, fontFamily: 'Outfit')),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 16.0),
+                      Text('${AppSettings().colorContrast}', style: const TextStyle(color: Color(0xFFFF9F1C), fontSize: 14.0, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                  const SizedBox(height: 8.0),
+                  SliderTheme(
+                    data: SliderTheme.of(context).copyWith(
+                      trackHeight: 2.0,
+                      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6.0),
+                      overlayShape: const RoundSliderOverlayShape(overlayRadius: 12.0),
+                    ),
+                    child: Slider(
+                      value: AppSettings().colorContrast.toDouble(),
+                      min: -100.0,
+                      max: 100.0,
+                      divisions: 200,
+                      activeColor: const Color(0xFFFF9F1C),
+                      inactiveColor: Colors.white10,
+                      onChanged: (val) => AppSettings().setColorContrast(val.toInt()),
+                    ),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 16.0),
+
+              // Saturation Slider
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Video Saturation', style: TextStyle(color: Colors.white70, fontSize: 13.0, fontFamily: 'Outfit', fontWeight: FontWeight.bold)),
+                            SizedBox(height: 2),
+                            Text('Adjust video stream color saturation level.', style: TextStyle(color: Colors.white38, fontSize: 11.5, fontFamily: 'Outfit')),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 16.0),
+                      Text('${AppSettings().colorSaturation}', style: const TextStyle(color: Color(0xFFFF9F1C), fontSize: 14.0, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                  const SizedBox(height: 8.0),
+                  SliderTheme(
+                    data: SliderTheme.of(context).copyWith(
+                      trackHeight: 2.0,
+                      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6.0),
+                      overlayShape: const RoundSliderOverlayShape(overlayRadius: 12.0),
+                    ),
+                    child: Slider(
+                      value: AppSettings().colorSaturation.toDouble(),
+                      min: -100.0,
+                      max: 100.0,
+                      divisions: 200,
+                      activeColor: const Color(0xFFFF9F1C),
+                      inactiveColor: Colors.white10,
+                      onChanged: (val) => AppSettings().setColorSaturation(val.toInt()),
+                    ),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 24.0),
+
+              // Reset to defaults button
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton.icon(
+                    style: TextButton.styleFrom(
+                      foregroundColor: Colors.white70,
+                      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 10.0),
+                      backgroundColor: Colors.white.withValues(alpha: 0.05),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(6.0),
+                        side: const BorderSide(color: Colors.white10),
+                      ),
+                    ),
+                    icon: const Icon(Icons.refresh, size: 16.0),
+                    label: const Text('Reset custom settings', style: TextStyle(fontFamily: 'Outfit', fontSize: 13.0)),
+                    onPressed: () async {
+                      await AppSettings().resetCustomEnhancementToDefault();
+                    },
+                  ),
+                ],
+              ),
             ],
           ],
         );
