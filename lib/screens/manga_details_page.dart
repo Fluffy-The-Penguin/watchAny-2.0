@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'dart:math';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -457,9 +456,6 @@ class _MangaLibraryEditPanelState extends State<_MangaLibraryEditPanel> {
   late int _chaptersRead;
   late List<String> _selectedCategoryIds;
 
-  late final TextEditingController _chaptersController;
-  late final TextEditingController _scoreController;
-  
   bool _isCreatingCategory = false;
   late final TextEditingController _newCategoryController;
 
@@ -470,18 +466,11 @@ class _MangaLibraryEditPanelState extends State<_MangaLibraryEditPanel> {
     _activeRating = widget.savedItem?.rating ?? 0.0;
     _chaptersRead = widget.savedItem?.watchedEpisodes ?? 0;
     _selectedCategoryIds = List<String>.from(widget.savedItem?.categoryIds ?? <String>[]);
-
-    _chaptersController = TextEditingController(text: '$_chaptersRead');
-    _scoreController = TextEditingController(
-      text: _activeRating == 0.0 ? '' : _activeRating.toStringAsFixed(1),
-    );
     _newCategoryController = TextEditingController();
   }
 
   @override
   void dispose() {
-    _chaptersController.dispose();
-    _scoreController.dispose();
     _newCategoryController.dispose();
     super.dispose();
   }
@@ -495,22 +484,6 @@ class _MangaLibraryEditPanelState extends State<_MangaLibraryEditPanel> {
         _newCategoryController.clear();
       });
     }
-  }
-
-  void _updateChaptersRead(int val) {
-    final int clamped = val.clamp(0, widget.totalChapters > 0 ? widget.totalChapters : 99999);
-    setState(() {
-      _chaptersRead = clamped;
-      _chaptersController.text = '$clamped';
-    });
-  }
-
-  void _updateRating(double val) {
-    final double clamped = val.clamp(0.0, 10.0);
-    setState(() {
-      _activeRating = clamped;
-      _scoreController.text = clamped == 0.0 ? '' : clamped.toStringAsFixed(1);
-    });
   }
 
 
@@ -597,244 +570,7 @@ class _MangaLibraryEditPanelState extends State<_MangaLibraryEditPanel> {
                     padding: const EdgeInsets.all(20.0),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        // Status Selection
-                        Container(
-                          padding: const EdgeInsets.all(16.0),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.03),
-                            borderRadius: BorderRadius.circular(8.0),
-                            border: Border.all(color: Colors.white10),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                'Reading Status',
-                                style: TextStyle(
-                                  color: Colors.white70,
-                                  fontSize: 13.0,
-                                  fontWeight: FontWeight.w600,
-                                  fontFamily: 'Outfit',
-                                ),
-                              ),
-                              const SizedBox(height: 12.0),
-                              DropdownButtonHideUnderline(
-                                child: DropdownButton<String>(
-                                  value: _activeStatus,
-                                  dropdownColor: const Color(0xFF0F0F11),
-                                  isExpanded: true,
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontFamily: 'Outfit',
-                                    fontSize: 14.0,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                  icon: const Icon(Icons.arrow_drop_down, color: Colors.white54),
-                                  items: const [
-                                    DropdownMenuItem(
-                                      value: 'watching',
-                                      child: Text('Reading'),
-                                    ),
-                                    DropdownMenuItem(
-                                      value: 'planning',
-                                      child: Text('Plan to Read'),
-                                    ),
-                                    DropdownMenuItem(
-                                      value: 'completed',
-                                      child: Text('Completed'),
-                                    ),
-                                    DropdownMenuItem(
-                                      value: 'paused_dropped',
-                                      child: Text('Dropped / Paused'),
-                                    ),
-                                  ],
-                                  onChanged: (value) {
-                                    if (value != null) {
-                                      setState(() {
-                                        _activeStatus = value;
-                                      });
-                                    }
-                                  },
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 20.0),
-
-                        // Chapters Read Progress
-                        Container(
-                          padding: const EdgeInsets.all(16.0),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.03),
-                            borderRadius: BorderRadius.circular(8.0),
-                            border: Border.all(color: Colors.white10),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Row(
-                                    children: [
-                                      const Text(
-                                        'Chapters Read',
-                                        style: TextStyle(color: Colors.white70, fontSize: 13.0, fontWeight: FontWeight.w600, fontFamily: 'Outfit'),
-                                      ),
-                                      const SizedBox(width: 8.0),
-                                      SizedBox(
-                                        width: 50.0,
-                                        height: 20.0,
-                                        child: TextField(
-                                          controller: _chaptersController,
-                                          keyboardType: TextInputType.number,
-                                          textAlign: TextAlign.center,
-                                          style: const TextStyle(color: Colors.white, fontSize: 14.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
-                                          decoration: const InputDecoration(
-                                            isDense: true,
-                                            contentPadding: EdgeInsets.zero,
-                                            border: InputBorder.none,
-                                          ),
-                                          onChanged: (val) {
-                                            final int? parsed = int.tryParse(val);
-                                            if (parsed != null) {
-                                              final int clamped = parsed.clamp(0, widget.totalChapters > 0 ? widget.totalChapters : 99999);
-                                              setState(() {
-                                                _chaptersRead = clamped;
-                                              });
-                                            }
-                                          },
-                                          onSubmitted: (val) {
-                                            final int? parsed = int.tryParse(val);
-                                            _updateChaptersRead(parsed ?? _chaptersRead);
-                                          },
-                                        ),
-                                      ),
-                                      if (widget.totalChapters > 0)
-                                        Text(
-                                          ' / ${widget.totalChapters}',
-                                          style: const TextStyle(color: Colors.white38, fontSize: 14.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
-                                        ),
-                                    ],
-                                  ),
-                                  if (widget.totalChapters > 0)
-                                    Text(
-                                      '${((widget.totalChapters > 0 ? _chaptersRead / widget.totalChapters : 0.0) * 100).toStringAsFixed(0)}%',
-                                      style: const TextStyle(color: Colors.white38, fontSize: 12.0, fontFamily: 'Outfit'),
-                                    ),
-                                ],
-                              ),
-                              const SizedBox(height: 16.0),
-                              SliderTheme(
-                                data: SliderTheme.of(context).copyWith(
-                                  activeTrackColor: Colors.white,
-                                  inactiveTrackColor: Colors.white10,
-                                  thumbColor: Colors.white,
-                                  overlayColor: Colors.white.withValues(alpha: 0.1),
-                                  valueIndicatorColor: Colors.white,
-                                  valueIndicatorTextStyle: const TextStyle(color: Colors.black, fontFamily: 'Outfit'),
-                                ),
-                                child: Slider(
-                                  value: _chaptersRead.toDouble(),
-                                  min: 0.0,
-                                  max: (widget.totalChapters > 0 ? widget.totalChapters : max(100, _chaptersRead + 50)).toDouble(),
-                                  divisions: widget.totalChapters > 0 ? widget.totalChapters : (100 + _chaptersRead),
-                                  label: '$_chaptersRead',
-                                  onChanged: (val) {
-                                    _updateChaptersRead(val.toInt());
-                                  },
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 20.0),
-
-                        // Score Rating
-                        Container(
-                          padding: const EdgeInsets.all(16.0),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.03),
-                            borderRadius: BorderRadius.circular(8.0),
-                            border: Border.all(color: Colors.white10),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  const Text(
-                                    'Your Score',
-                                    style: TextStyle(color: Colors.white70, fontSize: 13.0, fontWeight: FontWeight.w600, fontFamily: 'Outfit'),
-                                  ),
-                                  Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    crossAxisAlignment: CrossAxisAlignment.center,
-                                    children: [
-                                      const Icon(Icons.star, color: Colors.amber, size: 16.0),
-                                      const SizedBox(width: 4.0),
-                                      SizedBox(
-                                        width: 50.0,
-                                        height: 20.0,
-                                        child: TextField(
-                                          controller: _scoreController,
-                                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                          textAlign: TextAlign.right,
-                                          style: const TextStyle(color: Colors.amber, fontSize: 14.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
-                                          decoration: const InputDecoration(
-                                            isDense: true,
-                                            contentPadding: EdgeInsets.zero,
-                                            border: InputBorder.none,
-                                            hintText: '0.0',
-                                            hintStyle: TextStyle(color: Colors.white38),
-                                          ),
-                                          onChanged: (val) {
-                                            final double? parsed = double.tryParse(val);
-                                            if (parsed != null) {
-                                              final double clamped = parsed.clamp(0.0, 10.0);
-                                              setState(() {
-                                                _activeRating = clamped;
-                                              });
-                                            }
-                                          },
-                                          onSubmitted: (val) {
-                                            final double? parsed = double.tryParse(val);
-                                            _updateRating(parsed ?? _activeRating);
-                                          },
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 16.0),
-                              SliderTheme(
-                                data: SliderTheme.of(context).copyWith(
-                                  activeTrackColor: Colors.white,
-                                  inactiveTrackColor: Colors.white10,
-                                  thumbColor: Colors.white,
-                                  overlayColor: Colors.white.withValues(alpha: 0.1),
-                                  valueIndicatorColor: Colors.white,
-                                  valueIndicatorTextStyle: const TextStyle(color: Colors.black, fontFamily: 'Outfit'),
-                                ),
-                                child: Slider(
-                                  value: _activeRating,
-                                  min: 0.0,
-                                  max: 10.0,
-                                  divisions: 100,
-                                  label: _activeRating == 0.0 ? 'No Rating' : _activeRating.toStringAsFixed(1),
-                                  onChanged: _updateRating,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        
-                        // Custom Categories chips selection
                         ListenableBuilder(
                           listenable: LibraryState(),
                           builder: (context, _) {
@@ -843,7 +579,6 @@ class _MangaLibraryEditPanelState extends State<_MangaLibraryEditPanel> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                const SizedBox(height: 20.0),
                                 Row(
                                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                   children: [
@@ -1014,30 +749,14 @@ class _MangaLibraryEditPanelState extends State<_MangaLibraryEditPanel> {
                         const SizedBox(width: 12.0),
                         ElevatedButton(
                           onPressed: () async {
-                            final int finalChaptersRead = int.tryParse(_chaptersController.text)?.clamp(0, widget.totalChapters > 0 ? widget.totalChapters : 99999) ?? _chaptersRead;
-                            final double finalRating = double.tryParse(_scoreController.text)?.clamp(0.0, 10.0) ?? _activeRating;
-
-                            // Sync read chapter IDs with manually entered watchedEpisodes progress
-                            final libraryState = LibraryState();
-                            final List<String> readChapterIds = libraryState.getReadChapterIds(widget.mangaId);
-                            if (readChapterIds.length != finalChaptersRead) {
-                              final list = widget.chapters.reversed.toList();
-                              for (int i = 0; i < list.length; i++) {
-                                final id = list[i]['id']?.toString() ?? '';
-                                if (id.isNotEmpty) {
-                                  await libraryState.setChapterReadStatus(widget.mangaId, id, i < finalChaptersRead);
-                                }
-                              }
-                            }
-
                             await LibraryState().updateMangaCache(widget.mangaId, widget.mangaDetails);
                             await LibraryState().saveItem(
                               id: widget.mangaId,
                               mode: 'manga',
                               format: 'MANGA',
                               libraryStatus: _activeStatus,
-                              rating: finalRating,
-                              watchedEpisodes: finalChaptersRead,
+                              rating: _activeRating,
+                              watchedEpisodes: _chaptersRead,
                               totalEpisodes: widget.totalChapters > 0 ? widget.totalChapters : null,
                               categoryIds: _selectedCategoryIds,
                             );
