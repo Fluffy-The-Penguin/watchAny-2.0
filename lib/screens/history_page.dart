@@ -33,13 +33,16 @@ class _HistoryPageState extends State<HistoryPage> {
     });
     final items = await PlayerState.getHistoryList();
     
-    // Filter history items by active mode using isAnime flag
+    // Filter history items by active mode partition
     final filtered = items.where((item) {
       final isAnime = item['isAnime'] ?? true;
-      if (widget.mode == AppMode.movies) {
-        return !isAnime;
+      final isManga = item['isManga'] ?? false;
+      if (widget.mode == AppMode.manga) {
+        return isManga;
+      } else if (widget.mode == AppMode.movies) {
+        return !isAnime && !isManga;
       } else if (widget.mode == AppMode.anime) {
-        return isAnime;
+        return isAnime && !isManga;
       } else {
         return false;
       }
@@ -253,8 +256,11 @@ class _HistoryPageState extends State<HistoryPage> {
                               ),
                               child: InkWell(
                                 onTap: () {
+                                  final isManga = item['isManga'] ?? false;
                                   final isAnime = item['isAnime'] ?? true;
-                                  if (isAnime) {
+                                  if (isManga) {
+                                    widget.navigationState.selectManga(item['id'].toString());
+                                  } else if (isAnime) {
                                     final idInt = int.tryParse(item['id'].toString());
                                     if (idInt != null) {
                                       widget.navigationState.selectAnime(idInt);
@@ -305,9 +311,13 @@ class _HistoryPageState extends State<HistoryPage> {
                                             ),
                                             const SizedBox(height: 6.0),
                                             Text(
-                                              'Watched Episodes: ${_formatEpisodeRanges(episodes)}',
-                                              style: const TextStyle(
-                                                color: Color(0xFF3A86FF),
+                                              (item['isManga'] ?? false)
+                                                  ? 'Read Chapters: ${_formatEpisodeRanges(episodes)}'
+                                                  : 'Watched Episodes: ${_formatEpisodeRanges(episodes)}',
+                                              style: TextStyle(
+                                                color: (item['isManga'] ?? false)
+                                                    ? const Color(0xFFA855F7)
+                                                    : const Color(0xFF3A86FF),
                                                 fontWeight: FontWeight.w600,
                                                 fontSize: 12.0,
                                                 fontFamily: 'Outfit',

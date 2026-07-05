@@ -93,6 +93,7 @@ class LibraryState extends ChangeNotifier {
   List<LibraryItem> _items = [];
   List<LibraryCategory> _categories = [];
   Map<int, Map<String, dynamic>> _mangaCache = {};
+  Map<int, Map<String, dynamic>> _animeCache = {};
   int _animeNotificationCount = 0;
   int _mangaNotificationCount = 0;
   int _moviesNotificationCount = 0;
@@ -104,6 +105,7 @@ class LibraryState extends ChangeNotifier {
   List<LibraryItem> get items => _items;
   List<LibraryCategory> get categories => _categories;
   Map<int, Map<String, dynamic>> get mangaCache => _mangaCache;
+  Map<int, Map<String, dynamic>> get animeCache => _animeCache;
 
   int getNotificationCount(AppMode mode) {
     if (mode == AppMode.anime) return _animeBadgeCleared ? 0 : _animeNotificationCount;
@@ -221,6 +223,17 @@ class LibraryState extends ChangeNotifier {
       }
     }
 
+    // Load anime cache
+    final String? animeCacheJson = prefs.getString('anime_library_cache');
+    if (animeCacheJson != null) {
+      try {
+        final Map<String, dynamic> decoded = jsonDecode(animeCacheJson);
+        _animeCache = decoded.map((key, value) => MapEntry(int.parse(key), Map<String, dynamic>.from(value)));
+      } catch (e) {
+        debugPrint('Failed to load anime cache: $e');
+      }
+    }
+
     notifyListeners();
     // Defer notification count update to run in the background after startup to avoid lag
     Future.delayed(const Duration(seconds: 3), () {
@@ -296,6 +309,8 @@ class LibraryState extends ChangeNotifier {
     if (entries.isEmpty) return 0;
 
     int importedCount = 0;
+    final existingMap = {for (var item in _items) '${item.id}_${item.mode}': item};
+
     for (var entry in entries) {
       final media = entry['media'];
       if (media == null) continue;
@@ -318,36 +333,36 @@ class LibraryState extends ChangeNotifier {
         libraryStatus = 'paused_dropped';
       }
 
-      final existingItem = getItem(mediaId, localModeStr);
+      final key = '${mediaId}_$localModeStr';
+      final existingItem = existingMap[key];
+
+      bool shouldUpdate = false;
+      List<String> finalCategories = const <String>[];
+
       if (existingItem != null) {
+        finalCategories = existingItem.categoryIds;
         if (existingItem.libraryStatus != libraryStatus ||
             existingItem.watchedEpisodes != progress ||
             existingItem.rating != score) {
-          
-          await saveItem(
-            id: mediaId,
-            mode: localModeStr,
-            format: formatVal,
-            libraryStatus: libraryStatus,
-            rating: score,
-            watchedEpisodes: progress,
-            totalEpisodes: total ?? existingItem.totalEpisodes,
-            categoryIds: existingItem.categoryIds,
-            bypassAnilistSync: true,
-          );
-          importedCount++;
+          shouldUpdate = true;
         }
       } else {
-        await saveItem(
+        shouldUpdate = true;
+      }
+
+      if (shouldUpdate) {
+        _items.removeWhere((item) => item.id == mediaId && item.mode == localModeStr);
+        _items.add(LibraryItem(
           id: mediaId,
           mode: localModeStr,
           format: formatVal,
+          addedAt: existingItem?.addedAt ?? DateTime.now(),
           libraryStatus: libraryStatus,
           rating: score,
           watchedEpisodes: progress,
-          totalEpisodes: total,
-          bypassAnilistSync: true,
-        );
+          totalEpisodes: total ?? existingItem?.totalEpisodes,
+          categoryIds: finalCategories,
+        ));
         importedCount++;
       }
 
@@ -356,16 +371,31 @@ class LibraryState extends ChangeNotifier {
         final String displayName = titles?['english'] ?? titles?['romaji'] ?? 'Untitled';
         final String coverUrl = media['coverImage']?['large'] ?? '';
         
-        await updateMangaCache(mediaId, {
+        _mangaCache[mediaId] = {
           'id': mediaId,
           'title': displayName,
           'thumbnailUrl': coverUrl,
           'status': '',
           'author': '',
           'genre': [],
-        });
+        };
+      } else {
+        _animeCache[mediaId] = {
+          'id': mediaId,
+          'title': media['title'],
+          'coverImage': media['coverImage'],
+          'averageScore': media['averageScore'],
+          'format': media['format'],
+          'episodes': media['episodes'],
+          'status': media['status'],
+          'bannerImage': media['bannerImage'],
+        };
       }
     }
+
+    notifyListeners();
+    await _persist();
+    updateNotificationCount(force: true);
     return importedCount;
   }
 
@@ -373,6 +403,8 @@ class LibraryState extends ChangeNotifier {
     _items.removeWhere((item) => item.id == id && item.mode == mode);
     if (mode == 'manga') {
       _mangaCache.remove(id);
+    } else if (mode == 'anime') {
+      _animeCache.remove(id);
     }
     notifyListeners();
     await _persist();
@@ -389,6 +421,19 @@ class LibraryState extends ChangeNotifier {
 
     final String cacheJson = jsonEncode(_mangaCache.map((key, value) => MapEntry(key.toString(), value)));
     await prefs.setString('manga_library_cache', cacheJson);
+
+    final String animeCacheJson = jsonEncode(_animeCache.map((key, value) => MapEntry(key.toString(), value)));
+    await prefs.setString('anime_library_cache', animeCacheJson);
+  }
+
+  Future<void> updateAnimeCache(int id, Map<String, dynamic> data) async {
+    _animeCache[id] = data;
+    await _persist();
+  }
+
+  Future<void> updateAnimeCacheBatch(Map<int, Map<String, dynamic>> batch) async {
+    _animeCache.addAll(batch);
+    await _persist();
   }
 
   // --- Categories CRUD helper methods ---

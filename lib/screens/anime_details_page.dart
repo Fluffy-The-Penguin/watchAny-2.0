@@ -175,9 +175,35 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
         _loadPlaybackProgress();
       }
     } catch (e) {
+      final cached = LibraryState().animeCache[widget.animeId];
+      if (cached != null) {
+        final int episodesCount = cached['episodes'] ?? 0;
+        final List<dynamic> merged = [];
+        for (var i = 1; i <= episodesCount; i++) {
+          merged.add({
+            'title': 'Episode $i',
+            'thumbnail': '',
+            'url': '',
+            'site': '',
+            'overview': 'Offline mode: details loaded from cache.',
+            'airDate': '',
+            'isPlaceholder': true,
+          });
+        }
+        if (mounted) {
+          setState(() {
+            _details = cached;
+            _mergedEpisodes = merged;
+            _isLoading = false;
+            _errorMessage = null;
+          });
+          _loadPlaybackProgress();
+        }
+        return;
+      }
       if (mounted) {
         setState(() {
-          _errorMessage = e.toString();
+          _errorMessage = e.toString().replaceAll('Exception: ', '');
           _isLoading = false;
         });
       }
@@ -932,6 +958,38 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
       backgroundColor: Colors.black,
       body: Stack(
         children: [
+          // 1. Background Banner Backdrop Image
+          if (bannerUrl.isNotEmpty)
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              height: 300.0,
+              child: Stack(
+                children: [
+                  Image.network(
+                    bannerUrl,
+                    width: double.infinity,
+                    height: 300.0,
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) => const SizedBox(),
+                  ),
+                  Container(
+                    decoration: const BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.black26,
+                          Colors.black87,
+                          Colors.black,
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           // 2. Main Page Layout (Unified scroll view, scrolling columns side-by-side below)
           Positioned.fill(
             child: SingleChildScrollView(

@@ -13,6 +13,7 @@ import 'state/app_settings.dart';
 import 'state/library_state.dart';
 import 'state/anilist_auth_state.dart';
 import 'screens/shell_layout.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class MyCustomScrollBehavior extends MaterialScrollBehavior {
   @override
@@ -29,35 +30,10 @@ void main() async {
   // Initialize MediaKit
   MediaKit.ensureInitialized();
   
-  // Try to restore any backed up databases from external directory on launch
-  await BackupService().restoreAll();
-  
-  // Load persisted app settings (smooth scroll etc.)
-  await AppSettings().init();
-  
-  // Initialize AniList auth and Library state
-  await AnilistAuthState().init();
-  await LibraryState().init();
-  
-  // Initialize Download Service
-  await DownloadService().init();
-  
-  // Attach change listeners to write database exports to storage in background
-  AppSettings().addListener(() {
-    BackupService().backupAll();
-  });
-  LibraryState().addListener(() {
-    BackupService().backupAll();
-  });
-  
-  // Initialize ExtensionService early to load local extensions on startup
-  ExtensionService().init();
-  
   final bool isDesktop = !kIsWeb && (Platform.isWindows || Platform.isMacOS || Platform.isLinux);
 
   if (isDesktop) {
-    
-    // Initialize the window manager
+    // Initialize the window manager immediately so the native window shows up instantly
     await windowManager.ensureInitialized();
 
     WindowOptions windowOptions = const WindowOptions(
@@ -89,16 +65,48 @@ class MyApp extends StatefulWidget {
 class _MyAppState extends State<MyApp> with WindowListener {
   final NavigationState _navigationState = NavigationState();
   final bool _isDesktop = !kIsWeb && (Platform.isWindows || Platform.isMacOS || Platform.isLinux);
+  late Future<void> _initFuture;
 
   @override
   void initState() {
     super.initState();
+    _initFuture = _initializeApp();
     if (_isDesktop) {
       windowManager.addListener(this);
     }
     _navigationState.addListener(_handleNavigationModeChange);
     // Sync the TorrServer state with the initial navigation mode
     _handleNavigationModeChange();
+  }
+
+  Future<void> _initializeApp() async {
+    // 1. Initial SharedPreferences load
+    final prefs = await SharedPreferences.getInstance();
+    final bool hasLocalLibrary = prefs.getString('library_items') != null;
+    
+    // Restore backups ONLY if there is no local database (saves massive redundant I/O on normal boots)
+    if (!hasLocalLibrary) {
+      await BackupService().restoreAll();
+    }
+
+    // 2. Load configurations and parse databases concurrently
+    await Future.wait([
+      AppSettings().init(),
+      AnilistAuthState().init(),
+      LibraryState().init(),
+      DownloadService().init(),
+    ]);
+
+    // 3. Register change listeners for debounced background exports
+    AppSettings().addListener(() {
+      BackupService().backupAllDebounced();
+    });
+    LibraryState().addListener(() {
+      BackupService().backupAllDebounced();
+    });
+
+    // 4. Initialize ExtensionService early to load local extensions in the background
+    ExtensionService().init();
   }
 
   @override
@@ -150,7 +158,43 @@ class _MyAppState extends State<MyApp> with WindowListener {
         ),
         useMaterial3: true,
       ),
-      home: ShellLayout(navigationState: _navigationState),
+      home: FutureBuilder<void>(
+        future: _initFuture,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.done) {
+            return ShellLayout(navigationState: _navigationState);
+          }
+          return const Scaffold(
+            backgroundColor: Colors.black,
+            body: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    'watchAny',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 32.0,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 2.0,
+                      fontFamily: 'Outfit',
+                    ),
+                  ),
+                  SizedBox(height: 24.0),
+                  SizedBox(
+                    width: 32.0,
+                    height: 32.0,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.5,
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white24),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
     );
   }
 }

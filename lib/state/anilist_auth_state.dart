@@ -56,8 +56,15 @@ class AnilistAuthState extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<bool> login(String token) async {
+  Future<bool> login(String rawInput) async {
     try {
+      String token = rawInput.trim();
+      if (!token.startsWith('eyJ')) {
+        final exchangedToken = await AnilistService().exchangeCodeForToken(token);
+        if (exchangedToken == null) return false;
+        token = exchangedToken;
+      }
+
       final viewer = await AnilistService().fetchViewerDetails(token);
       if (viewer != null) {
         _accessToken = token;

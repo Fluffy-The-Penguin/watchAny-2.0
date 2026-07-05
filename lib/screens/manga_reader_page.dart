@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../services/suwayomi_service.dart';
 import '../state/navigation_state.dart';
 import '../state/library_state.dart';
+import '../state/player_state.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
@@ -206,6 +207,9 @@ class _MangaReaderPageState extends State<MangaReaderPage> {
 
 
   void _updateLibraryProgress() {
+    // Save to global read history list
+    PlayerState.addMangaToHistory(widget.mangaId, _currentChapterNumber, widget.mangaTitle);
+
     final int parsedMangaId = int.tryParse(widget.mangaId) ?? 0;
     if (parsedMangaId == 0) return;
 

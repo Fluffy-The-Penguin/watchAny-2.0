@@ -166,7 +166,7 @@ class DownloadService extends ChangeNotifier {
       final list = _tasks.map((t) => t.toJson()).toList();
       await file.writeAsString(jsonEncode(list));
       // Trigger background export to public backup folder
-      BackupService().backupAll();
+      BackupService().backupAllDebounced();
     } catch (e) {
       debugPrint("Error saving download tasks: $e");
     }

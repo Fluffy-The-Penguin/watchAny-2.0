@@ -450,7 +450,13 @@ class AnilistService {
     final uniqueIds = ids.toSet().toList();
 
     try {
-      return await _fetchMultipleMediaBatch(uniqueIds, type);
+      final List<dynamic> results = [];
+      for (int i = 0; i < uniqueIds.length; i += 50) {
+        final chunk = uniqueIds.sublist(i, i + 50 > uniqueIds.length ? uniqueIds.length : i + 50);
+        final batchResult = await _fetchMultipleMediaBatch(chunk, type);
+        results.addAll(batchResult);
+      }
+      return results;
     } catch (e) {
       // If batch fails, query in chunks of 10 to isolate any problematic IDs
       final List<dynamic> results = [];
@@ -492,6 +498,7 @@ class AnilistService {
             format
             episodes
             status
+            bannerImage
           }
         }
       }
@@ -657,6 +664,33 @@ class AnilistService {
     return [];
   }
 
+  Future<String?> exchangeCodeForToken(String code) async {
+    const tokenUrl = 'https://anilist.co/api/v2/oauth/token';
+    try {
+      final response = await http.post(
+        Uri.parse(tokenUrl),
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Accept': 'application/json',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        },
+        body: {
+          'grant_type': 'authorization_code',
+          'client_id': '45095',
+          'client_secret': 'VzfQd0wcEAg2VUiWEV8oCiZMGsVI0QsXrvSONL8r',
+          'redirect_uri': 'https://anilist.co/api/v2/oauth/pin',
+          'code': code.trim(),
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final body = jsonDecode(response.body);
+        return body['access_token'] as String?;
+      }
+    } catch (_) {}
+    return null;
+  }
+
   Future<Map<String, dynamic>?> fetchViewerDetails(String token) async {
     const query = r'''
       query {
@@ -720,6 +754,7 @@ class AnilistService {
                 title {
                   romaji
                   english
+                  native
                 }
                 coverImage {
                   large
@@ -727,6 +762,9 @@ class AnilistService {
                 episodes
                 chapters
                 format
+                status
+                averageScore
+                bannerImage
               }
             }
           }

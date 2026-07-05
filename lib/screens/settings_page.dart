@@ -126,6 +126,11 @@ class _SettingsPageState extends State<SettingsPage> {
     super.initState();
     _activeCategory = widget.initialCategory ?? SettingsCategory.general;
     _loadData();
+    _anilistTokenController.addListener(_onTokenChanged);
+  }
+
+  void _onTokenChanged() {
+    setState(() {});
   }
 
   Future<void> _loadData() async {
@@ -148,6 +153,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
   @override
   void dispose() {
+    _anilistTokenController.removeListener(_onTokenChanged);
     _repoUrlController.dispose();
     _repoNameController.dispose();
     _stremioUrlController.dispose();
@@ -3645,7 +3651,7 @@ class _SettingsPageState extends State<SettingsPage> {
     const url = 'https://anilist.co/api/v2/oauth/authorize?client_id=45095&response_type=token';
     if (Platform.isWindows) {
       try {
-        await Process.run('cmd', ['/c', 'start', '', url], runInShell: true);
+        await Process.run('powershell', ['-Command', 'Start-Process', "'$url'"]);
       } catch (_) {
         try {
           await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
@@ -3672,13 +3678,13 @@ class _SettingsPageState extends State<SettingsPage> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         CircleAvatar(
-          radius: 12.0,
-          backgroundColor: const Color(0xFF3DB4F2).withValues(alpha: 0.15),
+          radius: 11.0,
+          backgroundColor: const Color(0xFF3DB4F2),
           child: Text(
             stepNumber,
             style: const TextStyle(
-              color: Color(0xFF3DB4F2),
-              fontSize: 12.0,
+              color: Colors.white,
+              fontSize: 11.0,
               fontWeight: FontWeight.bold,
               fontFamily: 'Outfit',
             ),
@@ -3824,16 +3830,10 @@ class _SettingsPageState extends State<SettingsPage> {
                   ],
                   const SizedBox(height: 16.0),
                   ElevatedButton(
-                    onPressed: _isConnectingAnilist
+                    onPressed: (_isConnectingAnilist || _anilistTokenController.text.trim().isEmpty)
                         ? null
                         : () async {
                             final token = _anilistTokenController.text.trim();
-                            if (token.isEmpty) {
-                              setState(() {
-                                _anilistError = 'Please paste a token first.';
-                              });
-                              return;
-                            }
                             setState(() {
                               _isConnectingAnilist = true;
                               _anilistError = null;
@@ -3851,10 +3851,10 @@ class _SettingsPageState extends State<SettingsPage> {
                             }
                           },
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.white.withValues(alpha: 0.05),
+                      backgroundColor: const Color(0xFF3DB4F2),
                       foregroundColor: Colors.white,
-                      disabledBackgroundColor: Colors.white10,
-                      side: const BorderSide(color: Colors.white10),
+                      disabledBackgroundColor: Colors.white.withValues(alpha: 0.04),
+                      disabledForegroundColor: Colors.white24,
                       padding: const EdgeInsets.symmetric(vertical: 14.0),
                       elevation: 0,
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.0)),
@@ -3867,7 +3867,7 @@ class _SettingsPageState extends State<SettingsPage> {
                           )
                         : const Text(
                             'Connect Account',
-                            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                            style: TextStyle(fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
                           ),
                   ),
                 ],
@@ -4174,7 +4174,9 @@ class _SettingsPageState extends State<SettingsPage> {
                     if (mounted) {
                       setState(() {
                         _isImportingAnilist = false;
-                        _importSuccessMessage = 'Import completed! Added/updated $count items in your library.';
+                        _importSuccessMessage = count > 0
+                            ? 'Import completed! Added/updated $count items in your library.'
+                            : 'Import completed! Your library is fully synced and up-to-date.';
                       });
                       Future.delayed(const Duration(seconds: 5), () {
                         if (mounted) {

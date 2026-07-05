@@ -182,29 +182,25 @@ class _NotificationCardState extends State<_NotificationCard> with SingleTickerP
       position: _slideAnimation,
       child: FadeTransition(
         opacity: _opacityAnimation,
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(12.0),
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 12.0, sigmaY: 12.0),
-            child: Container(
-              width: 340.0,
-              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
-              decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.75),
-                borderRadius: BorderRadius.circular(12.0),
-                border: Border.all(
-                  color: colorScheme.withOpacity(0.25),
-                  width: 1.2,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: colorScheme.withOpacity(0.08),
-                    blurRadius: 12.0,
-                    spreadRadius: 1.0,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
+        child: Container(
+          width: 340.0,
+          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+          decoration: BoxDecoration(
+            color: const Color(0xFF141414),
+            borderRadius: BorderRadius.circular(12.0),
+            border: Border.all(
+              color: colorScheme.withValues(alpha: 0.25),
+              width: 1.2,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: colorScheme.withValues(alpha: 0.08),
+                blurRadius: 12.0,
+                spreadRadius: 1.0,
+                offset: const Offset(0, 4),
               ),
+            ],
+          ),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
@@ -255,8 +251,6 @@ class _NotificationCardState extends State<_NotificationCard> with SingleTickerP
               ),
             ),
           ),
-        ),
-      ),
-    );
+        );
   }
 }

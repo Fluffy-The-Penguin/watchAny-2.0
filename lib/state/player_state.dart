@@ -534,7 +534,7 @@ class PlayerState extends ChangeNotifier {
     final now = DateTime.now().millisecondsSinceEpoch;
     
     // Check if the most recent record (index 0) is the same show
-    if (records.isNotEmpty && records[0]['id'] == id) {
+    if (records.isNotEmpty && records[0]['id'] == id && records[0]['isManga'] != true) {
       // Continuous watch! Merge into existing most-recent record
       final List<dynamic> epList = records[0]['episodes'] ?? [];
       final List<int> eps = epList.map((e) => e as int).toList();
@@ -544,10 +544,14 @@ class PlayerState extends ChangeNotifier {
       }
       records[0]['timestamp'] = now;
     } else {
+      // Remove any existing duplicate record elsewhere in the list before inserting at the top
+      records.removeWhere((r) => r['id'] == id && r['isManga'] != true);
+
       // Not continuous watch! Create a brand new history entry at the top
       records.insert(0, {
         'id': id,
         'isAnime': isAnime,
+        'isManga': false,
         'media': metadata,
         'episodes': [episodeNumber],
         'timestamp': now,
@@ -571,6 +575,68 @@ class PlayerState extends ChangeNotifier {
       await prefs.setStringList(legacyKey, legacyList);
     }
     await prefs.setInt('history_last_watched_timestamp_$id', now);
+  }
+
+  static Future<void> addMangaToHistory(String mangaId, int chapterNumber, String mangaTitle) async {
+    final prefs = await SharedPreferences.getInstance();
+    
+    // Resolve cover image from cache or settings if we have it
+    String coverUrl = '';
+    try {
+      final cacheJson = prefs.getString('manga_library_cache');
+      if (cacheJson != null) {
+        final Map<String, dynamic> decoded = jsonDecode(cacheJson);
+        if (decoded.containsKey(mangaId)) {
+          coverUrl = decoded[mangaId]['thumbnailUrl'] ?? '';
+        }
+      }
+    } catch (_) {}
+
+    // Load existing flat records
+    List<Map<String, dynamic>> records = [];
+    final String? flatRecordsStr = prefs.getString('watch_history_flat_records');
+    if (flatRecordsStr != null) {
+      try {
+        final List<dynamic> decodedList = jsonDecode(flatRecordsStr);
+        records = decodedList.map((e) => Map<String, dynamic>.from(e)).toList();
+      } catch (_) {}
+    }
+
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    // Check if the most recent record (index 0) is the same manga
+    if (records.isNotEmpty && records[0]['id'] == mangaId && records[0]['isManga'] == true) {
+      final List<dynamic> chList = records[0]['episodes'] ?? [];
+      final List<int> chapters = chList.map((e) => e as int).toList();
+      if (!chapters.contains(chapterNumber)) {
+        chapters.add(chapterNumber);
+        records[0]['episodes'] = chapters;
+      }
+      records[0]['timestamp'] = now;
+    } else {
+      // Remove any existing duplicate history item for this manga
+      records.removeWhere((r) => r['id'] == mangaId && r['isManga'] == true);
+      
+      records.insert(0, {
+        'id': mangaId,
+        'isAnime': false,
+        'isManga': true,
+        'media': {
+          'id': mangaId,
+          'title': mangaTitle,
+          'coverImage': coverUrl,
+          'format': 'MANGA',
+        },
+        'episodes': [chapterNumber],
+        'timestamp': now,
+      });
+    }
+
+    if (records.length > 200) {
+      records = records.sublist(0, 200);
+    }
+
+    await prefs.setString('watch_history_flat_records', jsonEncode(records));
   }
 
   static Future<List<Map<String, dynamic>>> _migrateLegacyHistory(SharedPreferences prefs) async {

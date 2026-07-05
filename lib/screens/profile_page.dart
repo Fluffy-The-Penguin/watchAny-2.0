@@ -22,7 +22,18 @@ class _ProfilePageState extends State<ProfilePage> {
   String? _importSuccessMessage;
 
   @override
+  void initState() {
+    super.initState();
+    _anilistTokenController.addListener(_onTokenChanged);
+  }
+
+  void _onTokenChanged() {
+    setState(() {});
+  }
+
+  @override
   void dispose() {
+    _anilistTokenController.removeListener(_onTokenChanged);
     _anilistTokenController.dispose();
     super.dispose();
   }
@@ -31,7 +42,7 @@ class _ProfilePageState extends State<ProfilePage> {
     const url = 'https://anilist.co/api/v2/oauth/authorize?client_id=45095&response_type=token';
     if (Platform.isWindows) {
       try {
-        await Process.run('cmd', ['/c', 'start', '', url], runInShell: true);
+        await Process.run('powershell', ['-Command', 'Start-Process', "'$url'"]);
       } catch (_) {
         try {
           await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
@@ -58,13 +69,13 @@ class _ProfilePageState extends State<ProfilePage> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         CircleAvatar(
-          radius: 12.0,
-          backgroundColor: const Color(0xFF3DB4F2).withValues(alpha: 0.15),
+          radius: 11.0,
+          backgroundColor: const Color(0xFF3DB4F2),
           child: Text(
             stepNumber,
             style: const TextStyle(
-              color: Color(0xFF3DB4F2),
-              fontSize: 12.0,
+              color: Colors.white,
+              fontSize: 11.0,
               fontWeight: FontWeight.bold,
               fontFamily: 'Outfit',
             ),
@@ -103,16 +114,18 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Widget _buildLoggedOutView() {
-    return Container(
-      padding: const EdgeInsets.all(24.0),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.02),
-        borderRadius: BorderRadius.circular(16.0),
-        border: Border.all(color: Colors.white10),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
+    return Center(
+      child: Container(
+        constraints: const BoxConstraints(maxWidth: 600),
+        padding: const EdgeInsets.all(24.0),
+        decoration: BoxDecoration(
+          color: const Color(0xFF121212),
+          borderRadius: BorderRadius.circular(16.0),
+          border: Border.all(color: Colors.white10),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
           const Row(
             children: [
               Icon(Icons.sync, color: Color(0xFF3DB4F2), size: 24.0),
@@ -210,16 +223,10 @@ class _ProfilePageState extends State<ProfilePage> {
                   ],
                   const SizedBox(height: 16.0),
                   ElevatedButton(
-                    onPressed: _isConnectingAnilist
+                    onPressed: (_isConnectingAnilist || _anilistTokenController.text.trim().isEmpty)
                         ? null
                         : () async {
                             final token = _anilistTokenController.text.trim();
-                            if (token.isEmpty) {
-                              setState(() {
-                                _anilistError = 'Please paste a token first.';
-                              });
-                              return;
-                            }
                             setState(() {
                               _isConnectingAnilist = true;
                               _anilistError = null;
@@ -237,10 +244,10 @@ class _ProfilePageState extends State<ProfilePage> {
                             }
                           },
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.white.withValues(alpha: 0.05),
+                      backgroundColor: const Color(0xFF3DB4F2),
                       foregroundColor: Colors.white,
-                      disabledBackgroundColor: Colors.white10,
-                      side: const BorderSide(color: Colors.white10),
+                      disabledBackgroundColor: Colors.white.withValues(alpha: 0.04),
+                      disabledForegroundColor: Colors.white24,
                       padding: const EdgeInsets.symmetric(vertical: 14.0),
                       elevation: 0,
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.0)),
@@ -253,7 +260,7 @@ class _ProfilePageState extends State<ProfilePage> {
                           )
                         : const Text(
                             'Connect Account',
-                            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                            style: TextStyle(fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
                           ),
                   ),
                 ],
@@ -262,10 +269,11 @@ class _ProfilePageState extends State<ProfilePage> {
           ),
         ],
       ),
-    );
-  }
+    ),
+  );
+}
 
-  Widget _buildLoggedInView(AnilistAuthState authState) {
+  Widget _buildLoggedInView(AnilistAuthState authState, bool isLargeScreen) {
     final daysWatched = (authState.minutesWatched / 1440).toStringAsFixed(1);
     
     // Local watchAny items stats
@@ -275,330 +283,357 @@ class _ProfilePageState extends State<ProfilePage> {
     final String syncModeLabel = widget.navigationState.currentMode == AppMode.manga ? 'Manga' : 'Anime';
     final String typeStr = widget.navigationState.currentMode == AppMode.manga ? 'MANGA' : 'ANIME';
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        // Banner & User Profile Card
-        Container(
-          clipBehavior: Clip.antiAlias,
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.02),
-            borderRadius: BorderRadius.circular(16.0),
-            border: Border.all(color: Colors.white10),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+    // 1. Profile Card
+    final Widget profileCard = Container(
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: const Color(0xFF121212),
+        borderRadius: BorderRadius.circular(20.0),
+        border: Border.all(color: Colors.white10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Stack(
+            clipBehavior: Clip.none,
             children: [
-              Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  if (authState.bannerUrl != null)
-                    Image.network(
-                      authState.bannerUrl!,
-                      height: 140,
-                      width: double.infinity,
-                      fit: BoxFit.cover,
-                    )
-                  else
-                    Container(
-                      height: 140,
-                      decoration: const BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [Color(0xFF3B5998), Color(0xFF1DA1F2)],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ),
-                      ),
-                    ),
-                  Container(
-                    height: 140,
-                    color: Colors.black.withValues(alpha: 0.3),
-                  ),
-                  Positioned(
-                    top: 12,
-                    right: 12,
-                    child: CircleAvatar(
-                      backgroundColor: Colors.black45,
-                      radius: 18,
-                      child: IconButton(
-                        icon: const Icon(Icons.logout, size: 16.0, color: Colors.white70),
-                        tooltip: 'Disconnect Account',
-                        padding: EdgeInsets.zero,
-                        onPressed: () async {
-                          await authState.logout();
-                        },
-                      ),
+              // Banner Image
+              if (authState.bannerUrl != null)
+                Image.network(
+                  authState.bannerUrl!,
+                  height: 140,
+                  width: double.infinity,
+                  fit: BoxFit.cover,
+                )
+              else
+                Container(
+                  height: 140,
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [Color(0xFF2E0854), Color(0xFF140534)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
                     ),
                   ),
-                ],
-              ),
-              Padding(
-                padding: const EdgeInsets.all(20.0),
-                child: Row(
-                  children: [
-                    CircleAvatar(
-                      radius: 36.0,
-                      backgroundImage: authState.avatarUrl != null ? NetworkImage(authState.avatarUrl!) : null,
-                      backgroundColor: Colors.white10,
-                      child: authState.avatarUrl == null ? const Icon(Icons.person, color: Colors.white54, size: 32) : null,
-                    ),
-                    const SizedBox(width: 16.0),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            authState.username ?? 'Viewer',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 20.0,
-                              fontWeight: FontWeight.bold,
-                              fontFamily: 'Outfit',
-                            ),
-                          ),
-                          const SizedBox(height: 4.0),
-                          const Row(
-                            children: [
-                              Icon(Icons.check_circle, color: Colors.green, size: 14.0),
-                              SizedBox(width: 6.0),
-                              Text(
-                                'Connected to AniList',
-                                style: TextStyle(color: Colors.green, fontSize: 12.0, fontWeight: FontWeight.w500, fontFamily: 'Outfit'),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
+                ),
+              // Gradient Overlay
+              Container(
+                height: 140,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [Colors.black.withValues(alpha: 0.1), Colors.black.withValues(alpha: 0.7)],
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                  ),
                 ),
               ),
-              
-              const Divider(color: Colors.white10, height: 1),
-              
-              // Statistics Section
-              Padding(
-                padding: const EdgeInsets.all(20.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'AniList Statistics',
-                      style: TextStyle(
-                        color: Colors.white70,
-                        fontSize: 14.0,
-                        fontWeight: FontWeight.bold,
-                        fontFamily: 'Outfit',
-                      ),
+              Positioned(
+                top: 12,
+                right: 12,
+                child: Tooltip(
+                  message: 'Disconnect Account',
+                  child: Material(
+                    color: Colors.black.withValues(alpha: 0.4),
+                    shape: const CircleBorder(),
+                    clipBehavior: Clip.antiAlias,
+                    child: IconButton(
+                      icon: const Icon(Icons.logout, size: 16.0, color: Colors.white),
+                      onPressed: () async {
+                        await authState.logout();
+                      },
                     ),
-                    const SizedBox(height: 16.0),
-                    
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(
-                          child: Container(
-                            padding: const EdgeInsets.all(14.0),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.01),
-                              borderRadius: BorderRadius.circular(12.0),
-                              border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Row(
-                                  children: [
-                                    Icon(Icons.video_library, color: Color(0xFF3DB4F2), size: 16),
-                                    SizedBox(width: 8),
-                                    Text(
-                                      'Anime',
-                                      style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 12),
-                                _buildStatDetailRow('Total Anime', '${authState.animeCount}'),
-                                const SizedBox(height: 8),
-                                _buildStatDetailRow('Episodes', '${authState.episodesWatched}'),
-                                const SizedBox(height: 8),
-                                _buildStatDetailRow('Days Watched', '$daysWatched d'),
-                              ],
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 14.0),
-                        Expanded(
-                          child: Container(
-                            padding: const EdgeInsets.all(14.0),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.01),
-                              borderRadius: BorderRadius.circular(12.0),
-                              border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Row(
-                                  children: [
-                                    Icon(Icons.book, color: Colors.purpleAccent, size: 16),
-                                    SizedBox(width: 8),
-                                    Text(
-                                      'Manga',
-                                      style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 12),
-                                _buildStatDetailRow('Total Manga', '${authState.mangaCount}'),
-                                const SizedBox(height: 8),
-                                _buildStatDetailRow('Chapters', '${authState.chaptersRead}'),
-                                const SizedBox(height: 8),
-                                _buildStatDetailRow('Volumes', '${authState.volumesRead}'),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
+                  ),
                 ),
               ),
-
-              const Divider(color: Colors.white10, height: 1),
-
-              // Local Library Statistics
-              Padding(
-                padding: const EdgeInsets.all(20.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Local Library Statistics',
-                      style: TextStyle(
-                        color: Colors.white70,
-                        fontSize: 14.0,
-                        fontWeight: FontWeight.bold,
-                        fontFamily: 'Outfit',
-                      ),
-                    ),
-                    const SizedBox(height: 16.0),
-                    Container(
-                      padding: const EdgeInsets.all(16.0),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.01),
-                        borderRadius: BorderRadius.circular(12.0),
-                        border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
-                      ),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Column(
-                              children: [
-                                const Text('Local Anime', style: TextStyle(color: Colors.white38, fontSize: 12, fontFamily: 'Outfit')),
-                                const SizedBox(height: 6),
-                                Text('$localAnimeCount', style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold, fontFamily: 'Outfit')),
-                              ],
-                            ),
-                          ),
-                          Container(width: 1, height: 40, color: Colors.white10),
-                          Expanded(
-                            child: Column(
-                              children: [
-                                const Text('Local Manga', style: TextStyle(color: Colors.white38, fontSize: 12, fontFamily: 'Outfit')),
-                                const SizedBox(height: 6),
-                                Text('$localMangaCount', style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold, fontFamily: 'Outfit')),
-                              ],
-                            ),
-                          ),
-                          Container(width: 1, height: 40, color: Colors.white10),
-                          Expanded(
-                            child: Column(
-                              children: [
-                                const Text('Total Library', style: TextStyle(color: Colors.white38, fontSize: 12, fontFamily: 'Outfit')),
-                                const SizedBox(height: 6),
-                                Text('${localAnimeCount + localMangaCount}', style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold, fontFamily: 'Outfit')),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
+              Positioned(
+                bottom: -28,
+                left: 20,
+                child: Container(
+                  padding: const EdgeInsets.all(3.0),
+                  decoration: const BoxDecoration(
+                    color: Color(0xFF0C0C0C),
+                    shape: BoxShape.circle,
+                  ),
+                  child: CircleAvatar(
+                    radius: 34.0,
+                    backgroundImage: authState.avatarUrl != null ? NetworkImage(authState.avatarUrl!) : null,
+                    backgroundColor: Colors.white10,
+                    child: authState.avatarUrl == null ? const Icon(Icons.person, color: Colors.white54, size: 30) : null,
+                  ),
                 ),
               ),
             ],
           ),
-        ),
-        const SizedBox(height: 24.0),
-
-        // Auto-Sync Switch
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 16.0),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.02),
-            borderRadius: BorderRadius.circular(12.0),
-            border: Border.all(color: Colors.white10),
-          ),
-          child: Row(
-            children: [
-              const Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Auto-Sync Progress',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 14.0,
-                        fontWeight: FontWeight.bold,
-                        fontFamily: 'Outfit',
-                      ),
-                    ),
-                    SizedBox(height: 4.0),
-                    Text(
-                      'Automatically update AniList when you change progress or status.',
-                      style: TextStyle(color: Colors.white38, fontSize: 12.0),
-                    ),
-                  ],
+          const SizedBox(height: 38.0),
+          Padding(
+            padding: const EdgeInsets.only(left: 20.0, right: 20.0, bottom: 20.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  authState.username ?? 'Viewer',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 20.0,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: 'Outfit',
+                  ),
                 ),
-              ),
-              Switch(
-                value: authState.isAutoSyncEnabled,
-                activeColor: const Color(0xFF3DB4F2),
-                onChanged: (val) async {
-                  await authState.setAutoSync(val);
-                },
-              ),
-            ],
+                const SizedBox(height: 6.0),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 4.0),
+                  decoration: BoxDecoration(
+                    color: Colors.green.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(20.0),
+                    border: Border.all(color: Colors.green.withValues(alpha: 0.2)),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.check_circle, color: Colors.green, size: 12.0),
+                      SizedBox(width: 6.0),
+                      Text(
+                        'Connected to AniList',
+                        style: TextStyle(color: Colors.green, fontSize: 11.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
-        const SizedBox(height: 20.0),
+        ],
+      ),
+    );
 
-        // List Import Module
-        Container(
-          padding: const EdgeInsets.all(20.0),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.02),
-            borderRadius: BorderRadius.circular(12.0),
-            border: Border.all(color: Colors.white10),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+    // 2. Anime Stats Card
+    final Widget animeStatsCard = Container(
+      padding: const EdgeInsets.all(18.0),
+      decoration: BoxDecoration(
+        color: const Color(0xFF161618),
+        borderRadius: BorderRadius.circular(16.0),
+        border: Border.all(color: const Color(0xFF3DB4F2).withValues(alpha: 0.2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
             children: [
+              Icon(Icons.video_library, color: Color(0xFF3DB4F2), size: 16),
+              SizedBox(width: 8),
               Text(
-                'Import $syncModeLabel List',
-                style: const TextStyle(
+                'AniList Anime Statistics',
+                style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          _buildStatGridItem('Total Anime', '${authState.animeCount}'),
+          const SizedBox(height: 12),
+          _buildStatGridItem('Episodes Watched', '${authState.episodesWatched}'),
+          const SizedBox(height: 12),
+          _buildStatGridItem('Days Watched', '$daysWatched d'),
+        ],
+      ),
+    );
+
+    // 3. Manga Stats Card
+    final Widget mangaStatsCard = Container(
+      padding: const EdgeInsets.all(18.0),
+      decoration: BoxDecoration(
+        color: const Color(0xFF161618),
+        borderRadius: BorderRadius.circular(16.0),
+        border: Border.all(color: const Color(0xFFA855F7).withValues(alpha: 0.2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.book, color: Color(0xFFA855F7), size: 16),
+              SizedBox(width: 8),
+              Text(
+                'AniList Manga Statistics',
+                style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          _buildStatGridItem('Total Manga', '${authState.mangaCount}'),
+          const SizedBox(height: 12),
+          _buildStatGridItem('Chapters Read', '${authState.chaptersRead}'),
+          const SizedBox(height: 12),
+          _buildStatGridItem('Volumes Read', '${authState.volumesRead}'),
+        ],
+      ),
+    );
+
+    // 4. Local Stats Card
+    final Widget localStatsCard = Container(
+      padding: const EdgeInsets.all(20.0),
+      decoration: BoxDecoration(
+        color: const Color(0xFF161618),
+        borderRadius: BorderRadius.circular(16.0),
+        border: Border.all(color: const Color(0xFFF59E0B).withValues(alpha: 0.2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.bar_chart, color: Color(0xFFF59E0B), size: 18),
+              SizedBox(width: 8),
+              Text(
+                'Local watchAny Statistics',
+                style: TextStyle(
                   color: Colors.white,
                   fontSize: 14.0,
                   fontWeight: FontWeight.bold,
                   fontFamily: 'Outfit',
                 ),
               ),
+            ],
+          ),
+          const SizedBox(height: 20.0),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  children: [
+                    const Text('Local Anime', style: TextStyle(color: Colors.white38, fontSize: 11, fontFamily: 'Outfit')),
+                    const SizedBox(height: 6),
+                    Text(
+                      '$localAnimeCount',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        fontFamily: 'Outfit',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(width: 1, height: 36, color: Colors.white10),
+              Expanded(
+                child: Column(
+                  children: [
+                    const Text('Local Manga', style: TextStyle(color: Colors.white38, fontSize: 11, fontFamily: 'Outfit')),
+                    const SizedBox(height: 6),
+                    Text(
+                      '$localMangaCount',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        fontFamily: 'Outfit',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(width: 1, height: 36, color: Colors.white10),
+              Expanded(
+                child: Column(
+                  children: [
+                    const Text('Total Library', style: TextStyle(color: Colors.white38, fontSize: 11, fontFamily: 'Outfit')),
+                    const SizedBox(height: 6),
+                    Text(
+                      '${localAnimeCount + localMangaCount}',
+                      style: const TextStyle(
+                        color: Color(0xFFF59E0B),
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        fontFamily: 'Outfit',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+
+    // 5. Auto-sync settings Card
+    final Widget syncSettingsCard = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 16.0),
+      decoration: BoxDecoration(
+        color: const Color(0xFF121212),
+        borderRadius: BorderRadius.circular(16.0),
+        border: Border.all(color: Colors.white10),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10.0),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.03),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.sync, color: Colors.white70, size: 20.0),
+          ),
+          const SizedBox(width: 14.0),
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Auto-Sync Progress',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 14.0,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: 'Outfit',
+                  ),
+                ),
+                SizedBox(height: 4.0),
+                Text(
+                  'Automatically update AniList when you change progress or status.',
+                  style: TextStyle(color: Colors.white38, fontSize: 11.0, fontFamily: 'Outfit'),
+                ),
+              ],
+            ),
+          ),
+          Switch(
+            value: authState.isAutoSyncEnabled,
+            activeColor: const Color(0xFF3DB4F2),
+            activeTrackColor: const Color(0xFF3DB4F2).withValues(alpha: 0.3),
+            inactiveThumbColor: Colors.grey,
+            inactiveTrackColor: Colors.white10,
+            onChanged: (val) async {
+              await authState.setAutoSync(val);
+            },
+          ),
+        ],
+      ),
+    );
+
+    // 6. Cloud list import Card
+    final Widget importCard = Container(
+      padding: const EdgeInsets.all(20.0),
+      decoration: BoxDecoration(
+        color: const Color(0xFF121212),
+        borderRadius: BorderRadius.circular(16.0),
+        border: Border.all(color: Colors.white10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'Cloud Sync (Import $syncModeLabel list)',
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 14.0,
+              fontWeight: FontWeight.bold,
+              fontFamily: 'Outfit',
+                ),
+              ),
               const SizedBox(height: 6.0),
               Text(
                 'Fetch your saved $syncModeLabel lists from AniList and merge them into watchAny. Existing items will only be updated if AniList progress is more advanced.',
-                style: const TextStyle(color: Colors.white38, fontSize: 12.0, height: 1.4),
+                style: const TextStyle(color: Colors.white38, fontSize: 11.0, height: 1.4, fontFamily: 'Outfit'),
               ),
               const SizedBox(height: 20.0),
               if (_isImportingAnilist) ...[
@@ -612,15 +647,15 @@ class _ProfilePageState extends State<ProfilePage> {
                     ),
                     SizedBox(width: 12.0),
                     Text(
-                      'Importing list entries from AniList...',
-                      style: TextStyle(color: Color(0xFF3DB4F2), fontSize: 13.0, fontWeight: FontWeight.w500, fontFamily: 'Outfit'),
+                      'Importing list entries...',
+                      style: TextStyle(color: Color(0xFF3DB4F2), fontSize: 12.0, fontWeight: FontWeight.w600, fontFamily: 'Outfit'),
                     ),
                   ],
                 ),
               ] else ...[
                 ElevatedButton.icon(
-                  icon: const Icon(Icons.import_export, size: 18.0),
-                  label: Text('Import $syncModeLabel List'),
+                  icon: const Icon(Icons.cloud_download, size: 16.0),
+                  label: Text('Sync $syncModeLabel list'),
                   onPressed: () async {
                     setState(() {
                       _isImportingAnilist = true;
@@ -630,7 +665,9 @@ class _ProfilePageState extends State<ProfilePage> {
                     if (mounted) {
                       setState(() {
                         _isImportingAnilist = false;
-                        _importSuccessMessage = 'Import completed! Added/updated $count items in your library.';
+                        _importSuccessMessage = count > 0
+                            ? 'Sync completed! Added/updated $count items in your library.'
+                            : 'Sync completed! Your library is fully synced and up-to-date.';
                       });
                       Future.delayed(const Duration(seconds: 5), () {
                         if (mounted) {
@@ -642,11 +679,11 @@ class _ProfilePageState extends State<ProfilePage> {
                     }
                   },
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.white.withValues(alpha: 0.05),
+                    backgroundColor: const Color(0xFF3DB4F2),
                     foregroundColor: Colors.white,
-                    side: const BorderSide(color: Colors.white10),
-                    padding: const EdgeInsets.symmetric(vertical: 12.0),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
+                    padding: const EdgeInsets.symmetric(vertical: 14.0),
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.0)),
                   ),
                 ),
               ],
@@ -655,27 +692,77 @@ class _ProfilePageState extends State<ProfilePage> {
                 Text(
                   _importSuccessMessage!,
                   textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.green, fontSize: 12.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                  style: const TextStyle(color: Color(0xFF10B981), fontSize: 12.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
                 ),
               ],
             ],
           ),
-        ),
-      ],
-    );
+        );
+
+    return isLargeScreen
+        ? Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Left Column (Profile, Settings, Sync)
+              Expanded(
+                flex: 4,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    profileCard,
+                    const SizedBox(height: 20.0),
+                    syncSettingsCard,
+                    const SizedBox(height: 20.0),
+                    importCard,
+                  ],
+                ),
+              ),
+              const SizedBox(width: 24.0),
+              // Right Column (Stats)
+              Expanded(
+                flex: 5,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    animeStatsCard,
+                    const SizedBox(height: 20.0),
+                    mangaStatsCard,
+                    const SizedBox(height: 20.0),
+                    localStatsCard,
+                  ],
+                ),
+              ),
+            ],
+          )
+        : Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              profileCard,
+              const SizedBox(height: 20.0),
+              animeStatsCard,
+              const SizedBox(height: 20.0),
+              mangaStatsCard,
+              const SizedBox(height: 20.0),
+              localStatsCard,
+              const SizedBox(height: 20.0),
+              syncSettingsCard,
+              const SizedBox(height: 20.0),
+              importCard,
+            ],
+          );
   }
 
-  Widget _buildStatDetailRow(String label, String value) {
+  Widget _buildStatGridItem(String label, String value) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         Text(
           label,
-          style: const TextStyle(color: Colors.white38, fontSize: 12, fontFamily: 'Outfit'),
+          style: const TextStyle(color: Colors.white38, fontSize: 11, fontFamily: 'Outfit'),
         ),
         Text(
           value,
-          style: const TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+          style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
         ),
       ],
     );
@@ -687,14 +774,19 @@ class _ProfilePageState extends State<ProfilePage> {
       listenable: AnilistAuthState(),
       builder: (context, _) {
         final authState = AnilistAuthState();
+        final double screenWidth = MediaQuery.of(context).size.width;
+        final bool isLargeScreen = screenWidth > 900;
+
         return Scaffold(
           backgroundColor: Colors.black,
-          body: SingleChildScrollView(
-            padding: const EdgeInsets.all(24.0),
-            child: Align(
-              alignment: Alignment.topLeft,
+          body: Center(
+            child: SingleChildScrollView(
+              padding: EdgeInsets.symmetric(
+                horizontal: screenWidth > 1200 ? 64.0 : 24.0,
+                vertical: 32.0,
+              ),
               child: Container(
-                constraints: const BoxConstraints(maxWidth: 550),
+                constraints: const BoxConstraints(maxWidth: 1000),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -702,21 +794,21 @@ class _ProfilePageState extends State<ProfilePage> {
                       'User Profile',
                       style: TextStyle(
                         color: Colors.white,
-                        fontSize: 24.0,
+                        fontSize: 28.0,
                         fontWeight: FontWeight.bold,
                         fontFamily: 'Outfit',
                       ),
                     ),
-                    const SizedBox(height: 8.0),
+                    const SizedBox(height: 6.0),
                     const Text(
                       'Check your AniList stats and manage your cloud backup integration.',
                       style: TextStyle(color: Colors.white54, fontSize: 13.0, fontFamily: 'Outfit'),
                     ),
-                    const SizedBox(height: 24.0),
+                    const SizedBox(height: 32.0),
                     if (!authState.isLoggedIn)
                       _buildLoggedOutView()
                     else
-                      _buildLoggedInView(authState),
+                      _buildLoggedInView(authState, isLargeScreen),
                   ],
                 ),
               ),

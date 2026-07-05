@@ -29,6 +29,7 @@ class _LibraryPageState extends State<LibraryPage> {
   bool _isLoading = true;
   String? _errorMessage;
   bool _isBackgroundFetchingMissing = false;
+  bool _isBackgroundFetchingMissingAnime = false;
   bool _isUpdatingLibrary = false;
 
   // Real-time fetched items
@@ -84,9 +85,23 @@ class _LibraryPageState extends State<LibraryPage> {
       List<dynamic> loadedMedia = [];
 
       if (widget.mode == AppMode.anime) {
-        final ids = savedItems.map((item) => item.id).toList();
-        final rawList = await _anilistService.fetchMultipleMedia(ids, 'ANIME');
-        loadedMedia = rawList;
+        final cache = LibraryState().animeCache;
+        final list = <Map<String, dynamic>>[];
+        final missingIds = <int>[];
+        
+        for (final item in savedItems) {
+          if (cache.containsKey(item.id)) {
+            list.add(cache[item.id]!);
+          } else {
+            missingIds.add(item.id);
+          }
+        }
+        
+        loadedMedia = list;
+
+        if (missingIds.isNotEmpty) {
+          _triggerBackgroundFetchMissingAnime(missingIds);
+        }
       } else if (widget.mode == AppMode.manga) {
         final cache = LibraryState().mangaCache;
         final list = <Map<String, dynamic>>[];
@@ -157,6 +172,79 @@ class _LibraryPageState extends State<LibraryPage> {
     } catch (_) {} finally {
       _isBackgroundFetchingMissing = false;
       if (mounted) {
+        _loadLibraryData();
+      }
+    }
+  }
+
+  void _triggerBackgroundFetchMissingAnime(List<int> missingIds) async {
+    if (_isBackgroundFetchingMissingAnime) return;
+    _isBackgroundFetchingMissingAnime = true;
+
+    try {
+      for (int i = 0; i < missingIds.length; i += 40) {
+        final chunk = missingIds.sublist(i, i + 40 > missingIds.length ? missingIds.length : i + 40);
+        try {
+          final rawList = await _anilistService.fetchMultipleMedia(chunk, 'ANIME');
+          final Map<int, Map<String, dynamic>> batch = {};
+          for (var media in rawList) {
+            final int id = media['id'];
+            batch[id] = media;
+          }
+          if (batch.isNotEmpty) {
+            await LibraryState().updateAnimeCacheBatch(batch);
+            if (mounted) {
+              _loadLibraryData();
+            }
+          }
+        } catch (_) {}
+        // Sleep 400ms between batches to stay well under rate limits
+        await Future.delayed(const Duration(milliseconds: 400));
+      }
+    } catch (_) {} finally {
+      _isBackgroundFetchingMissingAnime = false;
+    }
+  }
+
+  Future<void> _forceRefreshAnimeLibrary() async {
+    final modeStr = widget.mode.name;
+    final savedItems = LibraryState().items.where((item) => item.mode == modeStr).toList();
+    if (savedItems.isEmpty) {
+      NotificationService().show(context, 'No library items to refresh.');
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      final ids = savedItems.map((item) => item.id).toList();
+      for (int i = 0; i < ids.length; i += 40) {
+        final chunk = ids.sublist(i, i + 40 > ids.length ? ids.length : i + 40);
+        final rawList = await _anilistService.fetchMultipleMedia(chunk, 'ANIME');
+        final Map<int, Map<String, dynamic>> batch = {};
+        for (var media in rawList) {
+          final int id = media['id'];
+          batch[id] = media;
+        }
+        if (batch.isNotEmpty) {
+          await LibraryState().updateAnimeCacheBatch(batch);
+        }
+        await Future.delayed(const Duration(milliseconds: 300));
+      }
+      if (mounted) {
+        NotificationService().show(context, 'Library details refreshed successfully.');
+      }
+    } catch (e) {
+      if (mounted) {
+        NotificationService().show(context, 'Failed to refresh library: $e');
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
         _loadLibraryData();
       }
     }
@@ -853,6 +941,17 @@ class _LibraryPageState extends State<LibraryPage> {
                             _buildStatusFilter(),
                             const SizedBox(width: 8.0),
                             _buildSortFilter(),
+                            const SizedBox(width: 8.0),
+                            IconButton(
+                              icon: const Icon(Icons.refresh, color: Colors.white70, size: 18.0),
+                              tooltip: 'Refresh Library Details',
+                              onPressed: _forceRefreshAnimeLibrary,
+                              style: IconButton.styleFrom(
+                                backgroundColor: Colors.white.withValues(alpha: 0.03),
+                                padding: const EdgeInsets.all(12.0),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.0)),
+                              ),
+                            ),
                           ],
                         ),
                       ),
@@ -867,6 +966,17 @@ class _LibraryPageState extends State<LibraryPage> {
                       _buildStatusFilter(),
                       const SizedBox(width: 12.0),
                       _buildSortFilter(),
+                      const SizedBox(width: 12.0),
+                      IconButton(
+                        icon: const Icon(Icons.refresh, color: Colors.white70, size: 18.0),
+                        tooltip: 'Refresh Library Details',
+                        onPressed: _forceRefreshAnimeLibrary,
+                        style: IconButton.styleFrom(
+                           backgroundColor: Colors.white.withValues(alpha: 0.03),
+                           padding: const EdgeInsets.all(12.0),
+                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.0)),
+                        ),
+                      ),
                     ],
                   ),
             const SizedBox(height: 20.0),

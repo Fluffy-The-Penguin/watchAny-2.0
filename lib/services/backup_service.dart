@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
@@ -13,6 +14,14 @@ class BackupService {
   BackupService._internal();
 
   bool _isRestoring = false;
+  Timer? _debounceTimer;
+
+  void backupAllDebounced() {
+    _debounceTimer?.cancel();
+    _debounceTimer = Timer(const Duration(seconds: 5), () {
+      backupAll();
+    });
+  }
 
   Future<String> get _defaultBackupDirPath async {
     if (Platform.isAndroid) {
