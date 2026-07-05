@@ -67,7 +67,7 @@ class UpdateService extends ChangeNotifier {
   factory UpdateService() => _instance;
   UpdateService._internal();
 
-  static const String currentVersion = '2.0.18';
+  static const String currentVersion = '2.0.19';
   
   // GitHub Releases API Endpoint
   static const String gitHubReleasesUrl = 'https://api.github.com/repos/Fluffy-The-Penguin/watchAny-2.0/releases/latest';
@@ -167,16 +167,17 @@ class UpdateService extends ChangeNotifier {
       // Fallback mock update in case of failure
       _error = 'Live check failed ($e). Showing fallback updates.';
       _latestUpdate = UpdateInfo(
-        version: 'v2.0.18',
-        changelog: '• Fixed library bookmark panel showing manga categories instead of anime categories\n'
+        version: 'v2.0.19',
+        changelog: '• Added library Watch / Reading Status dropdown selection inside detail page bookmark panels\n'
+            '• Fixed library bookmark panel showing manga categories instead of anime categories\n'
             '• Added language configuration settings inside installed manga extensions\n'
             '• Split single manga source selector into clean Extension name and configured Languages dropdowns\n'
             '• Display extension source icons or clear placeholders inside extensions list\n'
             '• Fixed category and category tab status mismatch and read progress tracking\n'
             '• Cleaned up code analyzer warnings for a perfectly stable release build',
         downloadUrl: Platform.isAndroid 
-            ? 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.18/app-arm64-v8a-release.apk'
-            : 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.18/watchany_setup.exe',
+            ? 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.19/app-arm64-v8a-release.apk'
+            : 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.19/watchany_setup.exe',
       );
     } finally {
       _isChecking = false;

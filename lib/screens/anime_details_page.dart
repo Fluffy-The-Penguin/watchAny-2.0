@@ -2499,6 +2499,70 @@ class _LibraryEditPanelState extends State<_LibraryEditPanel> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisSize: MainAxisSize.min,
                       children: [
+                        // Status Selection
+                        Container(
+                          padding: const EdgeInsets.all(16.0),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.03),
+                            borderRadius: BorderRadius.circular(8.0),
+                            border: Border.all(color: Colors.white10),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                widget.modeStr == 'manga' ? 'Reading Status' : 'Watch Status',
+                                style: const TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 13.0,
+                                  fontWeight: FontWeight.w600,
+                                  fontFamily: 'Outfit',
+                                ),
+                              ),
+                              const SizedBox(height: 12.0),
+                              DropdownButtonHideUnderline(
+                                child: DropdownButton<String>(
+                                  value: _activeStatus,
+                                  dropdownColor: const Color(0xFF0F0F11),
+                                  isExpanded: true,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontFamily: 'Outfit',
+                                    fontSize: 14.0,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                  icon: const Icon(Icons.arrow_drop_down, color: Colors.white54),
+                                  items: [
+                                    DropdownMenuItem(
+                                      value: 'watching',
+                                      child: Text(widget.modeStr == 'manga' ? 'Reading' : 'Watching'),
+                                    ),
+                                    DropdownMenuItem(
+                                      value: 'planning',
+                                      child: const Text('Plan to Watch'),
+                                    ),
+                                    DropdownMenuItem(
+                                      value: 'completed',
+                                      child: const Text('Completed'),
+                                    ),
+                                    DropdownMenuItem(
+                                      value: 'paused_dropped',
+                                      child: const Text('Dropped / Paused'),
+                                    ),
+                                  ],
+                                  onChanged: (value) {
+                                    if (value != null) {
+                                      setState(() {
+                                        _activeStatus = value;
+                                      });
+                                    }
+                                  },
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 20.0),
 
                         
                         // Episodes progress input with slider
