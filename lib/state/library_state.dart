@@ -153,7 +153,7 @@ class LibraryState extends ChangeNotifier {
         } catch (_) {}
       });
       await Future.wait(futures);
-      await updateNotificationCount();
+      await updateNotificationCount(force: true);
       return;
     }
 
@@ -176,7 +176,7 @@ class LibraryState extends ChangeNotifier {
           await prefs.setInt('notif_acknowledged_${localModeStr}_$id', latestReleased);
         }
       }
-      await updateNotificationCount();
+      await updateNotificationCount(force: true);
     } catch (_) {}
   }
 
@@ -268,7 +268,7 @@ class LibraryState extends ChangeNotifier {
     
     notifyListeners();
     await _persist();
-    updateNotificationCount();
+    updateNotificationCount(force: true);
   }
 
   Future<void> removeItem(int id, String mode) async {
@@ -278,7 +278,7 @@ class LibraryState extends ChangeNotifier {
     }
     notifyListeners();
     await _persist();
-    updateNotificationCount();
+    updateNotificationCount(force: true);
   }
 
   Future<void> _persist() async {
@@ -384,8 +384,18 @@ class LibraryState extends ChangeNotifier {
     }
   }
 
-  Future<void> updateNotificationCount() async {
+  Future<void> updateNotificationCount({bool force = false}) async {
     final prefs = await SharedPreferences.getInstance();
+
+    if (!force) {
+      final int? lastSync = prefs.getInt('library_last_notif_sync');
+      if (lastSync != null) {
+        final age = DateTime.now().millisecondsSinceEpoch - lastSync;
+        if (age < const Duration(minutes: 5).inMilliseconds) {
+          return;
+        }
+      }
+    }
 
     // 1. ANIME
     final animeItems = _items.where((item) => item.mode == 'anime').toList();
@@ -509,6 +519,8 @@ class LibraryState extends ChangeNotifier {
       _moviesBadgeCleared = false;
       changed = true;
     }
+
+    await prefs.setInt('library_last_notif_sync', DateTime.now().millisecondsSinceEpoch);
 
     if (changed) {
       notifyListeners();

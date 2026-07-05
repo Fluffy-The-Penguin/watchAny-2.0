@@ -1,8 +1,15 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
 class AnilistService {
   static const String _endpoint = 'https://graphql.anilist.co';
+
+  static const Map<String, String> _headers = {
+    'Content-Type': 'application/json',
+    'Accept': 'application/json',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+  };
 
   static Map<String, dynamic>? _dashboardCache;
   static DateTime? _lastFetchedTime;
@@ -23,10 +30,30 @@ class AnilistService {
 
   // Fetch all dashboard categories in one query
   Future<Map<String, dynamic>> fetchDashboardData({bool forceRefresh = false}) async {
-    if (!forceRefresh && _dashboardCache != null && _lastFetchedTime != null) {
-      final difference = DateTime.now().difference(_lastFetchedTime!);
-      if (difference.inMinutes < 15) {
-        return _dashboardCache!;
+    final prefs = await SharedPreferences.getInstance();
+
+    if (!forceRefresh) {
+      if (_dashboardCache != null && _lastFetchedTime != null) {
+        final difference = DateTime.now().difference(_lastFetchedTime!);
+        if (difference.inMinutes < 15) {
+          return _dashboardCache!;
+        }
+      }
+      
+      final String? cachedJson = prefs.getString('anilist_dashboard_cache');
+      final int? lastFetched = prefs.getInt('anilist_dashboard_last_fetched');
+      if (cachedJson != null && lastFetched != null) {
+        final age = DateTime.now().millisecondsSinceEpoch - lastFetched;
+        if (age < const Duration(hours: 3).inMilliseconds) {
+          try {
+            final decoded = jsonDecode(cachedJson);
+            if (decoded is Map<String, dynamic>) {
+              _dashboardCache = decoded;
+              _lastFetchedTime = DateTime.fromMillisecondsSinceEpoch(lastFetched);
+              return _dashboardCache!;
+            }
+          } catch (_) {}
+        }
       }
     }
 
@@ -163,10 +190,7 @@ class AnilistService {
     try {
       final response = await http.post(
         Uri.parse(_endpoint),
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
+        headers: _headers,
         body: jsonEncode({
           'query': query,
           'variables': variables,
@@ -178,6 +202,8 @@ class AnilistService {
         if (body['data'] != null) {
           _dashboardCache = body['data'] as Map<String, dynamic>;
           _lastFetchedTime = DateTime.now();
+          await prefs.setString('anilist_dashboard_cache', jsonEncode(_dashboardCache));
+          await prefs.setInt('anilist_dashboard_last_fetched', _lastFetchedTime!.millisecondsSinceEpoch);
           return _dashboardCache!;
         }
         throw Exception('GraphQL error: ${body['errors']}');
@@ -302,10 +328,7 @@ class AnilistService {
     try {
       final response = await http.post(
         Uri.parse(_endpoint),
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
+        headers: _headers,
         body: jsonEncode({
           'query': query,
           'variables': variables,
@@ -400,10 +423,7 @@ class AnilistService {
     try {
       final response = await http.post(
         Uri.parse(_endpoint),
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
+        headers: _headers,
         body: jsonEncode({
           'query': query,
           'variables': variables,
@@ -458,10 +478,7 @@ class AnilistService {
     try {
       final response = await http.post(
         Uri.parse(_endpoint),
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
+        headers: _headers,
         body: jsonEncode({
           'query': query,
           'variables': variables,
@@ -541,10 +558,7 @@ class AnilistService {
       try {
         final response = await http.post(
           Uri.parse(_endpoint),
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-          },
+          headers: _headers,
           body: jsonEncode({
             'query': query,
             'variables': variables,
@@ -602,7 +616,7 @@ class AnilistService {
     try {
       final response = await http.post(
         Uri.parse(_endpoint),
-        headers: {'Content-Type': 'application/json'},
+        headers: _headers,
         body: jsonEncode({
           'query': query,
           'variables': {
