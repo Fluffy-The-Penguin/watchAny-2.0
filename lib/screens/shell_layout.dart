@@ -23,6 +23,8 @@ import 'schedule_page.dart';
 import 'history_page.dart';
 import 'notifications_page.dart';
 import 'movies_details_page.dart';
+import 'profile_page.dart';
+import '../state/anilist_auth_state.dart';
 import 'manga_details_page.dart';
 
 class ShellLayout extends StatelessWidget {
@@ -51,6 +53,8 @@ class ShellLayout extends StatelessWidget {
         return 'Watch History';
       case TabPage.notifications:
         return 'Notifications';
+      case TabPage.profile:
+        return 'Profile';
       case TabPage.settings:
         return 'Settings';
     }
@@ -230,6 +234,34 @@ class ShellLayout extends StatelessWidget {
                   leading: null,
                   actions: [
                     if (!isDetailsOpen) ...[
+                      ListenableBuilder(
+                        listenable: AnilistAuthState(),
+                        builder: (context, child) {
+                          final authState = AnilistAuthState();
+                          return Tooltip(
+                            message: 'User Profile',
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(20),
+                              onTap: () {
+                                navigationState.setPage(TabPage.profile);
+                              },
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 8.0),
+                                child: CircleAvatar(
+                                  radius: 12.0,
+                                  backgroundImage: authState.isLoggedIn && authState.avatarUrl != null
+                                      ? NetworkImage(authState.avatarUrl!)
+                                      : null,
+                                  backgroundColor: Colors.white10,
+                                  child: !authState.isLoggedIn || authState.avatarUrl == null
+                                      ? const Icon(Icons.account_circle, color: Colors.white70, size: 16.0)
+                                      : null,
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
                       IconButton(
                         icon: const Icon(Icons.history, color: Colors.white70),
                         tooltip: 'History',
@@ -583,6 +615,7 @@ class ShellLayout extends StatelessWidget {
         case TabPage.settings: return 5;
         case TabPage.history: return 6;
         case TabPage.notifications: return 7;
+        case TabPage.profile: return 8;
       }
     } else {
       switch (page) {
@@ -593,6 +626,7 @@ class ShellLayout extends StatelessWidget {
         case TabPage.settings: return 4;
         case TabPage.history: return 5;
         case TabPage.notifications: return 6;
+        case TabPage.profile: return 7;
         default: return 0;
       }
     }
@@ -649,6 +683,7 @@ class ShellLayout extends StatelessWidget {
             SettingsPage(key: const ValueKey('settings_anime'), mode: AppMode.anime),
             HistoryPage(key: const ValueKey('history_anime'), mode: AppMode.anime, navigationState: navigationState),
             NotificationsPage(key: const ValueKey('notifications_anime'), mode: AppMode.anime, navigationState: navigationState),
+            ProfilePage(key: const ValueKey('profile_anime'), navigationState: navigationState),
           ],
         ),
         // Index 1: Movies Mode Stack
@@ -663,6 +698,7 @@ class ShellLayout extends StatelessWidget {
             SettingsPage(key: const ValueKey('settings_movies'), mode: AppMode.movies),
             HistoryPage(key: const ValueKey('history_movies'), mode: AppMode.movies, navigationState: navigationState),
             NotificationsPage(key: const ValueKey('notifications_movies'), mode: AppMode.movies, navigationState: navigationState),
+            ProfilePage(key: const ValueKey('profile_movies'), navigationState: navigationState),
           ],
         ),
         // Index 2: Manga Mode Stack
@@ -677,6 +713,7 @@ class ShellLayout extends StatelessWidget {
             SettingsPage(key: const ValueKey('settings_manga'), mode: AppMode.manga),
             HistoryPage(key: const ValueKey('history_manga'), mode: AppMode.manga, navigationState: navigationState),
             NotificationsPage(key: const ValueKey('notifications_manga'), mode: AppMode.manga, navigationState: navigationState),
+            ProfilePage(key: const ValueKey('profile_manga'), navigationState: navigationState),
           ],
         ),
       ],

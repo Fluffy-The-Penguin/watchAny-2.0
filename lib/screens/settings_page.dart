@@ -1,5 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'dart:io';
 import '../services/extension_service.dart';
 import '../services/stremio_addon_service.dart';
 import '../state/app_settings.dart';
@@ -3604,32 +3606,113 @@ class _SettingsPageState extends State<SettingsPage> {
         final authState = AnilistAuthState();
         return SingleChildScrollView(
           padding: const EdgeInsets.symmetric(horizontal: 4.0, vertical: 8.0),
+          child: Align(
+            alignment: Alignment.topLeft,
+            child: Container(
+              constraints: const BoxConstraints(maxWidth: 550),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'AniList Synchronization',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18.0,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: 'Outfit',
+                    ),
+                  ),
+                  const SizedBox(height: 8.0),
+                  const Text(
+                    'Connect your AniList account to keep your watch/read progress in sync across all devices.',
+                    style: TextStyle(color: Colors.white54, fontSize: 13.0),
+                  ),
+                  const SizedBox(height: 24.0),
+                  if (!authState.isLoggedIn)
+                    _buildAnilistLoggedOut(isMobile)
+                  else
+                    _buildAnilistLoggedIn(isMobile, authState),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _launchAniListUrl() async {
+    const url = 'https://anilist.co/api/v2/oauth/authorize?client_id=45095&response_type=token';
+    if (Platform.isWindows) {
+      try {
+        await Process.run('cmd', ['/c', 'start', '', url], runInShell: true);
+      } catch (_) {
+        try {
+          await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+        } catch (_) {}
+      }
+    } else {
+      try {
+        await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+      } catch (_) {
+        try {
+          await launchUrl(Uri.parse(url));
+        } catch (_) {}
+      }
+    }
+  }
+
+  Widget _buildStepRow({
+    required String stepNumber,
+    required String title,
+    required String description,
+    Widget? child,
+  }) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        CircleAvatar(
+          radius: 12.0,
+          backgroundColor: const Color(0xFF3DB4F2).withValues(alpha: 0.15),
+          child: Text(
+            stepNumber,
+            style: const TextStyle(
+              color: Color(0xFF3DB4F2),
+              fontSize: 12.0,
+              fontWeight: FontWeight.bold,
+              fontFamily: 'Outfit',
+            ),
+          ),
+        ),
+        const SizedBox(width: 16.0),
+        Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                'AniList Synchronization',
-                style: TextStyle(
+              Text(
+                title,
+                style: const TextStyle(
                   color: Colors.white,
-                  fontSize: 18.0,
+                  fontSize: 14.0,
                   fontWeight: FontWeight.bold,
                   fontFamily: 'Outfit',
                 ),
               ),
-              const SizedBox(height: 8.0),
-              const Text(
-                'Connect your AniList account to keep your watch/read progress in sync across all devices.',
-                style: TextStyle(color: Colors.white54, fontSize: 13.0),
+              const SizedBox(height: 4.0),
+              Text(
+                description,
+                style: const TextStyle(
+                  color: Colors.white54,
+                  fontSize: 12.0,
+                  height: 1.4,
+                  fontFamily: 'Outfit',
+                ),
               ),
-              const SizedBox(height: 24.0),
-              if (!authState.isLoggedIn)
-                _buildAnilistLoggedOut(isMobile)
-              else
-                _buildAnilistLoggedIn(isMobile, authState),
+              if (child != null) child,
             ],
           ),
-        );
-      },
+        ),
+      ],
     );
   }
 
@@ -3646,7 +3729,7 @@ class _SettingsPageState extends State<SettingsPage> {
         children: [
           const Row(
             children: [
-              Icon(Icons.sync, color: Colors.blueAccent, size: 24.0),
+              Icon(Icons.sync, color: Color(0xFF3DB4F2), size: 24.0),
               SizedBox(width: 12.0),
               Text(
                 'Link Account',
@@ -3659,121 +3742,137 @@ class _SettingsPageState extends State<SettingsPage> {
               ),
             ],
           ),
-          const SizedBox(height: 16.0),
-          const Text(
-            '1. Click the button below to authorize watchAny on your AniList account in your web browser.\n'
-            '2. Copy the access token shown on the page.\n'
-            '3. Paste the token below and click Connect.',
-            style: TextStyle(color: Colors.white70, fontSize: 13.0, height: 1.5),
-          ),
           const SizedBox(height: 24.0),
-          ElevatedButton.icon(
-            icon: const Icon(Icons.open_in_browser, color: Colors.black, size: 18.0),
-            label: const Text(
-              'Authorize via Browser',
-              style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
-            ),
-            onPressed: () async {
-              final Uri authUri = Uri.parse(
-                'https://anilist.co/api/v2/oauth/authorize?client_id=45095&response_type=token'
-              );
-              try {
-                await launchUrl(authUri, mode: LaunchMode.platformDefault);
-              } catch (_) {
-                try {
-                  await launchUrl(authUri, mode: LaunchMode.externalApplication);
-                } catch (_) {}
-              }
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(vertical: 14.0),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
-            ),
-          ),
-          const SizedBox(height: 24.0),
-          const Text(
-            'Paste Access Token',
-            style: TextStyle(color: Colors.white70, fontSize: 13.0, fontWeight: FontWeight.w600, fontFamily: 'Outfit'),
-          ),
-          const SizedBox(height: 8.0),
-          Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _anilistTokenController,
-                  obscureText: true,
-                  style: const TextStyle(color: Colors.white, fontSize: 14.0, fontFamily: 'Outfit'),
-                  decoration: InputDecoration(
-                    hintText: 'Paste access token here...',
-                    hintStyle: const TextStyle(color: Colors.white24),
-                    filled: true,
-                    fillColor: Colors.white.withValues(alpha: 0.03),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 14.0),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8.0),
-                      borderSide: const BorderSide(color: Colors.white10),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8.0),
-                      borderSide: const BorderSide(color: Colors.blueAccent, width: 1.0),
-                    ),
+          _buildStepRow(
+            stepNumber: '1',
+            title: 'Authorize watchAny',
+            description: 'Authorize the application on AniList to access your profile and list data.',
+            child: Padding(
+              padding: const EdgeInsets.only(top: 12.0),
+              child: SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  icon: const Icon(Icons.open_in_browser, color: Colors.white, size: 18.0),
+                  label: const Text(
+                    'Open AniList Authorization',
+                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                  ),
+                  onPressed: _launchAniListUrl,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF3DB4F2),
+                    padding: const EdgeInsets.symmetric(vertical: 14.0),
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.0)),
                   ),
                 ),
               ),
-            ],
+            ),
           ),
-          if (_anilistError != null) ...[
-            const SizedBox(height: 12.0),
-            Text(
-              _anilistError!,
-              style: const TextStyle(color: Colors.redAccent, fontSize: 12.0, fontWeight: FontWeight.w500),
-            ),
-          ],
           const SizedBox(height: 20.0),
-          ElevatedButton(
-            onPressed: _isConnectingAnilist
-                ? null
-                : () async {
-                    final token = _anilistTokenController.text.trim();
-                    if (token.isEmpty) {
-                      setState(() {
-                        _anilistError = 'Please paste a token first.';
-                      });
-                      return;
-                    }
-                    setState(() {
-                      _isConnectingAnilist = true;
-                      _anilistError = null;
-                    });
-                    final success = await AnilistAuthState().login(token);
-                    if (mounted) {
-                      setState(() {
-                        _isConnectingAnilist = false;
-                        if (!success) {
-                          _anilistError = 'Authentication failed. Please verify the token.';
-                        } else {
-                          _anilistTokenController.clear();
-                        }
-                      });
-                    }
-                  },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.blueAccent,
-              disabledBackgroundColor: Colors.white10,
-              padding: const EdgeInsets.symmetric(vertical: 14.0),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
-            ),
-            child: _isConnectingAnilist
-                ? const SizedBox(
-                    height: 16.0,
-                    width: 16.0,
-                    child: CircularProgressIndicator(strokeWidth: 2.0, valueColor: AlwaysStoppedAnimation(Colors.white)),
-                  )
-                : const Text(
-                    'Connect Account',
-                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+          _buildStepRow(
+            stepNumber: '2',
+            title: 'Copy the PIN/Token',
+            description: 'Copy the long access token string displayed in your browser window.',
+          ),
+          const SizedBox(height: 20.0),
+          _buildStepRow(
+            stepNumber: '3',
+            title: 'Paste and Connect',
+            description: 'Paste your token below and click Connect to link your account.',
+            child: Padding(
+              padding: const EdgeInsets.only(top: 12.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  TextField(
+                    controller: _anilistTokenController,
+                    obscureText: true,
+                    style: const TextStyle(color: Colors.white, fontSize: 13.0, fontFamily: 'Outfit'),
+                    decoration: InputDecoration(
+                      hintText: 'Paste access token here...',
+                      hintStyle: const TextStyle(color: Colors.white24, fontSize: 13.0),
+                      filled: true,
+                      fillColor: Colors.white.withValues(alpha: 0.03),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 14.0),
+                      prefixIcon: const Icon(Icons.key, color: Colors.white30, size: 18.0),
+                      suffixIcon: IconButton(
+                        icon: const Icon(Icons.content_paste, color: Color(0xFF3DB4F2), size: 18.0),
+                        tooltip: 'Paste from clipboard',
+                        onPressed: () async {
+                          final data = await Clipboard.getData(Clipboard.kTextPlain);
+                          if (data?.text != null) {
+                            _anilistTokenController.text = data!.text!.trim();
+                          }
+                        },
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10.0),
+                        borderSide: const BorderSide(color: Colors.white10),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10.0),
+                        borderSide: const BorderSide(color: Color(0xFF3DB4F2), width: 1.0),
+                      ),
+                    ),
                   ),
+                  if (_anilistError != null) ...[
+                    const SizedBox(height: 12.0),
+                    Text(
+                      _anilistError!,
+                      style: const TextStyle(color: Colors.redAccent, fontSize: 12.0, fontWeight: FontWeight.w500),
+                    ),
+                  ],
+                  const SizedBox(height: 16.0),
+                  ElevatedButton(
+                    onPressed: _isConnectingAnilist
+                        ? null
+                        : () async {
+                            final token = _anilistTokenController.text.trim();
+                            if (token.isEmpty) {
+                              setState(() {
+                                _anilistError = 'Please paste a token first.';
+                              });
+                              return;
+                            }
+                            setState(() {
+                              _isConnectingAnilist = true;
+                              _anilistError = null;
+                            });
+                            final success = await AnilistAuthState().login(token);
+                            if (mounted) {
+                              setState(() {
+                                _isConnectingAnilist = false;
+                                if (!success) {
+                                  _anilistError = 'Authentication failed. Please verify the token.';
+                                } else {
+                                  _anilistTokenController.clear();
+                                }
+                              });
+                            }
+                          },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.white.withValues(alpha: 0.05),
+                      foregroundColor: Colors.white,
+                      disabledBackgroundColor: Colors.white10,
+                      side: const BorderSide(color: Colors.white10),
+                      padding: const EdgeInsets.symmetric(vertical: 14.0),
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.0)),
+                    ),
+                    child: _isConnectingAnilist
+                        ? const SizedBox(
+                            height: 16.0,
+                            width: 16.0,
+                            child: CircularProgressIndicator(strokeWidth: 2.0, valueColor: AlwaysStoppedAnimation(Colors.white)),
+                          )
+                        : const Text(
+                            'Connect Account',
+                            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                          ),
+                  ),
+                ],
+              ),
+            ),
           ),
         ],
       ),

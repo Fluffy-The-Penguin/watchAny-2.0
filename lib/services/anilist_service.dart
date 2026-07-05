@@ -447,7 +447,34 @@ class AnilistService {
   // Fetch multiple media items by ID for the library page (real-time fetching)
   Future<List<dynamic>> fetchMultipleMedia(List<int> ids, String type) async {
     if (ids.isEmpty) return [];
+    final uniqueIds = ids.toSet().toList();
 
+    try {
+      return await _fetchMultipleMediaBatch(uniqueIds, type);
+    } catch (e) {
+      // If batch fails, query in chunks of 10 to isolate any problematic IDs
+      final List<dynamic> results = [];
+      for (int i = 0; i < uniqueIds.length; i += 10) {
+        final chunk = uniqueIds.sublist(i, i + 10 > uniqueIds.length ? uniqueIds.length : i + 10);
+        try {
+          final batchResult = await _fetchMultipleMediaBatch(chunk, type);
+          results.addAll(batchResult);
+        } catch (_) {
+          // If chunk fails, query each individually to skip the offending ID
+          for (final id in chunk) {
+            try {
+              final singleResult = await _fetchMultipleMediaBatch([id], type);
+              results.addAll(singleResult);
+            } catch (_) {}
+          }
+        }
+      }
+      return results;
+    }
+  }
+
+  Future<List<dynamic>> _fetchMultipleMediaBatch(List<int> ids, String type) async {
+    if (ids.isEmpty) return [];
     const query = r'''
       query($ids: [Int], $type: MediaType) {
         Page(page: 1, perPage: 100) {
@@ -470,32 +497,26 @@ class AnilistService {
       }
     ''';
 
-    final variables = {
-      'ids': ids,
-      'type': type,
-    };
+    final response = await http.post(
+      Uri.parse(_endpoint),
+      headers: _headers,
+      body: jsonEncode({
+        'query': query,
+        'variables': {
+          'ids': ids,
+          'type': type,
+        },
+      }),
+    );
 
-    try {
-      final response = await http.post(
-        Uri.parse(_endpoint),
-        headers: _headers,
-        body: jsonEncode({
-          'query': query,
-          'variables': variables,
-        }),
-      );
-
-      if (response.statusCode == 200) {
-        final body = jsonDecode(response.body);
-        if (body['data'] != null && body['data']['Page'] != null) {
-          return body['data']['Page']['media'] as List<dynamic>;
-        }
-        throw Exception('GraphQL error: ${body['errors']}');
-      } else {
-        throw Exception('HTTP Request failed with status: ${response.statusCode}');
+    if (response.statusCode == 200) {
+      final body = jsonDecode(response.body);
+      if (body['data'] != null && body['data']['Page'] != null && body['data']['Page']['media'] != null) {
+        return body['data']['Page']['media'] as List<dynamic>;
       }
-    } catch (e) {
-      throw Exception('Failed to load AniList multiple media ($ids): $e');
+      throw Exception('GraphQL error: ${body['errors']}');
+    } else {
+      throw Exception('HTTP Request failed with status: ${response.statusCode}');
     }
   }
 

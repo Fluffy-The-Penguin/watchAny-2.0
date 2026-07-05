@@ -121,6 +121,14 @@ class Sidebar extends StatelessWidget {
                       ),
                       const SizedBox(height: 8.0),
                       _SidebarItem(
+                        icon: Icons.person,
+                        label: 'Profile',
+                        isSelected: state.currentPage == TabPage.profile,
+                        isExpanded: isExpanded,
+                        onTap: () => state.setPage(TabPage.profile),
+                      ),
+                      const SizedBox(height: 8.0),
+                      _SidebarItem(
                         icon: Icons.settings,
                         label: 'Settings',
                         isSelected: state.currentPage == TabPage.settings,
