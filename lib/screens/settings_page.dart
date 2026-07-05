@@ -13,6 +13,9 @@ import '../services/cache_service.dart';
 import '../services/download_service.dart';
 import '../services/backup_service.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:url_launcher/url_launcher.dart';
+import '../state/anilist_auth_state.dart';
+import '../state/library_state.dart';
 
 enum SettingsCategory {
   general,
@@ -22,6 +25,7 @@ enum SettingsCategory {
   extensions,
   addons,
   manga,
+  anilist,
   about,
 }
 
@@ -43,6 +47,12 @@ class _SettingsPageState extends State<SettingsPage> {
   final TextEditingController _mangaPortController = TextEditingController();
   final TextEditingController _mangaHostController = TextEditingController();
   final TextEditingController _torrServerUrlController = TextEditingController();
+  final TextEditingController _anilistTokenController = TextEditingController();
+  
+  bool _isConnectingAnilist = false;
+  String? _anilistError;
+  bool _isImportingAnilist = false;
+  String? _importSuccessMessage;
   
   late SettingsCategory _activeCategory;
   bool _isLoading = false;
@@ -86,6 +96,7 @@ class _SettingsPageState extends State<SettingsPage> {
           SettingsCategory.subtitles,
           SettingsCategory.downloads,
           SettingsCategory.extensions,
+          SettingsCategory.anilist,
           SettingsCategory.about,
         ];
       case AppMode.movies:
@@ -102,6 +113,7 @@ class _SettingsPageState extends State<SettingsPage> {
           SettingsCategory.general,
           SettingsCategory.downloads,
           SettingsCategory.manga,
+          SettingsCategory.anilist,
           SettingsCategory.about,
         ];
     }
@@ -141,6 +153,7 @@ class _SettingsPageState extends State<SettingsPage> {
     _mangaPortController.dispose();
     _mangaHostController.dispose();
     _torrServerUrlController.dispose();
+    _anilistTokenController.dispose();
     super.dispose();
   }
 
@@ -225,6 +238,7 @@ class _SettingsPageState extends State<SettingsPage> {
       SettingsCategory.subtitles: {'title': 'Subtitles', 'icon': Icons.subtitles},
       SettingsCategory.downloads: {'title': 'Downloads & Storage', 'icon': Icons.storage},
       SettingsCategory.manga: {'title': 'Manga Settings', 'icon': Icons.book},
+      SettingsCategory.anilist: {'title': 'AniList Sync', 'icon': Icons.sync},
       SettingsCategory.about: {'title': 'About', 'icon': Icons.info_outline},
     };
 
@@ -2719,6 +2733,7 @@ class _SettingsPageState extends State<SettingsPage> {
       SettingsCategory.subtitles: {'title': 'Subtitles', 'icon': Icons.subtitles},
       SettingsCategory.downloads: {'title': 'Storage', 'icon': Icons.storage},
       SettingsCategory.manga: {'title': 'Manga', 'icon': Icons.book},
+      SettingsCategory.anilist: {'title': 'AniList', 'icon': Icons.sync},
       SettingsCategory.about: {'title': 'About', 'icon': Icons.info_outline},
     };
 
@@ -2816,6 +2831,7 @@ class _SettingsPageState extends State<SettingsPage> {
           const SizedBox(height: 24.0),
           
           // Display Active category content
+          // Display Active category content
           if (_activeCategory == SettingsCategory.extensions) ...[
             _buildRepoSection(isMobile),
             const SizedBox(height: 36.0),
@@ -2834,6 +2850,8 @@ class _SettingsPageState extends State<SettingsPage> {
             _buildDownloadsSection(isMobile),
           ] else if (_activeCategory == SettingsCategory.manga) ...[
             _buildMangaSettingsSection(isMobile),
+          ] else if (_activeCategory == SettingsCategory.anilist) ...[
+            _buildAnilistSection(isMobile),
           ] else if (_activeCategory == SettingsCategory.about) ...[
             _buildAboutSection(),
           ],
@@ -3574,6 +3592,372 @@ class _SettingsPageState extends State<SettingsPage> {
               ),
             );
           },
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAnilistSection(bool isMobile) {
+    return ListenableBuilder(
+      listenable: AnilistAuthState(),
+      builder: (context, _) {
+        final authState = AnilistAuthState();
+        return SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 4.0, vertical: 8.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'AniList Synchronization',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 18.0,
+                  fontWeight: FontWeight.bold,
+                  fontFamily: 'Outfit',
+                ),
+              ),
+              const SizedBox(height: 8.0),
+              const Text(
+                'Connect your AniList account to keep your watch/read progress in sync across all devices.',
+                style: TextStyle(color: Colors.white54, fontSize: 13.0),
+              ),
+              const SizedBox(height: 24.0),
+              if (!authState.isLoggedIn)
+                _buildAnilistLoggedOut(isMobile)
+              else
+                _buildAnilistLoggedIn(isMobile, authState),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildAnilistLoggedOut(bool isMobile) {
+    return Container(
+      padding: const EdgeInsets.all(24.0),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.02),
+        borderRadius: BorderRadius.circular(12.0),
+        border: Border.all(color: Colors.white10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.sync, color: Colors.blueAccent, size: 24.0),
+              SizedBox(width: 12.0),
+              Text(
+                'Link Account',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 16.0,
+                  fontWeight: FontWeight.bold,
+                  fontFamily: 'Outfit',
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16.0),
+          const Text(
+            '1. Click the button below to authorize watchAny on your AniList account in your web browser.\n'
+            '2. Copy the access token shown on the page.\n'
+            '3. Paste the token below and click Connect.',
+            style: TextStyle(color: Colors.white70, fontSize: 13.0, height: 1.5),
+          ),
+          const SizedBox(height: 24.0),
+          ElevatedButton.icon(
+            icon: const Icon(Icons.open_in_browser, color: Colors.black, size: 18.0),
+            label: const Text(
+              'Authorize via Browser',
+              style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+            ),
+            onPressed: () async {
+              final Uri authUri = Uri.parse(
+                'https://anilist.co/api/v2/oauth/authorize?client_id=23640&response_type=token'
+              );
+              if (await canLaunchUrl(authUri)) {
+                await launchUrl(authUri, mode: LaunchMode.externalApplication);
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 14.0),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
+            ),
+          ),
+          const SizedBox(height: 24.0),
+          const Text(
+            'Paste Access Token',
+            style: TextStyle(color: Colors.white70, fontSize: 13.0, fontWeight: FontWeight.w600, fontFamily: 'Outfit'),
+          ),
+          const SizedBox(height: 8.0),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _anilistTokenController,
+                  obscureText: true,
+                  style: const TextStyle(color: Colors.white, fontSize: 14.0, fontFamily: 'Outfit'),
+                  decoration: InputDecoration(
+                    hintText: 'Paste access token here...',
+                    hintStyle: const TextStyle(color: Colors.white24),
+                    filled: true,
+                    fillColor: Colors.white.withValues(alpha: 0.03),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 14.0),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8.0),
+                      borderSide: const BorderSide(color: Colors.white10),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8.0),
+                      borderSide: const BorderSide(color: Colors.blueAccent, width: 1.0),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (_anilistError != null) ...[
+            const SizedBox(height: 12.0),
+            Text(
+              _anilistError!,
+              style: const TextStyle(color: Colors.redAccent, fontSize: 12.0, fontWeight: FontWeight.w500),
+            ),
+          ],
+          const SizedBox(height: 20.0),
+          ElevatedButton(
+            onPressed: _isConnectingAnilist
+                ? null
+                : () async {
+                    final token = _anilistTokenController.text.trim();
+                    if (token.isEmpty) {
+                      setState(() {
+                        _anilistError = 'Please paste a token first.';
+                      });
+                      return;
+                    }
+                    setState(() {
+                      _isConnectingAnilist = true;
+                      _anilistError = null;
+                    });
+                    final success = await AnilistAuthState().login(token);
+                    if (mounted) {
+                      setState(() {
+                        _isConnectingAnilist = false;
+                        if (!success) {
+                          _anilistError = 'Authentication failed. Please verify the token.';
+                        } else {
+                          _anilistTokenController.clear();
+                        }
+                      });
+                    }
+                  },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.blueAccent,
+              disabledBackgroundColor: Colors.white10,
+              padding: const EdgeInsets.symmetric(vertical: 14.0),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
+            ),
+            child: _isConnectingAnilist
+                ? const SizedBox(
+                    height: 16.0,
+                    width: 16.0,
+                    child: CircularProgressIndicator(strokeWidth: 2.0, valueColor: AlwaysStoppedAnimation(Colors.white)),
+                  )
+                : const Text(
+                    'Connect Account',
+                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAnilistLoggedIn(bool isMobile, AnilistAuthState authState) {
+    final String modeLabel = widget.mode == AppMode.manga ? 'Manga' : 'Anime';
+    final String typeStr = widget.mode == AppMode.manga ? 'MANGA' : 'ANIME';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Container(
+          padding: const EdgeInsets.all(20.0),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.02),
+            borderRadius: BorderRadius.circular(12.0),
+            border: Border.all(color: Colors.white10),
+          ),
+          child: Row(
+            children: [
+              CircleAvatar(
+                radius: 28.0,
+                backgroundImage: authState.avatarUrl != null ? NetworkImage(authState.avatarUrl!) : null,
+                backgroundColor: Colors.white10,
+                child: authState.avatarUrl == null ? const Icon(Icons.person, color: Colors.white54) : null,
+              ),
+              const SizedBox(width: 16.0),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      authState.username ?? 'Viewer',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 16.0,
+                        fontWeight: FontWeight.bold,
+                        fontFamily: 'Outfit',
+                      ),
+                    ),
+                    const SizedBox(height: 4.0),
+                    const Text(
+                      'Connected to AniList',
+                      style: TextStyle(color: Colors.green, fontSize: 12.0, fontWeight: FontWeight.w500),
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.logout, color: Colors.white38),
+                tooltip: 'Disconnect Account',
+                onPressed: () async {
+                  await authState.logout();
+                },
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 24.0),
+
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 16.0),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.02),
+            borderRadius: BorderRadius.circular(12.0),
+            border: Border.all(color: Colors.white10),
+          ),
+          child: Row(
+            children: [
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Auto-Sync Progress',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 14.0,
+                        fontWeight: FontWeight.bold,
+                        fontFamily: 'Outfit',
+                      ),
+                    ),
+                    SizedBox(height: 4.0),
+                    Text(
+                      'Automatically update AniList when you change progress or status.',
+                      style: TextStyle(color: Colors.white38, fontSize: 12.0),
+                    ),
+                  ],
+                ),
+              ),
+              Switch(
+                value: authState.isAutoSyncEnabled,
+                activeColor: Colors.blueAccent,
+                onChanged: (val) async {
+                  await authState.setAutoSync(val);
+                },
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 20.0),
+
+        Container(
+          padding: const EdgeInsets.all(20.0),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.02),
+            borderRadius: BorderRadius.circular(12.0),
+            border: Border.all(color: Colors.white10),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Import $modeLabel List',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 14.0,
+                  fontWeight: FontWeight.bold,
+                  fontFamily: 'Outfit',
+                ),
+              ),
+              const SizedBox(height: 6.0),
+              Text(
+                'Fetch your saved $modeLabel lists from AniList and merge them into watchAny. Existing items will only be updated if AniList progress is more advanced.',
+                style: const TextStyle(color: Colors.white38, fontSize: 12.0, height: 1.4),
+              ),
+              const SizedBox(height: 20.0),
+              if (_isImportingAnilist) ...[
+                const Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    SizedBox(
+                      height: 16.0,
+                      width: 16.0,
+                      child: CircularProgressIndicator(strokeWidth: 2.0, valueColor: AlwaysStoppedAnimation(Colors.blueAccent)),
+                    ),
+                    SizedBox(width: 12.0),
+                    Text(
+                      'Importing list entries from AniList...',
+                      style: TextStyle(color: Colors.blueAccent, fontSize: 13.0, fontWeight: FontWeight.w500, fontFamily: 'Outfit'),
+                    ),
+                  ],
+                ),
+              ] else ...[
+                ElevatedButton.icon(
+                  icon: const Icon(Icons.import_export, size: 18.0),
+                  label: Text('Import $modeLabel List'),
+                  onPressed: () async {
+                    setState(() {
+                      _isImportingAnilist = true;
+                      _importSuccessMessage = null;
+                    });
+                    final count = await LibraryState().importFromAnilist(typeStr, authState.accessToken!);
+                    if (mounted) {
+                      setState(() {
+                        _isImportingAnilist = false;
+                        _importSuccessMessage = 'Import completed! Added/updated $count items in your library.';
+                      });
+                      Future.delayed(const Duration(seconds: 5), () {
+                        if (mounted) {
+                          setState(() {
+                            _importSuccessMessage = null;
+                          });
+                        }
+                      });
+                    }
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.white.withValues(alpha: 0.05),
+                    foregroundColor: Colors.white,
+                    side: const BorderSide(color: Colors.white10),
+                    padding: const EdgeInsets.symmetric(vertical: 12.0),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
+                  ),
+                ),
+              ],
+              if (_importSuccessMessage != null) ...[
+                const SizedBox(height: 12.0),
+                Text(
+                  _importSuccessMessage!,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.green, fontSize: 12.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                ),
+              ],
+            ],
+          ),
         ),
       ],
     );

@@ -11,6 +11,7 @@ import 'services/backup_service.dart';
 import 'state/navigation_state.dart';
 import 'state/app_settings.dart';
 import 'state/library_state.dart';
+import 'state/anilist_auth_state.dart';
 import 'screens/shell_layout.dart';
 
 class MyCustomScrollBehavior extends MaterialScrollBehavior {
@@ -34,7 +35,8 @@ void main() async {
   // Load persisted app settings (smooth scroll etc.)
   await AppSettings().init();
   
-  // Initialize Library state
+  // Initialize AniList auth and Library state
+  await AnilistAuthState().init();
   await LibraryState().init();
   
   // Initialize Download Service

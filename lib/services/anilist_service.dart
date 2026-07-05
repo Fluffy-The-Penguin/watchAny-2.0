@@ -635,4 +635,157 @@ class AnilistService {
     }
     return [];
   }
+
+  Future<Map<String, dynamic>?> fetchViewerDetails(String token) async {
+    const query = r'''
+      query {
+        Viewer {
+          id
+          name
+          avatar {
+            large
+          }
+        }
+      }
+    ''';
+
+    try {
+      final response = await http.post(
+        Uri.parse(_endpoint),
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'Authorization': 'Bearer $token',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        },
+        body: jsonEncode({'query': query}),
+      );
+
+      if (response.statusCode == 200) {
+        final body = jsonDecode(response.body);
+        return body['data']?['Viewer'];
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  Future<List<dynamic>> fetchUserLibrary(int userId, String type, String token) async {
+    const query = r'''
+      query($userId: Int, $type: MediaType) {
+        MediaListCollection(userId: $userId, type: $type) {
+          lists {
+            name
+            status
+            entries {
+              id
+              status
+              score(format: POINT_10_DECIMAL)
+              progress
+              media {
+                id
+                title {
+                  romaji
+                  english
+                }
+                coverImage {
+                  large
+                }
+                episodes
+                chapters
+                format
+              }
+            }
+          }
+        }
+      }
+    ''';
+
+    try {
+      final response = await http.post(
+        Uri.parse(_endpoint),
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'Authorization': 'Bearer $token',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        },
+        body: jsonEncode({
+          'query': query,
+          'variables': {
+            'userId': userId,
+            'type': type,
+          },
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        final body = jsonDecode(response.body);
+        final lists = body['data']?['MediaListCollection']?['lists'] as List? ?? [];
+        final List<dynamic> allEntries = [];
+        for (var list in lists) {
+          final entries = list['entries'] as List? ?? [];
+          allEntries.addAll(entries);
+        }
+        return allEntries;
+      }
+    } catch (_) {}
+    return [];
+  }
+
+  Future<bool> syncProgressToAnilist({
+    required int mediaId,
+    required String status,
+    required int progress,
+    required double score,
+    required String token,
+  }) async {
+    const query = r'''
+      mutation($mediaId: Int, $status: MediaListStatus, $progress: Int, $score: Float) {
+        SaveMediaListEntry(mediaId: $mediaId, status: $status, progress: $progress, score: $score) {
+          id
+          status
+          progress
+          score
+        }
+      }
+    ''';
+
+    String aniListStatus = 'CURRENT';
+    if (status == 'watching') {
+      aniListStatus = 'CURRENT';
+    } else if (status == 'planning') {
+      aniListStatus = 'PLANNING';
+    } else if (status == 'completed') {
+      aniListStatus = 'COMPLETED';
+    } else if (status == 'paused_dropped') {
+      aniListStatus = 'DROPPED';
+    }
+
+    try {
+      final response = await http.post(
+        Uri.parse(_endpoint),
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'Authorization': 'Bearer $token',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        },
+        body: jsonEncode({
+          'query': query,
+          'variables': {
+            'mediaId': mediaId,
+            'status': aniListStatus,
+            'progress': progress,
+            'score': score,
+          },
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        final body = jsonDecode(response.body);
+        return body['data']?['SaveMediaListEntry'] != null;
+      }
+    } catch (_) {}
+    return false;
+  }
 }

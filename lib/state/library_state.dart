@@ -7,6 +7,7 @@ import '../services/anilist_service.dart';
 import '../services/suwayomi_service.dart';
 import '../services/download_service.dart';
 import 'navigation_state.dart';
+import 'anilist_auth_state.dart';
 
 class LibraryCategory {
   final String id;
@@ -248,6 +249,7 @@ class LibraryState extends ChangeNotifier {
     required int watchedEpisodes,
     int? totalEpisodes,
     List<String>? categoryIds,
+    bool bypassAnilistSync = false,
   }) async {
     final existing = getItem(id, mode);
     final List<String> finalCategories = categoryIds ?? existing?.categoryIds ?? const <String>[];
@@ -269,6 +271,102 @@ class LibraryState extends ChangeNotifier {
     notifyListeners();
     await _persist();
     updateNotificationCount(force: true);
+
+    // Asynchronous background sync to AniList
+    if (!bypassAnilistSync && (mode == 'anime' || mode == 'manga')) {
+      final authState = AnilistAuthState();
+      if (authState.isLoggedIn && authState.isAutoSyncEnabled) {
+        AnilistService().syncProgressToAnilist(
+          mediaId: id,
+          status: libraryStatus,
+          progress: watchedEpisodes,
+          score: rating,
+          token: authState.accessToken!,
+        );
+      }
+    }
+  }
+
+  Future<int> importFromAnilist(String type, String token) async {
+    final String localModeStr = type == 'MANGA' ? 'manga' : 'anime';
+    final viewerId = AnilistAuthState().userId;
+    if (viewerId == null) return 0;
+
+    final List<dynamic> entries = await AnilistService().fetchUserLibrary(viewerId, type, token);
+    if (entries.isEmpty) return 0;
+
+    int importedCount = 0;
+    for (var entry in entries) {
+      final media = entry['media'];
+      if (media == null) continue;
+
+      final int mediaId = media['id'];
+      final String formatVal = media['format'] ?? '';
+      final String aniStatus = entry['status'] ?? 'PLANNING';
+      final double score = (entry['score'] as num?)?.toDouble() ?? 0.0;
+      final int progress = entry['progress'] ?? 0;
+      final int? total = type == 'MANGA' ? media['chapters'] : media['episodes'];
+
+      String libraryStatus = 'planning';
+      if (aniStatus == 'CURRENT' || aniStatus == 'REPEATING') {
+        libraryStatus = 'watching';
+      } else if (aniStatus == 'PLANNING') {
+        libraryStatus = 'planning';
+      } else if (aniStatus == 'COMPLETED') {
+        libraryStatus = 'completed';
+      } else if (aniStatus == 'DROPPED' || aniStatus == 'PAUSED') {
+        libraryStatus = 'paused_dropped';
+      }
+
+      final existingItem = getItem(mediaId, localModeStr);
+      if (existingItem != null) {
+        if (existingItem.libraryStatus != libraryStatus ||
+            existingItem.watchedEpisodes != progress ||
+            existingItem.rating != score) {
+          
+          await saveItem(
+            id: mediaId,
+            mode: localModeStr,
+            format: formatVal,
+            libraryStatus: libraryStatus,
+            rating: score,
+            watchedEpisodes: progress,
+            totalEpisodes: total ?? existingItem.totalEpisodes,
+            categoryIds: existingItem.categoryIds,
+            bypassAnilistSync: true,
+          );
+          importedCount++;
+        }
+      } else {
+        await saveItem(
+          id: mediaId,
+          mode: localModeStr,
+          format: formatVal,
+          libraryStatus: libraryStatus,
+          rating: score,
+          watchedEpisodes: progress,
+          totalEpisodes: total,
+          bypassAnilistSync: true,
+        );
+        importedCount++;
+      }
+
+      if (type == 'MANGA') {
+        final titles = media['title'];
+        final String displayName = titles?['english'] ?? titles?['romaji'] ?? 'Untitled';
+        final String coverUrl = media['coverImage']?['large'] ?? '';
+        
+        await updateMangaCache(mediaId, {
+          'id': mediaId,
+          'title': displayName,
+          'thumbnailUrl': coverUrl,
+          'status': '',
+          'author': '',
+          'genre': [],
+        });
+      }
+    }
+    return importedCount;
   }
 
   Future<void> removeItem(int id, String mode) async {
