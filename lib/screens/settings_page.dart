@@ -3675,10 +3675,14 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
             onPressed: () async {
               final Uri authUri = Uri.parse(
-                'https://anilist.co/api/v2/oauth/authorize?client_id=23640&response_type=token'
+                'https://anilist.co/api/v2/oauth/authorize?client_id=45095&response_type=token'
               );
-              if (await canLaunchUrl(authUri)) {
-                await launchUrl(authUri, mode: LaunchMode.externalApplication);
+              try {
+                await launchUrl(authUri, mode: LaunchMode.platformDefault);
+              } catch (_) {
+                try {
+                  await launchUrl(authUri, mode: LaunchMode.externalApplication);
+                } catch (_) {}
               }
             },
             style: ElevatedButton.styleFrom(
@@ -3779,53 +3783,196 @@ class _SettingsPageState extends State<SettingsPage> {
   Widget _buildAnilistLoggedIn(bool isMobile, AnilistAuthState authState) {
     final String modeLabel = widget.mode == AppMode.manga ? 'Manga' : 'Anime';
     final String typeStr = widget.mode == AppMode.manga ? 'MANGA' : 'ANIME';
+    final daysWatched = (authState.minutesWatched / 1440).toStringAsFixed(1);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        // Premium Profile Card
         Container(
-          padding: const EdgeInsets.all(20.0),
+          clipBehavior: Clip.antiAlias,
           decoration: BoxDecoration(
             color: Colors.white.withValues(alpha: 0.02),
-            borderRadius: BorderRadius.circular(12.0),
+            borderRadius: BorderRadius.circular(16.0),
             border: Border.all(color: Colors.white10),
           ),
-          child: Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              CircleAvatar(
-                radius: 28.0,
-                backgroundImage: authState.avatarUrl != null ? NetworkImage(authState.avatarUrl!) : null,
-                backgroundColor: Colors.white10,
-                child: authState.avatarUrl == null ? const Icon(Icons.person, color: Colors.white54) : null,
-              ),
-              const SizedBox(width: 16.0),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      authState.username ?? 'Viewer',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 16.0,
-                        fontWeight: FontWeight.bold,
-                        fontFamily: 'Outfit',
+              // Banner & Avatar Stack
+              Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  if (authState.bannerUrl != null)
+                    Image.network(
+                      authState.bannerUrl!,
+                      height: 120,
+                      width: double.infinity,
+                      fit: BoxFit.cover,
+                    )
+                  else
+                    Container(
+                      height: 120,
+                      decoration: const BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [Color(0xFF3B5998), Color(0xFF1DA1F2)],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
                       ),
                     ),
-                    const SizedBox(height: 4.0),
-                    const Text(
-                      'Connected to AniList',
-                      style: TextStyle(color: Colors.green, fontSize: 12.0, fontWeight: FontWeight.w500),
+                  Container(
+                    height: 120,
+                    color: Colors.black.withValues(alpha: 0.25),
+                  ),
+                  Positioned(
+                    top: 12,
+                    right: 12,
+                    child: CircleAvatar(
+                      backgroundColor: Colors.black45,
+                      radius: 18,
+                      child: IconButton(
+                        icon: const Icon(Icons.logout, size: 16.0, color: Colors.white70),
+                        tooltip: 'Disconnect Account',
+                        padding: EdgeInsets.zero,
+                        onPressed: () async {
+                          await authState.logout();
+                        },
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16.0, 16.0, 16.0, 16.0),
+                child: Row(
+                  children: [
+                    CircleAvatar(
+                      radius: 32.0,
+                      backgroundImage: authState.avatarUrl != null ? NetworkImage(authState.avatarUrl!) : null,
+                      backgroundColor: Colors.white10,
+                      child: authState.avatarUrl == null ? const Icon(Icons.person, color: Colors.white54, size: 24) : null,
+                    ),
+                    const SizedBox(width: 16.0),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            authState.username ?? 'Viewer',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 18.0,
+                              fontWeight: FontWeight.bold,
+                              fontFamily: 'Outfit',
+                            ),
+                          ),
+                          const SizedBox(height: 4.0),
+                          const Row(
+                            children: [
+                              Icon(Icons.check_circle, color: Colors.green, size: 14.0),
+                              SizedBox(width: 6.0),
+                              Text(
+                                'AniList Connected',
+                                style: TextStyle(color: Colors.green, fontSize: 12.0, fontWeight: FontWeight.w500, fontFamily: 'Outfit'),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
                   ],
                 ),
               ),
-              IconButton(
-                icon: const Icon(Icons.logout, color: Colors.white38),
-                tooltip: 'Disconnect Account',
-                onPressed: () async {
-                  await authState.logout();
-                },
+              
+              const Divider(color: Colors.white10, height: 1),
+              
+              Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Profile Statistics',
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontSize: 13.0,
+                        fontWeight: FontWeight.bold,
+                        fontFamily: 'Outfit',
+                      ),
+                    ),
+                    const SizedBox(height: 12.0),
+                    
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Container(
+                            padding: const EdgeInsets.all(12.0),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.01),
+                              borderRadius: BorderRadius.circular(10.0),
+                              border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Row(
+                                  children: [
+                                    Icon(Icons.video_library, color: Colors.blueAccent, size: 14),
+                                    SizedBox(width: 6),
+                                    Text(
+                                      'Anime',
+                                      style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 10),
+                                _buildStatRow('Total Anime', '${authState.animeCount}'),
+                                const SizedBox(height: 6),
+                                _buildStatRow('Episodes', '${authState.episodesWatched}'),
+                                const SizedBox(height: 6),
+                                _buildStatRow('Days Watched', '$daysWatched d'),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12.0),
+                        Expanded(
+                          child: Container(
+                            padding: const EdgeInsets.all(12.0),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.01),
+                              borderRadius: BorderRadius.circular(10.0),
+                              border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Row(
+                                  children: [
+                                    Icon(Icons.book, color: Colors.purpleAccent, size: 14),
+                                    SizedBox(width: 6),
+                                    Text(
+                                      'Manga',
+                                      style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 10),
+                                _buildStatRow('Total Manga', '${authState.mangaCount}'),
+                                const SizedBox(height: 6),
+                                _buildStatRow('Chapters', '${authState.chaptersRead}'),
+                                const SizedBox(height: 6),
+                                _buildStatRow('Volumes', '${authState.volumesRead}'),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
@@ -3958,6 +4105,22 @@ class _SettingsPageState extends State<SettingsPage> {
               ],
             ],
           ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStatRow(String label, String value) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(color: Colors.white38, fontSize: 11, fontFamily: 'Outfit'),
+        ),
+        Text(
+          value,
+          style: const TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
         ),
       ],
     );

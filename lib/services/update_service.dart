@@ -67,7 +67,7 @@ class UpdateService extends ChangeNotifier {
   factory UpdateService() => _instance;
   UpdateService._internal();
 
-  static const String currentVersion = '2.0.21';
+  static const String currentVersion = '2.0.22';
   
   // GitHub Releases API Endpoint
   static const String gitHubReleasesUrl = 'https://api.github.com/repos/Fluffy-The-Penguin/watchAny-2.0/releases/latest';
@@ -167,22 +167,20 @@ class UpdateService extends ChangeNotifier {
       // Fallback mock update in case of failure
       _error = 'Live check failed ($e). Showing fallback updates.';
       _latestUpdate = UpdateInfo(
-        version: 'v2.0.21',
-        changelog: '• Added AniList OAuth integration supporting browser-based authorization PIN logins\n'
+        version: 'v2.0.22',
+        changelog: '• Configured dedicated watchAny client ID and secret on AniList authentication flow\n'
+            '• Added gorgeous user profile and statistics dashboard displaying overall watch/read progress\n'
+            '• Optimized URL launcher configurations to ensure smooth default browser opening on Windows\n'
             '• Implemented two-way library synchronization (import remote lists & sync local watch/read progress)\n'
             '• Added persistent offline caching for the AniList dashboard (3-hour cache lifetime)\n'
             '• Implemented a 5-minute cooldown throttle on library notification checks to prevent rate limits\n'
             '• Added standard browser User-Agent headers to all AniList requests to avoid Cloudflare blocks\n'
             '• Added library Watch / Reading Status dropdown selection inside detail page bookmark panels\n'
             '• Fixed library bookmark panel showing manga categories instead of anime categories\n'
-            '• Added language configuration settings inside installed manga extensions\n'
-            '• Split single manga source selector into clean Extension name and configured Languages dropdowns\n'
-            '• Display extension source icons or clear placeholders inside extensions list\n'
-            '• Fixed category and category tab status mismatch and read progress tracking\n'
-            '• Cleaned up code analyzer warnings for a perfectly stable release build',
+            '• Added language configuration settings inside installed manga extensions',
         downloadUrl: Platform.isAndroid 
-            ? 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.21/app-arm64-v8a-release.apk'
-            : 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.21/watchany_setup.exe',
+            ? 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.22/app-arm64-v8a-release.apk'
+            : 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.22/watchany_setup.exe',
       );
     } finally {
       _isChecking = false;

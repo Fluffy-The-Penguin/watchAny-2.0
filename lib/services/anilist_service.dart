@@ -645,6 +645,19 @@ class AnilistService {
           avatar {
             large
           }
+          bannerImage
+          statistics {
+            anime {
+              count
+              episodesWatched
+              minutesWatched
+            }
+            manga {
+              count
+              chaptersRead
+              volumesRead
+            }
+          }
         }
       }
     ''';
