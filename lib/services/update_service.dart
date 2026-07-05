@@ -67,7 +67,7 @@ class UpdateService extends ChangeNotifier {
   factory UpdateService() => _instance;
   UpdateService._internal();
 
-  static const String currentVersion = '2.0.23';
+  static const String currentVersion = '2.0.26';
   
   // GitHub Releases API Endpoint
   static const String gitHubReleasesUrl = 'https://api.github.com/repos/Fluffy-The-Penguin/watchAny-2.0/releases/latest';
@@ -167,21 +167,14 @@ class UpdateService extends ChangeNotifier {
       // Fallback mock update in case of failure
       _error = 'Live check failed ($e). Showing fallback updates.';
       _latestUpdate = UpdateInfo(
-        version: 'v2.0.23',
-        changelog: '• Created dedicated User Profile page with step authorization timeline, local library metrics, and AniList cloud stats\n'
-            '• Constrained desktop sync layout width to 550px for a perfectly polished presentation\n'
-            '• Bypassed URL launcher checks on Windows using direct OS shell start commands for robust browser launching\n'
-            '• Added clipboard paste helper button to make token entry effortless\n'
-            '• Configured Android notch display cutout behavior to support full screen immersive reading\n'
-            '• Implemented fallback batch query chunking and individual retries for resilient library loading\n'
-            '• Configured dedicated watchAny client ID and secret on AniList authentication flow\n'
-            '• Implemented two-way library synchronization (import remote lists & sync local watch/read progress)\n'
-            '• Added persistent offline caching for the AniList dashboard (3-hour cache lifetime)\n'
-            '• Implemented a 5-minute cooldown throttle on library notification checks to prevent rate limits\n'
-            '• Added standard browser User-Agent headers to all AniList requests to avoid Cloudflare blocks',
+        version: 'v2.0.26',
+        changelog: '• Optimized startup with parallelized database and configuration initializations\n'
+            '• Removed glassmorphism blur and BackdropFilters for solid premium dark-mode card styling\n'
+            '• Isolated watch/read histories between Anime, Movies, and Manga categories\n'
+            '• Added full offline library details loading fallback',
         downloadUrl: Platform.isAndroid 
-            ? 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.23/app-arm64-v8a-release.apk'
-            : 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.23/watchany_setup.exe',
+            ? 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.26/app-arm64-v8a-release.apk'
+            : 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.26/watch_any.exe',
       );
     } finally {
       _isChecking = false;
