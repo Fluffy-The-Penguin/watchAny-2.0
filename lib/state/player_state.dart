@@ -298,6 +298,8 @@ class PlayerState extends ChangeNotifier {
     required String streamUrl,
     required String title,
     required int episodeNumber,
+    List<HstreamSource>? hstreamSources,
+    Map<String, String>? headers,
   }) {
     // Save current progress before switching episode
     _saveCurrentProgress();
@@ -305,13 +307,24 @@ class PlayerState extends ChangeNotifier {
     _streamUrl = streamUrl;
     _title = title;
     _episodeNumber = episodeNumber;
+    if (hstreamSources != null) _hstreamSources = hstreamSources;
+    if (headers != null) _headers = headers;
 
     // Reset current position trackers
     _currentPosition = Duration.zero;
     _currentDuration = Duration.zero;
     _lastSaveTime = null;
 
-    _player?.open(Media(streamUrl));
+    final bool isDesktop = !kIsWeb && (Platform.isWindows || Platform.isMacOS || Platform.isLinux);
+    final bool useProxy = isDesktop;
+    
+    final isDash = streamUrl.endsWith('.mpd');
+    final proxyUrl = (useProxy && streamUrl.startsWith('http') && !streamUrl.contains('127.0.0.1'))
+        ? VideoProxyService().getProxyUrl(streamUrl, headers: _headers, isDash: isDash)
+        : streamUrl;
+    
+    final headersToPass = useProxy ? null : _headers;
+    _player?.open(Media(proxyUrl, httpHeaders: headersToPass));
 
     final id = _anilistId?.toString() ?? _movieId;
     if (id != null) {

@@ -693,6 +693,39 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
                               ),
                             ),
                           ),
+                          if (_isHentai) ...[
+                            const SizedBox(height: 12.0),
+                            SizedBox(
+                              width: double.infinity,
+                              child: OutlinedButton.icon(
+                                icon: const Icon(Icons.download, color: Colors.white),
+                                label: const Text(
+                                  'Download Episode',
+                                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14.0),
+                                ),
+                                onPressed: () {
+                                  Navigator.pop(context);
+
+                                  if (_details == null) return;
+
+                                  final titles = [
+                                    _details!['title']?['english'] ?? '',
+                                    _details!['title']?['romaji'] ?? '',
+                                    _details!['title']?['native'] ?? '',
+                                  ].where((t) => t.isNotEmpty).map((t) => t.toString()).toList();
+
+                                  _downloadHstreamEpisode(epNum, titles);
+                                },
+                                style: OutlinedButton.styleFrom(
+                                  side: const BorderSide(color: Colors.white24),
+                                  padding: const EdgeInsets.symmetric(vertical: 14.0),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(6.0),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
                         ],
                       ),
                     ),
@@ -942,6 +975,147 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
       NotificationService().show(
         context,
         'Stream error: ${e.toString()}',
+        isError: true,
+      );
+    }
+  }
+
+  Future<void> _downloadHstreamEpisode(int epNum, List<String> titles) async {
+    if (!mounted) return;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => const _HstreamLoadingDialog(),
+    );
+
+    try {
+      final service = HstreamService();
+      final searchTerms = service.generateSearchTerms(titles);
+      List<HstreamResult> results = [];
+      for (final term in searchTerms) {
+        results = await service.search(term);
+        if (results.isNotEmpty) break;
+      }
+
+      if (!mounted) return;
+
+      if (results.isEmpty) {
+        Navigator.pop(context); // close loading
+        NotificationService().show(
+          context,
+          'No streams found for this title.',
+          isError: true,
+        );
+        return;
+      }
+
+      // Pick best result matching the episode number
+      HstreamResult? best;
+      for (final r in results) {
+        final path = Uri.tryParse(r.url)?.pathSegments.lastOrNull ?? '';
+        final lastPart = path.split('-').lastOrNull;
+        if (lastPart != null && int.tryParse(lastPart) == epNum) {
+          best = r;
+          break;
+        }
+      }
+
+      if (best == null) {
+        for (final r in results) {
+          final title = r.title.toLowerCase();
+          final regex = RegExp(r'(?:^|\b|[-_])' + epNum.toString() + r'(?:\b|$)', caseSensitive: false);
+          if (regex.hasMatch(title)) {
+            best = r;
+            break;
+          }
+        }
+      }
+
+      best ??= results.first;
+      final streams = await service.getStreams(best.url);
+
+      if (!mounted) return;
+      Navigator.pop(context); // close loading
+
+      if (streams == null || streams.sources.isEmpty) {
+        NotificationService().show(
+          context,
+          'Could not fetch streams. Please try again.',
+          isError: true,
+        );
+        return;
+      }
+
+      // Filter only MP4 qualities for downloading (as DASH manifests can't be downloaded directly)
+      final mp4Sources = streams.sources.where((s) => s.type == 'video/mp4' || s.url.contains('.mp4')).toList();
+      if (mp4Sources.isEmpty) {
+        NotificationService().show(
+          context,
+          'No downloadable MP4 qualities found.',
+          isError: true,
+        );
+        return;
+      }
+
+      // Show quality selector dialog
+      if (!mounted) return;
+      showDialog(
+        context: context,
+        builder: (dialogCtx) {
+          return AlertDialog(
+            backgroundColor: const Color(0xFF0F0F11),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12.0),
+              side: const BorderSide(color: Colors.white10),
+            ),
+            title: const Text(
+              'Select Download Quality',
+              style: TextStyle(color: Colors.white, fontFamily: 'Outfit', fontWeight: FontWeight.bold),
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: mp4Sources.map((source) {
+                return ListTile(
+                  title: Text(
+                    source.name,
+                    style: const TextStyle(color: Colors.white, fontFamily: 'Outfit'),
+                  ),
+                  onTap: () async {
+                    Navigator.pop(dialogCtx);
+                    final displayName = _details!['title']?['english'] ?? _details!['title']?['romaji'] ?? 'Hentai';
+                    final taskTitle = '$displayName - Episode $epNum (${source.name})';
+                    
+                    await DownloadService().addDownloadTask(
+                      hash: 'hstream_${best!.url.hashCode}_$epNum',
+                      fileIndex: epNum,
+                      title: taskTitle,
+                      streamUrl: source.url,
+                      anilistId: widget.animeId,
+                      titles: titles,
+                      episodeCount: _mergedEpisodes.length,
+                      episodeNumber: epNum,
+                      isMovie: (_details?['format']?.toString().toUpperCase() == 'MOVIE'),
+                      mediaJson: jsonEncode(_details),
+                      episodesJson: jsonEncode(_mergedEpisodes),
+                    );
+                    
+                    if (mounted) {
+                      NotificationService().show(context, 'Added "$taskTitle" to download queue.');
+                    }
+                  },
+                );
+              }).toList(),
+            ),
+          );
+        },
+      );
+    } catch (e) {
+      if (!mounted) return;
+      Navigator.pop(context); // close loading
+      NotificationService().show(
+        context,
+        'Error: ${e.toString()}',
         isError: true,
       );
     }

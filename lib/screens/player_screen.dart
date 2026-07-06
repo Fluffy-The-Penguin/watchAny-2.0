@@ -568,17 +568,10 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
           ? streams.title
           : (titles.isNotEmpty ? '${titles.first} — Episode $epNum' : 'Episode $epNum');
 
-      PlayerState().startPlayback(
+      PlayerState().updateActiveEpisode(
         streamUrl: preferred.url,
         title: episodeTitle,
-        anilistId: widget.anilistId,
-        titles: widget.titles,
-        episodeCount: widget.episodeCount,
         episodeNumber: epNum,
-        isMovie: widget.isMovie,
-        media: widget.media,
-        episodes: widget.episodes,
-        tmdbEpisodesMap: widget.tmdbEpisodesMap,
         hstreamSources: streams.sources,
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
