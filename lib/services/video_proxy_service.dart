@@ -160,7 +160,11 @@ class VideoProxyService {
             request.response.headers.add(name, value);
           }
         });
-        request.response.headers.set('Content-Type', 'video/mp4');
+        if (segment.endsWith('.vtt')) {
+          request.response.headers.set('Content-Type', 'text/vtt');
+        } else {
+          request.response.headers.set('Content-Type', 'video/mp4');
+        }
         request.response.statusCode = ioResponse.statusCode;
         await ioResponse.pipe(request.response);
       } catch (_) {
@@ -200,6 +204,16 @@ class VideoProxyService {
     String? videoStreamLine;
     String? audioMediaLine;
 
+    final proxyBase = 'http://127.0.0.1:$port';
+    
+    // Include original headers in segment requests
+    String headerParams = '';
+    request.uri.queryParameters.forEach((key, value) {
+      if (key != 'url' && key != 'type' && key != 'segment') {
+        headerParams += '&$key=${Uri.encodeComponent(value)}';
+      }
+    });
+
     for (int i = 1; i < adaptationSets.length; i++) {
       final setXml = adaptationSets[i];
       final isVideo = setXml.contains('contentType="video"');
@@ -225,16 +239,7 @@ class VideoProxyService {
       // a live stream and DISABLES seeking entirely, causing infinite buffering on seek.
       String playlist = '#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-PLAYLIST-TYPE:VOD\n#EXT-X-ALLOW-CACHE:YES\n#EXT-X-TARGETDURATION:11\n#EXT-X-MEDIA-SEQUENCE:$startNumber\n';
       
-      // Include original headers in segment requests
-      String headerParams = '';
-      request.uri.queryParameters.forEach((key, value) {
-        if (key != 'url' && key != 'type' && key != 'segment') {
-          headerParams += '&$key=${Uri.encodeComponent(value)}';
-        }
-      });
-
       // Use ABSOLUTE segment URLs so libmpv can resolve them without knowing the base URL
-      final proxyBase = 'http://127.0.0.1:$port';
       final proxyInitPath = '$proxyBase/dash_proxy?url=${Uri.encodeComponent(targetUrl)}&segment=${Uri.encodeComponent(initPath)}$headerParams';
       
       playlist += '#EXT-X-MAP:URI="$proxyInitPath"\n';
@@ -259,7 +264,7 @@ class VideoProxyService {
       if (isVideo) {
         final codecs = RegExp(r'codecs="([^"]+)"').firstMatch(setXml)?.group(1) ?? 'av01.0.08M.08';
         videoPlaylist = playlist;
-        videoStreamLine = '#EXT-X-STREAM-INF:BANDWIDTH=$bandwidth,CODECS="$codecs",AUDIO="audio"\n$proxyBase/dash_proxy?url=${Uri.encodeComponent(targetUrl)}&type=video$headerParams';
+        videoStreamLine = '#EXT-X-STREAM-INF:BANDWIDTH=$bandwidth,CODECS="$codecs",AUDIO="audio",SUBTITLES="subs"\n$proxyBase/dash_proxy?url=${Uri.encodeComponent(targetUrl)}&type=video$headerParams';
       } else if (isAudio) {
         audioPlaylist = playlist;
         audioMediaLine = '#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="English",DEFAULT=YES,URI="$proxyBase/dash_proxy?url=${Uri.encodeComponent(targetUrl)}&type=audio$headerParams"';
@@ -268,6 +273,9 @@ class VideoProxyService {
 
     // Build master playlist in the CORRECT order: #EXTM3U must always be line 1
     final masterPlaylist = StringBuffer('#EXTM3U\n');
+    final subUri = '$proxyBase/dash_proxy?url=${Uri.encodeComponent(targetUrl)}&segment=eng.vtt$headerParams';
+    final subtitleMediaLine = '#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="subs",NAME="English",DEFAULT=YES,AUTOSELECT=YES,FORCED=NO,LANGUAGE="en",URI="$subUri"';
+    masterPlaylist.writeln(subtitleMediaLine);
     if (audioMediaLine != null) masterPlaylist.writeln(audioMediaLine);
     if (videoStreamLine != null) masterPlaylist.writeln(videoStreamLine);
 

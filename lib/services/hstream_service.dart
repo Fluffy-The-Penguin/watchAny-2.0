@@ -566,4 +566,61 @@ class HstreamService {
     // Filter out clearly unrelated results
     return score < 0.2 ? 0.0 : score;
   }
+
+  /// Clean, normalize, and generate prefix/shortened search term variants from titles
+  List<String> generateSearchTerms(List<String> titles) {
+    final terms = <String>[];
+    for (final t in titles) {
+      if (t.trim().isEmpty) continue;
+      
+      final clean = t.trim();
+      terms.add(clean);
+      
+      // Split by colon
+      if (clean.contains(':')) {
+        final beforeColon = clean.split(':').first.trim();
+        if (beforeColon.isNotEmpty) terms.add(beforeColon);
+      }
+      
+      // Split by dash
+      if (clean.contains('-')) {
+        final beforeDash = clean.split('-').first.trim();
+        if (beforeDash.isNotEmpty) terms.add(beforeDash);
+      }
+      
+      // Replace smart quotes/ellipsis and clean special characters
+      final normalized = clean
+          .replaceAll('…', ' ')
+          .replaceAll('...', ' ')
+          .replaceAll(RegExp(r'[^a-zA-Z0-9\s]'), '')
+          .replaceAll(RegExp(r'\s+'), ' ')
+          .trim();
+          
+      if (normalized.isNotEmpty && normalized != clean) {
+        terms.add(normalized);
+        if (normalized.contains(' ')) {
+          final words = normalized.split(' ');
+          if (words.length > 2) {
+            terms.add(words.sublist(0, 2).join(' '));
+          }
+          if (words.length > 3) {
+            terms.add(words.sublist(0, 3).join(' '));
+          }
+          if (words.length > 4) {
+            terms.add(words.sublist(0, 4).join(' '));
+          }
+        }
+      }
+    }
+    
+    // Remove duplicates and maintain order
+    final uniqueTerms = <String>[];
+    for (final term in terms) {
+      final trimmed = term.trim();
+      if (trimmed.isNotEmpty && !uniqueTerms.contains(trimmed)) {
+        uniqueTerms.add(trimmed);
+      }
+    }
+    return uniqueTerms;
+  }
 }

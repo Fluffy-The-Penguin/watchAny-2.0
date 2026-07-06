@@ -101,6 +101,34 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
                 ? (data['nextAiringEpisode']['episode'] as int) - 1 
                 : streaming.length);
 
+        final bool isHentai = (data['genres'] as List<dynamic>? ?? []).contains('Hentai');
+        if (isHentai && totalCount == 0) {
+          final titlesList = <String>[];
+          if (data['title']['english'] != null) titlesList.add(data['title']['english']);
+          if (data['title']['romaji'] != null) titlesList.add(data['title']['romaji']);
+          if (data['title']['native'] != null) titlesList.add(data['title']['native']);
+          
+          final service = HstreamService();
+          final searchTerms = service.generateSearchTerms(titlesList);
+          
+          int maxEp = 1;
+          List<HstreamResult> results = [];
+          for (final term in searchTerms) {
+            results = await service.search(term);
+            if (results.isNotEmpty) break;
+          }
+          
+          for (final r in results) {
+            final path = Uri.tryParse(r.url)?.pathSegments.lastOrNull ?? '';
+            final lastPart = path.split('-').lastOrNull ?? '';
+            final epNum = int.tryParse(lastPart);
+            if (epNum != null && epNum > maxEp) {
+              maxEp = epNum;
+            }
+          }
+          totalCount = maxEp;
+        }
+
         Map<String, dynamic> aniZipEpisodes = {};
         if (mappings != null && mappings['episodes'] != null) {
           aniZipEpisodes = mappings['episodes'] as Map<String, dynamic>;
@@ -825,10 +853,10 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
       final service = HstreamService();
 
       // Search using each title variant until we get results
+      final searchTerms = service.generateSearchTerms(titles);
       List<HstreamResult> results = [];
-      for (final title in titles) {
-        if (title.isEmpty) continue;
-        results = await service.search(title);
+      for (final term in searchTerms) {
+        results = await service.search(term);
         if (results.isNotEmpty) break;
       }
 

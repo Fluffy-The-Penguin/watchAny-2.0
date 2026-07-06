@@ -67,7 +67,7 @@ class UpdateService extends ChangeNotifier {
   factory UpdateService() => _instance;
   UpdateService._internal();
 
-  static const String currentVersion = '2.0.29';
+  static const String currentVersion = '2.0.30';
   
   // GitHub Releases API Endpoint
   static const String gitHubReleasesUrl = 'https://api.github.com/repos/Fluffy-The-Penguin/watchAny-2.0/releases/latest';
@@ -167,14 +167,14 @@ class UpdateService extends ChangeNotifier {
       // Fallback mock update in case of failure
       _error = 'Live check failed ($e). Showing fallback updates.';
       _latestUpdate = UpdateInfo(
-        version: 'v2.0.29',
-        changelog: '• Added HStream 1080p and 4K support on Windows with local DASH-to-HLS proxy\n'
-            '• Fixed infinite buffering on seek by outputting VOD playlist directives\n'
-            '• Implemented dynamic CDN probing via HEAD requests to eliminate fake qualities\n'
-            '• Upgraded episode navigator: direct HStream playback from episode list without opening torrent panel',
+        version: 'v2.0.30',
+        changelog: '• Added HStream English subtitle tracks support inside DASH-to-HLS proxy\n'
+            '• Implemented dynamic episode count resolution for adult shows with empty AniList episode lists\n'
+            '• Optimized title matching mapping for long titles with sub-names or tag descriptions\n'
+            '• Improved next episode navigator checks to ensure seamless playback flow for hentai shows',
         downloadUrl: Platform.isAndroid 
-            ? 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.29/app-arm64-v8a-release.apk'
-            : 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.29/watchany_setup.exe',
+            ? 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.30/app-arm64-v8a-release.apk'
+            : 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.30/watchany_setup.exe',
       );
     } finally {
       _isChecking = false;

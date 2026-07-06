@@ -428,6 +428,9 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
     } catch (_) {}
   }
 
+  bool get _isHentai =>
+      (widget.media?['genres'] as List<dynamic>? ?? []).contains('Hentai');
+
   void _playNextEpisode() async {
     final playerState = PlayerState();
     final currentEp = playerState.episodeNumber ?? widget.episodeNumber ?? 1;
@@ -439,8 +442,8 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
     
     final nextEp = currentEp + 1;
 
-    // If we're watching via HStream, switch episode directly without opening a panel
-    if (playerState.hstreamSources != null && playerState.hstreamSources!.isNotEmpty) {
+    // If we're watching via HStream or this is a Hentai show, switch episode directly without opening a panel
+    if ((playerState.hstreamSources != null && playerState.hstreamSources!.isNotEmpty) || _isHentai) {
       _playHstreamEpisode(nextEp);
       return;
     }
@@ -497,10 +500,10 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
     try {
       final service = HstreamService();
 
+      final searchTerms = service.generateSearchTerms(titles);
       List<HstreamResult> results = [];
-      for (final title in titles) {
-        if (title.isEmpty) continue;
-        results = await service.search(title);
+      for (final term in searchTerms) {
+        results = await service.search(term);
         if (results.isNotEmpty) break;
       }
 
@@ -875,10 +878,10 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
                                   episodeNumber: epNum,
                                 );
                               } else {
-                                // If we're currently watching via HStream, switch directly.
+                                // If we're currently watching via HStream or this is a Hentai show, switch directly.
                                 // Otherwise fall back to torrent panel / stremio.
-                                if (PlayerState().hstreamSources != null &&
-                                    PlayerState().hstreamSources!.isNotEmpty) {
+                                if ((PlayerState().hstreamSources != null &&
+                                    PlayerState().hstreamSources!.isNotEmpty) || _isHentai) {
                                   _playHstreamEpisode(epNum);
                                 } else if (widget.anilistId != null) {
                                   _openTorrentSelectorPanel(epNum: epNum);
