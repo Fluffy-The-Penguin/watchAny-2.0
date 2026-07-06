@@ -95,9 +95,20 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
           DeviceOrientation.portraitUp,
           DeviceOrientation.portraitDown,
         ]);
+      } else if (playerState.isFullscreen) {
+        SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+        SystemChrome.setPreferredOrientations([
+          DeviceOrientation.landscapeLeft,
+          DeviceOrientation.landscapeRight,
+        ]);
       } else {
         SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-        SystemChrome.setPreferredOrientations([]); // Allow both portrait and landscape rotation
+        SystemChrome.setPreferredOrientations([
+          DeviceOrientation.portraitUp,
+          DeviceOrientation.portraitDown,
+          DeviceOrientation.landscapeLeft,
+          DeviceOrientation.landscapeRight,
+        ]);
       }
     }
 
