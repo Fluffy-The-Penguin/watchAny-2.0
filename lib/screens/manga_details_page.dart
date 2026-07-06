@@ -181,13 +181,49 @@ class _MangaDetailsPageState extends State<MangaDetailsPage> {
 
     return Scaffold(
       backgroundColor: Colors.black,
-      body: Stack(
-        children: [
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 1000.0),
+          child: Stack(
+            children: [
+              // 1. Background Banner Backdrop Image
+              if (coverUrl.isNotEmpty)
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  height: 250.0,
+                  child: Stack(
+                    children: [
+                      CachedNetworkImage(
+                        imageUrl: coverUrl,
+                        width: double.infinity,
+                        height: 250.0,
+                        fit: BoxFit.cover,
+                        memCacheWidth: 400,
+                        placeholder: (context, url) => const SizedBox(),
+                        errorWidget: (context, url, error) => const SizedBox(),
+                      ),
+                      Container(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              Colors.black.withValues(alpha: 0.25),
+                              Colors.black.withValues(alpha: 0.8),
+                              Colors.black,
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
 
-
-          // 2. Main scrollable content — CustomScrollView for lazy chapter loading
-          Positioned.fill(
-            child: CustomScrollView(
+              // 2. Main scrollable content — CustomScrollView for lazy chapter loading
+              Positioned.fill(
+                child: CustomScrollView(
               physics: const BouncingScrollPhysics(),
               slivers: [
                 // Header content (back button, banner area, details, filters)
@@ -423,7 +459,9 @@ class _MangaDetailsPageState extends State<MangaDetailsPage> {
           ),
         ],
       ),
-    );
+    ),
+  ),
+);
   }
 }
 
@@ -816,6 +854,11 @@ class _MangaChaptersSectionState extends State<_MangaChaptersSection> {
   String _chapterFilter = 'ALL'; // 'ALL', 'UNREAD', 'READ'
   bool _isChaptersReversed = false;
 
+  int _currentPage = 1;
+  static const int _chaptersPerPage = 20;
+  String _lastQuery = '';
+  String _lastFilter = 'ALL';
+
   Widget _buildChapterFilterChip(String value, String label) {
     final bool isSelected = _chapterFilter == value;
     return ChoiceChip(
@@ -886,6 +929,22 @@ class _MangaChaptersSectionState extends State<_MangaChaptersSection> {
         return _chapterFilter == 'READ' ? isRead : !isRead;
       }).toList();
     }
+
+    // Reset pagination if query or filters change
+    if (_chapterSearchQuery != _lastQuery || _chapterFilter != _lastFilter) {
+      _currentPage = 1;
+      _lastQuery = _chapterSearchQuery;
+      _lastFilter = _chapterFilter;
+    }
+
+    // Pagination slicing
+    final int totalPages = (displayChapters.length / _chaptersPerPage).ceil().clamp(1, double.infinity).toInt();
+    if (_currentPage > totalPages) {
+      _currentPage = totalPages;
+    }
+    final int startIndex = (_currentPage - 1) * _chaptersPerPage;
+    final int endIndex = (startIndex + _chaptersPerPage).clamp(0, displayChapters.length);
+    final pageChapters = displayChapters.sublist(startIndex, endIndex);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -968,9 +1027,9 @@ class _MangaChaptersSectionState extends State<_MangaChaptersSection> {
         ListView.builder(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
-          itemCount: displayChapters.length,
+          itemCount: pageChapters.length,
           itemBuilder: (context, index) {
-            final chapter = displayChapters[index];
+            final chapter = pageChapters[index];
             final String chName = chapter['name'] ?? 'Chapter';
             final String chId = chapter['id']?.toString() ?? '';
             final double? chNum = double.tryParse(chapter['chapterNumber']?.toString() ?? '');
@@ -1080,8 +1139,7 @@ class _MangaChaptersSectionState extends State<_MangaChaptersSection> {
                 ),
                 onTap: () {
                   if (chId.isNotEmpty) {
-                    Navigator.push(
-                      context,
+                    Navigator.of(context, rootNavigator: true).push(
                       MaterialPageRoute(
                         builder: (context) => MangaReaderPage(
                           chapterId: chId,
@@ -1101,6 +1159,35 @@ class _MangaChaptersSectionState extends State<_MangaChaptersSection> {
             );
           },
         ),
+
+        // Sliced pagination controller
+        if (totalPages > 1) ...[
+          const SizedBox(height: 20.0),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              IconButton(
+                icon: Icon(Icons.chevron_left, color: _currentPage > 1 ? Colors.white : Colors.white24),
+                onPressed: _currentPage > 1 ? () => setState(() => _currentPage--) : null,
+              ),
+              const SizedBox(width: 16),
+              Text(
+                'Page $_currentPage of $totalPages',
+                style: const TextStyle(
+                  color: Colors.white70,
+                  fontSize: 13.0,
+                  fontWeight: FontWeight.bold,
+                  fontFamily: 'Outfit',
+                ),
+              ),
+              const SizedBox(width: 16),
+              IconButton(
+                icon: Icon(Icons.chevron_right, color: _currentPage < totalPages ? Colors.white : Colors.white24),
+                onPressed: _currentPage < totalPages ? () => setState(() => _currentPage++) : null,
+              ),
+            ],
+          ),
+        ],
       ],
     );
   }

@@ -67,7 +67,7 @@ class UpdateService extends ChangeNotifier {
   factory UpdateService() => _instance;
   UpdateService._internal();
 
-  static const String currentVersion = '2.0.27';
+  static const String currentVersion = '2.0.28';
   
   // GitHub Releases API Endpoint
   static const String gitHubReleasesUrl = 'https://api.github.com/repos/Fluffy-The-Penguin/watchAny-2.0/releases/latest';
@@ -167,14 +167,15 @@ class UpdateService extends ChangeNotifier {
       // Fallback mock update in case of failure
       _error = 'Live check failed ($e). Showing fallback updates.';
       _latestUpdate = UpdateInfo(
-        version: 'v2.0.27',
-        changelog: '• Added setup wizard on startup to customize enabled sections (Anime, Manga, Movies)\n'
-            '• Fully hidden disabled sections and optimized background services dynamically\n'
-            '• Prevented scrollbar from showing on setup wizard to preserve aesthetic\n'
-            '• Fixed desktop window controls support on wizard screen',
+        version: 'v2.0.28',
+        changelog: '• Added F11 fullscreen key binding support on desktop\n'
+            '• Centered details page on widescreen desktop and added blurred backdrop banner\n'
+            '• Added chapters pagination to details page to limit memory and load lag\n'
+            '• Fixed reader double-gestures allowing swipe to change page when unzoomed\n'
+            '• Loaded reader page in full screen rootNavigator container',
         downloadUrl: Platform.isAndroid 
-            ? 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.27/app-arm64-v8a-release.apk'
-            : 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.27/watchany_setup.exe',
+            ? 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.28/app-arm64-v8a-release.apk'
+            : 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.28/watchany_setup.exe',
       );
     } finally {
       _isChecking = false;

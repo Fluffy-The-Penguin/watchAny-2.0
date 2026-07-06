@@ -178,24 +178,45 @@ class _SetupScreenState extends State<SetupScreen>
 
                                 const SizedBox(height: 36),
 
-                                // Section cards — grid on wide, stack on mobile
+                                // Section cards — 2-column + centered 3rd card on mobile, 3-column row on desktop
                                 isMobile
-                                    ? Column(
-                                        children: [
-                                          _buildCard('anime', 'Anime', 'Stream and track your\nfavorite anime series', Icons.tv_rounded, const [Color(0xFF6366F1), Color(0xFF4F46E5)], 0),
-                                          const SizedBox(height: 12),
-                                          _buildCard('manga', 'Manga', 'Read manga from\nmultiple sources', Icons.menu_book_rounded, const [Color(0xFFF59E0B), Color(0xFFD97706)], 100),
-                                          const SizedBox(height: 12),
-                                          _buildCard('movies', 'Movies & Series', 'Watch movies, TV shows\nand web series', Icons.movie_rounded, const [Color(0xFFEC4899), Color(0xFFDB2777)], 200),
-                                        ],
+                                    ? LayoutBuilder(
+                                        builder: (context, constraints) {
+                                          final cardWidth = (constraints.maxWidth - 12) / 2;
+                                          return Column(
+                                            children: [
+                                              Row(
+                                                mainAxisAlignment: MainAxisAlignment.center,
+                                                children: [
+                                                  SizedBox(
+                                                    width: cardWidth,
+                                                    child: _buildCard('anime', 'Anime', 'Stream & track your\nfavorite anime', Icons.tv_rounded, const [Color(0xFF6366F1), Color(0xFF4F46E5)], 0, isMobile),
+                                                  ),
+                                                  const SizedBox(width: 12),
+                                                  SizedBox(
+                                                    width: cardWidth,
+                                                    child: _buildCard('manga', 'Manga', 'Read manga from\nmultiple sources', Icons.menu_book_rounded, const [Color(0xFFF59E0B), Color(0xFFD97706)], 100, isMobile),
+                                                  ),
+                                                ],
+                                              ),
+                                              const SizedBox(height: 12),
+                                              Center(
+                                                child: SizedBox(
+                                                  width: cardWidth,
+                                                  child: _buildCard('movies', 'Movies & Series', 'Watch movies, TV shows\nand web series', Icons.movie_rounded, const [Color(0xFFEC4899), Color(0xFFDB2777)], 200, isMobile),
+                                                ),
+                                              ),
+                                            ],
+                                          );
+                                        },
                                       )
                                     : Row(
                                         children: [
-                                          Expanded(child: _buildCard('anime', 'Anime', 'Stream and track your\nfavorite anime series', Icons.tv_rounded, const [Color(0xFF6366F1), Color(0xFF4F46E5)], 0)),
+                                          Expanded(child: _buildCard('anime', 'Anime', 'Stream and track your\nfavorite anime series', Icons.tv_rounded, const [Color(0xFF6366F1), Color(0xFF4F46E5)], 0, isMobile)),
                                           const SizedBox(width: 12),
-                                          Expanded(child: _buildCard('manga', 'Manga', 'Read manga from\nmultiple sources', Icons.menu_book_rounded, const [Color(0xFFF59E0B), Color(0xFFD97706)], 100)),
+                                          Expanded(child: _buildCard('manga', 'Manga', 'Read manga from\nmultiple sources', Icons.menu_book_rounded, const [Color(0xFFF59E0B), Color(0xFFD97706)], 100, isMobile)),
                                           const SizedBox(width: 12),
-                                          Expanded(child: _buildCard('movies', 'Movies & Series', 'Watch movies, TV shows\nand web series', Icons.movie_rounded, const [Color(0xFFEC4899), const Color(0xFFDB2777)], 200)),
+                                          Expanded(child: _buildCard('movies', 'Movies & Series', 'Watch movies, TV shows\nand web series', Icons.movie_rounded, const [Color(0xFFEC4899), const Color(0xFFDB2777)], 200, isMobile)),
                                         ],
                                       ),
 
@@ -263,7 +284,7 @@ class _SetupScreenState extends State<SetupScreen>
     );
   }
 
-  Widget _buildCard(String mode, String title, String description, IconData icon, List<Color> gradient, int delay) {
+  Widget _buildCard(String mode, String title, String description, IconData icon, List<Color> gradient, int delay, bool isMobile) {
     final isSelected = _selectedModes.contains(mode);
 
     return TweenAnimationBuilder<double>(
@@ -292,7 +313,7 @@ class _SetupScreenState extends State<SetupScreen>
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 250),
           curve: Curves.easeOutCubic,
-          padding: const EdgeInsets.all(20),
+          padding: EdgeInsets.all(isMobile ? 12 : 20),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
@@ -320,10 +341,10 @@ class _SetupScreenState extends State<SetupScreen>
               // Icon
               AnimatedContainer(
                 duration: const Duration(milliseconds: 250),
-                width: 52,
-                height: 52,
+                width: isMobile ? 40 : 52,
+                height: isMobile ? 40 : 52,
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(14),
+                  borderRadius: BorderRadius.circular(isMobile ? 10 : 14),
                   gradient: isSelected
                       ? LinearGradient(
                           colors: gradient,
@@ -336,11 +357,11 @@ class _SetupScreenState extends State<SetupScreen>
                 child: Icon(
                   icon,
                   color: isSelected ? Colors.white : Colors.white38,
-                  size: 26,
+                  size: isMobile ? 20 : 26,
                 ),
               ),
 
-              const SizedBox(height: 14),
+              SizedBox(height: isMobile ? 10 : 14),
 
               // Title
               Text(
@@ -348,7 +369,7 @@ class _SetupScreenState extends State<SetupScreen>
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   color: isSelected ? Colors.white : Colors.white60,
-                  fontSize: 15,
+                  fontSize: isMobile ? 13.5 : 15,
                   fontWeight: FontWeight.w700,
                   fontFamily: 'Outfit',
                 ),
@@ -364,21 +385,21 @@ class _SetupScreenState extends State<SetupScreen>
                   color: isSelected
                       ? Colors.white.withValues(alpha: 0.45)
                       : Colors.white.withValues(alpha: 0.25),
-                  fontSize: 11.5,
+                  fontSize: isMobile ? 10.5 : 11.5,
                   fontFamily: 'Outfit',
                   height: 1.4,
                 ),
               ),
 
-              const SizedBox(height: 14),
+              SizedBox(height: isMobile ? 10 : 14),
 
               // Checkmark
               AnimatedContainer(
                 duration: const Duration(milliseconds: 200),
-                width: 26,
-                height: 26,
+                width: isMobile ? 20 : 26,
+                height: isMobile ? 20 : 26,
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(isMobile ? 6 : 8),
                   gradient: isSelected
                       ? LinearGradient(
                           colors: gradient,
@@ -394,7 +415,7 @@ class _SetupScreenState extends State<SetupScreen>
                         ),
                 ),
                 child: isSelected
-                    ? const Icon(Icons.check_rounded, color: Colors.white, size: 16)
+                    ? Icon(Icons.check_rounded, color: Colors.white, size: isMobile ? 13 : 16)
                     : null,
               ),
             ],

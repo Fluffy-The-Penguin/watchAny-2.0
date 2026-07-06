@@ -1,5 +1,6 @@
-import '../services/notification_service.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+import '../services/notification_service.dart';
 import '../services/suwayomi_service.dart';
 import '../state/navigation_state.dart';
 import '../state/library_state.dart';
@@ -10,6 +11,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:http/http.dart' as http;
 import 'dart:io';
 import 'dart:async';
+import 'package:window_manager/window_manager.dart';
 import 'package:async/async.dart';
 
 class MangaReaderPage extends StatefulWidget {
@@ -73,6 +75,14 @@ class _MangaReaderPageState extends State<MangaReaderPage> {
   void dispose() {
     // Restore status bar and navigation bar when leaving
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: SystemUiOverlay.values);
+    
+    // Exit fullscreen if windowManager is active
+    windowManager.isFullScreen().then((isFS) {
+      if (isFS) {
+        windowManager.setFullScreen(false);
+      }
+    });
+
     _scrollController.removeListener(_onScroll);
     _pageLoader?.dispose();
     _pageController.dispose();
@@ -105,6 +115,25 @@ class _MangaReaderPageState extends State<MangaReaderPage> {
     });
     _pageLoader?.setPriorityIndex(index);
     _saveCurrentPage(index);
+
+    // Precache next and previous pages for butter smooth swiping
+    if (mounted) {
+      final nextIdx = index + 1;
+      if (nextIdx < _pageUrls.length) {
+        final nextPath = _pageLoader?.localPaths[nextIdx];
+        if (nextPath != null) {
+          precacheImage(FileImage(File(nextPath)), context);
+        }
+      }
+      final prevIdx = index - 1;
+      if (prevIdx >= 0) {
+        final prevPath = _pageLoader?.localPaths[prevIdx];
+        if (prevPath != null) {
+          precacheImage(FileImage(File(prevPath)), context);
+        }
+      }
+    }
+
     if (jump && _readingFormat != 'webtoon' && _pageController.hasClients) {
       if (_readingFormat == 'paging_double') {
         final groups = _getDoublePageIndices();
@@ -572,6 +601,34 @@ class _MangaReaderPageState extends State<MangaReaderPage> {
               right: 0,
               child: _buildBottomOverlay(),
             ),
+
+          // Page Number Indicator (e.g. 4/27) floating at bottom center
+          if (!_isLoading && _errorMessage == null && _pageUrls.isNotEmpty)
+            Positioned(
+              bottom: _showOverlay ? 110.0 : 20.0,
+              left: 0,
+              right: 0,
+              child: Center(
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 5.0),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.6),
+                    borderRadius: BorderRadius.circular(12.0),
+                    border: Border.all(color: Colors.white10, width: 0.5),
+                  ),
+                  child: Text(
+                    '${_currentPageIndex + 1}/${_pageUrls.length}',
+                    style: const TextStyle(
+                      color: Colors.white70,
+                      fontSize: 11.0,
+                      fontFamily: 'Outfit',
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );
@@ -606,9 +663,15 @@ class _MangaReaderPageState extends State<MangaReaderPage> {
   Widget _buildPageImage(int index) {
     final localPath = _pageLoader?.localPaths[index];
     if (localPath != null) {
+      final size = MediaQuery.of(context).size;
+      final pixelRatio = MediaQuery.of(context).devicePixelRatio;
+      // Clamp decoded image width to fit screen width * scale to avoid extra memory usage
+      final int targetWidth = (size.width * pixelRatio).toInt().clamp(800, 2000);
+
       return Image.file(
         File(localPath),
         fit: BoxFit.contain,
+        cacheWidth: targetWidth,
         errorBuilder: (context, error, stackTrace) => const Center(
           child: Icon(Icons.broken_image, color: Colors.white30, size: 40),
         ),
@@ -674,10 +737,8 @@ class _MangaReaderPageState extends State<MangaReaderPage> {
             
             children.addAll([
               Expanded(
-                child: Center(
-                  child: InteractiveViewer(
-                    minScale: 1.0,
-                    maxScale: 4.0,
+                child: _ZoomablePageImage(
+                  child: Center(
                     child: _buildColorFilteredWidget(
                       _buildPageImage(leftIdx),
                     ),
@@ -686,10 +747,8 @@ class _MangaReaderPageState extends State<MangaReaderPage> {
               ),
               const SizedBox(width: 8.0),
               Expanded(
-                child: Center(
-                  child: InteractiveViewer(
-                    minScale: 1.0,
-                    maxScale: 4.0,
+                child: _ZoomablePageImage(
+                  child: Center(
                     child: _buildColorFilteredWidget(
                       _buildPageImage(rightIdx),
                     ),
@@ -700,10 +759,8 @@ class _MangaReaderPageState extends State<MangaReaderPage> {
           } else {
             children.add(
               Expanded(
-                child: Center(
-                  child: InteractiveViewer(
-                    minScale: 1.0,
-                    maxScale: 4.0,
+                child: _ZoomablePageImage(
+                  child: Center(
                     child: _buildColorFilteredWidget(
                       _buildPageImage(group[0]),
                     ),
@@ -728,10 +785,8 @@ class _MangaReaderPageState extends State<MangaReaderPage> {
           _updatePageIndex(index);
         },
         itemBuilder: (context, index) {
-          return Center(
-            child: InteractiveViewer(
-              minScale: 1.0,
-              maxScale: 4.0,
+          return _ZoomablePageImage(
+            child: Center(
               child: _buildColorFilteredWidget(
                 _buildPageImage(index),
               ),
@@ -785,6 +840,23 @@ class _MangaReaderPageState extends State<MangaReaderPage> {
               ],
             ),
           ),
+          if (!kIsWeb && (Platform.isWindows || Platform.isMacOS || Platform.isLinux)) ...[
+            FutureBuilder<bool>(
+              future: windowManager.isFullScreen(),
+              builder: (context, snapshot) {
+                final isFS = snapshot.data ?? false;
+                return IconButton(
+                  icon: Icon(isFS ? Icons.fullscreen_exit : Icons.fullscreen, color: Colors.white, size: 24.0),
+                  tooltip: isFS ? 'Exit Full Screen' : 'Full Screen',
+                  onPressed: () async {
+                    final nextFS = !isFS;
+                    await windowManager.setFullScreen(nextFS);
+                    setState(() {});
+                  },
+                );
+              }
+            ),
+          ],
         ],
       ),
     );
@@ -1028,5 +1100,64 @@ class MangaPageLoader {
     );
 
     await completer.future;
+  }
+}
+
+class _ZoomablePageImage extends StatefulWidget {
+  final Widget child;
+  const _ZoomablePageImage({required this.child});
+
+  @override
+  State<_ZoomablePageImage> createState() => _ZoomablePageImageState();
+}
+
+class _ZoomablePageImageState extends State<_ZoomablePageImage> {
+  final TransformationController _controller = TransformationController();
+  bool _panEnabled = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller.addListener(_onTransformationChanged);
+  }
+
+  @override
+  void dispose() {
+    _controller.removeListener(_onTransformationChanged);
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _onTransformationChanged() {
+    final double scale = _controller.value.getMaxScaleOnAxis();
+    final bool enablePan = scale > 1.01;
+    if (enablePan != _panEnabled) {
+      setState(() {
+        _panEnabled = enablePan;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return InteractiveViewer(
+      transformationController: _controller,
+      minScale: 1.0,
+      maxScale: 4.0,
+      panEnabled: _panEnabled,
+      scaleEnabled: true,
+      onInteractionEnd: (details) {
+        final double scale = _controller.value.getMaxScaleOnAxis();
+        if (scale < 1.01 && scale > 0.99) {
+          _controller.value = Matrix4.identity();
+          if (_panEnabled) {
+            setState(() {
+              _panEnabled = false;
+            });
+          }
+        }
+      },
+      child: widget.child,
+    );
   }
 }

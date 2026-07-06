@@ -1050,9 +1050,9 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
         return StatefulBuilder(
           builder: (context, setDialogState) {
             return AlertDialog(
-              backgroundColor: const Color(0xFF0F0F11),
+              backgroundColor: const Color(0xFF121214),
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12.0),
+                borderRadius: BorderRadius.circular(16.0),
                 side: const BorderSide(color: Colors.white10),
               ),
               title: Column(
@@ -1060,9 +1060,9 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
                 children: [
                   Text(
                     cleanName,
-                    style: const TextStyle(color: Colors.white, fontFamily: 'Outfit', fontWeight: FontWeight.bold),
+                    style: const TextStyle(color: Colors.white, fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 18),
                   ),
-                  const SizedBox(height: 4.0),
+                  const SizedBox(height: 6.0),
                   const Text(
                     'Enable or disable languages for this extension.',
                     style: TextStyle(color: Colors.white38, fontSize: 12.0, fontFamily: 'Outfit'),
@@ -1070,7 +1070,7 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
                 ],
               ),
               content: SizedBox(
-                width: double.maxFinite,
+                width: 320,
                 child: ListView.builder(
                   shrinkWrap: true,
                   itemCount: displaySources.length,
@@ -1079,37 +1079,91 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
                     final String lang = src['lang']?.toString() ?? 'en';
                     final bool isEnabled = _isLanguageEnabled(extName, lang);
 
-                    return CheckboxListTile(
-                      title: Text(
-                        lang.toUpperCase(),
-                        style: const TextStyle(color: Colors.white, fontFamily: 'Outfit', fontWeight: FontWeight.w600),
-                      ),
-                      value: isEnabled,
-                      activeColor: const Color(0xFFFF9F1C),
-                      checkColor: Colors.black,
-                      onChanged: (bool? val) async {
-                        if (val != null) {
-                          // Prevent disabling the last language
-                          final enabledCount = displaySources.where((s) {
-                            final l = s['lang']?.toString() ?? 'en';
-                            return _isLanguageEnabled(extName, l);
-                          }).length;
+                    String getLanguageName(String code) {
+                      switch (code.toLowerCase()) {
+                        case 'all': return 'All Languages';
+                        case 'en': return 'English';
+                        case 'ja': return 'Japanese';
+                        case 'ko': return 'Korean';
+                        case 'zh': return 'Chinese';
+                        case 'es': return 'Spanish';
+                        case 'fr': return 'French';
+                        case 'de': return 'German';
+                        case 'ru': return 'Russian';
+                        case 'pt': return 'Portuguese';
+                        case 'it': return 'Italian';
+                        case 'tr': return 'Turkish';
+                        case 'vi': return 'Vietnamese';
+                        case 'id': return 'Indonesian';
+                        case 'th': return 'Thai';
+                        default: return code.toUpperCase();
+                      }
+                    }
 
-                          if (!val && enabledCount <= 1) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('At least one language must be enabled.'),
-                                duration: Duration(seconds: 2),
-                              ),
-                            );
-                            return;
-                          }
+                    final label = getLanguageName(lang);
+                    final isLastEnabled = isEnabled && displaySources.where((s) {
+                      final l = s['lang']?.toString() ?? 'en';
+                      return _isLanguageEnabled(extName, l);
+                    }).length <= 1;
 
-                          await _setLanguageEnabled(extName, lang, val);
-                          setDialogState(() {});
-                          setState(() {});
-                        }
+                    return GestureDetector(
+                      onTap: isLastEnabled ? null : () async {
+                        await _setLanguageEnabled(extName, lang, !isEnabled);
+                        setDialogState(() {});
+                        setState(() {});
                       },
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        margin: const EdgeInsets.only(bottom: 8.0),
+                        padding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 12.0),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: isEnabled 
+                                ? const Color(0xFFFF9F1C).withValues(alpha: 0.5) 
+                                : Colors.white.withValues(alpha: 0.06),
+                          ),
+                          color: isEnabled 
+                              ? const Color(0xFFFF9F1C).withValues(alpha: 0.08) 
+                              : Colors.white.withValues(alpha: 0.02),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.language, 
+                              color: isEnabled ? const Color(0xFFFF9F1C) : Colors.white38, 
+                              size: 18
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                label,
+                                style: TextStyle(
+                                  color: isEnabled ? Colors.white : Colors.white54,
+                                  fontSize: 13.5,
+                                  fontWeight: FontWeight.w600,
+                                  fontFamily: 'Outfit',
+                                ),
+                              ),
+                            ),
+                            Transform.scale(
+                              scale: 0.8,
+                              child: Switch(
+                                value: isEnabled,
+                                activeColor: Colors.white,
+                                activeTrackColor: const Color(0xFFFF9F1C).withValues(alpha: 0.5),
+                                inactiveThumbColor: Colors.white30,
+                                inactiveTrackColor: Colors.black26,
+                                onChanged: isLastEnabled ? null : (val) async {
+                                  await _setLanguageEnabled(extName, lang, val);
+                                  setDialogState(() {});
+                                  setState(() {});
+                                },
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     );
                   },
                 ),

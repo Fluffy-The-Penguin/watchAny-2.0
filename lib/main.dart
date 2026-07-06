@@ -2,6 +2,7 @@ import 'dart:ui';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:media_kit/media_kit.dart';
 import 'services/torrserver_manager.dart';
@@ -165,6 +166,22 @@ class _MyAppState extends State<MyApp> with WindowListener {
         ),
         useMaterial3: true,
       ),
+      builder: (context, child) {
+        return Focus(
+          autofocus: true,
+          onKeyEvent: (node, event) {
+            if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.f11) {
+              if (!_isDesktop) return KeyEventResult.ignored;
+              windowManager.isFullScreen().then((isFS) {
+                windowManager.setFullScreen(!isFS);
+              });
+              return KeyEventResult.handled;
+            }
+            return KeyEventResult.ignored;
+          },
+          child: child ?? const SizedBox(),
+        );
+      },
       home: FutureBuilder<void>(
         future: _initFuture,
         builder: (context, snapshot) {
