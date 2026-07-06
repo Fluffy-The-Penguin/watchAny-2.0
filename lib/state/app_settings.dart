@@ -55,6 +55,10 @@ class AppSettings extends ChangeNotifier {
   double _subtitlesShadowOffset = 1.5;
   List<String> _customSubtitlePresets = [];
 
+  // Section management
+  Set<String> _enabledModes = {'anime', 'manga', 'movies'};
+  bool _setupCompleted = false;
+
   bool get smoothScrollEnabled => _smoothScrollEnabled;
   String get torrServerUrl => _torrServerUrl;
   String get downloadPath => _downloadPath;
@@ -94,6 +98,17 @@ class AppSettings extends ChangeNotifier {
   double get subtitlesShadowOpacity => _subtitlesShadowOpacity;
   double get subtitlesShadowBlurRadius => _subtitlesShadowBlurRadius;
   double get subtitlesShadowOffset => _subtitlesShadowOffset;
+
+  // Section management getters
+  bool get setupCompleted => _setupCompleted;
+  Set<String> get enabledModes => Set.unmodifiable(_enabledModes);
+
+  bool isModeEnabled(AppMode mode) => _enabledModes.contains(mode.name);
+
+  List<AppMode> get enabledModesList {
+    const order = [AppMode.anime, AppMode.manga, AppMode.movies];
+    return order.where((m) => _enabledModes.contains(m.name)).toList();
+  }
 
   AppMode get startupMode {
     switch (_startupModeStr) {
@@ -174,6 +189,14 @@ class AppSettings extends ChangeNotifier {
     _subtitlesShadowBlurRadius = prefs.getDouble('subtitles_shadow_blur_radius') ?? 2.0;
     _subtitlesShadowOffset = prefs.getDouble('subtitles_shadow_offset') ?? 1.5;
     _customSubtitlePresets = prefs.getStringList('custom_subtitle_presets') ?? [];
+
+    // Section management
+    final List<String>? savedModes = prefs.getStringList('enabled_modes');
+    if (savedModes != null && savedModes.isNotEmpty) {
+      _enabledModes = savedModes.toSet();
+    }
+    _setupCompleted = prefs.getBool('setup_completed') ?? false;
+
     notifyListeners();
   }
 
@@ -651,5 +674,19 @@ class AppSettings extends ChangeNotifier {
     await prefs.setDouble('subtitles_position_offset', _subtitlesPositionOffset);
     await prefs.setDouble('subtitles_x_offset', _subtitlesXOffset);
     await prefs.setBool('subtitles_custom_styles_enabled', true);
+  }
+
+  Future<void> setEnabledModes(Set<String> modes) async {
+    if (modes.isEmpty) return;
+    _enabledModes = modes;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList('enabled_modes', modes.toList());
+  }
+
+  Future<void> completeSetup() async {
+    _setupCompleted = true;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('setup_completed', true);
   }
 }

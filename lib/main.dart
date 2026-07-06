@@ -13,6 +13,7 @@ import 'state/app_settings.dart';
 import 'state/library_state.dart';
 import 'state/anilist_auth_state.dart';
 import 'screens/shell_layout.dart';
+import 'screens/setup_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class MyCustomScrollBehavior extends MaterialScrollBehavior {
@@ -66,6 +67,7 @@ class _MyAppState extends State<MyApp> with WindowListener {
   final NavigationState _navigationState = NavigationState();
   final bool _isDesktop = !kIsWeb && (Platform.isWindows || Platform.isMacOS || Platform.isLinux);
   late Future<void> _initFuture;
+  bool _showSetup = false;
 
   @override
   void initState() {
@@ -135,7 +137,12 @@ class _MyAppState extends State<MyApp> with WindowListener {
 
   void _handleNavigationModeChange() {
     if (!_isDesktop && !Platform.isAndroid) return;
-    if (_navigationState.currentMode == AppMode.anime || _navigationState.currentMode == AppMode.movies) {
+    final settings = AppSettings();
+    final mode = _navigationState.currentMode;
+    // Only start TorrServer if anime or movies section is enabled and currently active
+    final needsTorr = (mode == AppMode.anime && settings.isModeEnabled(AppMode.anime)) ||
+                      (mode == AppMode.movies && settings.isModeEnabled(AppMode.movies));
+    if (needsTorr) {
       TorrServerManager.start();
     } else {
       TorrServerManager.stop();
@@ -162,6 +169,15 @@ class _MyAppState extends State<MyApp> with WindowListener {
         future: _initFuture,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.done) {
+            if (_showSetup || !AppSettings().setupCompleted) {
+              return SetupScreen(
+                onSetupComplete: () {
+                  setState(() => _showSetup = false);
+                  // Re-sync TorrServer after setup
+                  _handleNavigationModeChange();
+                },
+              );
+            }
             return ShellLayout(navigationState: _navigationState);
           }
           return const Scaffold(

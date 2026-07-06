@@ -67,7 +67,7 @@ class UpdateService extends ChangeNotifier {
   factory UpdateService() => _instance;
   UpdateService._internal();
 
-  static const String currentVersion = '2.0.26';
+  static const String currentVersion = '2.0.27';
   
   // GitHub Releases API Endpoint
   static const String gitHubReleasesUrl = 'https://api.github.com/repos/Fluffy-The-Penguin/watchAny-2.0/releases/latest';
@@ -167,14 +167,14 @@ class UpdateService extends ChangeNotifier {
       // Fallback mock update in case of failure
       _error = 'Live check failed ($e). Showing fallback updates.';
       _latestUpdate = UpdateInfo(
-        version: 'v2.0.26',
-        changelog: '• Optimized startup with parallelized database and configuration initializations\n'
-            '• Removed glassmorphism blur and BackdropFilters for solid premium dark-mode card styling\n'
-            '• Isolated watch/read histories between Anime, Movies, and Manga categories\n'
-            '• Added full offline library details loading fallback',
+        version: 'v2.0.27',
+        changelog: '• Added setup wizard on startup to customize enabled sections (Anime, Manga, Movies)\n'
+            '• Fully hidden disabled sections and optimized background services dynamically\n'
+            '• Prevented scrollbar from showing on setup wizard to preserve aesthetic\n'
+            '• Fixed desktop window controls support on wizard screen',
         downloadUrl: Platform.isAndroid 
-            ? 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.26/app-arm64-v8a-release.apk'
-            : 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.26/watch_any.exe',
+            ? 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.27/app-arm64-v8a-release.apk'
+            : 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.27/watchany_setup.exe',
       );
     } finally {
       _isChecking = false;

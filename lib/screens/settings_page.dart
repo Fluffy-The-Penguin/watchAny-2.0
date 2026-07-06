@@ -836,6 +836,143 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
+  void _showManageSectionsDialog(BuildContext context) {
+    final settings = AppSettings();
+    final selected = Set<String>.from(settings.enabledModes);
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            Widget buildToggle(String mode, String label, IconData icon, List<Color> gradient) {
+              final isOn = selected.contains(mode);
+              final isLast = selected.length == 1 && isOn;
+              return GestureDetector(
+                onTap: isLast ? null : () {
+                  setDialogState(() {
+                    if (isOn) {
+                      selected.remove(mode);
+                    } else {
+                      selected.add(mode);
+                    }
+                  });
+                },
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  margin: const EdgeInsets.only(bottom: 10),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: isOn ? gradient[0].withValues(alpha: 0.6) : Colors.white.withValues(alpha: 0.08),
+                    ),
+                    color: isOn ? gradient[0].withValues(alpha: 0.1) : Colors.white.withValues(alpha: 0.02),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 36, height: 36,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(8),
+                          gradient: isOn ? LinearGradient(colors: gradient) : null,
+                          color: isOn ? null : Colors.white.withValues(alpha: 0.06),
+                        ),
+                        child: Icon(icon, color: isOn ? Colors.white : Colors.white38, size: 18),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Text(
+                          label,
+                          style: TextStyle(
+                            color: isOn ? Colors.white : Colors.white54,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            fontFamily: 'Outfit',
+                          ),
+                        ),
+                      ),
+                      Transform.scale(
+                        scale: 0.85,
+                        child: Switch(
+                          value: isOn,
+                          activeColor: Colors.white,
+                          activeTrackColor: gradient[0].withValues(alpha: 0.5),
+                          inactiveThumbColor: Colors.white30,
+                          inactiveTrackColor: Colors.black26,
+                          onChanged: isLast ? null : (v) {
+                            setDialogState(() {
+                              if (v) { selected.add(mode); } else { selected.remove(mode); }
+                            });
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }
+
+            return AlertDialog(
+              backgroundColor: const Color(0xFF121214),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+                side: const BorderSide(color: Colors.white10),
+              ),
+              title: const Text(
+                'Manage Sections',
+                style: TextStyle(color: Colors.white, fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 18),
+              ),
+              content: SizedBox(
+                width: 340,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Enable or disable app sections. At least one must stay active.',
+                      style: TextStyle(color: Colors.white.withValues(alpha: 0.4), fontSize: 12.5, fontFamily: 'Outfit'),
+                    ),
+                    const SizedBox(height: 18),
+                    buildToggle('anime', 'Anime', Icons.tv_rounded, [const Color(0xFF6366F1), const Color(0xFF4F46E5)]),
+                    buildToggle('manga', 'Manga', Icons.menu_book_rounded, [const Color(0xFFF59E0B), const Color(0xFFD97706)]),
+                    buildToggle('movies', 'Movies & Webseries', Icons.movie_rounded, [const Color(0xFFEC4899), const Color(0xFFDB2777)]),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Cancel', style: TextStyle(color: Colors.white54, fontFamily: 'Outfit')),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF6366F1),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  onPressed: () async {
+                    await settings.setEnabledModes(selected);
+                    // If current mode is now disabled, switch to first enabled
+                    final nav = NavigationState();
+                    if (!selected.contains(nav.currentMode.name)) {
+                      final firstEnabled = settings.enabledModesList.first;
+                      nav.setMode(firstEnabled);
+                    }
+                    if (mounted) {
+                      Navigator.pop(context);
+                      setState(() {});
+                    }
+                  },
+                  child: const Text('Save', style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.w600)),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
   Widget _buildGeneralSection() {
     return ListenableBuilder(
       listenable: AppSettings(),
@@ -858,6 +995,16 @@ class _SettingsPageState extends State<SettingsPage> {
               style: TextStyle(color: Colors.white38, fontSize: 13.0),
             ),
             const SizedBox(height: 24.0),
+
+            // ── Manage Sections ──
+            _SettingsTile(
+              icon: Icons.dashboard_customize_outlined,
+              title: 'Manage Sections',
+              subtitle: 'Choose which sections are available: Anime, Manga, Movies.',
+              trailing: const Icon(Icons.chevron_right, color: Colors.white30, size: 20),
+              onTap: () => _showManageSectionsDialog(context),
+            ),
+            const SizedBox(height: 16.0),
 
             // ── Smooth Scroll ──
             _SettingsTile(
@@ -4715,17 +4862,19 @@ class _SettingsTile extends StatelessWidget {
   final String title;
   final String subtitle;
   final Widget trailing;
+  final VoidCallback? onTap;
 
   const _SettingsTile({
     required this.icon,
     required this.title,
     required this.subtitle,
     required this.trailing,
+    this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    final child = Container(
       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 14.0),
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.02),
@@ -4762,5 +4911,9 @@ class _SettingsTile extends StatelessWidget {
         ],
       ),
     );
+    if (onTap != null) {
+      return GestureDetector(onTap: onTap, child: child);
+    }
+    return child;
   }
 }

@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:math';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
@@ -8,6 +9,22 @@ import '../services/suwayomi_service.dart';
 import '../services/download_service.dart';
 import 'navigation_state.dart';
 import 'anilist_auth_state.dart';
+
+// Top-level functions for compute() — must be top-level or static to run in isolates
+List<LibraryItem> _parseLibraryItems(String json) {
+  final List<dynamic> decoded = jsonDecode(json);
+  return decoded.map((item) => LibraryItem.fromJson(item)).toList();
+}
+
+List<LibraryCategory> _parseCategories(String json) {
+  final List<dynamic> decoded = jsonDecode(json);
+  return decoded.map((cat) => LibraryCategory.fromJson(cat)).toList();
+}
+
+Map<int, Map<String, dynamic>> _parseCache(String json) {
+  final Map<String, dynamic> decoded = jsonDecode(json);
+  return decoded.map((key, value) => MapEntry(int.parse(key), Map<String, dynamic>.from(value)));
+}
 
 class LibraryCategory {
   final String id;
@@ -190,49 +207,34 @@ class LibraryState extends ChangeNotifier {
     SuwayomiService.host = prefs.getString('manga_server_host') ?? '127.0.0.1';
     SuwayomiService.port = prefs.getInt('manga_server_port') ?? 4567;
     
-    // Load library items
+    // Load library items, categories, and caches in parallel on background isolates
     final String? itemsJson = prefs.getString('library_items');
-    if (itemsJson != null) {
-      try {
-        final List<dynamic> decoded = jsonDecode(itemsJson);
-        _items = decoded.map((item) => LibraryItem.fromJson(item)).toList();
-      } catch (e) {
-        debugPrint('Failed to load library items: $e');
-      }
-    }
-
-    // Load categories
     final String? catsJson = prefs.getString('library_categories');
-    if (catsJson != null) {
-      try {
-        final List<dynamic> decoded = jsonDecode(catsJson);
-        _categories = decoded.map((cat) => LibraryCategory.fromJson(cat)).toList();
-      } catch (e) {
-        debugPrint('Failed to load library categories: $e');
-      }
-    }
-
-    // Load manga cache
     final String? cacheJson = prefs.getString('manga_library_cache');
-    if (cacheJson != null) {
-      try {
-        final Map<String, dynamic> decoded = jsonDecode(cacheJson);
-        _mangaCache = decoded.map((key, value) => MapEntry(int.parse(key), Map<String, dynamic>.from(value)));
-      } catch (e) {
-        debugPrint('Failed to load manga cache: $e');
-      }
-    }
-
-    // Load anime cache
     final String? animeCacheJson = prefs.getString('anime_library_cache');
-    if (animeCacheJson != null) {
-      try {
-        final Map<String, dynamic> decoded = jsonDecode(animeCacheJson);
-        _animeCache = decoded.map((key, value) => MapEntry(int.parse(key), Map<String, dynamic>.from(value)));
-      } catch (e) {
-        debugPrint('Failed to load anime cache: $e');
-      }
+
+    final List<Future<void>> parseTasks = [];
+    if (itemsJson != null) {
+      parseTasks.add(compute(_parseLibraryItems, itemsJson).then((v) => _items = v).catchError((e) {
+        debugPrint('Failed to load library items: $e');
+      }));
     }
+    if (catsJson != null) {
+      parseTasks.add(compute(_parseCategories, catsJson).then((v) => _categories = v).catchError((e) {
+        debugPrint('Failed to load library categories: $e');
+      }));
+    }
+    if (cacheJson != null) {
+      parseTasks.add(compute(_parseCache, cacheJson).then((v) => _mangaCache = v).catchError((e) {
+        debugPrint('Failed to load manga cache: $e');
+      }));
+    }
+    if (animeCacheJson != null) {
+      parseTasks.add(compute(_parseCache, animeCacheJson).then((v) => _animeCache = v).catchError((e) {
+        debugPrint('Failed to load anime cache: $e');
+      }));
+    }
+    await Future.wait(parseTasks);
 
     notifyListeners();
     // Defer notification count update to run in the background after startup to avoid lag

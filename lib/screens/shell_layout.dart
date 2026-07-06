@@ -9,6 +9,7 @@ import '../state/player_state.dart';
 import '../state/library_state.dart';
 import '../services/update_service.dart';
 import '../services/anilist_service.dart';
+import '../state/app_settings.dart';
 import '../widgets/custom_title_bar.dart';
 import '../widgets/sidebar.dart';
 import '../widgets/mini_player.dart';
@@ -129,6 +130,21 @@ class ShellLayout extends StatelessWidget {
   }
 
   void _showMobileModeSelector(BuildContext context) {
+    final enabledModes = AppSettings().enabledModesList;
+    IconData _modeIcon(AppMode mode) {
+      switch (mode) {
+        case AppMode.anime: return Icons.movie_creation_outlined;
+        case AppMode.manga: return Icons.menu_book_outlined;
+        case AppMode.movies: return Icons.tv_outlined;
+      }
+    }
+    String _modeLabel(AppMode mode) {
+      switch (mode) {
+        case AppMode.anime: return 'Anime';
+        case AppMode.manga: return 'Manga';
+        case AppMode.movies: return 'Movies & Webseries';
+      }
+    }
     showModalBottomSheet(
       context: context,
       backgroundColor: const Color(0xFF0F0F11),
@@ -152,30 +168,14 @@ class ShellLayout extends StatelessWidget {
                   ),
                 ),
               ),
-              ListTile(
-                leading: const Icon(Icons.movie_creation_outlined, color: Colors.white70),
-                title: const Text('Anime', style: TextStyle(color: Colors.white, fontFamily: 'Outfit')),
+              ...enabledModes.map((mode) => ListTile(
+                leading: Icon(_modeIcon(mode), color: Colors.white70),
+                title: Text(_modeLabel(mode), style: const TextStyle(color: Colors.white, fontFamily: 'Outfit')),
                 onTap: () {
-                  navigationState.setMode(AppMode.anime);
+                  navigationState.setMode(mode);
                   Navigator.pop(context);
                 },
-              ),
-              ListTile(
-                leading: const Icon(Icons.menu_book_outlined, color: Colors.white70),
-                title: const Text('Manga', style: TextStyle(color: Colors.white, fontFamily: 'Outfit')),
-                onTap: () {
-                  navigationState.setMode(AppMode.manga);
-                  Navigator.pop(context);
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.tv_outlined, color: Colors.white70),
-                title: const Text('Movies & Webseries', style: TextStyle(color: Colors.white, fontFamily: 'Outfit')),
-                onTap: () {
-                  navigationState.setMode(AppMode.movies);
-                  Navigator.pop(context);
-                },
-              ),
+              )),
               const SizedBox(height: 8),
             ],
           ),
@@ -188,7 +188,7 @@ class ShellLayout extends StatelessWidget {
   Widget build(BuildContext context) {
     return StartupUpdateChecker(
       child: ListenableBuilder(
-        listenable: Listenable.merge([navigationState, PlayerState()]),
+        listenable: Listenable.merge([navigationState, PlayerState(), AppSettings()]),
         builder: (context, _) {
         final currentMode = navigationState.currentMode;
         final currentPage = navigationState.currentPage;
@@ -322,11 +322,12 @@ class ShellLayout extends StatelessWidget {
                           );
                         },
                       ),
-                      IconButton(
-                        icon: const Icon(Icons.swap_horiz, color: Colors.white70),
-                        tooltip: 'Switch Mode',
-                        onPressed: () => _showMobileModeSelector(context),
-                      ),
+                      if (AppSettings().enabledModesList.length > 1)
+                        IconButton(
+                          icon: const Icon(Icons.swap_horiz, color: Colors.white70),
+                          tooltip: 'Switch Mode',
+                          onPressed: () => _showMobileModeSelector(context),
+                        ),
                     ],
                   ],
                 )
@@ -604,42 +605,6 @@ class ShellLayout extends StatelessWidget {
     );
   }
 
-  int _getPageIndex(TabPage page, AppMode mode) {
-    if (mode == AppMode.anime) {
-      switch (page) {
-        case TabPage.home: return 0;
-        case TabPage.search: return 1;
-        case TabPage.library: return 2;
-        case TabPage.schedule: return 3;
-        case TabPage.downloads: return 4;
-        case TabPage.settings: return 5;
-        case TabPage.history: return 6;
-        case TabPage.notifications: return 7;
-        case TabPage.profile: return 8;
-      }
-    } else {
-      switch (page) {
-        case TabPage.home: return 0;
-        case TabPage.search: return 1;
-        case TabPage.library: return 2;
-        case TabPage.downloads: return 3;
-        case TabPage.settings: return 4;
-        case TabPage.history: return 5;
-        case TabPage.notifications: return 6;
-        case TabPage.profile: return 7;
-        default: return 0;
-      }
-    }
-  }
-
-  int _getModeIndex(AppMode mode) {
-    switch (mode) {
-      case AppMode.anime: return 0;
-      case AppMode.movies: return 1;
-      case AppMode.manga: return 2;
-    }
-  }
-
   Widget? _buildDetailsOverlayWidget(AppMode currentMode, int? selectedAnimeId) {
     if (currentMode == AppMode.anime && selectedAnimeId != null) {
       return AnimeDetailsPage(
@@ -666,57 +631,123 @@ class ShellLayout extends StatelessWidget {
   }
 
   Widget _buildDoubleNestedIndexedStack(AppMode currentMode, TabPage currentPage) {
+    return _LazyPageStack(
+      key: const ValueKey('lazy_page_stack'),
+      currentMode: currentMode,
+      currentPage: currentPage,
+      navigationState: navigationState,
+    );
+  }
+}
+
+/// A StatefulWidget that lazily builds pages only when they are first navigated to.
+/// Previously, all 25 pages were built simultaneously via nested IndexedStack widgets.
+/// Now only the active page is built on first render; others are built on-demand and cached.
+class _LazyPageStack extends StatefulWidget {
+  final AppMode currentMode;
+  final TabPage currentPage;
+  final NavigationState navigationState;
+
+  const _LazyPageStack({
+    super.key,
+    required this.currentMode,
+    required this.currentPage,
+    required this.navigationState,
+  });
+
+  @override
+  State<_LazyPageStack> createState() => _LazyPageStackState();
+}
+
+class _LazyPageStackState extends State<_LazyPageStack> {
+  // Track which (mode, pageIndex) combinations have been visited
+  final Set<String> _builtKeys = {};
+
+  // Page definitions per mode
+  static const List<TabPage> _animePages = [
+    TabPage.home, TabPage.search, TabPage.library, TabPage.schedule,
+    TabPage.downloads, TabPage.settings, TabPage.history,
+    TabPage.notifications, TabPage.profile,
+  ];
+  static const List<TabPage> _otherPages = [
+    TabPage.home, TabPage.search, TabPage.library,
+    TabPage.downloads, TabPage.settings, TabPage.history,
+    TabPage.notifications, TabPage.profile,
+  ];
+
+  List<TabPage> _pagesForMode(AppMode mode) {
+    return mode == AppMode.anime ? _animePages : _otherPages;
+  }
+
+  int _pageIndex(TabPage page, AppMode mode) {
+    final pages = _pagesForMode(mode);
+    final idx = pages.indexOf(page);
+    return idx >= 0 ? idx : 0;
+  }
+
+  String _key(AppMode mode, int pageIdx) => '${mode.name}_$pageIdx';
+
+  Widget _buildPage(AppMode mode, TabPage page) {
+    final nav = widget.navigationState;
+    switch (page) {
+      case TabPage.home:
+        return HomePage(key: ValueKey('home_${mode.name}'), mode: mode, navigationState: nav);
+      case TabPage.search:
+        return SearchPage(key: ValueKey('search_${mode.name}'), mode: mode, navigationState: nav);
+      case TabPage.library:
+        return LibraryPage(key: ValueKey('library_${mode.name}'), mode: mode, navigationState: nav);
+      case TabPage.schedule:
+        return SchedulePage(key: ValueKey('schedule_${mode.name}'), navigationState: nav);
+      case TabPage.downloads:
+        return DownloadsPage(key: ValueKey('downloads_${mode.name}'), mode: mode);
+      case TabPage.settings:
+        return SettingsPage(key: ValueKey('settings_${mode.name}'), mode: mode);
+      case TabPage.history:
+        return HistoryPage(key: ValueKey('history_${mode.name}'), mode: mode, navigationState: nav);
+      case TabPage.notifications:
+        return NotificationsPage(key: ValueKey('notifications_${mode.name}'), mode: mode, navigationState: nav);
+      case TabPage.profile:
+        return ProfilePage(key: ValueKey('profile_${mode.name}'), navigationState: nav);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final currentMode = widget.currentMode;
+    final currentPage = widget.currentPage;
+    final enabledModes = AppSettings().enabledModesList;
+    final modeIndex = enabledModes.indexOf(currentMode).clamp(0, enabledModes.length - 1);
+    final pageIndex = _pageIndex(currentPage, currentMode);
+
+    // Mark the current (mode, page) as visited so it gets built
+    _builtKeys.add(_key(currentMode, pageIndex));
+
+    // Only build stacks for enabled modes — disabled modes get zero cost
     return IndexedStack(
       key: const ValueKey('outer_indexed_stack'),
-      index: _getModeIndex(currentMode),
-      children: [
-        // Index 0: Anime Mode Stack
-        IndexedStack(
-          key: const ValueKey('anime_pages_stack'),
-          index: _getPageIndex(currentPage, AppMode.anime),
-          children: [
-            HomePage(key: const ValueKey('home_anime'), mode: AppMode.anime, navigationState: navigationState),
-            SearchPage(key: const ValueKey('search_anime'), mode: AppMode.anime, navigationState: navigationState),
-            LibraryPage(key: const ValueKey('library_anime'), mode: AppMode.anime, navigationState: navigationState),
-            SchedulePage(key: const ValueKey('schedule_anime'), navigationState: navigationState),
-            DownloadsPage(key: const ValueKey('downloads_anime'), mode: AppMode.anime),
-            SettingsPage(key: const ValueKey('settings_anime'), mode: AppMode.anime),
-            HistoryPage(key: const ValueKey('history_anime'), mode: AppMode.anime, navigationState: navigationState),
-            NotificationsPage(key: const ValueKey('notifications_anime'), mode: AppMode.anime, navigationState: navigationState),
-            ProfilePage(key: const ValueKey('profile_anime'), navigationState: navigationState),
-          ],
-        ),
-        // Index 1: Movies Mode Stack
-        IndexedStack(
-          key: const ValueKey('movies_pages_stack'),
-          index: _getPageIndex(currentPage, AppMode.movies),
-          children: [
-            HomePage(key: const ValueKey('home_movies'), mode: AppMode.movies, navigationState: navigationState),
-            SearchPage(key: const ValueKey('search_movies'), mode: AppMode.movies, navigationState: navigationState),
-            LibraryPage(key: const ValueKey('library_movies'), mode: AppMode.movies, navigationState: navigationState),
-            DownloadsPage(key: const ValueKey('downloads_movies'), mode: AppMode.movies),
-            SettingsPage(key: const ValueKey('settings_movies'), mode: AppMode.movies),
-            HistoryPage(key: const ValueKey('history_movies'), mode: AppMode.movies, navigationState: navigationState),
-            NotificationsPage(key: const ValueKey('notifications_movies'), mode: AppMode.movies, navigationState: navigationState),
-            ProfilePage(key: const ValueKey('profile_movies'), navigationState: navigationState),
-          ],
-        ),
-        // Index 2: Manga Mode Stack
-        IndexedStack(
-          key: const ValueKey('manga_pages_stack'),
-          index: _getPageIndex(currentPage, AppMode.manga),
-          children: [
-            HomePage(key: const ValueKey('home_manga'), mode: AppMode.manga, navigationState: navigationState),
-            SearchPage(key: const ValueKey('search_manga'), mode: AppMode.manga, navigationState: navigationState),
-            LibraryPage(key: const ValueKey('library_manga'), mode: AppMode.manga, navigationState: navigationState),
-            DownloadsPage(key: const ValueKey('downloads_manga'), mode: AppMode.manga),
-            SettingsPage(key: const ValueKey('settings_manga'), mode: AppMode.manga),
-            HistoryPage(key: const ValueKey('history_manga'), mode: AppMode.manga, navigationState: navigationState),
-            NotificationsPage(key: const ValueKey('notifications_manga'), mode: AppMode.manga, navigationState: navigationState),
-            ProfilePage(key: const ValueKey('profile_manga'), navigationState: navigationState),
-          ],
-        ),
-      ],
+      index: modeIndex,
+      children: enabledModes.map((mode) {
+        final isActive = mode == currentMode;
+        return _buildModeStack(mode, isActive ? pageIndex : null);
+      }).toList(),
+    );
+  }
+
+  Widget _buildModeStack(AppMode mode, int? activePageIndex) {
+    final pages = _pagesForMode(mode);
+    final displayIndex = activePageIndex ?? 0;
+
+    return IndexedStack(
+      key: ValueKey('${mode.name}_pages_stack'),
+      index: displayIndex,
+      children: List.generate(pages.length, (i) {
+        final key = _key(mode, i);
+        if (_builtKeys.contains(key)) {
+          return _buildPage(mode, pages[i]);
+        }
+        // Placeholder for pages not yet visited — zero cost
+        return const SizedBox.shrink();
+      }),
     );
   }
 }

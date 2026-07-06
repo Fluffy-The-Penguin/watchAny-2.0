@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../state/navigation_state.dart';
 import '../state/library_state.dart';
+import '../state/app_settings.dart';
 
 class Sidebar extends StatelessWidget {
   final NavigationState state;
@@ -19,7 +20,7 @@ class Sidebar extends StatelessWidget {
     final isExpanded = state.isSidebarExpanded;
 
     return ListenableBuilder(
-      listenable: LibraryState(),
+      listenable: Listenable.merge([LibraryState(), AppSettings()]),
       builder: (context, child) {
         final notifCount = LibraryState().getNotificationCount(state.currentMode);
 
@@ -139,17 +140,18 @@ class Sidebar extends StatelessWidget {
                   ),
                 ),
 
-                // Bottom-Left: Mode Selector
-                Padding(
-                  padding: EdgeInsets.symmetric(
-                    horizontal: isExpanded ? 12.0 : 6.0,
-                    vertical: 16.0,
+                // Bottom-Left: Mode Selector (hidden if only 1 mode enabled)
+                if (AppSettings().enabledModesList.length > 1)
+                  Padding(
+                    padding: EdgeInsets.symmetric(
+                      horizontal: isExpanded ? 12.0 : 6.0,
+                      vertical: 16.0,
+                    ),
+                    child: _ModeSelector(
+                      state: state,
+                      isExpanded: isExpanded,
+                    ),
                   ),
-                  child: _ModeSelector(
-                    state: state,
-                    isExpanded: isExpanded,
-                  ),
-                ),
               ],
             ),
           ),
@@ -316,68 +318,36 @@ class _ModeSelectorState extends State<_ModeSelector> {
         onSelected: (AppMode mode) {
           widget.state.setMode(mode);
         },
-        itemBuilder: (BuildContext context) => <PopupMenuEntry<AppMode>>[
-          PopupMenuItem<AppMode>(
-            value: AppMode.anime,
+        itemBuilder: (BuildContext context) {
+          final enabledModes = AppSettings().enabledModesList;
+          String _modeLabel(AppMode mode) {
+            switch (mode) {
+              case AppMode.anime: return 'Anime';
+              case AppMode.manga: return 'Manga';
+              case AppMode.movies: return 'Movies / Series';
+            }
+          }
+          return enabledModes.map((mode) => PopupMenuItem<AppMode>(
+            value: mode,
             child: Row(
               children: [
                 Icon(
-                  _getModeIcon(AppMode.anime),
-                  color: activeMode == AppMode.anime ? Colors.white : Colors.white54,
+                  _getModeIcon(mode),
+                  color: activeMode == mode ? Colors.white : Colors.white54,
                   size: 18.0,
                 ),
                 const SizedBox(width: 10),
                 Text(
-                  'Anime',
+                  _modeLabel(mode),
                   style: TextStyle(
-                    color: activeMode == AppMode.anime ? Colors.white : Colors.white70,
+                    color: activeMode == mode ? Colors.white : Colors.white70,
                     fontFamily: 'Outfit',
                   ),
                 ),
               ],
             ),
-          ),
-          PopupMenuItem<AppMode>(
-            value: AppMode.manga,
-            child: Row(
-              children: [
-                Icon(
-                  _getModeIcon(AppMode.manga),
-                  color: activeMode == AppMode.manga ? Colors.white : Colors.white54,
-                  size: 18.0,
-                ),
-                const SizedBox(width: 10),
-                Text(
-                  'Manga',
-                  style: TextStyle(
-                    color: activeMode == AppMode.manga ? Colors.white : Colors.white70,
-                    fontFamily: 'Outfit',
-                  ),
-                ),
-              ],
-            ),
-          ),
-          PopupMenuItem<AppMode>(
-            value: AppMode.movies,
-            child: Row(
-              children: [
-                Icon(
-                  _getModeIcon(AppMode.movies),
-                  color: activeMode == AppMode.movies ? Colors.white : Colors.white54,
-                  size: 18.0,
-                ),
-                const SizedBox(width: 10),
-                Text(
-                  'Movies / Series',
-                  style: TextStyle(
-                    color: activeMode == AppMode.movies ? Colors.white : Colors.white70,
-                    fontFamily: 'Outfit',
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
+          )).toList();
+        },
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 150),
           padding: EdgeInsets.symmetric(

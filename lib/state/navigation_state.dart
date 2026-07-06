@@ -34,8 +34,14 @@ class NavigationState extends ChangeNotifier {
   factory NavigationState() => _instance;
 
   NavigationState._internal() {
-    final savedMode = AppSettings().startupMode;
-    final savedPage = AppSettings().startupPage;
+    final settings = AppSettings();
+    var savedMode = settings.startupMode;
+    final savedPage = settings.startupPage;
+    // Fall back to first enabled mode if saved mode is disabled
+    if (!settings.isModeEnabled(savedMode)) {
+      final enabled = settings.enabledModesList;
+      savedMode = enabled.isNotEmpty ? enabled.first : AppMode.anime;
+    }
     _currentMode = savedMode;
     if (savedPage == TabPage.schedule && savedMode != AppMode.anime) {
       _modePages[savedMode] = TabPage.home;
