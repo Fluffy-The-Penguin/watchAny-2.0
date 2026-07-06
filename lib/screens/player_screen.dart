@@ -14,6 +14,7 @@ import 'package:window_manager/window_manager.dart';
 import '../widgets/torrent_selector_panel.dart';
 import '../widgets/movie_stream_selector_panel.dart';
 import '../services/download_service.dart';
+import '../services/hstream_service.dart';
 import '../state/player_state.dart';
 import '../services/stremio_addon_service.dart';
 import '../services/extension_service.dart';
@@ -433,14 +434,18 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
     final totalEps = playerState.episodeCount ?? widget.episodeCount ?? 0;
     
     if (widget.isMovie == true || (totalEps > 0 && currentEp >= totalEps)) {
-      // Movie or no next episode
       return;
     }
     
     final nextEp = currentEp + 1;
+
+    // If we're watching via HStream, switch episode directly without opening a panel
+    if (playerState.hstreamSources != null && playerState.hstreamSources!.isNotEmpty) {
+      _playHstreamEpisode(nextEp);
+      return;
+    }
     
     if (widget.anilistId != null) {
-      // Anime mode (torrent batch check)
       final mapping = BatchMappingService().getMapping(widget.anilistId!, nextEp);
       if (mapping != null) {
         final hash = mapping['torrentHash'] as String;
@@ -450,7 +455,6 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
         final streamUrl = _torrServerService.getStreamUrl(hash, fileIndex);
         final displayName = 'Episode $nextEp ($torrentTitle)';
         
-        // Preload on TorrServer
         try {
           await _torrServerService.preloadTorrentFile(hash, fileIndex);
         } catch (_) {}
@@ -461,12 +465,115 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
           episodeNumber: nextEp,
         );
       } else {
-        // Not mapped or not a batch torrent -> Open torrent panel for next episode
         _openTorrentSelectorPanel(epNum: nextEp);
       }
     } else {
-      // Stremio / Movie Mode
       _changeStremioEpisode(nextEp);
+    }
+  }
+
+  /// Fetch and play a specific HStream episode number directly without
+  /// opening the torrent panel. Used for episode list taps and auto-next.
+  Future<void> _playHstreamEpisode(int epNum) async {
+    final titles = widget.titles ?? [];
+    if (titles.isEmpty || !mounted) return;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => const AlertDialog(
+        backgroundColor: Color(0xFF1A1A2E),
+        content: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircularProgressIndicator(color: Colors.white),
+            SizedBox(width: 16),
+            Text('Loading episode...', style: TextStyle(color: Colors.white)),
+          ],
+        ),
+      ),
+    );
+
+    try {
+      final service = HstreamService();
+
+      List<HstreamResult> results = [];
+      for (final title in titles) {
+        if (title.isEmpty) continue;
+        results = await service.search(title);
+        if (results.isNotEmpty) break;
+      }
+
+      if (!mounted) return;
+
+      if (results.isEmpty) {
+        Navigator.pop(context);
+        return;
+      }
+
+      // Pick best result matching the episode number
+      HstreamResult? best;
+      for (final r in results) {
+        final path = Uri.tryParse(r.url)?.pathSegments.lastOrNull ?? '';
+        final lastPart = path.split('-').lastOrNull;
+        if (lastPart != null && int.tryParse(lastPart) == epNum) {
+          best = r;
+          break;
+        }
+      }
+
+      if (best == null) {
+        for (final r in results) {
+          final title = r.title.toLowerCase();
+          final regex = RegExp(
+            r'(?:^|\b|[-_])' + epNum.toString() + r'(?:\b|$)',
+            caseSensitive: false,
+          );
+          if (regex.hasMatch(title)) {
+            best = r;
+            break;
+          }
+        }
+      }
+
+      best ??= results.first;
+      final streams = await service.getStreams(best.url);
+
+      if (!mounted) return;
+      Navigator.pop(context); // close loading
+
+      if (streams == null || streams.sources.isEmpty) return;
+
+      // Prefer MP4 for compatibility; fall back to first available source
+      final preferred = streams.sources.firstWhere(
+        (s) => s.type == 'video/mp4',
+        orElse: () => streams.sources.first,
+      );
+
+      final episodeTitle = streams.title.isNotEmpty
+          ? streams.title
+          : (titles.isNotEmpty ? '${titles.first} — Episode $epNum' : 'Episode $epNum');
+
+      PlayerState().startPlayback(
+        streamUrl: preferred.url,
+        title: episodeTitle,
+        anilistId: widget.anilistId,
+        titles: widget.titles,
+        episodeCount: widget.episodeCount,
+        episodeNumber: epNum,
+        isMovie: widget.isMovie,
+        media: widget.media,
+        episodes: widget.episodes,
+        tmdbEpisodesMap: widget.tmdbEpisodesMap,
+        hstreamSources: streams.sources,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
+          'Referer': 'https://hstream.moe/',
+        },
+      );
+    } catch (e) {
+      if (!mounted) return;
+      Navigator.pop(context);
     }
   }
 
@@ -768,7 +875,12 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
                                   episodeNumber: epNum,
                                 );
                               } else {
-                                if (widget.anilistId != null) {
+                                // If we're currently watching via HStream, switch directly.
+                                // Otherwise fall back to torrent panel / stremio.
+                                if (PlayerState().hstreamSources != null &&
+                                    PlayerState().hstreamSources!.isNotEmpty) {
+                                  _playHstreamEpisode(epNum);
+                                } else if (widget.anilistId != null) {
                                   _openTorrentSelectorPanel(epNum: epNum);
                                 } else {
                                   _changeStremioEpisode(epNum);
@@ -2065,6 +2177,9 @@ class _SettingsOverlayCardState extends State<_SettingsOverlayCard> {
       case 3:
         child = _buildSubtitlesMenu();
         break;
+      case 4:
+        child = _buildHstreamQualityMenu();
+        break;
       default:
         child = _buildMainMenu();
         break;
@@ -2092,6 +2207,15 @@ class _SettingsOverlayCardState extends State<_SettingsOverlayCard> {
 
     final audioLabel = _getAudioTrackLabel(currentAudio);
     final subtitleLabel = _getSubtitleTrackLabel(currentSubtitle);
+
+    // Hstream quality label
+    final hstreamSources = PlayerState().hstreamSources ?? [];
+    final currentHstreamUrl = PlayerState().streamUrl;
+    final activeHstreamSource = hstreamSources.firstWhere(
+      (s) => s.url == currentHstreamUrl,
+      orElse: () => hstreamSources.isNotEmpty ? hstreamSources.first : const HstreamSource(name: '', quality: '', url: '', type: ''),
+    );
+    final hstreamQualityLabel = activeHstreamSource.quality;
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -2162,6 +2286,20 @@ class _SettingsOverlayCardState extends State<_SettingsOverlayCard> {
           ),
           onTap: () => setState(() => _pageIndex = 3),
         ),
+        if (hstreamSources.isNotEmpty)
+          ListTile(
+            dense: true,
+            leading: const Icon(Icons.video_settings, color: Colors.white70, size: 18),
+            title: const Text("Video Quality", style: TextStyle(color: Colors.white, fontSize: 13.0, fontFamily: 'Outfit')),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(hstreamQualityLabel, style: const TextStyle(color: Colors.white38, fontSize: 12.0)),
+                const Icon(Icons.chevron_right, color: Colors.white30, size: 16),
+              ],
+            ),
+            onTap: () => setState(() => _pageIndex = 4),
+          ),
 
         ListTile(
           dense: true,
@@ -2238,6 +2376,43 @@ class _SettingsOverlayCardState extends State<_SettingsOverlayCard> {
       ],
     );
   }
+
+  Widget _buildHstreamQualityMenu() {
+    final sources = PlayerState().hstreamSources ?? [];
+    final currentUrl = PlayerState().streamUrl;
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _buildMenuHeader("Video Quality"),
+        const Divider(color: Colors.white10, height: 1),
+        ...sources.map((source) {
+          final isSelected = source.url == currentUrl;
+          return ListTile(
+            dense: true,
+            title: Text(
+              source.name,
+              style: TextStyle(
+                color: isSelected ? const Color(0xFFFF9F1C) : Colors.white,
+                fontSize: 13.0,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                fontFamily: 'Outfit',
+              ),
+            ),
+            trailing: isSelected ? const Icon(Icons.check, color: Color(0xFFFF9F1C), size: 16) : null,
+            onTap: () async {
+              widget.onClose(); // Hide overlay
+              try {
+                await PlayerState().switchHstreamQuality(source.url);
+              } catch (_) {}
+            },
+          );
+        }).toList(),
+        const SizedBox(height: 6),
+      ],
+    );
+  }
+
 
   Widget _buildSpeedMenu() {
     final rate = widget.player.state.rate;

@@ -774,16 +774,16 @@ class _HistoryPopupContentState extends State<_HistoryPopupContent> {
   Future<void> _load() async {
     final items = await PlayerState.getHistoryList();
     
-    // Filter history items by active mode
+    // Filter history items by active mode partition
     final filtered = items.where((item) {
-      final media = item['media'] ?? {};
-      final itemMode = media['mode'];
-      final itemFormat = media['format'];
-      
-      if (widget.mode == AppMode.movies) {
-        return itemMode == 'movies' || itemFormat == 'MOVIE';
+      final isAnime = item['isAnime'] ?? true;
+      final isManga = item['isManga'] ?? false;
+      if (widget.mode == AppMode.manga) {
+        return isManga;
+      } else if (widget.mode == AppMode.movies) {
+        return !isAnime && !isManga;
       } else if (widget.mode == AppMode.anime) {
-        return itemMode == 'anime' || (itemMode == null && itemFormat != 'MOVIE');
+        return isAnime && !isManga;
       } else {
         return false;
       }
@@ -844,6 +844,7 @@ class _HistoryPopupContentState extends State<_HistoryPopupContent> {
         final cover = media['coverImage'] is Map
             ? (media['coverImage']['large'] ?? media['coverImage']['extraLarge'] ?? '')
             : (media['coverImage'] ?? '');
+        final isManga = item['isManga'] ?? false;
         final eps = item['episodes'] as List<int>;
 
         return ListTile(
@@ -864,14 +865,23 @@ class _HistoryPopupContentState extends State<_HistoryPopupContent> {
             style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12.0),
           ),
           subtitle: Text(
-            'Episodes: ${_formatEpisodeRanges(eps)}',
+            '${isManga ? 'Chapters' : 'Episodes'}: ${_formatEpisodeRanges(eps)}',
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(color: Color(0xFF3A86FF), fontSize: 10.5),
           ),
           onTap: () {
             Navigator.pop(context);
-            widget.navigationState.selectAnime(item['id']);
+            if (isManga) {
+              widget.navigationState.selectManga(item['id'].toString());
+            } else if (item['isAnime'] ?? true) {
+              final idInt = int.tryParse(item['id'].toString());
+              if (idInt != null) {
+                widget.navigationState.selectAnime(idInt);
+              }
+            } else {
+              widget.navigationState.selectMovie(item['id'].toString());
+            }
           },
         );
       },

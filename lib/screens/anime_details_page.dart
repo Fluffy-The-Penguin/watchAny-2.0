@@ -15,6 +15,7 @@ import '../screens/player_screen.dart';
 import '../state/navigation_state.dart';
 import '../state/player_state.dart';
 import '../widgets/torrent_selector_panel.dart';
+import '../services/hstream_service.dart';
 import '../models/torrent.dart';
 import '../state/library_state.dart';
 
@@ -753,7 +754,19 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
     }
   }
 
+  /// Returns true if the loaded anime has the 'Hentai' genre.
+  bool get _isHentai {
+    final genres = (_details?['genres'] as List<dynamic>? ?? []);
+    return genres.any((g) => g.toString().toLowerCase() == 'hentai');
+  }
+
   void _proceedToPlayFlow(int epNum, List<String> titles) {
+    // Hentai titles use hstream.moe directly — no torrent panel needed.
+    if (_isHentai) {
+      _playHstream(epNum, titles);
+      return;
+    }
+
     final mapping = BatchMappingService().getMapping(widget.animeId, epNum);
     if (mapping != null) {
       showDialog(
@@ -794,6 +807,115 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
       );
     } else {
       _openTorrentSelectorPanel(epNum, titles);
+    }
+  }
+
+  /// Searches hstream.moe and plays the best matching source directly.
+  Future<void> _playHstream(int epNum, List<String> titles) async {
+    if (!mounted) return;
+
+    // Show a loading overlay
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => const _HstreamLoadingDialog(),
+    );
+
+    try {
+      final service = HstreamService();
+
+      // Search using each title variant until we get results
+      List<HstreamResult> results = [];
+      for (final title in titles) {
+        if (title.isEmpty) continue;
+        results = await service.search(title);
+        if (results.isNotEmpty) break;
+      }
+
+      if (!mounted) return;
+
+      if (results.isEmpty) {
+        Navigator.pop(context); // close loading
+        NotificationService().show(
+          context,
+          'No streams found for this title.',
+          isError: true,
+        );
+        return;
+      }
+
+      // Pick best result matching the episode number
+      HstreamResult? best;
+      for (final r in results) {
+        final path = Uri.tryParse(r.url)?.pathSegments.lastOrNull ?? '';
+        final lastPart = path.split('-').lastOrNull;
+        if (lastPart != null && int.tryParse(lastPart) == epNum) {
+          best = r;
+          break;
+        }
+      }
+
+      if (best == null) {
+        for (final r in results) {
+          final title = r.title.toLowerCase();
+          final regex = RegExp(r'(?:^|\b|[-_])' + epNum.toString() + r'(?:\b|$)', caseSensitive: false);
+          if (regex.hasMatch(title)) {
+            best = r;
+            break;
+          }
+        }
+      }
+
+      best ??= results.first;
+      final streams = await service.getStreams(best.url);
+
+      if (!mounted) return;
+      Navigator.pop(context); // close loading
+
+      if (streams == null || streams.sources.isEmpty) {
+        NotificationService().show(
+          context,
+          'Could not fetch stream. Please try again.',
+          isError: true,
+        );
+        return;
+      }
+
+      // Pick best quality source: prefer MP4 (for compatibility on Windows where DASH libxml2 is missing), fallback to first available
+      final preferred = streams.sources.firstWhere(
+        (s) => s.type == 'video/mp4',
+        orElse: () => streams.sources.first,
+      );
+
+      final episodeTitle = streams.title.isNotEmpty
+          ? streams.title
+          : (titles.isNotEmpty ? '${titles.first} — Episode $epNum' : 'Episode $epNum');
+
+      PlayerState().startPlayback(
+        streamUrl: preferred.url,
+        title: episodeTitle,
+        anilistId: widget.animeId,
+        titles: titles,
+        episodeCount: _mergedEpisodes.length,
+        episodeNumber: epNum,
+        isMovie: (_details?['format']?.toString().toUpperCase() == 'MOVIE'),
+        media: _details,
+        episodes: _mergedEpisodes,
+        tmdbEpisodesMap: _tmdbEpisodesMap,
+        hstreamSources: streams.sources,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
+          'Referer': 'https://hstream.moe/',
+        },
+      );
+    } catch (e) {
+      if (!mounted) return;
+      Navigator.pop(context); // close loading
+      NotificationService().show(
+        context,
+        'Stream error: ${e.toString()}',
+        isError: true,
+      );
     }
   }
 
@@ -2792,74 +2914,6 @@ class _LibraryEditPanelState extends State<_LibraryEditPanel> {
                             ],
                           ),
                         ),
-                        
-                        // Custom Categories selection chips
-                        Builder(
-                          builder: (context) {
-                            final cats = LibraryState().categories.where((cat) => cat.mode == widget.modeStr).toList();
-                            if (cats.isEmpty) return const SizedBox.shrink();
-                            return Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const SizedBox(height: 20.0),
-                                const Text(
-                                  'Categories',
-                                  style: TextStyle(
-                                    color: Colors.white70,
-                                    fontSize: 13.0,
-                                    fontWeight: FontWeight.w600,
-                                    fontFamily: 'Outfit',
-                                  ),
-                                ),
-                                const SizedBox(height: 8.0),
-                                Container(
-                                  width: double.infinity,
-                                  padding: const EdgeInsets.all(12.0),
-                                  decoration: BoxDecoration(
-                                    color: Colors.white.withValues(alpha: 0.03),
-                                    borderRadius: BorderRadius.circular(8.0),
-                                    border: Border.all(color: Colors.white10),
-                                  ),
-                                  child: Wrap(
-                                    spacing: 8.0,
-                                    runSpacing: 8.0,
-                                    children: cats.map((cat) {
-                                      final bool isChecked = _selectedCategoryIds.contains(cat.id);
-                                      return FilterChip(
-                                        label: Text(
-                                          cat.name,
-                                          style: TextStyle(
-                                            color: isChecked ? Colors.black : Colors.white70,
-                                            fontSize: 11.5,
-                                            fontWeight: isChecked ? FontWeight.bold : FontWeight.normal,
-                                            fontFamily: 'Outfit',
-                                          ),
-                                        ),
-                                        selected: isChecked,
-                                        selectedColor: Colors.white,
-                                        checkmarkColor: Colors.black,
-                                        backgroundColor: Colors.transparent,
-                                        side: BorderSide(
-                                          color: isChecked ? Colors.white : Colors.white24,
-                                        ),
-                                        onSelected: (bool selected) {
-                                          setState(() {
-                                            if (selected) {
-                                              _selectedCategoryIds.add(cat.id);
-                                            } else {
-                                              _selectedCategoryIds.remove(cat.id);
-                                            }
-                                          });
-                                        },
-                                      );
-                                    }).toList(),
-                                  ),
-                                ),
-                              ],
-                            );
-                          },
-                        ),
                       ],
                     ),
                   ),
@@ -2938,3 +2992,45 @@ class _LibraryEditPanelState extends State<_LibraryEditPanel> {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Loading dialog shown while hstream.moe is being searched
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _HstreamLoadingDialog extends StatelessWidget {
+  const _HstreamLoadingDialog();
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: const Color(0xFF0F0F11),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 28.0, vertical: 28.0),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(
+              width: 22,
+              height: 22,
+              child: CircularProgressIndicator(
+                strokeWidth: 2.5,
+                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFFF9F1C)),
+              ),
+            ),
+            const SizedBox(width: 18.0),
+            const Flexible(
+              child: Text(
+                'Fetching streams…',
+                style: TextStyle(
+                  color: Colors.white70,
+                  fontFamily: 'Outfit',
+                  fontSize: 14.0,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

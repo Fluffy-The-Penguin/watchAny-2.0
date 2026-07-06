@@ -115,7 +115,6 @@ class _SettingsPageState extends State<SettingsPage> {
           SettingsCategory.general,
           SettingsCategory.downloads,
           SettingsCategory.manga,
-          SettingsCategory.anilist,
           SettingsCategory.about,
         ];
     }
@@ -4149,73 +4148,35 @@ class _SettingsPageState extends State<SettingsPage> {
                     ),
                     const SizedBox(height: 12.0),
                     
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(
-                          child: Container(
-                            padding: const EdgeInsets.all(12.0),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.01),
-                              borderRadius: BorderRadius.circular(10.0),
-                              border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Row(
-                                  children: [
-                                    Icon(Icons.video_library, color: Colors.blueAccent, size: 14),
-                                    SizedBox(width: 6),
-                                    Text(
-                                      'Anime',
-                                      style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 10),
-                                _buildStatRow('Total Anime', '${authState.animeCount}'),
-                                const SizedBox(height: 6),
-                                _buildStatRow('Episodes', '${authState.episodesWatched}'),
-                                const SizedBox(height: 6),
-                                _buildStatRow('Days Watched', '$daysWatched d'),
-                              ],
-                            ),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12.0),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.01),
+                        borderRadius: BorderRadius.circular(10.0),
+                        border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Row(
+                            children: [
+                              Icon(Icons.video_library, color: Colors.blueAccent, size: 14),
+                              SizedBox(width: 6),
+                              Text(
+                                'Anime',
+                                style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                              ),
+                            ],
                           ),
-                        ),
-                        const SizedBox(width: 12.0),
-                        Expanded(
-                          child: Container(
-                            padding: const EdgeInsets.all(12.0),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.01),
-                              borderRadius: BorderRadius.circular(10.0),
-                              border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Row(
-                                  children: [
-                                    Icon(Icons.book, color: Colors.purpleAccent, size: 14),
-                                    SizedBox(width: 6),
-                                    Text(
-                                      'Manga',
-                                      style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 10),
-                                _buildStatRow('Total Manga', '${authState.mangaCount}'),
-                                const SizedBox(height: 6),
-                                _buildStatRow('Chapters', '${authState.chaptersRead}'),
-                                const SizedBox(height: 6),
-                                _buildStatRow('Volumes', '${authState.volumesRead}'),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ],
+                          const SizedBox(height: 10),
+                          _buildStatRow('Total Anime', '${authState.animeCount}'),
+                          const SizedBox(height: 6),
+                          _buildStatRow('Episodes', '${authState.episodesWatched}'),
+                          const SizedBox(height: 6),
+                          _buildStatRow('Days Watched', '$daysWatched d'),
+                        ],
+                      ),
                     ),
                   ],
                 ),

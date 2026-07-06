@@ -179,91 +179,100 @@ class _MangaDetailsPageState extends State<MangaDetailsPage> {
 
 
 
+    final double screenWidth = MediaQuery.of(context).size.width;
+    final bool isMobile = screenWidth < 650;
+
+    // Find the next unread chapter for Continue Reading button
+    dynamic continueChapter;
+    if (inLibrary && _chapters.isNotEmpty) {
+      final readIds = LibraryState().getReadChapterIds(_parsedMangaId).toSet();
+      // chapters are ordered newest first — find last unread from the end
+      for (int i = _chapters.length - 1; i >= 0; i--) {
+        final chId = _chapters[i]['id']?.toString() ?? '';
+        if (!readIds.contains(chId)) {
+          continueChapter = _chapters[i];
+          break;
+        }
+      }
+      continueChapter ??= _chapters.last;
+    }
+
     return Scaffold(
       backgroundColor: Colors.black,
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 1000.0),
-          child: Stack(
-            children: [
-              // 1. Background Banner Backdrop Image
-              if (coverUrl.isNotEmpty)
-                Positioned(
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  height: 250.0,
-                  child: Stack(
-                    children: [
-                      CachedNetworkImage(
-                        imageUrl: coverUrl,
-                        width: double.infinity,
-                        height: 250.0,
-                        fit: BoxFit.cover,
-                        memCacheWidth: 400,
-                        placeholder: (context, url) => const SizedBox(),
-                        errorWidget: (context, url, error) => const SizedBox(),
-                      ),
-                      Container(
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: [
-                              Colors.black.withValues(alpha: 0.25),
-                              Colors.black.withValues(alpha: 0.8),
-                              Colors.black,
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
+      body: Stack(
+        children: [
+          // 1. Background Banner Backdrop (blurred cover)
+          if (coverUrl.isNotEmpty)
+            Positioned(
+              top: 0, left: 0, right: 0,
+              height: 300.0,
+              child: Stack(
+                children: [
+                  CachedNetworkImage(
+                    imageUrl: coverUrl,
+                    width: double.infinity,
+                    height: 300.0,
+                    fit: BoxFit.cover,
+                    memCacheWidth: 600,
+                    placeholder: (_, __) => const SizedBox(),
+                    errorWidget: (_, __, ___) => const SizedBox(),
                   ),
-                ),
+                  Container(
+                    decoration: const BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [Colors.black26, Colors.black87, Colors.black],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
 
-              // 2. Main scrollable content — CustomScrollView for lazy chapter loading
-              Positioned.fill(
-                child: CustomScrollView(
-              physics: const BouncingScrollPhysics(),
-              slivers: [
-                // Header content (back button, banner area, details, filters)
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: EdgeInsets.only(top: isDesktop ? 40.0 : 40.0, bottom: 0.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // Back button row with title and bookmark
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 24.0),
-                          child: Row(
-                            children: [
-                              IconButton(
-                                icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 18.0),
-                                onPressed: () => widget.navigationState.selectManga(null),
-                                style: IconButton.styleFrom(
-                                  backgroundColor: Colors.black.withValues(alpha: 0.5),
-                                  padding: const EdgeInsets.all(10.0),
-                                ),
+          // 2. Main scrollable content
+          Positioned.fill(
+            child: SingleChildScrollView(
+              child: Padding(
+                padding: const EdgeInsets.only(top: 40.0, bottom: 40.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // â”€â”€ Top bar: back + title + bookmark â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 24.0),
+                      child: Row(
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 18.0),
+                            onPressed: () => widget.navigationState.selectManga(null),
+                            style: IconButton.styleFrom(
+                              backgroundColor: Colors.black.withValues(alpha: 0.5),
+                              padding: const EdgeInsets.all(10.0),
+                            ),
+                          ),
+                          const SizedBox(width: 16.0),
+                          Expanded(
+                            child: Text(
+                              title,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 16.0,
+                                fontWeight: FontWeight.bold,
+                                fontFamily: 'Outfit',
                               ),
-                              const SizedBox(width: 16.0),
-                              Expanded(
-                                child: Text(
-                                  title,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 16.0,
-                                    fontWeight: FontWeight.bold,
-                                    fontFamily: 'Outfit',
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 16.0),
-                              IconButton(
+                            ),
+                          ),
+                          const SizedBox(width: 16.0),
+                          ListenableBuilder(
+                            listenable: LibraryState(),
+                            builder: (context, _) {
+                              final saved = LibraryState().isSaved(_parsedMangaId, 'manga');
+                              return IconButton(
                                 icon: Icon(
-                                  inLibrary ? Icons.bookmark : Icons.bookmark_border,
-                                  color: inLibrary ? Colors.amber : Colors.white,
+                                  saved ? Icons.bookmark : Icons.bookmark_border,
+                                  color: saved ? Colors.amber : Colors.white,
                                   size: 18.0,
                                 ),
                                 onPressed: _showLibraryEditPanel,
@@ -271,198 +280,257 @@ class _MangaDetailsPageState extends State<MangaDetailsPage> {
                                   backgroundColor: Colors.black.withValues(alpha: 0.5),
                                   padding: const EdgeInsets.all(10.0),
                                 ),
-                              ),
-                            ],
+                              );
+                            },
                           ),
-                        ),
+                        ],
+                      ),
+                    ),
 
-                        // Spacer to expose the banner
-                        const SizedBox(height: 140.0),
+                    const SizedBox(height: 180.0),
 
-                        // Cover art + quick details row
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 24.0),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.end,
+                    // â”€â”€ Hero: cover + metadata â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                    Center(
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(horizontal: isMobile ? 16.0 : 0.0),
+                        child: SizedBox(
+                          width: isMobile ? double.infinity : screenWidth * 0.7,
+                          child: Column(
+                            crossAxisAlignment: isMobile ? CrossAxisAlignment.center : CrossAxisAlignment.start,
                             children: [
-                              // Cover art card
-                              Hero(
-                                tag: 'manga_cover_${widget.mangaId}',
-                                child: Container(
-                                  width: 100.0,
-                                  height: 145.0,
-                                  decoration: BoxDecoration(
-                                    borderRadius: BorderRadius.circular(8.0),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: Colors.black.withValues(alpha: 0.5),
-                                        blurRadius: 10.0,
-                                        offset: const Offset(0, 4),
-                                      ),
-                                    ],
-                                    border: Border.all(color: Colors.white.withValues(alpha: 0.1), width: 1.0),
-                                  ),
-                                  child: ClipRRect(
-                                    borderRadius: BorderRadius.circular(7.0),
-                                    child: CachedNetworkImage(
-                                      imageUrl: coverUrl,
-                                      fit: BoxFit.cover,
-                                      memCacheWidth: 250,
-                                      placeholder: (context, url) => Container(color: Colors.white12),
-                                      errorWidget: (context, url, error) => Container(
-                                        color: Colors.white12,
-                                        child: const Icon(Icons.book, color: Colors.white24, size: 36.0),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 16.0),
-                              // Quick details
-                              Expanded(
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.end,
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      title,
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontFamily: 'Outfit',
-                                        fontSize: 18.0,
-                                        fontWeight: FontWeight.bold,
-                                        height: 1.2,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 6.0),
-                                    Text(
-                                      'By $authorStr',
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                        color: Colors.white70,
-                                        fontFamily: 'Outfit',
-                                        fontSize: 12.0,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 8.0),
-                                    Row(
+                              isMobile
+                                  ? Column(
+                                      crossAxisAlignment: CrossAxisAlignment.center,
                                       children: [
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 3.5),
-                                          decoration: BoxDecoration(
-                                            color: const Color(0xFFFF9F1C).withValues(alpha: 0.15),
-                                            borderRadius: BorderRadius.circular(4.0),
-                                            border: Border.all(color: const Color(0xFFFF9F1C).withValues(alpha: 0.3), width: 0.5),
-                                          ),
-                                          child: Text(
-                                            statusStr,
-                                            style: const TextStyle(
-                                              color: Color(0xFFFF9F1C),
-                                              fontSize: 9.0,
-                                              fontWeight: FontWeight.bold,
-                                              fontFamily: 'Outfit',
+                                        // Cover
+                                        if (coverUrl.isNotEmpty)
+                                          Container(
+                                            height: 180.0, width: 125.0,
+                                            decoration: BoxDecoration(
+                                              borderRadius: BorderRadius.circular(8.0),
+                                              boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.8), blurRadius: 12.0, offset: const Offset(0, 4))],
+                                              border: Border.all(color: Colors.white10),
+                                            ),
+                                            child: ClipRRect(
+                                              borderRadius: BorderRadius.circular(7.0),
+                                              child: CachedNetworkImage(imageUrl: coverUrl, fit: BoxFit.cover, memCacheWidth: 250),
                                             ),
                                           ),
+                                        const SizedBox(height: 16.0),
+                                        // Author
+                                        if (authorStr != 'Unknown Author')
+                                          Text(authorStr, textAlign: TextAlign.center,
+                                            style: const TextStyle(color: Colors.white54, fontSize: 13.0, fontFamily: 'Outfit', fontWeight: FontWeight.w500)),
+                                        const SizedBox(height: 8.0),
+                                        // Continue Reading button
+                                        if (inLibrary && continueChapter != null)
+                                          _buildContinueButton(continueChapter, true),
+                                        const SizedBox(height: 12.0),
+                                        // Big title
+                                        Text(title, textAlign: TextAlign.center,
+                                          style: const TextStyle(color: Colors.white, fontSize: 22.0, fontWeight: FontWeight.bold, letterSpacing: -0.5, fontFamily: 'Outfit', height: 1.2)),
+                                        const SizedBox(height: 12.0),
+                                        // Badges
+                                        Wrap(
+                                          alignment: WrapAlignment.center,
+                                          spacing: 8.0, runSpacing: 8.0,
+                                          children: [
+                                            _buildBadge(statusStr),
+                                            _buildBadge('${_chapters.length} Chapters'),
+                                          ],
                                         ),
-                                        const SizedBox(width: 8.0),
-                                        Text(
-                                          '${_chapters.length} Chapters',
-                                          style: const TextStyle(
-                                            color: Colors.white54,
-                                            fontFamily: 'Outfit',
-                                            fontSize: 11.5,
-                                            fontWeight: FontWeight.w600,
+                                        const SizedBox(height: 12.0),
+                                        // Genres
+                                        Wrap(
+                                          alignment: WrapAlignment.center,
+                                          spacing: 6.0, runSpacing: 6.0,
+                                          children: genres.map((g) => Chip(
+                                            label: Text(g, style: const TextStyle(fontSize: 11.0, color: Colors.white70)),
+                                            backgroundColor: Colors.white.withValues(alpha: 0.05),
+                                            padding: EdgeInsets.zero,
+                                            side: BorderSide.none,
+                                            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                          )).toList(),
+                                        ),
+                                      ],
+                                    )
+                                  : Row(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        // Cover
+                                        if (coverUrl.isNotEmpty)
+                                          Container(
+                                            height: 220.0, width: 155.0,
+                                            decoration: BoxDecoration(
+                                              borderRadius: BorderRadius.circular(8.0),
+                                              boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.8), blurRadius: 12.0, offset: const Offset(0, 4))],
+                                              border: Border.all(color: Colors.white10),
+                                            ),
+                                            child: ClipRRect(
+                                              borderRadius: BorderRadius.circular(7.0),
+                                              child: CachedNetworkImage(imageUrl: coverUrl, fit: BoxFit.cover, memCacheWidth: 310),
+                                            ),
+                                          ),
+                                        const SizedBox(width: 24.0),
+                                        // Metadata column
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              // Author
+                                              if (authorStr != 'Unknown Author')
+                                                Text(authorStr,
+                                                  style: const TextStyle(color: Colors.white54, fontSize: 14.0, fontFamily: 'Outfit', fontWeight: FontWeight.w500)),
+                                              // Continue Reading button
+                                              if (inLibrary && continueChapter != null)
+                                                _buildContinueButton(continueChapter, false),
+                                              const SizedBox(height: 12.0),
+                                              // Big title
+                                              Text(title,
+                                                style: const TextStyle(color: Colors.white, fontSize: 28.0, fontWeight: FontWeight.bold, letterSpacing: -0.5, fontFamily: 'Outfit', height: 1.2)),
+                                              const SizedBox(height: 14.0),
+                                              // Badges
+                                              Wrap(
+                                                spacing: 8.0, runSpacing: 8.0,
+                                                children: [
+                                                  _buildBadge(statusStr),
+                                                  _buildBadge('${_chapters.length} Chapters'),
+                                                ],
+                                              ),
+                                              const SizedBox(height: 16.0),
+                                              // Genres
+                                              Wrap(
+                                                spacing: 6.0, runSpacing: 6.0,
+                                                children: genres.map((g) => Chip(
+                                                  label: Text(g, style: const TextStyle(fontSize: 11.0, color: Colors.white70)),
+                                                  backgroundColor: Colors.white.withValues(alpha: 0.05),
+                                                  padding: EdgeInsets.zero,
+                                                  side: BorderSide.none,
+                                                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                                )).toList(),
+                                              ),
+                                            ],
                                           ),
                                         ),
                                       ],
                                     ),
-                                  ],
-                                ),
-                              ),
+
+                              const SizedBox(height: 36.0),
+
+                              // â”€â”€ Description â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                              _buildDescriptionSection(description),
                             ],
                           ),
                         ),
-
-                        const SizedBox(height: 24.0),
-
-                        // Genres tags
-                        if (genres.isNotEmpty)
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 24.0),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Wrap(
-                                  spacing: 8.0,
-                                  runSpacing: 8.0,
-                                  children: genres.map((genre) {
-                                    return Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 4.0),
-                                      decoration: BoxDecoration(
-                                        color: Colors.white10,
-                                        borderRadius: BorderRadius.circular(4.0),
-                                      ),
-                                      child: Text(
-                                        genre,
-                                        style: const TextStyle(color: Colors.white70, fontSize: 11.0, fontFamily: 'Outfit'),
-                                      ),
-                                    );
-                                  }).toList(),
-                                ),
-                                const SizedBox(height: 16.0),
-                              ],
-                            ),
-                          ),
-
-                        // Description
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 24.0),
-                          child: Text(
-                            description,
-                            style: const TextStyle(color: Colors.white70, fontSize: 13.5, height: 1.5, fontFamily: 'Outfit'),
-                          ),
-                        ),
-
-                        const SizedBox(height: 24.0),
-
-                        const SizedBox(height: 24.0),
-
-                        _MangaChaptersSection(
-                          chapters: _chapters,
-                          mangaId: _parsedMangaId,
-                          title: title,
-                          inLibrary: inLibrary,
-                          libraryItem: libraryItem,
-                          navigationState: widget.navigationState,
-                          onSetChapterReadStatus: (chapterId, read) async {
-                            await libraryState.setChapterReadStatus(_parsedMangaId, chapterId, read);
-                            setState(() {});
-                          },
-                          onUpdated: () {
-                            setState(() {});
-                          },
-                        ),
-                      ],
+                      ),
                     ),
-                  ),
-                ),
 
-                // Safety bottom padding
-                const SliverToBoxAdapter(
-                  child: SizedBox(height: 64.0),
+                    const SizedBox(height: 40.0),
+                    Container(height: 1.0, color: Colors.white10),
+                    const SizedBox(height: 24.0),
+
+                    // â”€â”€ Chapter list â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 24.0),
+                      child: _MangaChaptersSection(
+                        chapters: _chapters,
+                        mangaId: _parsedMangaId,
+                        title: title,
+                        inLibrary: inLibrary,
+                        libraryItem: libraryItem,
+                        navigationState: widget.navigationState,
+                        onSetChapterReadStatus: (chapterId, read) async {
+                          await libraryState.setChapterReadStatus(_parsedMangaId, chapterId, read);
+                          setState(() {});
+                        },
+                        onUpdated: () => setState(() {}),
+                      ),
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
           ),
         ],
       ),
-    ),
-  ),
-);
+    );
   }
+
+  Widget _buildBadge(String label, {bool isAccent = false, Color? color}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
+      decoration: BoxDecoration(
+        color: color ?? (isAccent ? Colors.white24 : Colors.white10),
+        borderRadius: BorderRadius.circular(4.0),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(color: Colors.white, fontSize: 10.5, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+      ),
+    );
+  }
+
+  Widget _buildContinueButton(dynamic chapter, bool isMobile) {
+    final chapterNum = chapter['chapterNumber']?.toString() ?? chapter['name']?.toString() ?? '?';
+    return Padding(
+      padding: const EdgeInsets.only(top: 16.0, bottom: 4.0),
+      child: Row(
+        mainAxisAlignment: isMobile ? MainAxisAlignment.center : MainAxisAlignment.start,
+        children: [
+          ElevatedButton.icon(
+            icon: const Icon(Icons.menu_book, color: Colors.black, size: 18.0),
+            label: Text(
+              'Continue Ch $chapterNum',
+              style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontFamily: 'Outfit', fontSize: 13.5),
+            ),
+            onPressed: () {
+              final int chId = int.tryParse(chapter['id']?.toString() ?? '') ?? 0;
+              final int chNum = int.tryParse(chapter['chapterNumber']?.toString() ?? '') ?? 0;
+              if (chId != 0) {
+                widget.navigationState.startReading(
+                  chapterId: chId.toString(),
+                  chapterNumber: chNum,
+                  mangaId: widget.mangaId,
+                  mangaTitle: _details!['title']?.toString() ?? 'Unknown Manga',
+                  chapters: _chapters,
+                );
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 12.0),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
+              elevation: 4.0,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDescriptionSection(String description) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          padding: const EdgeInsets.only(bottom: 12.0),
+          decoration: const BoxDecoration(
+            border: Border(bottom: BorderSide(color: Colors.white24, width: 2.0)),
+          ),
+          child: const Text(
+            'Description',
+            style: TextStyle(color: Colors.white, fontSize: 15.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+          ),
+        ),
+        const SizedBox(height: 16.0),
+        Text(
+          description,
+          style: const TextStyle(color: Colors.white70, fontSize: 13.5, height: 1.55, fontFamily: 'Outfit'),
+        ),
+      ],
+    );
+  }
+
 }
 
 class _MangaLibraryEditPanel extends StatefulWidget {
@@ -496,6 +564,8 @@ class _MangaLibraryEditPanelState extends State<_MangaLibraryEditPanel> {
 
   bool _isCreatingCategory = false;
   late final TextEditingController _newCategoryController;
+  late final TextEditingController _chaptersController;
+  late final TextEditingController _scoreController;
 
   @override
   void initState() {
@@ -505,12 +575,34 @@ class _MangaLibraryEditPanelState extends State<_MangaLibraryEditPanel> {
     _chaptersRead = widget.savedItem?.watchedEpisodes ?? 0;
     _selectedCategoryIds = List<String>.from(widget.savedItem?.categoryIds ?? <String>[]);
     _newCategoryController = TextEditingController();
+    _chaptersController = TextEditingController(text: '$_chaptersRead');
+    _scoreController = TextEditingController(
+      text: _activeRating == 0.0 ? '' : _activeRating.toStringAsFixed(1),
+    );
   }
 
   @override
   void dispose() {
     _newCategoryController.dispose();
+    _chaptersController.dispose();
+    _scoreController.dispose();
     super.dispose();
+  }
+
+  void _updateChaptersRead(int val) {
+    final int clamped = val.clamp(0, widget.totalChapters > 0 ? widget.totalChapters : 99999);
+    setState(() {
+      _chaptersRead = clamped;
+      _chaptersController.text = '$clamped';
+    });
+  }
+
+  void _updateRating(double val) {
+    final double clamped = val.clamp(0.0, 10.0);
+    setState(() {
+      _activeRating = clamped;
+      _scoreController.text = clamped == 0.0 ? '' : clamped.toStringAsFixed(1);
+    });
   }
 
   Future<void> _handleCreateCategory() async {
@@ -608,7 +700,162 @@ class _MangaLibraryEditPanelState extends State<_MangaLibraryEditPanel> {
                     padding: const EdgeInsets.all(20.0),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
                       children: [
+                        // Chapters Read
+                        Container(
+                          padding: const EdgeInsets.all(16.0),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.03),
+                            borderRadius: BorderRadius.circular(8.0),
+                            border: Border.all(color: Colors.white10),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Row(
+                                    children: [
+                                      const Text(
+                                        'Chapters Read',
+                                        style: TextStyle(color: Colors.white70, fontSize: 13.0, fontWeight: FontWeight.w600, fontFamily: 'Outfit'),
+                                      ),
+                                      const SizedBox(width: 8.0),
+                                      SizedBox(
+                                        width: 50.0,
+                                        height: 20.0,
+                                        child: TextField(
+                                          controller: _chaptersController,
+                                          keyboardType: TextInputType.number,
+                                          textAlign: TextAlign.center,
+                                          style: const TextStyle(color: Colors.white, fontSize: 14.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                                          decoration: const InputDecoration(
+                                            isDense: true,
+                                            contentPadding: EdgeInsets.zero,
+                                            border: InputBorder.none,
+                                          ),
+                                          onChanged: (val) {
+                                            final int? parsed = int.tryParse(val);
+                                            if (parsed != null) {
+                                              setState(() => _chaptersRead = parsed.clamp(0, widget.totalChapters > 0 ? widget.totalChapters : 99999));
+                                            }
+                                          },
+                                          onSubmitted: (val) => _updateChaptersRead(int.tryParse(val) ?? _chaptersRead),
+                                        ),
+                                      ),
+                                      if (widget.totalChapters > 0)
+                                        Text(
+                                          ' / ${widget.totalChapters}',
+                                          style: const TextStyle(color: Colors.white38, fontSize: 14.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                                        ),
+                                    ],
+                                  ),
+                                  if (widget.totalChapters > 0)
+                                    Text(
+                                      '${((_chaptersRead / widget.totalChapters) * 100).clamp(0, 100).toStringAsFixed(0)}%',
+                                      style: const TextStyle(color: Colors.white38, fontSize: 12.0, fontFamily: 'Outfit'),
+                                    ),
+                                ],
+                              ),
+                              const SizedBox(height: 16.0),
+                              SliderTheme(
+                                data: SliderTheme.of(context).copyWith(
+                                  activeTrackColor: Colors.white,
+                                  inactiveTrackColor: Colors.white10,
+                                  thumbColor: Colors.white,
+                                  overlayColor: Colors.white.withValues(alpha: 0.1),
+                                  valueIndicatorColor: Colors.white,
+                                  valueIndicatorTextStyle: const TextStyle(color: Colors.black, fontFamily: 'Outfit'),
+                                ),
+                                child: Slider(
+                                  value: _chaptersRead.toDouble(),
+                                  min: 0.0,
+                                  max: widget.totalChapters > 0 ? widget.totalChapters.toDouble() : (_chaptersRead + 50).toDouble(),
+                                  divisions: widget.totalChapters > 0 ? widget.totalChapters : (_chaptersRead + 50),
+                                  label: '$_chaptersRead',
+                                  onChanged: (val) => _updateChaptersRead(val.toInt()),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 16.0),
+
+                        // Rating Score
+                        Container(
+                          padding: const EdgeInsets.all(16.0),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.03),
+                            borderRadius: BorderRadius.circular(8.0),
+                            border: Border.all(color: Colors.white10),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  const Text(
+                                    'Your Score',
+                                    style: TextStyle(color: Colors.white70, fontSize: 13.0, fontWeight: FontWeight.w600, fontFamily: 'Outfit'),
+                                  ),
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Icon(Icons.star, color: Colors.amber, size: 16.0),
+                                      const SizedBox(width: 4.0),
+                                      SizedBox(
+                                        width: 50.0,
+                                        height: 20.0,
+                                        child: TextField(
+                                          controller: _scoreController,
+                                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                          textAlign: TextAlign.right,
+                                          style: const TextStyle(color: Colors.amber, fontSize: 14.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                                          decoration: const InputDecoration(
+                                            isDense: true,
+                                            contentPadding: EdgeInsets.zero,
+                                            border: InputBorder.none,
+                                            hintText: '0.0',
+                                            hintStyle: TextStyle(color: Colors.white38),
+                                          ),
+                                          onChanged: (val) {
+                                            final double? parsed = double.tryParse(val);
+                                            if (parsed != null) setState(() => _activeRating = parsed.clamp(0.0, 10.0));
+                                          },
+                                          onSubmitted: (val) => _updateRating(double.tryParse(val) ?? _activeRating),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 16.0),
+                              SliderTheme(
+                                data: SliderTheme.of(context).copyWith(
+                                  activeTrackColor: Colors.white,
+                                  inactiveTrackColor: Colors.white10,
+                                  thumbColor: Colors.white,
+                                  overlayColor: Colors.white.withValues(alpha: 0.1),
+                                  valueIndicatorColor: Colors.white,
+                                  valueIndicatorTextStyle: const TextStyle(color: Colors.black, fontFamily: 'Outfit'),
+                                ),
+                                child: Slider(
+                                  value: _activeRating,
+                                  min: 0.0,
+                                  max: 10.0,
+                                  divisions: 100,
+                                  label: _activeRating == 0.0 ? 'No Rating' : _activeRating.toStringAsFixed(1),
+                                  onChanged: _updateRating,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+
+                        // Categories
                         ListenableBuilder(
                           listenable: LibraryState(),
                           builder: (context, _) {
@@ -617,6 +864,7 @@ class _MangaLibraryEditPanelState extends State<_MangaLibraryEditPanel> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               mainAxisSize: MainAxisSize.min,
                               children: [
+                                const SizedBox(height: 16.0),
                                 Row(
                                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                   children: [
@@ -632,11 +880,7 @@ class _MangaLibraryEditPanelState extends State<_MangaLibraryEditPanel> {
                                     if (!_isCreatingCategory)
                                       IconButton(
                                         icon: const Icon(Icons.add, color: Colors.white54, size: 18.0),
-                                        onPressed: () {
-                                          setState(() {
-                                            _isCreatingCategory = true;
-                                          });
-                                        },
+                                        onPressed: () => setState(() => _isCreatingCategory = true),
                                         tooltip: 'Create Category',
                                         constraints: const BoxConstraints(),
                                         padding: EdgeInsets.zero,
@@ -727,9 +971,7 @@ class _MangaLibraryEditPanelState extends State<_MangaLibraryEditPanel> {
                                               selectedColor: Colors.white,
                                               checkmarkColor: Colors.black,
                                               backgroundColor: Colors.transparent,
-                                              side: BorderSide(
-                                                color: isChecked ? Colors.white : Colors.white24,
-                                              ),
+                                              side: BorderSide(color: isChecked ? Colors.white : Colors.white24),
                                               onSelected: (bool selected) {
                                                 setState(() {
                                                   if (selected) {

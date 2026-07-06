@@ -7,6 +7,7 @@ import '../state/library_state.dart';
 import '../state/player_state.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/gestures.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:http/http.dart' as http;
 import 'dart:io';
@@ -251,11 +252,10 @@ class _MangaReaderPageState extends State<MangaReaderPage> {
 
   void _nextPage() {
     if (_readingFormat == 'webtoon') {
-      _scrollController.animateTo(
-        _scrollController.offset + 450,
-        duration: const Duration(milliseconds: 250),
-        curve: Curves.easeOut,
+      final double target = (_scrollController.offset + 800).clamp(
+        0.0, _scrollController.position.maxScrollExtent,
       );
+      _scrollController.jumpTo(target);
     } else {
       if (_readingFormat == 'paging_double') {
         final groups = _getDoublePageIndices();
@@ -277,11 +277,10 @@ class _MangaReaderPageState extends State<MangaReaderPage> {
 
   void _prevPage() {
     if (_readingFormat == 'webtoon') {
-      _scrollController.animateTo(
-        _scrollController.offset - 450,
-        duration: const Duration(milliseconds: 250),
-        curve: Curves.easeOut,
+      final double target = (_scrollController.offset - 800).clamp(
+        0.0, _scrollController.position.maxScrollExtent,
       );
+      _scrollController.jumpTo(target);
     } else {
       if (_readingFormat == 'paging_double') {
         final groups = _getDoublePageIndices();
@@ -542,8 +541,39 @@ class _MangaReaderPageState extends State<MangaReaderPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black,
+    return Focus(
+      autofocus: true,
+      onKeyEvent: (node, event) {
+        if (event is! KeyDownEvent) return KeyEventResult.ignored;
+        final key = event.logicalKey;
+        if (key == LogicalKeyboardKey.arrowRight || key == LogicalKeyboardKey.pageDown || key == LogicalKeyboardKey.space) {
+          if (_readingFormat == 'paging_rtl') {
+            _prevPage();
+          } else {
+            _nextPage();
+          }
+          return KeyEventResult.handled;
+        } else if (key == LogicalKeyboardKey.arrowLeft || key == LogicalKeyboardKey.pageUp) {
+          if (_readingFormat == 'paging_rtl') {
+            _nextPage();
+          } else {
+            _prevPage();
+          }
+          return KeyEventResult.handled;
+        } else if (key == LogicalKeyboardKey.arrowDown) {
+          _nextPage();
+          return KeyEventResult.handled;
+        } else if (key == LogicalKeyboardKey.arrowUp) {
+          _prevPage();
+          return KeyEventResult.handled;
+        } else if (key == LogicalKeyboardKey.escape || key == LogicalKeyboardKey.backspace) {
+          Navigator.pop(context);
+          return KeyEventResult.handled;
+        }
+        return KeyEventResult.ignored;
+      },
+      child: Scaffold(
+        backgroundColor: Colors.black,
       body: Stack(
         children: [
           // Content Viewer
@@ -631,8 +661,9 @@ class _MangaReaderPageState extends State<MangaReaderPage> {
             ),
         ],
       ),
-    );
-  }
+      ), // Scaffold
+    ); // Focus
+  } // build
 
   Widget _buildErrorView() {
     return Center(
@@ -660,34 +691,93 @@ class _MangaReaderPageState extends State<MangaReaderPage> {
     );
   }
 
-  Widget _buildPageImage(int index) {
+  Widget _buildPageImage(int index, {bool isWebtoon = false}) {
     final localPath = _pageLoader?.localPaths[index];
-    if (localPath != null) {
-      final size = MediaQuery.of(context).size;
-      final pixelRatio = MediaQuery.of(context).devicePixelRatio;
-      // Clamp decoded image width to fit screen width * scale to avoid extra memory usage
-      final int targetWidth = (size.width * pixelRatio).toInt().clamp(800, 2000);
+    final isDownloading = _pageLoader?.isDownloading(index) ?? false;
+    final double? progress = _pageLoader?.getProgress(index);
 
-      return Image.file(
-        File(localPath),
-        fit: BoxFit.contain,
-        cacheWidth: targetWidth,
-        errorBuilder: (context, error, stackTrace) => const Center(
-          child: Icon(Icons.broken_image, color: Colors.white30, size: 40),
-        ),
-      );
-    }
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final w = constraints.maxWidth.isFinite ? constraints.maxWidth : MediaQuery.of(context).size.width;
+        final h = w * (3 / 2); // manga page aspect ratio
+
+        if (localPath != null) {
+          final pixelRatio = MediaQuery.of(context).devicePixelRatio;
+          final int targetWidth = (w * pixelRatio).toInt().clamp(800, 2000);
+
+          return TweenAnimationBuilder<double>(
+            tween: Tween(begin: 0.0, end: 1.0),
+            duration: const Duration(milliseconds: 250),
+            curve: Curves.easeIn,
+            builder: (context, opacity, child) => Opacity(opacity: opacity, child: child),
+            child: Image.file(
+              File(localPath),
+              fit: isWebtoon ? BoxFit.fitWidth : BoxFit.contain,
+              width: isWebtoon ? double.infinity : null,
+              cacheWidth: targetWidth,
+              frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+                if (wasSynchronouslyLoaded || frame != null) {
+                  return child;
+                }
+                // Still decoding/rendering first frame: return placeholder to prevent size jump to 0x0
+                return _MihonPagePlaceholder(
+                  width: w,
+                  height: h,
+                  pageNumber: index + 1,
+                  isDownloading: false,
+                  progress: 1.0,
+                );
+              },
+              errorBuilder: (context, error, stackTrace) => _buildPageError(index),
+            ),
+          );
+        }
+
+        // Shimmer placeholder
+        return _MihonPagePlaceholder(
+          width: w,
+          height: h,
+          pageNumber: index + 1,
+          isDownloading: isDownloading,
+          progress: progress,
+        );
+      },
+    );
+  }
+
+  Widget _buildPageError(int index) {
     return Container(
-      height: 500,
-      color: Colors.black12,
-      child: const Center(
-        child: CircularProgressIndicator(
-          strokeWidth: 2,
-          valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFFF9F1C)),
-        ),
+      constraints: const BoxConstraints(minHeight: 300),
+      color: const Color(0xFF0A0A0C),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.broken_image_outlined, color: Colors.white24, size: 48),
+          const SizedBox(height: 12),
+          Text(
+            'Failed to load page ${index + 1}',
+            style: const TextStyle(color: Colors.white38, fontFamily: 'Outfit', fontSize: 12),
+          ),
+          const SizedBox(height: 12),
+          GestureDetector(
+            onTap: () {
+              _pageLoader?.retryPage(index);
+              setState(() {});
+            },
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.white10,
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: const Text('Retry', style: TextStyle(color: Colors.white70, fontFamily: 'Outfit', fontSize: 12)),
+            ),
+          ),
+        ],
       ),
     );
   }
+
 
   Widget _buildWebtoonViewer() {
     return InteractiveViewer(
@@ -702,8 +792,11 @@ class _MangaReaderPageState extends State<MangaReaderPage> {
           itemBuilder: (context, index) {
             _pageLoader?.setPriorityIndex(index);
             return Center(
-              child: _buildColorFilteredWidget(
-                _buildPageImage(index),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 800.0),
+                child: _buildColorFilteredWidget(
+                  _buildPageImage(index, isWebtoon: true),
+                ),
               ),
             );
           },
@@ -971,6 +1064,8 @@ class MangaPageLoader {
   final VoidCallback onPageDownloaded;
   
   final List<String?> localPaths;
+  final List<bool> _downloading;   // which indices are currently in-flight
+  final List<double?> _progress;   // 0.0–1.0 or null if not started
   int _priorityIndex = 0;
   bool _isDisposed = false;
   
@@ -981,8 +1076,22 @@ class MangaPageLoader {
     required this.chapterId,
     required this.urls,
     required this.onPageDownloaded,
-  }) : localPaths = List<String?>.filled(urls.length, null) {
+  })  : localPaths = List<String?>.filled(urls.length, null),
+        _downloading = List<bool>.filled(urls.length, false),
+        _progress = List<double?>.filled(urls.length, null) {
     _startDownloadLoop();
+  }
+
+  bool isDownloading(int index) => index >= 0 && index < _downloading.length && _downloading[index];
+  double? getProgress(int index) => index >= 0 && index < _progress.length ? _progress[index] : null;
+
+  void retryPage(int index) {
+    if (index < 0 || index >= urls.length) return;
+    localPaths[index] = null;
+    _downloading[index] = false;
+    _progress[index] = null;
+    _priorityIndex = index;
+    _cancelCurrent();
   }
 
   void setPriorityIndex(int idx) {
@@ -1059,6 +1168,9 @@ class MangaPageLoader {
   }
 
   Future<void> _downloadPage(int index) async {
+    if (index < 0 || index >= urls.length) return;
+    _downloading[index] = true;
+    _progress[index] = 0.0;
     final url = urls[index];
     
     // Create local path
@@ -1068,6 +1180,8 @@ class MangaPageLoader {
     // If it already exists on disk (e.g. from a previous view), use it!
     if (await file.exists() && await file.length() > 100) {
       localPaths[index] = file.path;
+      _downloading[index] = false;
+      _progress[index] = 1.0;
       onPageDownloaded();
       return;
     }
@@ -1079,15 +1193,28 @@ class MangaPageLoader {
     
     final requestFuture = Future(() async {
       try {
-        final response = await client.get(Uri.parse(url));
-        if (response.statusCode == 200 && response.bodyBytes.isNotEmpty) {
-          await file.writeAsBytes(response.bodyBytes);
-          localPaths[index] = file.path;
-          onPageDownloaded();
+        final request = http.Request('GET', Uri.parse(url));
+        final streamedResponse = await client.send(request);
+        if (streamedResponse.statusCode == 200) {
+          final contentLength = streamedResponse.contentLength ?? 0;
+          final bytes = <int>[];
+          await for (final chunk in streamedResponse.stream) {
+            bytes.addAll(chunk);
+            if (contentLength > 0) {
+              _progress[index] = (bytes.length / contentLength).clamp(0.0, 1.0);
+            }
+          }
+          if (bytes.isNotEmpty) {
+            await file.writeAsBytes(bytes);
+            localPaths[index] = file.path;
+            _progress[index] = 1.0;
+            onPageDownloaded();
+          }
         }
       } catch (_) {
         // Fail silently so it can retry later
       } finally {
+        _downloading[index] = false;
         completer.complete();
       }
     });
@@ -1095,6 +1222,7 @@ class MangaPageLoader {
     _currentOp = CancelableOperation.fromFuture(
       requestFuture,
       onCancel: () {
+        _downloading[index] = false;
         completer.complete();
       },
     );
@@ -1113,51 +1241,233 @@ class _ZoomablePageImage extends StatefulWidget {
 
 class _ZoomablePageImageState extends State<_ZoomablePageImage> {
   final TransformationController _controller = TransformationController();
-  bool _panEnabled = false;
+  TapDownDetails? _doubleTapDetails;
 
-  @override
-  void initState() {
-    super.initState();
-    _controller.addListener(_onTransformationChanged);
-  }
+  bool get _isZoomed => _controller.value.getMaxScaleOnAxis() > 1.05;
 
   @override
   void dispose() {
-    _controller.removeListener(_onTransformationChanged);
     _controller.dispose();
     super.dispose();
   }
 
-  void _onTransformationChanged() {
-    final double scale = _controller.value.getMaxScaleOnAxis();
-    final bool enablePan = scale > 1.01;
-    if (enablePan != _panEnabled) {
-      setState(() {
-        _panEnabled = enablePan;
-      });
+  void _onDoubleTapDown(TapDownDetails details) {
+    _doubleTapDetails = details;
+  }
+
+  void _onDoubleTap() {
+    final Offset focalPoint = _doubleTapDetails!.localPosition;
+    if (_isZoomed) {
+      _controller.value = Matrix4.identity();
+    } else {
+      _zoomTo(2.0, focalPoint);
     }
+    if (mounted) setState(() {});
+  }
+
+  // Zoom to [scale] keeping [focalPoint] (in viewport coords) fixed on screen.
+  void _zoomTo(double scale, Offset focalPoint) {
+    // Convert the focal point from viewport space to scene (child) space
+    final Offset focalPointScene = _controller.toScene(focalPoint);
+    _controller.value = Matrix4.identity()
+      ..translate(
+        focalPoint.dx - focalPointScene.dx * scale,
+        focalPoint.dy - focalPointScene.dy * scale,
+      )
+      ..scale(scale);
   }
 
   @override
   Widget build(BuildContext context) {
-    return InteractiveViewer(
-      transformationController: _controller,
-      minScale: 1.0,
-      maxScale: 4.0,
-      panEnabled: _panEnabled,
-      scaleEnabled: true,
-      onInteractionEnd: (details) {
-        final double scale = _controller.value.getMaxScaleOnAxis();
-        if (scale < 1.01 && scale > 0.99) {
-          _controller.value = Matrix4.identity();
-          if (_panEnabled) {
-            setState(() {
-              _panEnabled = false;
-            });
+    return Listener(
+      onPointerSignal: (event) {
+        if (event is PointerScrollEvent) {
+          final bool ctrlHeld = HardwareKeyboard.instance.isControlPressed;
+          if (!ctrlHeld) {
+            // Don't zoom on plain scroll — let parent handle it
+            return;
           }
+          // Ctrl+scroll: zoom centered on the mouse cursor
+          final double currentScale = _controller.value.getMaxScaleOnAxis();
+          final double factor = event.scrollDelta.dy > 0 ? 0.85 : 1.15;
+          final double newScale = (currentScale * factor).clamp(1.0, 5.0);
+          if (newScale <= 1.02) {
+            _controller.value = Matrix4.identity();
+          } else {
+            _zoomTo(newScale, event.localPosition);
+          }
+          if (mounted) setState(() {});
         }
       },
-      child: widget.child,
+      child: GestureDetector(
+        onDoubleTapDown: _onDoubleTapDown,
+        onDoubleTap: _onDoubleTap,
+        child: InteractiveViewer(
+          transformationController: _controller,
+          minScale: 1.0,
+          maxScale: 5.0,
+          // Only pan when zoomed — when at 1x, let PageView handle swipes
+          panEnabled: _isZoomed,
+          scaleEnabled: true,
+          onInteractionEnd: (_) {
+            // Snap back to 1x if barely zoomed
+            if (_controller.value.getMaxScaleOnAxis() < 1.05) {
+              _controller.value = Matrix4.identity();
+            }
+            if (mounted) setState(() {});
+          },
+          onInteractionUpdate: (_) {
+            if (mounted) setState(() {});
+          },
+          child: widget.child,
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Mihon-style shimmer placeholder ────────────────────────────────────────
+class _MihonPagePlaceholder extends StatefulWidget {
+  final double width;
+  final double height;
+  final int pageNumber;
+  final bool isDownloading;
+  final double? progress;
+
+  const _MihonPagePlaceholder({
+    required this.width,
+    required this.height,
+    required this.pageNumber,
+    required this.isDownloading,
+    this.progress,
+  });
+
+  @override
+  State<_MihonPagePlaceholder> createState() => _MihonPagePlaceholderState();
+}
+
+class _MihonPagePlaceholderState extends State<_MihonPagePlaceholder>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _shimmer;
+
+  @override
+  void initState() {
+    super.initState();
+    _shimmer = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1400),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _shimmer.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: widget.width,
+      height: widget.height,
+      child: Stack(
+        children: [
+          // Shimmer base
+          AnimatedBuilder(
+            animation: _shimmer,
+            builder: (context, _) {
+              final t = _shimmer.value;
+              return Container(
+                width: widget.width,
+                height: widget.height,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment(-1.5 + t * 3.5, 0),
+                    end: Alignment(-0.5 + t * 3.5, 0),
+                    colors: const [
+                      Color(0xFF111114),
+                      Color(0xFF1A1A1F),
+                      Color(0xFF222228),
+                      Color(0xFF1A1A1F),
+                      Color(0xFF111114),
+                    ],
+                    stops: const [0.0, 0.3, 0.5, 0.7, 1.0],
+                  ),
+                ),
+              );
+            },
+          ),
+
+          // Center: page number + spinner/progress
+          Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Spinner
+                SizedBox(
+                  width: 36,
+                  height: 36,
+                  child: widget.progress != null && widget.progress! < 1.0
+                      ? CircularProgressIndicator(
+                          value: widget.progress,
+                          strokeWidth: 2.5,
+                          color: const Color(0xFFFF9F1C),
+                          backgroundColor: Colors.white10,
+                        )
+                      : const CircularProgressIndicator(
+                          strokeWidth: 2.5,
+                          color: Color(0xFFFF9F1C),
+                          backgroundColor: Colors.transparent,
+                        ),
+                ),
+                const SizedBox(height: 12),
+                // Percentage text
+                if (widget.progress != null && widget.progress! > 0)
+                  Text(
+                    '${(widget.progress! * 100).toInt()}%',
+                    style: const TextStyle(
+                      color: Colors.white38,
+                      fontSize: 11,
+                      fontFamily: 'Outfit',
+                      fontWeight: FontWeight.w500,
+                    ),
+                  )
+                else
+                  Text(
+                    'Page ${widget.pageNumber}',
+                    style: const TextStyle(
+                      color: Colors.white24,
+                      fontSize: 11,
+                      fontFamily: 'Outfit',
+                    ),
+                  ),
+              ],
+            ),
+          ),
+
+          // Bottom page number badge (like Mihon's corner indicator)
+          Positioned(
+            bottom: 12,
+            right: 12,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: Colors.black54,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                '${widget.pageNumber}',
+                style: const TextStyle(
+                  color: Colors.white54,
+                  fontSize: 10,
+                  fontFamily: 'Outfit',
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

@@ -1,11 +1,16 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../services/video_proxy_service.dart';
+import '../services/torrserver_manager.dart';
 import 'library_state.dart';
 import 'app_settings.dart';
+import '../services/hstream_service.dart';
 
 class PlaybackProgress {
   final int position; // in milliseconds
@@ -37,6 +42,8 @@ class PlayerState extends ChangeNotifier {
   dynamic _media;
   List<dynamic>? _episodes;
   Map<int, dynamic>? _tmdbEpisodesMap;
+  List<HstreamSource>? _hstreamSources;
+  Map<String, String>? _headers;
 
   // Progress Tracking Subscriptions and variables
   StreamSubscription<Duration>? _positionSubscription;
@@ -66,6 +73,7 @@ class PlayerState extends ChangeNotifier {
   dynamic get media => _media;
   List<dynamic>? get episodes => _episodes;
   Map<int, dynamic>? get tmdbEpisodesMap => _tmdbEpisodesMap;
+  List<HstreamSource>? get hstreamSources => _hstreamSources;
 
   // Progress helpers
   PlaybackProgress? getProgress(dynamic id, int episodeNumber) {
@@ -97,6 +105,8 @@ class PlayerState extends ChangeNotifier {
     dynamic media,
     List<dynamic>? episodes,
     Map<int, dynamic>? tmdbEpisodesMap,
+    List<HstreamSource>? hstreamSources,
+    Map<String, String>? headers,
   }) {
     FocusManager.instance.primaryFocus?.unfocus();
     _cleanupPlayer();
@@ -112,6 +122,8 @@ class PlayerState extends ChangeNotifier {
     _media = media;
     _episodes = episodes;
     _tmdbEpisodesMap = tmdbEpisodesMap;
+    _hstreamSources = hstreamSources;
+    _headers = headers;
 
     _player = Player();
 
@@ -196,8 +208,17 @@ class PlayerState extends ChangeNotifier {
       }
     });
 
-    // Start playing
-    _player!.open(Media(streamUrl));
+    // Start playing via proxy if applicable (only on Desktop to avoid libmpv deadlock)
+    final bool isDesktop = !kIsWeb && (Platform.isWindows || Platform.isMacOS || Platform.isLinux);
+    final bool useProxy = isDesktop;
+    
+    final isDash = streamUrl.endsWith('.mpd');
+    final proxyUrl = (useProxy && streamUrl.startsWith('http') && !streamUrl.contains('127.0.0.1'))
+        ? VideoProxyService().getProxyUrl(streamUrl, headers: _headers, isDash: isDash)
+        : streamUrl;
+    
+    final headersToPass = useProxy ? null : _headers;
+    _player!.open(Media(proxyUrl, httpHeaders: headersToPass));
 
     final id = anilistId?.toString() ?? movieId;
     if (id != null && episodeNumber != null) {
@@ -248,6 +269,28 @@ class PlayerState extends ChangeNotifier {
     _isActive = false;
     _isMinimized = false;
     _isFullscreen = false;
+    notifyListeners();
+  }
+
+  Future<void> switchHstreamQuality(String newUrl) async {
+    if (_player == null) return;
+    final currentPosition = _currentPosition;
+    _streamUrl = newUrl;
+    
+    // Open the new URL via proxy if applicable (only on Desktop)
+    final bool isDesktop = !kIsWeb && (Platform.isWindows || Platform.isMacOS || Platform.isLinux);
+    final bool useProxy = isDesktop;
+    
+    final isDash = newUrl.endsWith('.mpd');
+    final proxyUrl = (useProxy && newUrl.startsWith('http') && !newUrl.contains('127.0.0.1'))
+        ? VideoProxyService().getProxyUrl(newUrl, headers: _headers, isDash: isDash)
+        : newUrl;
+        
+    final headersToPass = useProxy ? null : _headers;
+    await _player!.open(Media(proxyUrl, httpHeaders: headersToPass));
+    
+    // Seek back to where we were
+    await _player!.seek(currentPosition);
     notifyListeners();
   }
 
@@ -496,6 +539,8 @@ class PlayerState extends ChangeNotifier {
     _player?.dispose();
     _player = null;
     _controller = null;
+    _hstreamSources = null;
+    _headers = null;
   }
 
   void _addToHistory(String id, int episodeNumber) async {

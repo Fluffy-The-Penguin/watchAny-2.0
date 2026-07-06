@@ -13,6 +13,8 @@ import 'state/navigation_state.dart';
 import 'state/app_settings.dart';
 import 'state/library_state.dart';
 import 'state/anilist_auth_state.dart';
+import 'state/player_state.dart' as ps;
+import 'services/video_proxy_service.dart';
 import 'screens/shell_layout.dart';
 import 'screens/setup_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -31,6 +33,7 @@ void main() async {
   
   // Initialize MediaKit
   MediaKit.ensureInitialized();
+  VideoProxyService().start();
   
   final bool isDesktop = !kIsWeb && (Platform.isWindows || Platform.isMacOS || Platform.isLinux);
 
@@ -128,6 +131,11 @@ class _MyAppState extends State<MyApp> with WindowListener {
     if (_isDesktop) {
       try {
         await windowManager.hide();
+      } catch (_) {}
+      // Dispose the media player BEFORE destroying the window to prevent
+      // native mpv null-dereference crash (0x10 offset access after destroy).
+      try {
+        ps.PlayerState().stopPlayback();
       } catch (_) {}
       await TorrServerManager.stop();
       try {

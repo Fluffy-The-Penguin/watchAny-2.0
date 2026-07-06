@@ -67,7 +67,7 @@ class UpdateService extends ChangeNotifier {
   factory UpdateService() => _instance;
   UpdateService._internal();
 
-  static const String currentVersion = '2.0.28';
+  static const String currentVersion = '2.0.29';
   
   // GitHub Releases API Endpoint
   static const String gitHubReleasesUrl = 'https://api.github.com/repos/Fluffy-The-Penguin/watchAny-2.0/releases/latest';
@@ -167,15 +167,14 @@ class UpdateService extends ChangeNotifier {
       // Fallback mock update in case of failure
       _error = 'Live check failed ($e). Showing fallback updates.';
       _latestUpdate = UpdateInfo(
-        version: 'v2.0.28',
-        changelog: '• Added F11 fullscreen key binding support on desktop\n'
-            '• Centered details page on widescreen desktop and added blurred backdrop banner\n'
-            '• Added chapters pagination to details page to limit memory and load lag\n'
-            '• Fixed reader double-gestures allowing swipe to change page when unzoomed\n'
-            '• Loaded reader page in full screen rootNavigator container',
+        version: 'v2.0.29',
+        changelog: '• Added HStream 1080p and 4K support on Windows with local DASH-to-HLS proxy\n'
+            '• Fixed infinite buffering on seek by outputting VOD playlist directives\n'
+            '• Implemented dynamic CDN probing via HEAD requests to eliminate fake qualities\n'
+            '• Upgraded episode navigator: direct HStream playback from episode list without opening torrent panel',
         downloadUrl: Platform.isAndroid 
-            ? 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.28/app-arm64-v8a-release.apk'
-            : 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.28/watchany_setup.exe',
+            ? 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.29/app-arm64-v8a-release.apk'
+            : 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.29/watchany_setup.exe',
       );
     } finally {
       _isChecking = false;

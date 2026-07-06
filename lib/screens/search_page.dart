@@ -71,7 +71,9 @@ class _SearchPageState extends State<SearchPage> {
       _selectedSource = 'tmdb'; // Not applicable to anime/manga
     }
     // Perform an initial empty search to show popular items / default catalog
-    _performSearch();
+    if (widget.mode != AppMode.manga) {
+      _performSearch();
+    }
   }
 
   Future<void> _loadStremioAddons() async {
@@ -109,6 +111,7 @@ class _SearchPageState extends State<SearchPage> {
   }
 
   Future<void> _performSearch({bool isLoadMore = false}) async {
+    if (widget.mode == AppMode.manga) return;
     if (_isLoading) return;
 
     if (!isLoadMore) {
