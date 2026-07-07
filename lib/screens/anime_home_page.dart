@@ -741,6 +741,15 @@ class _RailwayTrackState extends State<_RailwayTrack> {
                       final int? parsedId = rawId is int ? rawId : int.tryParse(rawId?.toString() ?? '');
                       widget.navigationState.selectAnime(parsedId);
                     },
+                    onDelete: widget.title == 'Continue Watching'
+                        ? () {
+                            final rawId = animeItem['id'];
+                            final String idStr = rawId?.toString() ?? '';
+                            if (idStr.isNotEmpty) {
+                              PlayerState.removeFromContinueWatching(idStr, isAnime: true);
+                            }
+                          }
+                        : null,
                   );
                 },
               ),
@@ -815,10 +824,12 @@ class _RailwayTrackState extends State<_RailwayTrack> {
 class _AnimeCard extends StatefulWidget {
   final dynamic anime;
   final VoidCallback onTap;
+  final VoidCallback? onDelete;
 
   const _AnimeCard({
     required this.anime,
     required this.onTap,
+    this.onDelete,
   });
 
   @override
@@ -903,7 +914,26 @@ class _AnimeCardState extends State<_AnimeCard> {
                               : Container(color: Colors.grey[950]),
                         ),
                       ),
-                      
+                      // Delete button overlay
+                      if (widget.onDelete != null && _isHovered)
+                        Positioned(
+                          top: 8.0,
+                          left: 8.0,
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTap: widget.onDelete,
+                            child: Container(
+                              padding: const EdgeInsets.all(4.0),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withValues(alpha: 0.85),
+                                shape: BoxShape.circle,
+                                border: Border.all(color: Colors.white24, width: 1.0),
+                              ),
+                              child: const Icon(Icons.close, color: Colors.white, size: 12.0),
+                            ),
+                          ),
+                        ),
+
                       // Score Badge
                       if (rating != null)
                         Positioned(

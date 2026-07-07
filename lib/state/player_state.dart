@@ -488,6 +488,27 @@ class PlayerState extends ChangeNotifier {
     return items.map((item) => item['media']).toList();
   }
 
+  static Future<void> removeFromContinueWatching(String id, {required bool isAnime}) async {
+    final prefs = await SharedPreferences.getInstance();
+    final prefix = isAnime ? 'anime_' : 'movie_';
+    
+    await prefs.remove('${prefix}continue_watching_metadata_$id');
+    await prefs.remove('${prefix}continue_watching_timestamp_$id');
+    await prefs.remove('${prefix}continue_watching_last_ep_$id');
+    
+    final keys = prefs.getKeys();
+    final posPrefix = '${prefix}playback_pos_${id}_';
+    final durPrefix = '${prefix}playback_dur_${id}_';
+    
+    for (final key in keys) {
+      if (key.startsWith(posPrefix) || key.startsWith(durPrefix)) {
+        await prefs.remove(key);
+      }
+    }
+    
+    PlayerState().notifyListeners();
+  }
+
   Future<void> _resumePlayback(String id, int episodeNumber) async {
     final key = '${id}_$episodeNumber';
     final prefs = await SharedPreferences.getInstance();

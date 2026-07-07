@@ -519,6 +519,14 @@ class _MovieRailwayTrackState extends State<_MovieRailwayTrack> {
                           Map<String, dynamic>.from(item.cast());
                       widget.navigationState.selectMovie(selectId);
                     },
+                    onDelete: widget.title == 'Continue Watching'
+                        ? () {
+                            final id = item['id']?.toString() ?? '';
+                            if (id.isNotEmpty) {
+                              PlayerState.removeFromContinueWatching(id, isAnime: false);
+                            }
+                          }
+                        : null,
                   );
                 },
               ),
@@ -592,8 +600,13 @@ class _ScrollButton extends StatelessWidget {
 class _MovieCard extends StatefulWidget {
   final dynamic item;
   final VoidCallback onTap;
+  final VoidCallback? onDelete;
 
-  const _MovieCard({required this.item, required this.onTap});
+  const _MovieCard({
+    required this.item,
+    required this.onTap,
+    this.onDelete,
+  });
 
   @override
   State<_MovieCard> createState() => _MovieCardState();
@@ -666,8 +679,27 @@ class _MovieCardState extends State<_MovieCard> {
                               : _placeholder(),
                         ),
                       ),
+                      // Delete button overlay
+                      if (widget.onDelete != null && _isHovered)
+                        Positioned(
+                          top: 6.0,
+                          left: 6.0,
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTap: widget.onDelete,
+                            child: Container(
+                              padding: const EdgeInsets.all(4.0),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withValues(alpha: 0.85),
+                                shape: BoxShape.circle,
+                                border: Border.all(color: Colors.white24, width: 1.0),
+                              ),
+                              child: const Icon(Icons.close, color: Colors.white, size: 12.0),
+                            ),
+                          ),
+                        ),
                       // Type badge (series vs movie)
-                      if (type == 'series')
+                      if (type == 'series' && !(widget.onDelete != null && _isHovered))
                         Positioned(
                           left: 6,
                           top: 6,
