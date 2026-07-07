@@ -201,15 +201,18 @@ class _MyAppState extends State<MyApp> with WindowListener {
             ? BrandSplashScreen(
                 key: const ValueKey('splash'),
                 initFuture: _initFuture,
-                onComplete: () {
-                  setState(() => _isLoading = false);
+                onComplete: () async {
                   if (_isDesktop) {
-                    windowManager.setResizable(true).then((_) {
-                      windowManager.setTitleBarStyle(TitleBarStyle.hidden);
-                      windowManager.setMinimumSize(const Size(360, 500));
-                      windowManager.setSize(const Size(1280, 720), animate: true);
-                      windowManager.center();
-                    });
+                    await windowManager.setResizable(true);
+                    await windowManager.setTitleBarStyle(TitleBarStyle.hidden);
+                    await windowManager.setMinimumSize(const Size(360, 500));
+                    await windowManager.setSize(const Size(1280, 720), animate: true);
+                    await windowManager.center();
+                    // Wait for the native resize animation to complete smoothly
+                    await Future.delayed(const Duration(milliseconds: 350));
+                  }
+                  if (mounted) {
+                    setState(() => _isLoading = false);
                   }
                 },
               )
