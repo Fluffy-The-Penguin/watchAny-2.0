@@ -194,22 +194,41 @@ class _MyAppState extends State<MyApp> with WindowListener {
         );
       },
       home: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 600),
-        switchInCurve: Curves.easeInOut,
-        switchOutCurve: Curves.easeInOut,
+        duration: const Duration(milliseconds: 700),
+        switchInCurve: Curves.easeOutBack,
+        switchOutCurve: Curves.easeIn,
+        transitionBuilder: (Widget child, Animation<double> animation) {
+          final scaleAnimation = Tween<double>(begin: 0.94, end: 1.0).animate(
+            CurvedAnimation(
+              parent: animation,
+              curve: Curves.easeOutBack,
+            ),
+          );
+          return FadeTransition(
+            opacity: animation,
+            child: ScaleTransition(
+              scale: scaleAnimation,
+              child: child,
+            ),
+          );
+        },
         child: _isLoading
             ? BrandSplashScreen(
                 key: const ValueKey('splash'),
                 initFuture: _initFuture,
                 onComplete: () async {
                   if (_isDesktop) {
+                    // Resize and center programmatically while window is still frameless
+                    await windowManager.setSize(const Size(1280, 720), animate: true);
+                    await windowManager.center();
+                    
+                    // Wait for the resize animation to complete smoothly
+                    await Future.delayed(const Duration(milliseconds: 450));
+                    
+                    // Restore borders and sizing constraints at the final size
                     await windowManager.setResizable(true);
                     await windowManager.setTitleBarStyle(TitleBarStyle.hidden);
                     await windowManager.setMinimumSize(const Size(360, 500));
-                    await windowManager.setSize(const Size(1280, 720), animate: true);
-                    await windowManager.center();
-                    // Wait for the native resize animation to complete smoothly
-                    await Future.delayed(const Duration(milliseconds: 350));
                   }
                   if (mounted) {
                     setState(() => _isLoading = false);
