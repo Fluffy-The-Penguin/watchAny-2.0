@@ -127,11 +127,6 @@ class _SetupScreenState extends State<SetupScreen>
                                   height: 64,
                                   decoration: BoxDecoration(
                                     shape: BoxShape.circle,
-                                    gradient: const LinearGradient(
-                                      colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)],
-                                      begin: Alignment.topLeft,
-                                      end: Alignment.bottomRight,
-                                    ),
                                     boxShadow: [
                                       BoxShadow(
                                         color: const Color(0xFF6366F1).withValues(alpha: 0.35),
@@ -140,10 +135,12 @@ class _SetupScreenState extends State<SetupScreen>
                                       ),
                                     ],
                                   ),
-                                  child: const Icon(
-                                    Icons.play_arrow_rounded,
-                                    color: Colors.white,
-                                    size: 32,
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(32.0),
+                                    child: Image.asset(
+                                      'assets/logo.png',
+                                      fit: BoxFit.cover,
+                                    ),
                                   ),
                                 ),
 

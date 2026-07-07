@@ -18,6 +18,7 @@ import 'services/video_proxy_service.dart';
 import 'screens/shell_layout.dart';
 import 'screens/setup_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'widgets/brand_splash_screen.dart';
 
 class MyCustomScrollBehavior extends MaterialScrollBehavior {
   @override
@@ -72,6 +73,7 @@ class _MyAppState extends State<MyApp> with WindowListener {
   final bool _isDesktop = !kIsWeb && (Platform.isWindows || Platform.isMacOS || Platform.isLinux);
   late Future<void> _initFuture;
   bool _showSetup = false;
+  bool _isLoading = true;
 
   @override
   void initState() {
@@ -190,51 +192,31 @@ class _MyAppState extends State<MyApp> with WindowListener {
           child: child ?? const SizedBox(),
         );
       },
-      home: FutureBuilder<void>(
-        future: _initFuture,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.done) {
-            if (_showSetup || !AppSettings().setupCompleted) {
-              return SetupScreen(
-                onSetupComplete: () {
-                  setState(() => _showSetup = false);
-                  // Re-sync TorrServer after setup
-                  _handleNavigationModeChange();
+      home: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 600),
+        switchInCurve: Curves.easeInOut,
+        switchOutCurve: Curves.easeInOut,
+        child: _isLoading
+            ? BrandSplashScreen(
+                key: const ValueKey('splash'),
+                initFuture: _initFuture,
+                onComplete: () {
+                  setState(() => _isLoading = false);
                 },
-              );
-            }
-            return ShellLayout(navigationState: _navigationState);
-          }
-          return const Scaffold(
-            backgroundColor: Colors.black,
-            body: Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    'watchAny',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 32.0,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 2.0,
-                      fontFamily: 'Outfit',
-                    ),
+              )
+            : (_showSetup || !AppSettings().setupCompleted)
+                ? SetupScreen(
+                    key: const ValueKey('setup'),
+                    onSetupComplete: () {
+                      setState(() => _showSetup = false);
+                      // Re-sync TorrServer after setup
+                      _handleNavigationModeChange();
+                    },
+                  )
+                : ShellLayout(
+                    key: const ValueKey('shell'),
+                    navigationState: _navigationState,
                   ),
-                  SizedBox(height: 24.0),
-                  SizedBox(
-                    width: 32.0,
-                    height: 32.0,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2.5,
-                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white24),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        },
       ),
     );
   }

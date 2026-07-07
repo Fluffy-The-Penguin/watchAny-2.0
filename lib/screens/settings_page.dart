@@ -4371,20 +4371,19 @@ class _SettingsPageState extends State<SettingsPage> {
                 ),
                 child: Row(
                   children: [
-                    // App Logo Mock
+                    // App Logo
                     Container(
                       width: 64.0,
                       height: 64.0,
                       decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.05),
                         borderRadius: BorderRadius.circular(14.0),
                         border: Border.all(color: Colors.white12),
                       ),
-                      child: const Center(
-                        child: Icon(
-                          Icons.play_circle_filled,
-                          color: Colors.amber,
-                          size: 36.0,
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(13.0),
+                        child: Image.asset(
+                          'assets/logo.png',
+                          fit: BoxFit.cover,
                         ),
                       ),
                     ),
