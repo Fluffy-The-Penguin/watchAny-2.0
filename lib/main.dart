@@ -43,8 +43,7 @@ void main() async {
     await windowManager.ensureInitialized();
 
     WindowOptions windowOptions = const WindowOptions(
-      size: Size(1280, 720),
-      minimumSize: Size(360, 500),
+      size: Size(400, 400),
       center: true,
       backgroundColor: Colors.black,
       skipTaskbar: false,
@@ -55,6 +54,7 @@ void main() async {
       await windowManager.show();
       await windowManager.focus();
       await windowManager.setPreventClose(true);
+      await windowManager.setResizable(false);
     });
   }
 
@@ -202,6 +202,13 @@ class _MyAppState extends State<MyApp> with WindowListener {
                 initFuture: _initFuture,
                 onComplete: () {
                   setState(() => _isLoading = false);
+                  if (_isDesktop) {
+                    windowManager.setResizable(true).then((_) {
+                      windowManager.setMinimumSize(const Size(360, 500));
+                      windowManager.setSize(const Size(1280, 720), animate: true);
+                      windowManager.center();
+                    });
+                  }
                 },
               )
             : (_showSetup || !AppSettings().setupCompleted)

@@ -23,6 +23,9 @@ class _BrandSplashScreenState extends State<BrandSplashScreen> with TickerProvid
   late AnimationController _glowController;
   late Animation<double> _glowAnimation;
 
+  late AnimationController _shineController;
+  late Animation<double> _shineAnimation;
+
   late AnimationController _textController;
   late Animation<double> _textFadeAnimation;
   late Animation<double> _textSpacingAnimation;
@@ -50,8 +53,17 @@ class _BrandSplashScreenState extends State<BrandSplashScreen> with TickerProvid
       vsync: this,
       duration: const Duration(seconds: 2),
     );
-    _glowAnimation = Tween<double>(begin: 0.85, end: 1.15).animate(
+    _glowAnimation = Tween<double>(begin: 0.9, end: 1.1).animate(
       CurvedAnimation(parent: _glowController, curve: Curves.easeInOut),
+    );
+
+    // Shine slash animation (looping every 1.5s)
+    _shineController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1500),
+    );
+    _shineAnimation = Tween<double>(begin: -2.0, end: 2.0).animate(
+      CurvedAnimation(parent: _shineController, curve: Curves.easeInOut),
     );
 
     // Text fade and stretch (0.4s to 1.4s)
@@ -69,6 +81,7 @@ class _BrandSplashScreenState extends State<BrandSplashScreen> with TickerProvid
     // Run animations sequentially
     _mainController.forward().then((_) {
       _glowController.repeat(reverse: true);
+      _shineController.repeat();
     });
 
     Future.delayed(const Duration(milliseconds: 400), () {
@@ -90,6 +103,7 @@ class _BrandSplashScreenState extends State<BrandSplashScreen> with TickerProvid
   void dispose() {
     _mainController.dispose();
     _glowController.dispose();
+    _shineController.dispose();
     _textController.dispose();
     super.dispose();
   }
@@ -102,9 +116,9 @@ class _BrandSplashScreenState extends State<BrandSplashScreen> with TickerProvid
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // Logo area with animated scale, fade, and breathing glow
+            // Logo area with animated scale, fade, breathing glow, and shine slash
             AnimatedBuilder(
-              animation: Listenable.merge([_mainController, _glowController]),
+              animation: Listenable.merge([_mainController, _glowController, _shineAnimation]),
               builder: (context, child) {
                 final scale = _scaleAnimation.value;
                 final fade = _fadeAnimation.value;
@@ -131,26 +145,29 @@ class _BrandSplashScreenState extends State<BrandSplashScreen> with TickerProvid
                             ),
                           ),
                         ),
-                        // The actual logo
-                        Container(
-                          width: 96,
-                          height: 96,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            boxShadow: [
-                              BoxShadow(
-                                color: const Color(0xFF8B5CF6).withValues(alpha: 0.15),
-                                blurRadius: 32,
-                                spreadRadius: 4,
-                              ),
-                            ],
-                          ),
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(48.0),
-                            child: Image.asset(
-                              'assets/logo.png',
-                              fit: BoxFit.cover,
-                            ),
+                        // The actual logo with Shine Slash ShaderMask
+                        ShaderMask(
+                          shaderCallback: (bounds) {
+                            return LinearGradient(
+                              begin: const Alignment(-2.0, -2.0),
+                              end: const Alignment(2.0, 2.0),
+                              colors: [
+                                Colors.transparent,
+                                Colors.white.withValues(alpha: 0.1),
+                                Colors.white,
+                                Colors.white.withValues(alpha: 0.1),
+                                Colors.transparent,
+                              ],
+                              stops: const [0.0, 0.3, 0.5, 0.7, 1.0],
+                              transform: _SlidingGradientTransform(slidePercent: _shineAnimation.value),
+                            ).createShader(bounds);
+                          },
+                          blendMode: BlendMode.srcATop,
+                          child: Image.asset(
+                            'assets/logo.png',
+                            width: 110,
+                            height: 110,
+                            fit: BoxFit.contain,
                           ),
                         ),
                       ],
@@ -191,5 +208,15 @@ class _BrandSplashScreenState extends State<BrandSplashScreen> with TickerProvid
         ),
       ),
     );
+  }
+}
+
+class _SlidingGradientTransform extends GradientTransform {
+  final double slidePercent;
+  const _SlidingGradientTransform({required this.slidePercent});
+
+  @override
+  Matrix4? transform(Rect bounds, {TextDirection? textDirection}) {
+    return Matrix4.translationValues(bounds.width * slidePercent, 0.0, 0.0);
   }
 }
