@@ -73,6 +73,7 @@ flutter:
     - assets/bin/torrserver.exe
     - assets/bin/keiyoushi-runtime.jar
     - assets/logo.png
+    - assets/logo_transparent.png
 
   # To add assets to your application, add an assets section, like this:
   # assets:

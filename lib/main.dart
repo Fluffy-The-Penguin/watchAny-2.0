@@ -45,12 +45,13 @@ void main() async {
     WindowOptions windowOptions = const WindowOptions(
       size: Size(400, 400),
       center: true,
-      backgroundColor: Colors.black,
+      backgroundColor: Colors.transparent,
       skipTaskbar: false,
       titleBarStyle: TitleBarStyle.hidden,
     );
     
     windowManager.waitUntilReadyToShow(windowOptions, () async {
+      await windowManager.setAsFrameless();
       await windowManager.show();
       await windowManager.focus();
       await windowManager.setPreventClose(true);
@@ -204,6 +205,7 @@ class _MyAppState extends State<MyApp> with WindowListener {
                   setState(() => _isLoading = false);
                   if (_isDesktop) {
                     windowManager.setResizable(true).then((_) {
+                      windowManager.setTitleBarStyle(TitleBarStyle.hidden);
                       windowManager.setMinimumSize(const Size(360, 500));
                       windowManager.setSize(const Size(1280, 720), animate: true);
                       windowManager.center();
