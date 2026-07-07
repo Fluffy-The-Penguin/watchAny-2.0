@@ -374,7 +374,7 @@ class _HeroSectionState extends State<_HeroSection> {
                       fit: BoxFit.cover,
                       width: double.infinity,
                       height: double.infinity,
-                      memCacheWidth: 1280,
+                      memCacheWidth: 1920,
                       placeholder: (context, url) => Container(color: Colors.black),
                       errorWidget: (context, url, error) => Container(color: Colors.black),
                     )
@@ -713,10 +713,10 @@ class _RailwayTrackState extends State<_RailwayTrack> {
               child: ListView.builder(
                 controller: _scrollController,
                 scrollDirection: Axis.horizontal,
-                itemCount: _items.length + (_hasMore ? 1 : 0),
+                itemCount: _items.length + (_isLoadingMore ? 1 : 0),
                 itemBuilder: (context, index) {
                   if (index == _items.length) {
-                    // Return loading placeholder card at the end of the track
+                    // Return loading placeholder card only while actively fetching
                     return Container(
                       width: 140.0,
                       margin: const EdgeInsets.only(right: 14.0),
@@ -843,7 +843,7 @@ class _AnimeCardState extends State<_AnimeCard> {
   Widget build(BuildContext context) {
     final rawCover = widget.anime['coverImage'];
     final coverUrl = (rawCover is Map) 
-        ? (rawCover['large'] ?? rawCover['extraLarge'] ?? '') 
+        ? (rawCover['extraLarge'] ?? rawCover['large'] ?? '') 
         : (rawCover?.toString() ?? '');
 
     final rawTitle = widget.anime['title'];

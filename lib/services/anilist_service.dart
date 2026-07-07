@@ -379,6 +379,7 @@ class AnilistService {
               native
             }
             coverImage {
+              extraLarge
               large
             }
             averageScore
