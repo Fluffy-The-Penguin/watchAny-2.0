@@ -29,7 +29,16 @@ class MyCustomScrollBehavior extends MaterialScrollBehavior {
       };
 }
 
+class MyHttpOverrides extends HttpOverrides {
+  @override
+  HttpClient createHttpClient(SecurityContext? context) {
+    return super.createHttpClient(context)
+      ..badCertificateCallback = (X509Certificate cert, String host, int port) => true;
+  }
+}
+
 void main() async {
+  HttpOverrides.global = MyHttpOverrides();
   WidgetsFlutterBinding.ensureInitialized();
   
   // Initialize MediaKit
@@ -194,14 +203,14 @@ class _MyAppState extends State<MyApp> with WindowListener {
         );
       },
       home: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 700),
-        switchInCurve: Curves.easeOutBack,
+        duration: const Duration(milliseconds: 600),
+        switchInCurve: Curves.easeOut,
         switchOutCurve: Curves.easeIn,
         transitionBuilder: (Widget child, Animation<double> animation) {
-          final scaleAnimation = Tween<double>(begin: 0.94, end: 1.0).animate(
+          final scaleAnimation = Tween<double>(begin: 0.95, end: 1.0).animate(
             CurvedAnimation(
               parent: animation,
-              curve: Curves.easeOutBack,
+              curve: Curves.easeOut,
             ),
           );
           return FadeTransition(
@@ -216,21 +225,22 @@ class _MyAppState extends State<MyApp> with WindowListener {
             ? BrandSplashScreen(
                 key: const ValueKey('splash'),
                 initFuture: _initFuture,
-                onComplete: () async {
+                onComplete: () {
                   if (_isDesktop) {
-                    // Resize and center programmatically while window is still frameless
-                    await windowManager.setSize(const Size(1280, 720), animate: true);
-                    await windowManager.center();
+                    // Fire and forget size changes asynchronously so we NEVER block the loading state transition
+                    windowManager.setSize(const Size(1280, 720), animate: true);
+                    windowManager.center();
                     
-                    // Wait for the resize animation to complete smoothly
-                    await Future.delayed(const Duration(milliseconds: 450));
-                    
-                    // Restore borders and sizing constraints at the final size
-                    await windowManager.setResizable(true);
-                    await windowManager.setTitleBarStyle(TitleBarStyle.hidden);
-                    await windowManager.setMinimumSize(const Size(360, 500));
-                  }
-                  if (mounted) {
+                    // Schedule borders and app reveal after 450ms, guaranteed to run
+                    Future.delayed(const Duration(milliseconds: 450), () async {
+                      await windowManager.setResizable(true);
+                      await windowManager.setTitleBarStyle(TitleBarStyle.hidden);
+                      await windowManager.setMinimumSize(const Size(360, 500));
+                      if (mounted) {
+                        setState(() => _isLoading = false);
+                      }
+                    });
+                  } else {
                     setState(() => _isLoading = false);
                   }
                 },
