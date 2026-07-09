@@ -56,32 +56,34 @@ class BackupService {
 
       final prefs = await SharedPreferences.getInstance();
 
-      // 1. Backup Library Items
+      // 1. Backup Library Items (write raw strings directly — avoids double decode/re-encode)
       final String? itemsJson = prefs.getString('library_items');
       final String? catsJson = prefs.getString('library_categories');
       final String? cacheJson = prefs.getString('manga_library_cache');
 
       if (itemsJson != null || catsJson != null || cacheJson != null) {
-        final libraryBackup = {
-          'library_items': itemsJson != null ? jsonDecode(itemsJson) : [],
-          'library_categories': catsJson != null ? jsonDecode(catsJson) : [],
-          'manga_library_cache': cacheJson != null ? jsonDecode(cacheJson) : {},
-          'timestamp': DateTime.now().toIso8601String(),
-        };
+        final ts = DateTime.now().toIso8601String();
         final libraryFile = File('${dir.path}/library_backup.json');
-        await libraryFile.writeAsString(jsonEncode(libraryBackup));
+        await libraryFile.writeAsString(
+          '{"library_items":${itemsJson ?? "[]"},'
+          '"library_categories":${catsJson ?? "[]"},'
+          '"manga_library_cache":${cacheJson ?? "{}"},'
+          '"timestamp":"$ts"}',
+        );
       }
 
-      // 2. Backup App Settings
+      // 2. Backup App Settings — exclude large cache blobs (anime/movie caches, notif state)
+      // These were being written into settings_backup.json = tens of MB every 5 seconds.
+      const cacheKeys = {
+        'library_items', 'library_categories',
+        'manga_library_cache', 'anime_library_cache', 'movie_library_cache',
+        'notif_ack_all', 'notif_start_all', 'library_last_notif_sync',
+        'downloads_backup',
+      };
       final settingsBackup = <String, dynamic>{};
-      final keys = prefs.getKeys();
-      for (final key in keys) {
-        if (key != 'library_items' &&
-            key != 'library_categories' &&
-            key != 'manga_library_cache' &&
-            key != 'downloads_backup') {
-          final value = prefs.get(key);
-          settingsBackup[key] = value;
+      for (final key in prefs.getKeys()) {
+        if (!cacheKeys.contains(key)) {
+          settingsBackup[key] = prefs.get(key);
         }
       }
       if (settingsBackup.isNotEmpty) {
