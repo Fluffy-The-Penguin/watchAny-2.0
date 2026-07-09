@@ -359,8 +359,10 @@ class _NotificationsPageState extends State<NotificationsPage> {
                                   ),
                                   child: InkWell(
                                     onTap: () {
-                                      if (widget.mode == AppMode.anime || widget.mode == AppMode.manga) {
+                                      if (widget.mode == AppMode.anime) {
                                         widget.navigationState.selectAnime(notif['id']);
+                                      } else if (widget.mode == AppMode.manga) {
+                                        widget.navigationState.selectManga(notif['id'].toString());
                                       } else {
                                         widget.navigationState.selectMovie('series:${notif['id']}');
                                       }

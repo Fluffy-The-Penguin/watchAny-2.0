@@ -48,6 +48,7 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
   String? _catalogError;
   final TextEditingController _searchController = TextEditingController();
   bool _engineStarted = false;
+  Map<String, List<dynamic>> _globalSearchResults = {};
 
   SharedPreferences? _prefs;
   String? _selectedExtensionName;
@@ -245,11 +246,11 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
               .toList();
           distinctExtensionNames.sort();
 
-          if (_selectedExtensionName == null && distinctExtensionNames.isNotEmpty) {
-            _selectedExtensionName = distinctExtensionNames.first;
+          if (_selectedExtensionName == null) {
+            _selectedExtensionName = "Global";
           }
 
-          if (_selectedExtensionName != null) {
+          if (_selectedExtensionName != "Global" && _selectedExtensionName != null) {
             final extSources = _sources.where((s) => _getCleanName(s['name']?.toString() ?? '') == _selectedExtensionName).toList();
             final enabled = extSources.where((s) => _isLanguageEnabled(_selectedExtensionName!, s['lang']?.toString() ?? 'en')).toList();
             final target = enabled.isNotEmpty ? enabled : extSources;
@@ -309,6 +310,11 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
 
   // Load Catalog items for selected source
   Future<void> _loadCatalog({bool resetPage = false}) async {
+    if (_selectedExtensionName == "Global") {
+      await _performGlobalSearch();
+      return;
+    }
+
     if (_selectedSourceId == null) return;
     if (mounted) {
       setState(() {
@@ -340,6 +346,78 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
         });
       }
     }
+  }
+
+  Future<void> _performGlobalSearch() async {
+    final query = _catalogSearchQuery;
+    if (query.isEmpty) {
+      setState(() {
+        _globalSearchResults = {};
+        _loadingCatalog = false;
+      });
+      return;
+    }
+
+    if (mounted) {
+      setState(() {
+        _loadingCatalog = true;
+        _catalogError = null;
+        _globalSearchResults = {};
+      });
+    }
+
+    final preferredSources = _getPreferredSourceIds();
+    final Map<String, List<dynamic>> results = {};
+
+    try {
+      await Future.wait(
+        preferredSources.entries.map((entry) async {
+          final extName = entry.key;
+          final sourceId = entry.value;
+          try {
+            final list = await _suwayomiService.fetchSourceManga(
+              sourceId: sourceId,
+              page: 1,
+              query: query,
+            );
+            results[extName] = list;
+          } catch (e) {
+            results[extName] = [];
+          }
+        }),
+      );
+
+      if (mounted) {
+        setState(() {
+          _globalSearchResults = results;
+          _loadingCatalog = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _catalogError = e.toString().replaceFirst('Exception: ', '');
+          _loadingCatalog = false;
+        });
+      }
+    }
+  }
+
+  Map<String, String> _getPreferredSourceIds() {
+    final Map<String, String> preferred = {};
+    for (final source in _sources) {
+      final name = _getCleanName(source['name']?.toString() ?? '');
+      if (name.isEmpty) continue;
+      final id = source['id']?.toString();
+      if (id == null) continue;
+      final lang = source['lang']?.toString() ?? 'en';
+      
+      // If we haven't stored a source for this extension, or if this one is EN/en, prefer it
+      if (!preferred.containsKey(name) || lang.toLowerCase() == 'en') {
+        preferred[name] = id;
+      }
+    }
+    return preferred;
   }
 
   Future<void> _toggleExtensionInstall(Map<String, dynamic> ext) async {
@@ -585,6 +663,7 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
         .toSet()
         .toList();
     distinctExtensionNames.sort();
+    distinctExtensionNames.insert(0, "Global");
 
     if (_selectedExtensionName == null && _selectedSourceId != null && _sources.isNotEmpty) {
       final selectedSrc = _sources.firstWhere(
@@ -595,8 +674,11 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
         _selectedExtensionName = _getCleanName(selectedSrc['name']?.toString() ?? '');
       }
     }
-    if (_selectedExtensionName == null && distinctExtensionNames.isNotEmpty) {
-      _selectedExtensionName = distinctExtensionNames.first;
+    if (_selectedExtensionName == null) {
+      _selectedExtensionName = "Global";
+    }
+    if (_selectedExtensionName != null && !distinctExtensionNames.contains(_selectedExtensionName)) {
+      _selectedExtensionName = "Global";
     }
 
     final currentExtSources = _sources.where((s) {
@@ -653,14 +735,21 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
                             if (value != null) {
                               setState(() {
                                 _selectedExtensionName = value;
-                                final extSources = _sources.where((s) => _getCleanName(s['name']?.toString() ?? '') == value).toList();
-                                final enabled = extSources.where((s) => _isLanguageEnabled(value, s['lang']?.toString() ?? 'en')).toList();
-                                final target = enabled.isNotEmpty ? enabled : extSources;
-                                if (target.isNotEmpty) {
-                                  _selectedSourceId = target.first['id']?.toString();
+                                if (value == "Global") {
+                                  _selectedSourceId = null;
+                                  _currentPage = 1;
+                                  _catalogManga = [];
+                                  _globalSearchResults = {};
+                                } else {
+                                  final extSources = _sources.where((s) => _getCleanName(s['name']?.toString() ?? '') == value).toList();
+                                  final enabled = extSources.where((s) => _isLanguageEnabled(value, s['lang']?.toString() ?? 'en')).toList();
+                                  final target = enabled.isNotEmpty ? enabled : extSources;
+                                  if (target.isNotEmpty) {
+                                    _selectedSourceId = target.first['id']?.toString();
+                                  }
+                                  _currentPage = 1;
+                                  _catalogManga = [];
                                 }
-                                _currentPage = 1;
-                                _catalogManga = [];
                               });
                               _loadCatalog();
                             }
@@ -668,40 +757,42 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
                         ),
                       ),
 
-                      const SizedBox(width: 8.0),
+                      if (_selectedExtensionName != "Global") ...[
+                        const SizedBox(width: 8.0),
 
-                      // 2. Language Dropdown
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12.0),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF0F0F11),
-                          borderRadius: BorderRadius.circular(8.0),
-                          border: Border.all(color: Colors.white10),
+                        // 2. Language Dropdown
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12.0),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF0F0F11),
+                            borderRadius: BorderRadius.circular(8.0),
+                            border: Border.all(color: Colors.white10),
+                          ),
+                          child: DropdownButton<String>(
+                            value: _selectedSourceId,
+                            dropdownColor: const Color(0xFF0F0F11),
+                            underline: const SizedBox.shrink(),
+                            style: const TextStyle(color: Colors.white, fontFamily: 'Outfit', fontWeight: FontWeight.bold),
+                            icon: const Icon(Icons.arrow_drop_down, color: Colors.white54),
+                            items: displayedSources.map<DropdownMenuItem<String>>((source) {
+                              return DropdownMenuItem<String>(
+                                value: source['id']?.toString(),
+                                child: Text((source['lang']?.toString() ?? 'en').toUpperCase()),
+                              );
+                            }).toList(),
+                            onChanged: (value) {
+                              if (value != null) {
+                                setState(() {
+                                  _selectedSourceId = value;
+                                  _currentPage = 1;
+                                  _catalogManga = [];
+                                });
+                                _loadCatalog();
+                              }
+                            },
+                          ),
                         ),
-                        child: DropdownButton<String>(
-                          value: _selectedSourceId,
-                          dropdownColor: const Color(0xFF0F0F11),
-                          underline: const SizedBox.shrink(),
-                          style: const TextStyle(color: Colors.white, fontFamily: 'Outfit', fontWeight: FontWeight.bold),
-                          icon: const Icon(Icons.arrow_drop_down, color: Colors.white54),
-                          items: displayedSources.map<DropdownMenuItem<String>>((source) {
-                            return DropdownMenuItem<String>(
-                              value: source['id']?.toString(),
-                              child: Text((source['lang']?.toString() ?? 'en').toUpperCase()),
-                            );
-                          }).toList(),
-                          onChanged: (value) {
-                            if (value != null) {
-                              setState(() {
-                                _selectedSourceId = value;
-                                _currentPage = 1;
-                                _catalogManga = [];
-                              });
-                              _loadCatalog();
-                            }
-                          },
-                        ),
-                      ),
+                      ],
                     ] else
                       const Text('No sources installed', style: TextStyle(color: Colors.white38, fontFamily: 'Outfit')),
 
@@ -808,7 +899,169 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
               ),
             ),
           )
-        else if (_catalogManga.isEmpty)
+        else if (_selectedExtensionName == "Global" && _catalogSearchQuery.isEmpty)
+          const SliverToBoxAdapter(
+            child: Center(
+              child: Padding(
+                padding: EdgeInsets.symmetric(vertical: 64.0),
+                child: Text(
+                  'Search manga across all installed extensions.',
+                  style: TextStyle(color: Colors.white30, fontFamily: 'Outfit'),
+                ),
+              ),
+            ),
+          )
+        else if (_selectedExtensionName == "Global" && _globalSearchResults.isEmpty)
+          const SliverToBoxAdapter(
+            child: Center(
+              child: Padding(
+                padding: EdgeInsets.symmetric(vertical: 64.0),
+                child: Text(
+                  'No manga found. Try searching or check extensions.',
+                  style: TextStyle(color: Colors.white30, fontFamily: 'Outfit'),
+                ),
+              ),
+            ),
+          )
+        else if (_selectedExtensionName == "Global" && _globalSearchResults.isNotEmpty) ...[
+          ...() {
+            final List<String> sortedExtNames = _globalSearchResults.keys.toList();
+            sortedExtNames.sort((a, b) {
+              final listA = _globalSearchResults[a] ?? [];
+              final listB = _globalSearchResults[b] ?? [];
+              if (listA.isNotEmpty && listB.isEmpty) return -1;
+              if (listA.isEmpty && listB.isNotEmpty) return 1;
+              return a.compareTo(b);
+            });
+
+            return sortedExtNames.map((extName) {
+              final list = _globalSearchResults[extName] ?? [];
+              return SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.only(left: 24.0, right: 24.0, bottom: 28.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            extName,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 15.0,
+                              fontWeight: FontWeight.bold,
+                              fontFamily: 'Outfit',
+                            ),
+                          ),
+                          if (list.isNotEmpty)
+                            Text(
+                              '${list.length} results',
+                              style: const TextStyle(
+                                color: Colors.white30,
+                                fontSize: 12.0,
+                                fontFamily: 'Outfit',
+                              ),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 12.0),
+                      if (list.isEmpty)
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 12.0),
+                          child: Text(
+                            'No results found',
+                            style: TextStyle(
+                              color: Colors.white24,
+                              fontStyle: FontStyle.italic,
+                              fontSize: 13.0,
+                              fontFamily: 'Outfit',
+                            ),
+                          ),
+                        )
+                      else
+                        SizedBox(
+                          height: 200.0,
+                          child: ListView.builder(
+                            scrollDirection: Axis.horizontal,
+                            physics: const BouncingScrollPhysics(),
+                            itemCount: list.length,
+                            itemBuilder: (context, index) {
+                              final manga = list[index];
+                              final String title = manga['title']?.toString() ?? 'Unknown Title';
+                              final String? coverUrl = manga['thumbnailUrl']?.toString();
+                              final int mangaId = int.tryParse(manga['id']?.toString() ?? '') ?? 0;
+                              final bool inLibrary = LibraryState().getItem(mangaId, 'manga') != null;
+
+                              final cardWidget = Container(
+                                width: 110.0,
+                                margin: const EdgeInsets.only(right: 14.0),
+                                child: GestureDetector(
+                                  onTap: () {
+                                    if (mangaId != 0) {
+                                      widget.navigationState.selectManga(mangaId.toString());
+                                    }
+                                  },
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Expanded(
+                                        child: ClipRRect(
+                                          borderRadius: BorderRadius.circular(6.0),
+                                          child: coverUrl != null && coverUrl.isNotEmpty
+                                              ? CachedNetworkImage(
+                                                  imageUrl: coverUrl,
+                                                  fit: BoxFit.cover,
+                                                  width: double.infinity,
+                                                  memCacheWidth: 200,
+                                                  placeholder: (_, __) => Container(color: const Color(0xFF0F0F11)),
+                                                  errorWidget: (_, __, ___) => Container(
+                                                    color: const Color(0xFF0F0F11),
+                                                    child: const Center(
+                                                      child: Icon(Icons.book, color: Colors.white12, size: 24.0),
+                                                    ),
+                                                  ),
+                                                )
+                                              : Container(
+                                                  color: const Color(0xFF0F0F11),
+                                                  child: const Center(
+                                                    child: Icon(Icons.book, color: Colors.white12, size: 24.0),
+                                                  ),
+                                                ),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 6.0),
+                                      Text(
+                                        title,
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 11.5,
+                                          fontWeight: FontWeight.bold,
+                                          fontFamily: 'Outfit',
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              );
+
+                              if (inLibrary) {
+                                return Opacity(opacity: 0.75, child: cardWidget);
+                              }
+                              return cardWidget;
+                            },
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              );
+            }).toList();
+          }()
+        ]
+        else if (_selectedExtensionName != "Global" && _catalogManga.isEmpty)
           const SliverToBoxAdapter(
             child: Center(
               child: Padding(
@@ -820,8 +1073,8 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
               ),
             ),
           )
-        else ...[
-          // â”€â”€ Manga grid â€” only visible items rendered â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        else if (_selectedExtensionName != "Global") ...[
+          // ── Manga grid — only visible items rendered ──────────────
           SliverPadding(
             padding: const EdgeInsets.symmetric(horizontal: 24.0),
             sliver: SliverGrid(
@@ -902,7 +1155,7 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
             ),
           ),
 
-          // â”€â”€ Pagination controls â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+          // ── Pagination controls ───────────────────────────────────
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(24.0, 32.0, 24.0, 32.0),

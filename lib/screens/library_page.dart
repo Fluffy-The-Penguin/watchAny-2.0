@@ -31,6 +31,9 @@ class _LibraryPageState extends State<LibraryPage> {
   bool _isBackgroundFetchingMissing = false;
   bool _isBackgroundFetchingMissingAnime = false;
   bool _isUpdatingLibrary = false;
+  final Set<int> _attemptedFetchIds = {};
+  bool _isSelectionMode = false;
+  final Set<int> _selectedItemIds = {};
 
   // Real-time fetched items
   List<dynamic> _fetchedMedia = [];
@@ -92,7 +95,7 @@ class _LibraryPageState extends State<LibraryPage> {
         for (final item in savedItems) {
           if (cache.containsKey(item.id)) {
             list.add(cache[item.id]!);
-          } else {
+          } else if (!_attemptedFetchIds.contains(item.id)) {
             missingIds.add(item.id);
           }
         }
@@ -110,7 +113,7 @@ class _LibraryPageState extends State<LibraryPage> {
         for (final item in savedItems) {
           if (cache.containsKey(item.id)) {
             list.add(cache[item.id]!);
-          } else {
+          } else if (!_attemptedFetchIds.contains(item.id)) {
             missingIds.add(item.id);
           }
         }
@@ -147,6 +150,7 @@ class _LibraryPageState extends State<LibraryPage> {
   void _triggerBackgroundFetchMissing(List<int> missingIds) async {
     if (_isBackgroundFetchingMissing) return;
     _isBackgroundFetchingMissing = true;
+    _attemptedFetchIds.addAll(missingIds);
 
     try {
       for (final id in missingIds) {
@@ -180,6 +184,7 @@ class _LibraryPageState extends State<LibraryPage> {
   void _triggerBackgroundFetchMissingAnime(List<int> missingIds) async {
     if (_isBackgroundFetchingMissingAnime) return;
     _isBackgroundFetchingMissingAnime = true;
+    _attemptedFetchIds.addAll(missingIds);
 
     try {
       for (int i = 0; i < missingIds.length; i += 40) {
@@ -250,85 +255,7 @@ class _LibraryPageState extends State<LibraryPage> {
     }
   }
 
-  void _showUpdateLibraryDialog(List<String> tabIds, List<String> tabNames) {
-    final controller = DefaultTabController.of(context);
-    final activeIndex = controller.index;
-    final activeId = tabIds[activeIndex];
-    final activeName = tabNames[activeIndex];
 
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: const Color(0xFF141414),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16.0)),
-      ),
-      constraints: const BoxConstraints(maxWidth: 500.0),
-      builder: (BuildContext context) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(20.0),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const Text(
-                  'Update Options',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontFamily: 'Outfit',
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16.0,
-                  ),
-                ),
-                const SizedBox(height: 20.0),
-                Row(
-                  children: [
-                    Expanded(
-                      child: ElevatedButton(
-                        onPressed: () {
-                          Navigator.pop(context);
-                          _runMangaUpdate(onlyCategory: false);
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.white10,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 14.0),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
-                        ),
-                        child: const Text('Update Library', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13.0, fontFamily: 'Outfit')),
-                      ),
-                    ),
-                    const SizedBox(width: 12.0),
-                    Expanded(
-                      child: ElevatedButton(
-                        onPressed: () {
-                          Navigator.pop(context);
-                          _runMangaUpdate(onlyCategory: true, categoryId: activeId, categoryName: activeName);
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.white,
-                          foregroundColor: Colors.black,
-                          padding: const EdgeInsets.symmetric(vertical: 14.0),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
-                        ),
-                        child: Text('Update "$activeName"', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13.0, fontFamily: 'Outfit')),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12.0),
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('Cancel', style: TextStyle(color: Colors.white38, fontFamily: 'Outfit')),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
 
   Future<void> _runMangaUpdate({
     required bool onlyCategory,
@@ -629,20 +556,33 @@ class _LibraryPageState extends State<LibraryPage> {
       itemCount: items.length,
       itemBuilder: (context, index) {
         final media = items[index];
+        final int id = media['id'] as int;
         return _LibraryMediaCard(
           media: media,
           mode: widget.mode,
+          isSelectionMode: _isSelectionMode,
+          isSelected: _selectedItemIds.contains(id),
           onTap: () {
-            if (widget.mode == AppMode.anime) {
-              widget.navigationState.selectAnime(media['id']);
-            } else if (widget.mode == AppMode.manga) {
-              widget.navigationState.selectManga(media['id'].toString());
+            if (_isSelectionMode) {
+              setState(() {
+                if (_selectedItemIds.contains(id)) {
+                  _selectedItemIds.remove(id);
+                } else {
+                  _selectedItemIds.add(id);
+                }
+              });
             } else {
-              final type = media['format'] == 'MOVIE' ? 'movie' : 'series';
-              final rawIdStr = media['id'].toString();
-              final isNumericOnly = RegExp(r'^\d+$').hasMatch(rawIdStr);
-              final realId = isNumericOnly ? 'tt${rawIdStr.padLeft(7, '0')}' : rawIdStr;
-              widget.navigationState.selectMovie('$type:$realId');
+              if (widget.mode == AppMode.anime) {
+                widget.navigationState.selectAnime(id);
+              } else if (widget.mode == AppMode.manga) {
+                widget.navigationState.selectManga(id.toString());
+              } else {
+                final type = media['format'] == 'MOVIE' ? 'movie' : 'series';
+                final rawIdStr = id.toString();
+                final isNumericOnly = RegExp(r'^\d+$').hasMatch(rawIdStr);
+                final realId = isNumericOnly ? 'tt${rawIdStr.padLeft(7, '0')}' : rawIdStr;
+                widget.navigationState.selectMovie('$type:$realId');
+              }
             }
           },
         );
@@ -805,10 +745,159 @@ class _LibraryPageState extends State<LibraryPage> {
         );
       }
 
-      return DefaultTabController(
-        key: ValueKey('tab_controller_${tabIds.length}_manga'),
-        length: tabIds.length,
-        child: Padding(
+      return Scaffold(
+        backgroundColor: Colors.transparent,
+        bottomNavigationBar: _buildSelectionActionBar(),
+        body: DefaultTabController(
+          key: ValueKey('tab_controller_${tabIds.length}_manga'),
+          length: tabIds.length,
+          child: Padding(
+            padding: EdgeInsets.only(
+              top: isMobile ? 16.0 : 48.0,
+              left: isMobile ? 12.0 : 24.0,
+              right: isMobile ? 12.0 : 24.0,
+              bottom: 16.0,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Row combining dynamic TabBar and Manage Categories button on the right
+                Row(
+                  children: [
+                    Expanded(
+                      child: Container(
+                        height: 38.0,
+                        alignment: Alignment.centerLeft,
+                        child: TabBar(
+                          isScrollable: true,
+                          tabAlignment: TabAlignment.start,
+                          dividerColor: Colors.transparent,
+                          indicator: const BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.all(Radius.circular(2.0)),
+                          ),
+                          indicatorSize: TabBarIndicatorSize.tab,
+                          indicatorPadding: const EdgeInsets.symmetric(vertical: 6.0, horizontal: 6.0),
+                          labelColor: Colors.black,
+                          unselectedLabelColor: Colors.white70,
+                          labelPadding: const EdgeInsets.symmetric(horizontal: 18.0),
+                          labelStyle: const TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 12.0),
+                          unselectedLabelStyle: const TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.w600, fontSize: 12.0),
+                          tabs: tabNames.map((name) => Tab(text: name)).toList(),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8.0),
+                    Builder(
+                      builder: (context) {
+                        return PopupMenuButton<String>(
+                          icon: const Icon(Icons.refresh, color: Colors.white70),
+                          tooltip: 'Update Options',
+                          onSelected: (String value) {
+                            final controller = DefaultTabController.of(context);
+                            final activeIndex = controller.index;
+                            final activeId = tabIds[activeIndex];
+                            final activeName = tabNames[activeIndex];
+                            if (value == 'full') {
+                              _runMangaUpdate(onlyCategory: false);
+                            } else if (value == 'category') {
+                              _runMangaUpdate(onlyCategory: true, categoryId: activeId, categoryName: activeName);
+                            }
+                          },
+                          itemBuilder: (BuildContext context) {
+                            return <PopupMenuEntry<String>>[
+                              const PopupMenuItem<String>(
+                                value: 'full',
+                                child: Text('Update Full Library', style: TextStyle(fontFamily: 'Outfit')),
+                              ),
+                              PopupMenuItem<String>(
+                                value: 'category',
+                                child: Text('Update Current Category', style: TextStyle(fontFamily: 'Outfit')),
+                              ),
+                            ];
+                          },
+                        );
+                      }
+                    ),
+                    const SizedBox(width: 4.0),
+                    IconButton(
+                      icon: const Icon(Icons.category_outlined, color: Colors.white70),
+                      tooltip: 'Manage Categories',
+                      onPressed: _showManageCategoriesDialog,
+                    ),
+                    const SizedBox(width: 4.0),
+                    IconButton(
+                      icon: Icon(
+                        _isSelectionMode ? Icons.check_box : Icons.check_box_outlined,
+                        color: _isSelectionMode ? Colors.blueAccent : Colors.white70,
+                      ),
+                      tooltip: 'Select Items',
+                      onPressed: () {
+                        setState(() {
+                          _isSelectionMode = !_isSelectionMode;
+                          _selectedItemIds.clear();
+                        });
+                      },
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16.0),
+
+                // Search & Filter row
+                isMobile
+                    ? Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          _buildSearchBar(),
+                          const SizedBox(height: 12.0),
+                          SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            physics: const BouncingScrollPhysics(),
+                            child: Row(
+                              children: [
+                                _buildFormatFilter(),
+                                const SizedBox(width: 8.0),
+                                _buildStatusFilter(),
+                                const SizedBox(width: 8.0),
+                                _buildSortFilter(),
+                              ],
+                            ),
+                          ),
+                        ],
+                      )
+                    : Row(
+                        children: [
+                          Expanded(flex: 3, child: _buildSearchBar()),
+                          const SizedBox(width: 16.0),
+                          _buildFormatFilter(),
+                          const SizedBox(width: 12.0),
+                          _buildStatusFilter(),
+                          const SizedBox(width: 12.0),
+                          _buildSortFilter(),
+                        ],
+                      ),
+                const SizedBox(height: 20.0),
+
+                // Swipable category grids TabBarView
+                Expanded(
+                  child: TabBarView(
+                    physics: const BouncingScrollPhysics(),
+                    children: tabIds.map((id) => _buildCategoryGrid(id, isMobile)).toList(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    } else {
+      // Anime & Movies Mode: Original status tabs layout with status button row filters
+      final displayItems = _getStatusFilteredItems();
+
+      return Scaffold(
+        backgroundColor: Colors.transparent,
+        bottomNavigationBar: _buildSelectionActionBar(),
+        body: Padding(
           padding: EdgeInsets.only(
             top: isMobile ? 16.0 : 48.0,
             left: isMobile ? 12.0 : 24.0,
@@ -818,49 +907,11 @@ class _LibraryPageState extends State<LibraryPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Row combining dynamic TabBar and Manage Categories button on the right
-              Row(
-                children: [
-                  Expanded(
-                    child: Container(
-                      height: 38.0,
-                      alignment: Alignment.centerLeft,
-                      child: TabBar(
-                        isScrollable: true,
-                        tabAlignment: TabAlignment.start,
-                        dividerColor: Colors.transparent,
-                        indicator: const BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.all(Radius.circular(2.0)),
-                        ),
-                        indicatorSize: TabBarIndicatorSize.tab,
-                        indicatorPadding: const EdgeInsets.symmetric(vertical: 6.0, horizontal: 6.0),
-                        labelColor: Colors.black,
-                        unselectedLabelColor: Colors.white70,
-                        labelPadding: const EdgeInsets.symmetric(horizontal: 18.0),
-                        labelStyle: const TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 12.0),
-                        unselectedLabelStyle: const TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.w600, fontSize: 12.0),
-                        tabs: tabNames.map((name) => Tab(text: name)).toList(),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8.0),
-                  IconButton(
-                    icon: const Icon(Icons.refresh, color: Colors.white70),
-                    tooltip: 'Update Library',
-                    onPressed: () => _showUpdateLibraryDialog(tabIds, tabNames),
-                  ),
-                  const SizedBox(width: 4.0),
-                  IconButton(
-                    icon: const Icon(Icons.category_outlined, color: Colors.white70),
-                    tooltip: 'Manage Categories',
-                    onPressed: _showManageCategoriesDialog,
-                  ),
-                ],
-              ),
+              // 1. Status Category Tabs (All, Watching, Planning, Completed, Dropped/Paused, Downloaded)
+              _buildStatusTabs(isMobile),
               const SizedBox(height: 16.0),
 
-              // Search & Filter row
+              // 2. Search & Filter Section (Below Tabs)
               isMobile
                   ? Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -877,6 +928,37 @@ class _LibraryPageState extends State<LibraryPage> {
                               _buildStatusFilter(),
                               const SizedBox(width: 8.0),
                               _buildSortFilter(),
+                              const SizedBox(width: 8.0),
+                              IconButton(
+                                icon: const Icon(Icons.refresh, color: Colors.white70, size: 18.0),
+                                tooltip: 'Refresh Library Details',
+                                onPressed: _forceRefreshAnimeLibrary,
+                                style: IconButton.styleFrom(
+                                  backgroundColor: Colors.white.withValues(alpha: 0.03),
+                                  padding: const EdgeInsets.all(12.0),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.0)),
+                                ),
+                              ),
+                              const SizedBox(width: 8.0),
+                              IconButton(
+                                icon: Icon(
+                                  _isSelectionMode ? Icons.check_box : Icons.check_box_outlined,
+                                  color: _isSelectionMode ? Colors.blueAccent : Colors.white70,
+                                  size: 18.0,
+                                ),
+                                tooltip: 'Select Items',
+                                onPressed: () {
+                                  setState(() {
+                                    _isSelectionMode = !_isSelectionMode;
+                                    _selectedItemIds.clear();
+                                  });
+                                },
+                                style: IconButton.styleFrom(
+                                  backgroundColor: Colors.white.withValues(alpha: 0.03),
+                                  padding: const EdgeInsets.all(12.0),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.0)),
+                                ),
+                              ),
                             ],
                           ),
                         ),
@@ -891,129 +973,88 @@ class _LibraryPageState extends State<LibraryPage> {
                         _buildStatusFilter(),
                         const SizedBox(width: 12.0),
                         _buildSortFilter(),
+                        const SizedBox(width: 12.0),
+                        IconButton(
+                          icon: const Icon(Icons.refresh, color: Colors.white70, size: 18.0),
+                          tooltip: 'Refresh Library Details',
+                          onPressed: _forceRefreshAnimeLibrary,
+                          style: IconButton.styleFrom(
+                             backgroundColor: Colors.white.withValues(alpha: 0.03),
+                             padding: const EdgeInsets.all(12.0),
+                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.0)),
+                          ),
+                        ),
+                        const SizedBox(width: 12.0),
+                        IconButton(
+                          icon: Icon(
+                            _isSelectionMode ? Icons.check_box : Icons.check_box_outlined,
+                            color: _isSelectionMode ? Colors.blueAccent : Colors.white70,
+                            size: 18.0,
+                          ),
+                          tooltip: 'Select Items',
+                          onPressed: () {
+                            setState(() {
+                              _isSelectionMode = !_isSelectionMode;
+                              _selectedItemIds.clear();
+                            });
+                          },
+                          style: IconButton.styleFrom(
+                             backgroundColor: Colors.white.withValues(alpha: 0.03),
+                             padding: const EdgeInsets.all(12.0),
+                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.0)),
+                          ),
+                        ),
                       ],
                     ),
               const SizedBox(height: 20.0),
 
-              // Swipable category grids TabBarView
+              // 3. Main Library Grid or Empty State
               Expanded(
-                child: TabBarView(
-                  physics: const BouncingScrollPhysics(),
-                  children: tabIds.map((id) => _buildCategoryGrid(id, isMobile)).toList(),
-                ),
+                child: displayItems.isEmpty
+                    ? _buildEmptyState()
+                    : GridView.builder(
+                        gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                          maxCrossAxisExtent: 150.0,
+                          mainAxisExtent: 248.0,
+                          crossAxisSpacing: 14.0,
+                          mainAxisSpacing: 14.0,
+                        ),
+                        itemCount: displayItems.length,
+                        itemBuilder: (context, index) {
+                          final media = displayItems[index];
+                          final int id = media['id'] as int;
+                          return _LibraryMediaCard(
+                            media: media,
+                            mode: widget.mode,
+                            isSelectionMode: _isSelectionMode,
+                            isSelected: _selectedItemIds.contains(id),
+                            onTap: () {
+                              if (_isSelectionMode) {
+                                setState(() {
+                                  if (_selectedItemIds.contains(id)) {
+                                    _selectedItemIds.remove(id);
+                                  } else {
+                                    _selectedItemIds.add(id);
+                                  }
+                                });
+                              } else {
+                                if (widget.mode == AppMode.anime) {
+                                  widget.navigationState.selectAnime(id);
+                                } else {
+                                  final type = media['format'] == 'MOVIE' ? 'movie' : 'series';
+                                  final rawIdStr = id.toString();
+                                  final isNumericOnly = RegExp(r'^\d+$').hasMatch(rawIdStr);
+                                  final realId = isNumericOnly ? 'tt${rawIdStr.padLeft(7, '0')}' : rawIdStr;
+                                  widget.navigationState.selectMovie('$type:$realId');
+                                }
+                              }
+                            },
+                          );
+                        },
+                      ),
               ),
             ],
           ),
-        ),
-      );
-    } else {
-      // Anime & Movies Mode: Original status tabs layout with status button row filters
-      final displayItems = _getStatusFilteredItems();
-
-      return Padding(
-        padding: EdgeInsets.only(
-          top: isMobile ? 16.0 : 48.0,
-          left: isMobile ? 12.0 : 24.0,
-          right: isMobile ? 12.0 : 24.0,
-          bottom: 16.0,
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // 1. Status Category Tabs (All, Watching, Planning, Completed, Dropped/Paused, Downloaded)
-            _buildStatusTabs(isMobile),
-            const SizedBox(height: 16.0),
-
-            // 2. Search & Filter Section (Below Tabs)
-            isMobile
-                ? Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      _buildSearchBar(),
-                      const SizedBox(height: 12.0),
-                      SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        physics: const BouncingScrollPhysics(),
-                        child: Row(
-                          children: [
-                            _buildFormatFilter(),
-                            const SizedBox(width: 8.0),
-                            _buildStatusFilter(),
-                            const SizedBox(width: 8.0),
-                            _buildSortFilter(),
-                            const SizedBox(width: 8.0),
-                            IconButton(
-                              icon: const Icon(Icons.refresh, color: Colors.white70, size: 18.0),
-                              tooltip: 'Refresh Library Details',
-                              onPressed: _forceRefreshAnimeLibrary,
-                              style: IconButton.styleFrom(
-                                backgroundColor: Colors.white.withValues(alpha: 0.03),
-                                padding: const EdgeInsets.all(12.0),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.0)),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  )
-                : Row(
-                    children: [
-                      Expanded(flex: 3, child: _buildSearchBar()),
-                      const SizedBox(width: 16.0),
-                      _buildFormatFilter(),
-                      const SizedBox(width: 12.0),
-                      _buildStatusFilter(),
-                      const SizedBox(width: 12.0),
-                      _buildSortFilter(),
-                      const SizedBox(width: 12.0),
-                      IconButton(
-                        icon: const Icon(Icons.refresh, color: Colors.white70, size: 18.0),
-                        tooltip: 'Refresh Library Details',
-                        onPressed: _forceRefreshAnimeLibrary,
-                        style: IconButton.styleFrom(
-                           backgroundColor: Colors.white.withValues(alpha: 0.03),
-                           padding: const EdgeInsets.all(12.0),
-                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.0)),
-                        ),
-                      ),
-                    ],
-                  ),
-            const SizedBox(height: 20.0),
-
-            // 3. Main Library Grid or Empty State
-            Expanded(
-              child: displayItems.isEmpty
-                  ? _buildEmptyState()
-                  : GridView.builder(
-                      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                        maxCrossAxisExtent: 150.0,
-                        mainAxisExtent: 248.0,
-                        crossAxisSpacing: 14.0,
-                        mainAxisSpacing: 14.0,
-                      ),
-                      itemCount: displayItems.length,
-                      itemBuilder: (context, index) {
-                        final media = displayItems[index];
-                        return _LibraryMediaCard(
-                          media: media,
-                          mode: widget.mode,
-                          onTap: () {
-                            if (widget.mode == AppMode.anime) {
-                              widget.navigationState.selectAnime(media['id']);
-                            } else {
-                              final type = media['format'] == 'MOVIE' ? 'movie' : 'series';
-                              final rawIdStr = media['id'].toString();
-                              final isNumericOnly = RegExp(r'^\d+$').hasMatch(rawIdStr);
-                              final realId = isNumericOnly ? 'tt${rawIdStr.padLeft(7, '0')}' : rawIdStr;
-                              widget.navigationState.selectMovie('$type:$realId');
-                            }
-                          },
-                        );
-                      },
-                    ),
-            ),
-          ],
         ),
       );
     }
@@ -1424,7 +1465,6 @@ class _LibraryPageState extends State<LibraryPage> {
   }
 
   List<dynamic> _getStatusFilteredItems() {
-    final modeStr = widget.mode.name;
     List<dynamic> items = List.from(_fetchedMedia);
 
     // 1. Filter by Status Tabs (All, Watching, Planning, Completed, Dropped/Paused, Downloaded)
@@ -1495,6 +1535,342 @@ class _LibraryPageState extends State<LibraryPage> {
         : Row(children: children);
   }
 
+  Widget _buildSelectionActionBar() {
+    if (!_isSelectionMode || _selectedItemIds.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 12.0),
+      decoration: BoxDecoration(
+        color: const Color(0xFF141417),
+        border: Border(top: BorderSide(color: Colors.white.withValues(alpha: 0.08), width: 1.0)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.4),
+            blurRadius: 10.0,
+            offset: const Offset(0, -4),
+          ),
+        ],
+      ),
+      child: SafeArea(
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              '${_selectedItemIds.length} selected',
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: 14.0,
+                fontFamily: 'Outfit',
+              ),
+            ),
+            Row(
+              children: [
+                if (widget.mode == AppMode.manga) ...[
+                  TextButton.icon(
+                    icon: const Icon(Icons.category, size: 18, color: Colors.blueAccent),
+                    label: const Text('Categories', style: TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold)),
+                    onPressed: _showMassCategoryDialog,
+                  ),
+                  const SizedBox(width: 12.0),
+                ],
+                TextButton.icon(
+                  icon: const Icon(Icons.playlist_add_check, size: 18, color: Colors.green),
+                  label: const Text('Status', style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+                  onPressed: _showMassStatusDialog,
+                ),
+                const SizedBox(width: 12.0),
+                TextButton.icon(
+                  icon: const Icon(Icons.delete, size: 18, color: Colors.redAccent),
+                  label: const Text('Delete', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
+                  onPressed: _showMassDeleteConfirmDialog,
+                ),
+                const SizedBox(width: 16.0),
+                IconButton(
+                  icon: const Icon(Icons.close, color: Colors.white70),
+                  onPressed: () {
+                    setState(() {
+                      _selectedItemIds.clear();
+                    });
+                  },
+                  tooltip: 'Clear selection',
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showMassDeleteConfirmDialog() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF141414),
+          title: const Text('Confirm Delete', style: TextStyle(color: Colors.white, fontFamily: 'Outfit', fontWeight: FontWeight.bold)),
+          content: Text(
+            'Are you sure you want to delete ${_selectedItemIds.length} items from your library?',
+            style: const TextStyle(color: Colors.white70, fontFamily: 'Outfit'),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel', style: TextStyle(color: Colors.white38, fontFamily: 'Outfit')),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                Navigator.pop(context);
+                final modeStr = widget.mode.name;
+                for (final id in _selectedItemIds) {
+                  await LibraryState().removeItem(id, modeStr);
+                }
+                setState(() {
+                  _selectedItemIds.clear();
+                  _isSelectionMode = false;
+                });
+                _loadLibraryData();
+                if (mounted) {
+                  NotificationService().show(context, 'Successfully deleted items from library.');
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.redAccent,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Delete', style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showMassStatusDialog() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF141414),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16.0)),
+      ),
+      constraints: const BoxConstraints(maxWidth: 500.0),
+      builder: (BuildContext context) {
+        final isManga = widget.mode == AppMode.manga;
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(20.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  'Change Status for ${_selectedItemIds.length} items',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontFamily: 'Outfit',
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16.0,
+                  ),
+                ),
+                const SizedBox(height: 20.0),
+                ListTile(
+                  leading: const Icon(Icons.play_circle_outline, color: Colors.blueAccent),
+                  title: Text(isManga ? 'Reading' : 'Watching', style: const TextStyle(color: Colors.white, fontFamily: 'Outfit')),
+                  onTap: () => _updateMassStatus('watching'),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.bookmark_outline, color: Colors.white70),
+                  title: const Text('Planning', style: TextStyle(color: Colors.white, fontFamily: 'Outfit')),
+                  onTap: () => _updateMassStatus('planning'),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.check_circle_outline, color: Colors.green),
+                  title: const Text('Completed', style: TextStyle(color: Colors.white, fontFamily: 'Outfit')),
+                  onTap: () => _updateMassStatus('completed'),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.pause_circle_outline, color: Colors.redAccent),
+                  title: const Text('Dropped / Paused', style: TextStyle(color: Colors.white, fontFamily: 'Outfit')),
+                  onTap: () => _updateMassStatus('paused_dropped'),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _updateMassStatus(String newStatus) async {
+    Navigator.pop(context);
+    final modeStr = widget.mode.name;
+    for (final id in _selectedItemIds) {
+      final item = LibraryState().getItem(id, modeStr);
+      if (item != null) {
+        await LibraryState().saveItem(
+          id: item.id,
+          mode: item.mode,
+          format: item.format,
+          libraryStatus: newStatus,
+          rating: item.rating,
+          watchedEpisodes: item.watchedEpisodes,
+          totalEpisodes: item.totalEpisodes,
+          categoryIds: item.categoryIds,
+        );
+      }
+    }
+    setState(() {
+      _selectedItemIds.clear();
+      _isSelectionMode = false;
+    });
+    _loadLibraryData();
+    if (mounted) {
+      NotificationService().show(context, 'Successfully updated status for selected items.');
+    }
+  }
+
+  void _showMassCategoryDialog() {
+    final cats = LibraryState().categories.where((cat) => cat.mode == 'manga').toList();
+    if (cats.isEmpty) {
+      showDialog(
+        context: context,
+        builder: (BuildContext context) {
+          return AlertDialog(
+            backgroundColor: const Color(0xFF141414),
+            title: const Text('No Categories', style: TextStyle(color: Colors.white, fontFamily: 'Outfit', fontWeight: FontWeight.bold)),
+            content: const Text(
+              'You don\'t have any categories created yet. Please create categories first.',
+              style: TextStyle(color: Colors.white70, fontFamily: 'Outfit'),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('OK', style: TextStyle(color: Colors.blueAccent, fontFamily: 'Outfit')),
+              ),
+            ],
+          );
+        },
+      );
+      return;
+    }
+
+    final List<String> selectedCatIds = [];
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF141414),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16.0)),
+      ),
+      constraints: const BoxConstraints(maxWidth: 500.0),
+      builder: (BuildContext context) {
+        return StatefulBuilder(
+          builder: (BuildContext context, StateSetter setModalState) {
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.all(20.0),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      'Assign Categories to ${_selectedItemIds.length} items',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontFamily: 'Outfit',
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16.0,
+                      ),
+                    ),
+                    const SizedBox(height: 16.0),
+                    Flexible(
+                      child: ListView.builder(
+                        shrinkWrap: true,
+                        itemCount: cats.length,
+                        itemBuilder: (context, index) {
+                          final cat = cats[index];
+                          final bool isChecked = selectedCatIds.contains(cat.id);
+                          return CheckboxListTile(
+                            title: Text(cat.name, style: const TextStyle(color: Colors.white, fontFamily: 'Outfit')),
+                            value: isChecked,
+                            activeColor: Colors.blueAccent,
+                            checkColor: Colors.white,
+                            onChanged: (bool? val) {
+                              setModalState(() {
+                                if (val == true) {
+                                  selectedCatIds.add(cat.id);
+                                } else {
+                                  selectedCatIds.remove(cat.id);
+                                }
+                              });
+                            },
+                          );
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: 16.0),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextButton(
+                            onPressed: () => Navigator.pop(context),
+                            child: const Text('Cancel', style: TextStyle(color: Colors.white38, fontFamily: 'Outfit')),
+                          ),
+                        ),
+                        const SizedBox(width: 12.0),
+                        Expanded(
+                          child: ElevatedButton(
+                            onPressed: () async {
+                              Navigator.pop(context);
+                              final modeStr = widget.mode.name;
+                              for (final id in _selectedItemIds) {
+                                final item = LibraryState().getItem(id, modeStr);
+                                if (item != null) {
+                                  await LibraryState().saveItem(
+                                    id: item.id,
+                                    mode: item.mode,
+                                    format: item.format,
+                                    libraryStatus: item.libraryStatus,
+                                    rating: item.rating,
+                                    watchedEpisodes: item.watchedEpisodes,
+                                    totalEpisodes: item.totalEpisodes,
+                                    categoryIds: selectedCatIds,
+                                  );
+                                }
+                              }
+                              setState(() {
+                                _selectedItemIds.clear();
+                                _isSelectionMode = false;
+                              });
+                              _loadLibraryData();
+                              if (mounted) {
+                                NotificationService().show(context, 'Successfully updated categories.');
+                              }
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.white,
+                              foregroundColor: Colors.black,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
+                            ),
+                            child: const Text('Apply', style: TextStyle(fontWeight: FontWeight.bold, fontFamily: 'Outfit')),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
 
 }
 
@@ -1503,10 +1879,15 @@ class _LibraryMediaCard extends StatefulWidget {
   final AppMode mode;
   final VoidCallback onTap;
 
+  final bool isSelectionMode;
+  final bool isSelected;
+
   const _LibraryMediaCard({
     required this.media,
     required this.mode,
     required this.onTap,
+    this.isSelectionMode = false,
+    this.isSelected = false,
   });
 
   @override
@@ -1603,6 +1984,33 @@ class _LibraryMediaCardState extends State<_LibraryMediaCard> {
                               )
                             : Container(color: Colors.white.withValues(alpha: 0.02)),
                       ),
+
+                      // Selection checkbox overlay
+                      if (widget.isSelectionMode) ...[
+                        Positioned.fill(
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 150),
+                            color: widget.isSelected
+                                ? Colors.blueAccent.withValues(alpha: 0.25)
+                                : Colors.black.withValues(alpha: 0.1),
+                          ),
+                        ),
+                        Positioned(
+                          top: 8.0,
+                          right: 8.0,
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: widget.isSelected ? Colors.blueAccent : Colors.black54,
+                              shape: BoxShape.circle,
+                              border: Border.all(color: Colors.white, width: 1.5),
+                            ),
+                            padding: const EdgeInsets.all(2.0),
+                            child: widget.isSelected
+                                ? const Icon(Icons.check, size: 12.0, color: Colors.white)
+                                : const SizedBox(width: 12.0, height: 12.0),
+                          ),
+                        ),
+                      ],
 
                       // Overlay Format badge
                       if (format.isNotEmpty)

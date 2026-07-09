@@ -73,109 +73,138 @@ class SuwayomiManager {
         await appDir.create(recursive: true);
       }
 
-      final localJreDir = Directory('${appDir.path}\\jre');
-      final localJavaExe = File('${localJreDir.path}\\bin\\java.exe');
+      final prefs = await SharedPreferences.getInstance();
+      final cachedJavaPath = prefs.getString('resolved_java_path');
       
       String javaPath = 'java';
       bool javaInstalled = false;
 
-      if (await localJavaExe.exists()) {
-        javaPath = localJavaExe.path;
-        javaInstalled = true;
-        developer.log('Located local JRE at: $javaPath', name: 'SuwayomiManager');
-      } else {
-        // Smart Java Executable Path Resolver (bypasses system environment PATH cache delay)
-        final defaultJdk21 = File('C:\\Program Files\\Eclipse Adoptium\\jdk-21.0.11.10-hotspot\\bin\\java.exe');
-        if (await defaultJdk21.exists()) {
-          javaPath = defaultJdk21.path;
-          javaInstalled = true;
-          developer.log('Located installed JDK 21 at: $javaPath', name: 'SuwayomiManager');
-        } else {
-          // Check system java
+      if (cachedJavaPath != null) {
+        if (cachedJavaPath == 'java') {
+          // Verify if system java is still available
           try {
             final checkResult = await Process.run('java', ['-version']);
             if (checkResult.exitCode == 0 || checkResult.stderr.toString().contains('version')) {
               javaPath = 'java';
               javaInstalled = true;
-              developer.log('Located system JRE in PATH.', name: 'SuwayomiManager');
+              developer.log('Using cached system JRE in PATH.', name: 'SuwayomiManager');
             }
           } catch (_) {}
+        } else {
+          final cachedFile = File(cachedJavaPath);
+          if (await cachedFile.exists()) {
+            javaPath = cachedJavaPath;
+            javaInstalled = true;
+            developer.log('Using cached JRE at: $javaPath', name: 'SuwayomiManager');
+          }
         }
+      }
 
-        if (!javaInstalled) {
-          // System Java not found. Let's download a minimal JRE automatically!
-          statusNotifier.value = "Downloading JRE (Manga Runtime)...";
-          developer.log('System JRE not found. Initiating Adoptium JRE 21 download...', name: 'SuwayomiManager');
-          
-          final jreZipPath = '${appDir.path}\\jre.zip';
-          final jreZipFile = File(jreZipPath);
-          
-          // Download URL for a minimal, official OpenJDK JRE 21 for Windows x64
-          final jreUrl = 'https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.2%2B13/OpenJDK21U-jre_x64_windows_hotspot_21.0.2_13.zip';
-          
-          // Download the file
-          final response = await http.get(Uri.parse(jreUrl));
-          if (response.statusCode == 200) {
-            await jreZipFile.writeAsBytes(response.bodyBytes);
-            developer.log('JRE zip downloaded successfully.', name: 'SuwayomiManager');
+      if (!javaInstalled) {
+        final localJreDir = Directory('${appDir.path}\\jre');
+        final localJavaExe = File('${localJreDir.path}\\bin\\java.exe');
+        
+        if (await localJavaExe.exists()) {
+          javaPath = localJavaExe.path;
+          javaInstalled = true;
+          developer.log('Located local JRE at: $javaPath', name: 'SuwayomiManager');
+          await prefs.setString('resolved_java_path', javaPath);
+        } else {
+          // Smart Java Executable Path Resolver (bypasses system environment PATH cache delay)
+          final defaultJdk21 = File('C:\\Program Files\\Eclipse Adoptium\\jdk-21.0.11.10-hotspot\\bin\\java.exe');
+          if (await defaultJdk21.exists()) {
+            javaPath = defaultJdk21.path;
+            javaInstalled = true;
+            developer.log('Located installed JDK 21 at: $javaPath', name: 'SuwayomiManager');
+            await prefs.setString('resolved_java_path', javaPath);
           } else {
-            statusNotifier.value = "Error: Failed to download JRE.";
-            throw Exception("Failed to download JRE from Adoptium (Status: ${response.statusCode}).");
+            // Check system java
+            try {
+              final checkResult = await Process.run('java', ['-version']);
+              if (checkResult.exitCode == 0 || checkResult.stderr.toString().contains('version')) {
+                javaPath = 'java';
+                javaInstalled = true;
+                developer.log('Located system JRE in PATH.', name: 'SuwayomiManager');
+                await prefs.setString('resolved_java_path', javaPath);
+              }
+            } catch (_) {}
           }
 
-          // Unzip the file using PowerShell
-          statusNotifier.value = "Extracting JRE (Manga Runtime)...";
-          developer.log('Extracting JRE archive using PowerShell...', name: 'SuwayomiManager');
-          final tempExtractDir = Directory('${appDir.path}\\jre_temp');
-          if (await tempExtractDir.exists()) {
-            await tempExtractDir.delete(recursive: true);
-          }
-          await tempExtractDir.create();
-
-          // Run expand archive
-          final extractResult = await Process.run('powershell', [
-            '-Command',
-            'Expand-Archive -Path "$jreZipPath" -DestinationPath "${tempExtractDir.path}" -Force'
-          ]);
-
-          if (extractResult.exitCode != 0) {
-            developer.log('Extraction failed: ${extractResult.stderr}', name: 'SuwayomiManager', error: extractResult.stderr);
-            statusNotifier.value = "Error: Extraction failed.";
-            throw Exception("Failed to extract JRE archive.");
-          }
-
-          // Clean up zip
-          await jreZipFile.delete();
-
-          // Move the extracted folder contents to localJreDir
-          final extractedSubDirs = tempExtractDir.listSync();
-          if (extractedSubDirs.isNotEmpty && extractedSubDirs.first is Directory) {
-            final extractedJreDir = extractedSubDirs.first as Directory;
-            if (await localJreDir.exists()) {
-              await localJreDir.delete(recursive: true);
+          if (!javaInstalled) {
+            // System Java not found. Let's download a minimal JRE automatically!
+            statusNotifier.value = "Downloading JRE (Manga Runtime)...";
+            developer.log('System JRE not found. Initiating Adoptium JRE 21 download...', name: 'SuwayomiManager');
+            
+            final jreZipPath = '${appDir.path}\\jre.zip';
+            final jreZipFile = File(jreZipPath);
+            
+            // Download URL for a minimal, official OpenJDK JRE 21 for Windows x64
+            final jreUrl = 'https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.2%2B13/OpenJDK21U-jre_x64_windows_hotspot_21.0.2_13.zip';
+            
+            // Download the file
+            final response = await http.get(Uri.parse(jreUrl));
+            if (response.statusCode == 200) {
+              await jreZipFile.writeAsBytes(response.bodyBytes);
+              developer.log('JRE zip downloaded successfully.', name: 'SuwayomiManager');
+            } else {
+              statusNotifier.value = "Error: Failed to download JRE.";
+              throw Exception("Failed to download JRE from Adoptium (Status: ${response.statusCode}).");
             }
-            await extractedJreDir.rename(localJreDir.path);
-            developer.log('JRE placed at ${localJreDir.path}', name: 'SuwayomiManager');
-          } else {
-            statusNotifier.value = "Error: Empty JRE archive.";
-            throw Exception("Extracted JRE directory was empty.");
-          }
-          
-          // Clean up temp directory
-          await tempExtractDir.delete(recursive: true);
 
-          if (await localJavaExe.exists()) {
-            javaPath = localJavaExe.path;
-            developer.log('Local JRE successfully initialized at: $javaPath', name: 'SuwayomiManager');
-          } else {
-            statusNotifier.value = "Error: Failed to verify JRE installation.";
-            throw Exception("Failed to verify local JRE executable path.");
+            // Unzip the file using PowerShell
+            statusNotifier.value = "Extracting JRE (Manga Runtime)...";
+            developer.log('Extracting JRE archive using PowerShell...', name: 'SuwayomiManager');
+            final tempExtractDir = Directory('${appDir.path}\\jre_temp');
+            if (await tempExtractDir.exists()) {
+              await tempExtractDir.delete(recursive: true);
+            }
+            await tempExtractDir.create();
+
+            // Run expand archive
+            final extractResult = await Process.run('powershell', [
+              '-Command',
+              'Expand-Archive -Path "$jreZipPath" -DestinationPath "${tempExtractDir.path}" -Force'
+            ]);
+
+            if (extractResult.exitCode != 0) {
+              developer.log('Extraction failed: ${extractResult.stderr}', name: 'SuwayomiManager', error: extractResult.stderr);
+              statusNotifier.value = "Error: Extraction failed.";
+              throw Exception("Failed to extract JRE archive.");
+            }
+
+            // Clean up zip
+            await jreZipFile.delete();
+
+            // Move the extracted folder contents to localJreDir
+            final extractedSubDirs = tempExtractDir.listSync();
+            if (extractedSubDirs.isNotEmpty && extractedSubDirs.first is Directory) {
+              final extractedJreDir = extractedSubDirs.first as Directory;
+              if (await localJreDir.exists()) {
+                await localJreDir.delete(recursive: true);
+              }
+              await extractedJreDir.rename(localJreDir.path);
+              developer.log('JRE placed at ${localJreDir.path}', name: 'SuwayomiManager');
+            } else {
+              statusNotifier.value = "Error: Empty JRE archive.";
+              throw Exception("Extracted JRE directory was empty.");
+            }
+            
+            // Clean up temp directory
+            await tempExtractDir.delete(recursive: true);
+
+            if (await localJavaExe.exists()) {
+              javaPath = localJavaExe.path;
+              developer.log('Local JRE successfully initialized at: $javaPath', name: 'SuwayomiManager');
+              await prefs.setString('resolved_java_path', javaPath);
+            } else {
+              statusNotifier.value = "Error: Failed to verify JRE installation.";
+              throw Exception("Failed to verify local JRE executable path.");
+            }
           }
         }
       }
 
       // 2. Resolve port and repos from SharedPreferences
-      final prefs = await SharedPreferences.getInstance();
       final savedPort = prefs.getInt('manga_server_port') ?? 4567;
       _port = await _findAvailablePort(savedPort);
       SuwayomiService.port = _port;

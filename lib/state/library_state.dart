@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import '../services/anilist_service.dart';
 import '../services/suwayomi_service.dart';
+import '../services/suwayomi_manager.dart';
 import '../services/download_service.dart';
 import 'navigation_state.dart';
 import 'anilist_auth_state.dart';
@@ -156,6 +157,15 @@ class LibraryState extends ChangeNotifier {
     
     final prefs = await SharedPreferences.getInstance();
 
+    if (mode == AppMode.manga) {
+      for (var item in libraryItems) {
+        final int totalChapters = item.totalEpisodes ?? 0;
+        await prefs.setInt('notif_acknowledged_manga_${item.id}', totalChapters);
+      }
+      await updateNotificationCount(force: true);
+      return;
+    }
+
     if (mode == AppMode.movies) {
       final futures = libraryItems.where((item) => item.format == 'SERIES').map((item) async {
         final imdbId = 'tt${item.id.toString().padLeft(7, '0')}';
@@ -287,8 +297,8 @@ class LibraryState extends ChangeNotifier {
     await _persist();
     updateNotificationCount(force: true);
 
-    // Asynchronous background sync to AniList
-    if (!bypassAnilistSync && (mode == 'anime' || mode == 'manga')) {
+    // Asynchronous background sync to AniList (only for anime)
+    if (!bypassAnilistSync && mode == 'anime') {
       final authState = AnilistAuthState();
       if (authState.isLoggedIn && authState.isAutoSyncEnabled) {
         AnilistService().syncProgressToAnilist(
@@ -303,7 +313,8 @@ class LibraryState extends ChangeNotifier {
   }
 
   Future<int> importFromAnilist(String type, String token) async {
-    final String localModeStr = type == 'MANGA' ? 'manga' : 'anime';
+    if (type == 'MANGA') return 0; // Disable AniList manga syncing entirely
+    final String localModeStr = 'anime';
     final viewerId = AnilistAuthState().userId;
     if (viewerId == null) return 0;
 
@@ -585,22 +596,67 @@ class LibraryState extends ChangeNotifier {
     // 2. MANGA
     final mangaItems = _items.where((item) => item.mode == 'manga').toList();
     int mangaCount = 0;
-    for (var item in mangaItems) {
-      final int totalChapters = item.totalEpisodes ?? 0;
-      
-      final String startChapterKey = 'notif_start_chapter_manga_${item.id}';
-      int? startChapter = prefs.getInt(startChapterKey);
-      if (startChapter == null) {
-        startChapter = totalChapters;
-        await prefs.setInt(startChapterKey, startChapter);
-      }
+    if (mangaItems.isNotEmpty && await SuwayomiManager.isSuwayomiRunning(SuwayomiService.port)) {
+      bool needPersist = false;
+      for (var item in mangaItems) {
+        if (item.libraryStatus == 'completed') continue;
+        try {
+          final chaptersList = await SuwayomiService().getChapters(item.id);
+          final int totalChapters = chaptersList.length;
+          
+          if (item.totalEpisodes != totalChapters) {
+            _items.removeWhere((x) => x.id == item.id && x.mode == 'manga');
+            _items.add(LibraryItem(
+              id: item.id,
+              mode: item.mode,
+              format: item.format,
+              addedAt: item.addedAt,
+              libraryStatus: item.libraryStatus,
+              rating: item.rating,
+              watchedEpisodes: item.watchedEpisodes,
+              totalEpisodes: totalChapters,
+              categoryIds: item.categoryIds,
+            ));
+            needPersist = true;
+          }
 
-      int ackEp = prefs.getInt('notif_acknowledged_manga_${item.id}') ?? startChapter;
-      if (ackEp < item.watchedEpisodes) {
-        ackEp = item.watchedEpisodes;
+          final String startChapterKey = 'notif_start_chapter_manga_${item.id}';
+          int? startChapter = prefs.getInt(startChapterKey);
+          if (startChapter == null) {
+            startChapter = totalChapters;
+            await prefs.setInt(startChapterKey, startChapter);
+          }
+
+          int ackEp = prefs.getInt('notif_acknowledged_manga_${item.id}') ?? startChapter;
+          if (ackEp < item.watchedEpisodes) {
+            ackEp = item.watchedEpisodes;
+          }
+          if (totalChapters > ackEp) {
+            mangaCount++;
+          }
+        } catch (_) {}
       }
-      if (totalChapters > ackEp) {
-        mangaCount++;
+      if (needPersist) {
+        await _persist();
+      }
+    } else {
+      for (var item in mangaItems) {
+        final int totalChapters = item.totalEpisodes ?? 0;
+        
+        final String startChapterKey = 'notif_start_chapter_manga_${item.id}';
+        int? startChapter = prefs.getInt(startChapterKey);
+        if (startChapter == null) {
+          startChapter = totalChapters;
+          await prefs.setInt(startChapterKey, startChapter);
+        }
+
+        int ackEp = prefs.getInt('notif_acknowledged_manga_${item.id}') ?? startChapter;
+        if (ackEp < item.watchedEpisodes) {
+          ackEp = item.watchedEpisodes;
+        }
+        if (totalChapters > ackEp) {
+          mangaCount++;
+        }
       }
     }
 
