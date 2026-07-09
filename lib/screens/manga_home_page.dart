@@ -367,39 +367,42 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
     }
 
     final preferredSources = _getPreferredSourceIds();
-    final Map<String, List<dynamic>> results = {};
+    int activeSearches = preferredSources.length;
 
-    try {
-      await Future.wait(
-        preferredSources.entries.map((entry) async {
-          final extName = entry.key;
-          final sourceId = entry.value;
-          try {
-            final list = await _suwayomiService.fetchSourceManga(
-              sourceId: sourceId,
-              page: 1,
-              query: query,
-            );
-            results[extName] = list;
-          } catch (e) {
-            results[extName] = [];
-          }
-        }),
-      );
+    if (activeSearches == 0) {
+      setState(() {
+        _loadingCatalog = false;
+      });
+      return;
+    }
 
-      if (mounted) {
+    for (final entry in preferredSources.entries) {
+      final extName = entry.key;
+      final sourceId = entry.value;
+
+      _suwayomiService.fetchSourceManga(
+        sourceId: sourceId,
+        page: 1,
+        query: query,
+      ).then((list) {
+        if (!mounted || _catalogSearchQuery != query) return;
         setState(() {
-          _globalSearchResults = results;
-          _loadingCatalog = false;
+          _globalSearchResults[extName] = list;
         });
-      }
-    } catch (e) {
-      if (mounted) {
+      }).catchError((e) {
+        if (!mounted || _catalogSearchQuery != query) return;
         setState(() {
-          _catalogError = e.toString().replaceFirst('Exception: ', '');
-          _loadingCatalog = false;
+          _globalSearchResults[extName] = [];
         });
-      }
+      }).whenComplete(() {
+        if (!mounted || _catalogSearchQuery != query) return;
+        activeSearches--;
+        if (activeSearches == 0) {
+          setState(() {
+            _loadingCatalog = false;
+          });
+        }
+      });
     }
   }
 
@@ -888,17 +891,6 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
               ),
             ),
           )
-        else if (_loadingCatalog)
-          const SliverToBoxAdapter(
-            child: Center(
-              child: Padding(
-                padding: EdgeInsets.symmetric(vertical: 64.0),
-                child: CircularProgressIndicator(
-                  valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFFF9F1C)),
-                ),
-              ),
-            ),
-          )
         else if (_selectedExtensionName == "Global" && _catalogSearchQuery.isEmpty)
           const SliverToBoxAdapter(
             child: Center(
@@ -911,7 +903,18 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
               ),
             ),
           )
-        else if (_selectedExtensionName == "Global" && _globalSearchResults.isEmpty)
+        else if (_loadingCatalog && _globalSearchResults.isEmpty)
+          const SliverToBoxAdapter(
+            child: Center(
+              child: Padding(
+                padding: EdgeInsets.symmetric(vertical: 64.0),
+                child: CircularProgressIndicator(
+                  valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFFF9F1C)),
+                ),
+              ),
+            ),
+          )
+        else if (!_loadingCatalog && _selectedExtensionName == "Global" && _globalSearchResults.isEmpty)
           const SliverToBoxAdapter(
             child: Center(
               child: Padding(
@@ -924,6 +927,33 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
             ),
           )
         else if (_selectedExtensionName == "Global" && _globalSearchResults.isNotEmpty) ...[
+          if (_loadingCatalog)
+            const SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.symmetric(horizontal: 24.0, vertical: 12.0),
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: 14.0,
+                      height: 14.0,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.0,
+                        valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFFF9F1C)),
+                      ),
+                    ),
+                    SizedBox(width: 12.0),
+                    Text(
+                      'Searching remaining extensions...',
+                      style: TextStyle(
+                        color: Colors.white54,
+                        fontSize: 12.0,
+                        fontFamily: 'Outfit',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           ...() {
             final List<String> sortedExtNames = _globalSearchResults.keys.toList();
             sortedExtNames.sort((a, b) {
