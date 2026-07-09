@@ -67,7 +67,7 @@ class UpdateService extends ChangeNotifier {
   factory UpdateService() => _instance;
   UpdateService._internal();
 
-  static const String currentVersion = '2.0.35';
+  static const String currentVersion = '2.0.37';
   
   // GitHub Releases API Endpoint
   static const String gitHubReleasesUrl = 'https://api.github.com/repos/Fluffy-The-Penguin/watchAny-2.0/releases/latest';
@@ -167,15 +167,14 @@ class UpdateService extends ChangeNotifier {
       // Fallback mock update in case of failure
       _error = 'Live check failed ($e). Showing fallback updates.';
       _latestUpdate = UpdateInfo(
-        version: 'v2.0.32',
-        changelog: '• Integrated official brand logo assets (logo_wA.png) across setup, settings, and icon resources\n'
-            '• Compiled new Windows launcher icon (app_icon.ico) and Android mipmap sizes\n'
-            '• Fixed HStream in-player episode switching freezing bug\n'
-            '• Added direct HStream video downloads support with quality selector\n'
-            '• Fixed mobile auto-rotation layout bug that caused vertical screen snapping',
+        version: 'v2.0.37',
+        changelog: '• Restored transparent floating logo startup animation\n'
+            '• Fixed Hentai episode counts (e.g. Natsuzuma)\n'
+            '• Vertically centered search bar layouts\n'
+            '• Added global bouncy scroll physics (BouncingScrollPhysics)',
         downloadUrl: Platform.isAndroid 
-            ? 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.32/app-arm64-v8a-release.apk'
-            : 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.32/watchany_setup.exe',
+            ? 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.37/app-arm64-v8a-release.apk'
+            : 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.37/watchany_setup.exe',
       );
     } finally {
       _isChecking = false;

@@ -161,6 +161,6 @@ class _SmoothScrollAreaState extends State<SmoothScrollArea> {
 
   @override
   Widget build(BuildContext context) {
-    return widget.builder(_controller, const ClampingScrollPhysics());
+    return widget.builder(_controller, const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()));
   }
 }

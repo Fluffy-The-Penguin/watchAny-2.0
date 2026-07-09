@@ -2201,7 +2201,7 @@ class _SettingsOverlayCardState extends State<_SettingsOverlayCard> {
     return ConstrainedBox(
       constraints: BoxConstraints(maxHeight: maxOverlayHeight),
       child: SingleChildScrollView(
-        physics: const ClampingScrollPhysics(),
+        physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
         child: child,
       ),
     );
@@ -2722,7 +2722,7 @@ class _SettingsOverlayCardState extends State<_SettingsOverlayCard> {
               content: SizedBox(
                 width: 440.0,
                 child: SingleChildScrollView(
-                  physics: const ClampingScrollPhysics(),
+                  physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.stretch,
