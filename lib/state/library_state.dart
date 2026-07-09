@@ -112,6 +112,7 @@ class LibraryState extends ChangeNotifier {
   List<LibraryCategory> _categories = [];
   Map<int, Map<String, dynamic>> _mangaCache = {};
   Map<int, Map<String, dynamic>> _animeCache = {};
+  Map<int, Map<String, dynamic>> _movieCache = {};
   int _animeNotificationCount = 0;
   int _mangaNotificationCount = 0;
   int _moviesNotificationCount = 0;
@@ -124,6 +125,7 @@ class LibraryState extends ChangeNotifier {
   List<LibraryCategory> get categories => _categories;
   Map<int, Map<String, dynamic>> get mangaCache => _mangaCache;
   Map<int, Map<String, dynamic>> get animeCache => _animeCache;
+  Map<int, Map<String, dynamic>> get movieCache => _movieCache;
 
   int getNotificationCount(AppMode mode) {
     if (mode == AppMode.anime) return _animeBadgeCleared ? 0 : _animeNotificationCount;
@@ -222,6 +224,7 @@ class LibraryState extends ChangeNotifier {
     final String? catsJson = prefs.getString('library_categories');
     final String? cacheJson = prefs.getString('manga_library_cache');
     final String? animeCacheJson = prefs.getString('anime_library_cache');
+    final String? movieCacheJson = prefs.getString('movie_library_cache');
 
     final List<Future<void>> parseTasks = [];
     if (itemsJson != null) {
@@ -242,6 +245,11 @@ class LibraryState extends ChangeNotifier {
     if (animeCacheJson != null) {
       parseTasks.add(compute(_parseCache, animeCacheJson).then((v) => _animeCache = v).catchError((e) {
         debugPrint('Failed to load anime cache: $e');
+      }));
+    }
+    if (movieCacheJson != null) {
+      parseTasks.add(compute(_parseCache, movieCacheJson).then((v) => _movieCache = v).catchError((e) {
+        debugPrint('Failed to load movie cache: $e');
       }));
     }
     await Future.wait(parseTasks);
@@ -418,6 +426,8 @@ class LibraryState extends ChangeNotifier {
       _mangaCache.remove(id);
     } else if (mode == 'anime') {
       _animeCache.remove(id);
+    } else {
+      _movieCache.remove(id);
     }
     notifyListeners();
     await _persist();
@@ -437,6 +447,9 @@ class LibraryState extends ChangeNotifier {
 
     final String animeCacheJson = jsonEncode(_animeCache.map((key, value) => MapEntry(key.toString(), value)));
     await prefs.setString('anime_library_cache', animeCacheJson);
+
+    final String movieCacheJson = jsonEncode(_movieCache.map((key, value) => MapEntry(key.toString(), value)));
+    await prefs.setString('movie_library_cache', movieCacheJson);
   }
 
   Future<void> updateAnimeCache(int id, Map<String, dynamic> data) async {
@@ -446,6 +459,16 @@ class LibraryState extends ChangeNotifier {
 
   Future<void> updateAnimeCacheBatch(Map<int, Map<String, dynamic>> batch) async {
     _animeCache.addAll(batch);
+    await _persist();
+  }
+
+  Future<void> updateMovieCache(int id, Map<String, dynamic> data) async {
+    _movieCache[id] = data;
+    await _persist();
+  }
+
+  Future<void> updateMovieCacheBatch(Map<int, Map<String, dynamic>> batch) async {
+    _movieCache.addAll(batch);
     await _persist();
   }
 
@@ -597,16 +620,15 @@ class LibraryState extends ChangeNotifier {
     final mangaItems = _items.where((item) => item.mode == 'manga').toList();
     int mangaCount = 0;
     if (mangaItems.isNotEmpty && await SuwayomiManager.isSuwayomiRunning(SuwayomiService.port)) {
-      bool needPersist = false;
-      for (var item in mangaItems) {
-        if (item.libraryStatus == 'completed') continue;
+      final List<LibraryItem> itemsToReplace = [];
+      final List<Future<void>> checkTasks = mangaItems.map((item) async {
+        if (item.libraryStatus == 'completed') return;
         try {
           final chaptersList = await SuwayomiService().getChapters(item.id);
           final int totalChapters = chaptersList.length;
           
           if (item.totalEpisodes != totalChapters) {
-            _items.removeWhere((x) => x.id == item.id && x.mode == 'manga');
-            _items.add(LibraryItem(
+            itemsToReplace.add(LibraryItem(
               id: item.id,
               mode: item.mode,
               format: item.format,
@@ -617,7 +639,6 @@ class LibraryState extends ChangeNotifier {
               totalEpisodes: totalChapters,
               categoryIds: item.categoryIds,
             ));
-            needPersist = true;
           }
 
           final String startChapterKey = 'notif_start_chapter_manga_${item.id}';
@@ -635,8 +656,15 @@ class LibraryState extends ChangeNotifier {
             mangaCount++;
           }
         } catch (_) {}
-      }
-      if (needPersist) {
+      }).toList();
+
+      await Future.wait(checkTasks);
+
+      if (itemsToReplace.isNotEmpty) {
+        for (final newItem in itemsToReplace) {
+          _items.removeWhere((x) => x.id == newItem.id && x.mode == 'manga');
+          _items.add(newItem);
+        }
         await _persist();
       }
     } else {

@@ -10,6 +10,7 @@ import 'suwayomi_service.dart';
 
 class SuwayomiManager {
   static Process? _process;
+  static Future<void>? _startFuture;
   static int _port = 4567;
   static int get port => _port;
   static bool _isDownloading = false;
@@ -55,14 +56,25 @@ class SuwayomiManager {
   }
 
   static Future<void> start() async {
+    if (_process != null) return;
+    if (_startFuture != null) {
+      developer.log('Manga engine startup is already in progress. Awaiting existing startup...', name: 'SuwayomiManager');
+      return _startFuture!;
+    }
+    
+    _startFuture = _startInternal();
+    try {
+      await _startFuture!;
+    } finally {
+      _startFuture = null;
+    }
+  }
+
+  static Future<void> _startInternal() async {
     final bool isDesktop = !kIsWeb && (Platform.isWindows || Platform.isMacOS || Platform.isLinux);
     if (!isDesktop) {
       developer.log('SuwayomiManager start skipped on non-desktop platform.', name: 'SuwayomiManager');
       statusNotifier.value = "Manga engine external connection ready";
-      return;
-    }
-    if (_process != null) {
-      developer.log('Manga engine already running or starting...', name: 'SuwayomiManager');
       return;
     }
     try {

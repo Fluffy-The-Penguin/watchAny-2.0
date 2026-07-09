@@ -125,9 +125,23 @@ class _LibraryPageState extends State<LibraryPage> {
         }
       } else {
         // Movies/Series (TMDB)
-        final futures = savedItems.map((item) => _tmdbService.fetchTmdbBasicDetails(item.id, item.format));
-        final results = await Future.wait(futures);
-        loadedMedia = results.whereType<Map<String, dynamic>>().toList();
+        final cache = LibraryState().movieCache;
+        final list = <Map<String, dynamic>>[];
+        final missingIds = <int>[];
+        
+        for (final item in savedItems) {
+          if (cache.containsKey(item.id)) {
+            list.add(cache[item.id]!);
+          } else if (!_attemptedFetchIds.contains(item.id)) {
+            missingIds.add(item.id);
+          }
+        }
+        
+        loadedMedia = list;
+
+        if (missingIds.isNotEmpty) {
+          _triggerBackgroundFetchMissingMovies(missingIds);
+        }
       }
 
       if (mounted) {
@@ -153,24 +167,33 @@ class _LibraryPageState extends State<LibraryPage> {
     _attemptedFetchIds.addAll(missingIds);
 
     try {
-      for (final id in missingIds) {
-        final details = await SuwayomiService().getMangaDetails(id);
-        if (details != null) {
-          await LibraryState().updateMangaCache(id, details);
-
-          final item = LibraryState().getItem(id, 'manga');
-          if (item != null) {
-            await LibraryState().saveItem(
-              id: item.id,
-              mode: item.mode,
-              format: item.format,
-              libraryStatus: item.libraryStatus,
-              rating: item.rating,
-              watchedEpisodes: item.watchedEpisodes,
-              totalEpisodes: item.totalEpisodes,
-              categoryIds: item.categoryIds,
-            );
+      final List<Map<String, dynamic>> fetchedDetails = [];
+      await Future.wait(missingIds.map((id) async {
+        try {
+          final details = await SuwayomiService().getMangaDetails(id);
+          if (details != null) {
+            fetchedDetails.add(details);
           }
+        } catch (_) {}
+      }));
+
+      for (final details in fetchedDetails) {
+        final int id = details['id'] as int;
+        await LibraryState().updateMangaCache(id, details);
+
+        final item = LibraryState().getItem(id, 'manga');
+        if (item != null) {
+          await LibraryState().saveItem(
+            id: item.id,
+            mode: item.mode,
+            format: item.format,
+            libraryStatus: item.libraryStatus,
+            rating: item.rating,
+            watchedEpisodes: item.watchedEpisodes,
+            totalEpisodes: item.totalEpisodes,
+            categoryIds: item.categoryIds,
+            bypassAnilistSync: true,
+          );
         }
       }
     } catch (_) {} finally {
@@ -179,6 +202,30 @@ class _LibraryPageState extends State<LibraryPage> {
         _loadLibraryData();
       }
     }
+  }
+
+  void _triggerBackgroundFetchMissingMovies(List<int> missingIds) async {
+    _attemptedFetchIds.addAll(missingIds);
+    try {
+      final Map<int, Map<String, dynamic>> batch = {};
+      await Future.wait(missingIds.map((id) async {
+        try {
+          final item = LibraryState().getItem(id, 'movies');
+          if (item != null) {
+            final details = await _tmdbService.fetchTmdbBasicDetails(id, item.format);
+            if (details != null) {
+              batch[id] = details;
+            }
+          }
+        } catch (_) {}
+      }));
+      if (batch.isNotEmpty) {
+        await LibraryState().updateMovieCacheBatch(batch);
+        if (mounted) {
+          _loadLibraryData();
+        }
+      }
+    } catch (_) {}
   }
 
   void _triggerBackgroundFetchMissingAnime(List<int> missingIds) async {
