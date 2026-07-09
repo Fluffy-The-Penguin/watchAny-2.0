@@ -1,3 +1,4 @@
+﻿import 'dart:async';
 import '../services/notification_service.dart';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -34,6 +35,7 @@ class _LibraryPageState extends State<LibraryPage> {
   final Set<int> _attemptedFetchIds = {};
   bool _isSelectionMode = false;
   final Set<int> _selectedItemIds = {};
+  Timer? _libraryChangedDebounce;
 
   // Real-time fetched items
   List<dynamic> _fetchedMedia = [];
@@ -58,6 +60,7 @@ class _LibraryPageState extends State<LibraryPage> {
 
   @override
   void dispose() {
+    _libraryChangedDebounce?.cancel();
     LibraryState().removeListener(_onLibraryChanged);
     DownloadService().removeListener(_onLibraryChanged);
     widget.navigationState.removeListener(_onNavigationChanged);
@@ -75,12 +78,16 @@ class _LibraryPageState extends State<LibraryPage> {
   }
 
   void _onLibraryChanged() {
-    final nav = widget.navigationState;
-    final isCurrentMode = nav.currentMode == widget.mode;
-    final isCurrentPage = nav.currentPage == TabPage.library;
-    if (isCurrentMode && isCurrentPage && mounted) {
-      _loadLibraryData();
-    }
+    _libraryChangedDebounce?.cancel();
+    _libraryChangedDebounce = Timer(const Duration(milliseconds: 100), () {
+      if (!mounted) return;
+      final nav = widget.navigationState;
+      final isCurrentMode = nav.currentMode == widget.mode;
+      final isCurrentPage = nav.currentPage == TabPage.library;
+      if (isCurrentMode && isCurrentPage) {
+        _loadLibraryData();
+      }
+    });
   }
 
   // Load basic details for all saved IDs in this mode
@@ -202,7 +209,7 @@ class _LibraryPageState extends State<LibraryPage> {
             LibraryState().updateItemEpisodesInMemory(id, 'manga', totalChapters);
           }
         }
-        await LibraryState().updateMangaCacheBatch(cacheBatch);
+        LibraryState().updateMangaCacheBatch(cacheBatch);
       }
     } catch (_) {} finally {
       _isBackgroundFetchingMissing = false;
@@ -228,7 +235,7 @@ class _LibraryPageState extends State<LibraryPage> {
         } catch (_) {}
       }));
       if (batch.isNotEmpty) {
-        await LibraryState().updateMovieCacheBatch(batch);
+        LibraryState().updateMovieCacheBatch(batch);
         if (mounted) {
           _loadLibraryData();
         }
@@ -252,7 +259,7 @@ class _LibraryPageState extends State<LibraryPage> {
             batch[id] = media;
           }
           if (batch.isNotEmpty) {
-            await LibraryState().updateAnimeCacheBatch(batch);
+            LibraryState().updateAnimeCacheBatch(batch);
             if (mounted) {
               _loadLibraryData();
             }
@@ -289,7 +296,7 @@ class _LibraryPageState extends State<LibraryPage> {
           batch[id] = media;
         }
         if (batch.isNotEmpty) {
-          await LibraryState().updateAnimeCacheBatch(batch);
+          LibraryState().updateAnimeCacheBatch(batch);
         }
         await Future.delayed(const Duration(milliseconds: 300));
       }
@@ -430,7 +437,7 @@ class _LibraryPageState extends State<LibraryPage> {
           final chaptersList = await SuwayomiService().getChapters(item.id);
           final totalChapters = chaptersList.length;
 
-          await LibraryState().updateMangaCache(item.id, freshDetails);
+          LibraryState().updateMangaCache(item.id, freshDetails);
 
           await LibraryState().saveItem(
             id: item.id,
@@ -2246,3 +2253,4 @@ class _LibraryMediaCardState extends State<_LibraryMediaCard> {
     ),);
   }
 }
+

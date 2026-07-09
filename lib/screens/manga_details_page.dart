@@ -52,7 +52,7 @@ class _MangaDetailsPageState extends State<MangaDetailsPage> {
       final chaps = await _suwayomiService.getChapters(_parsedMangaId);
       
       if (info != null && LibraryState().isSaved(_parsedMangaId, 'manga')) {
-        await LibraryState().updateMangaCache(_parsedMangaId, info);
+        LibraryState().updateMangaCache(_parsedMangaId, info);
       }
       
       if (mounted) {
@@ -1029,7 +1029,7 @@ class _MangaLibraryEditPanelState extends State<_MangaLibraryEditPanel> {
                         const SizedBox(width: 12.0),
                         ElevatedButton(
                           onPressed: () async {
-                            await LibraryState().updateMangaCache(widget.mangaId, widget.mangaDetails);
+                            LibraryState().updateMangaCache(widget.mangaId, widget.mangaDetails);
                             await LibraryState().saveItem(
                               id: widget.mangaId,
                               mode: 'manga',

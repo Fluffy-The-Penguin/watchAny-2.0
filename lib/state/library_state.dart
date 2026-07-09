@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
@@ -11,7 +12,7 @@ import '../services/download_service.dart';
 import 'navigation_state.dart';
 import 'anilist_auth_state.dart';
 
-// Top-level functions for compute() — must be top-level or static to run in isolates
+// Top-level functions for compute() â€” must be top-level or static to run in isolates
 List<LibraryItem> _parseLibraryItems(String json) {
   final List<dynamic> decoded = jsonDecode(json);
   return decoded.map((item) => LibraryItem.fromJson(item)).toList();
@@ -116,6 +117,10 @@ class LibraryState extends ChangeNotifier {
   int _animeNotificationCount = 0;
   int _mangaNotificationCount = 0;
   int _moviesNotificationCount = 0;
+
+  // Debounce disk writes â€” avoids 16+ MB/s I/O spikes
+  Timer? _persistDebounce;
+  SharedPreferences? _prefs;
 
   bool _animeBadgeCleared = false;
   bool _mangaBadgeCleared = false;
@@ -302,8 +307,7 @@ class LibraryState extends ChangeNotifier {
     ));
     
     notifyListeners();
-    await _persist();
-    updateNotificationCount(force: false);
+    _persist();
 
     // Asynchronous background sync to AniList (only for anime)
     if (!bypassAnilistSync && mode == 'anime') {
@@ -415,8 +419,7 @@ class LibraryState extends ChangeNotifier {
     }
 
     notifyListeners();
-    await _persist();
-    updateNotificationCount(force: true);
+    _persist();
     return importedCount;
   }
 
@@ -430,15 +433,22 @@ class LibraryState extends ChangeNotifier {
       _movieCache.remove(id);
     }
     notifyListeners();
-    await _persist();
-    updateNotificationCount(force: false);
+    _persist();
   }
 
-  Future<void> _persist() async {
-    final prefs = await SharedPreferences.getInstance();
+  // Schedules a debounced disk write â€” coalesces rapid successive calls into one
+  void _persist() {
+    _persistDebounce?.cancel();
+    _persistDebounce = Timer(const Duration(milliseconds: 500), _writeNow);
+  }
+
+  // Immediately flush all state to SharedPreferences
+  Future<void> _writeNow() async {
+    _prefs ??= await SharedPreferences.getInstance();
+    final prefs = _prefs!;
     final String jsonString = jsonEncode(_items.map((item) => item.toJson()).toList());
     await prefs.setString('library_items', jsonString);
-    
+
     final String catsJson = jsonEncode(_categories.map((cat) => cat.toJson()).toList());
     await prefs.setString('library_categories', catsJson);
 
@@ -452,24 +462,24 @@ class LibraryState extends ChangeNotifier {
     await prefs.setString('movie_library_cache', movieCacheJson);
   }
 
-  Future<void> updateAnimeCache(int id, Map<String, dynamic> data) async {
+  void updateAnimeCache(int id, Map<String, dynamic> data) {
     _animeCache[id] = data;
-    await _persist();
+    _persist();
   }
 
-  Future<void> updateAnimeCacheBatch(Map<int, Map<String, dynamic>> batch) async {
+  void updateAnimeCacheBatch(Map<int, Map<String, dynamic>> batch) {
     _animeCache.addAll(batch);
-    await _persist();
+    _persist();
   }
 
-  Future<void> updateMovieCache(int id, Map<String, dynamic> data) async {
+  void updateMovieCache(int id, Map<String, dynamic> data) {
     _movieCache[id] = data;
-    await _persist();
+    _persist();
   }
 
-  Future<void> updateMovieCacheBatch(Map<int, Map<String, dynamic>> batch) async {
+  void updateMovieCacheBatch(Map<int, Map<String, dynamic>> batch) {
     _movieCache.addAll(batch);
-    await _persist();
+    _persist();
   }
 
   void updateItemEpisodesInMemory(int id, String mode, int totalEpisodes) {
@@ -499,7 +509,7 @@ class LibraryState extends ChangeNotifier {
     final id = 'cat_${DateTime.now().millisecondsSinceEpoch}_${name.hashCode.abs()}';
     _categories.add(LibraryCategory(id: id, name: name, mode: mode));
     notifyListeners();
-    await _persist();
+    _persist();
   }
 
   Future<void> deleteCategory(String id) async {
@@ -525,7 +535,7 @@ class LibraryState extends ChangeNotifier {
     }
     
     notifyListeners();
-    await _persist();
+    _persist();
   }
 
   Future<void> renameCategory(String id, String newName) async {
@@ -534,7 +544,7 @@ class LibraryState extends ChangeNotifier {
       final mode = _categories[idx].mode;
       _categories[idx] = LibraryCategory(id: id, name: newName, mode: mode);
       notifyListeners();
-      await _persist();
+      _persist();
     }
   }
 
@@ -560,7 +570,7 @@ class LibraryState extends ChangeNotifier {
         categoryIds: updatedCats,
       );
       notifyListeners();
-      await _persist();
+      _persist();
     }
   }
 
@@ -580,7 +590,7 @@ class LibraryState extends ChangeNotifier {
         categoryIds: categoryIds,
       );
       notifyListeners();
-      await _persist();
+      _persist();
     }
   }
 
@@ -686,7 +696,7 @@ class LibraryState extends ChangeNotifier {
           _items.removeWhere((x) => x.id == newItem.id && x.mode == 'manga');
           _items.add(newItem);
         }
-        await _persist();
+        _persist();
       }
     } else {
       for (var item in mangaItems) {
@@ -777,16 +787,14 @@ class LibraryState extends ChangeNotifier {
     }
   }
 
-  Future<void> updateMangaCache(int id, Map<String, dynamic> data) async {
+  void updateMangaCache(int id, Map<String, dynamic> data) {
     _mangaCache[id] = data;
-    notifyListeners();
-    await _persist();
+    _persist();
   }
 
-  Future<void> updateMangaCacheBatch(Map<int, Map<String, dynamic>> batch) async {
+  void updateMangaCacheBatch(Map<int, Map<String, dynamic>> batch) {
     _mangaCache.addAll(batch);
-    notifyListeners();
-    await _persist();
+    _persist();
   }
 
   // Get the list of read chapter IDs for a manga
@@ -834,6 +842,7 @@ class LibraryState extends ChangeNotifier {
 
     _mangaCache[mangaId] = cache;
     notifyListeners();
-    await _persist();
+    _persist();
   }
 }
+
