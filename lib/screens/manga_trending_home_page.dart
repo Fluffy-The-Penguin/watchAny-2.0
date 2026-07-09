@@ -58,12 +58,21 @@ class _MangaTrendingHomePageState extends State<MangaTrendingHomePage> {
   }
 
   Future<void> _initDashboard() async {
-    // Auto-start Suwayomi server if not running
-    await SuwayomiManager.start();
-    if (!mounted) return;
-    
-    await _loadPins();
-    await _loadSources();
+    try {
+      // Auto-start Suwayomi server if not running
+      await SuwayomiManager.start();
+      if (!mounted) return;
+      
+      await _loadPins();
+      await _loadSources();
+    } catch (e) {
+      debugPrint('[MangaTrendingHomePage] Error initializing manga dashboard: $e');
+      if (mounted) {
+        setState(() {
+          _isLoadingSources = false;
+        });
+      }
+    }
   }
 
   // Load Pinned Source IDs from SharedPreferences
@@ -339,8 +348,13 @@ class _MangaTrendingHomePageState extends State<MangaTrendingHomePage> {
 
                         return RepaintBoundary(
                           child: GestureDetector(
-                            onTap: () {
+                            onTap: () async {
                               if (mId.isNotEmpty) {
+                                final mangaUrl = item['url']?.toString() ?? '';
+                                final parsedId = int.tryParse(mId) ?? 0;
+                                if (parsedId != 0) {
+                                  await SuwayomiService().registerMangaPath(parsedId, sourceId, mangaUrl);
+                                }
                                 widget.navigationState.selectManga(mId);
                               }
                             },
