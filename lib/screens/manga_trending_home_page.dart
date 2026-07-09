@@ -36,6 +36,16 @@ class _MangaTrendingHomePageState extends State<MangaTrendingHomePage> {
   final Map<String, String> _popularErrors = {};
   final Map<String, String> _latestErrors = {};
 
+  String? _getSourceName(String sId) {
+    if (_allSources.isEmpty) return null;
+    for (var src in _allSources) {
+      if (src is Map && src['id']?.toString() == sId) {
+        return src['name']?.toString();
+      }
+    }
+    return null;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -363,9 +373,10 @@ class _MangaTrendingHomePageState extends State<MangaTrendingHomePage> {
                               if (mId.isNotEmpty) {
                                 final mangaUrl = item['url']?.toString() ?? '';
                                 final parsedId = int.tryParse(mId) ?? 0;
-                                if (parsedId != 0) {
-                                  await SuwayomiService().registerMangaPath(parsedId, sourceId, mangaUrl);
-                                }
+                                  if (parsedId != 0) {
+                                    final extName = _getSourceName(sourceId);
+                                    await SuwayomiService().registerMangaPath(parsedId, sourceId, mangaUrl, extName: extName);
+                                  }
                                 widget.navigationState.selectManga(mId);
                               }
                             },

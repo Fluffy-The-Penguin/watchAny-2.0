@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:collection';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -11,22 +12,12 @@ import '../services/suwayomi_manager.dart';
 import '../services/download_service.dart';
 import 'navigation_state.dart';
 import 'anilist_auth_state.dart';
+import '../database/app_database.dart' as db;
+import 'package:drift/drift.dart' as drift;
+import 'library_providers.dart';
+import '../services/sync_isolate_worker.dart';
 
-// Top-level functions for compute() â€” must be top-level or static to run in isolates
-List<LibraryItem> _parseLibraryItems(String json) {
-  final List<dynamic> decoded = jsonDecode(json);
-  return decoded.map((item) => LibraryItem.fromJson(item)).toList();
-}
 
-List<LibraryCategory> _parseCategories(String json) {
-  final List<dynamic> decoded = jsonDecode(json);
-  return decoded.map((cat) => LibraryCategory.fromJson(cat)).toList();
-}
-
-Map<int, Map<String, dynamic>> _parseCache(String json) {
-  final Map<String, dynamic> decoded = jsonDecode(json);
-  return decoded.map((key, value) => MapEntry(int.parse(key), Map<String, dynamic>.from(value)));
-}
 
 class LibraryCategory {
   final String id;
@@ -109,17 +100,30 @@ class LibraryState extends ChangeNotifier {
   factory LibraryState() => _instance;
   LibraryState._internal();
 
+  void _publishNotificationCounts() {
+    final container = RiverpodContainerHolder.container;
+    if (container != null) {
+      container.read(animeNotificationCountProvider.notifier).state = 
+          _animeBadgeCleared ? 0 : _animeNotificationCount;
+      container.read(mangaNotificationCountProvider.notifier).state = 
+          _mangaBadgeCleared ? 0 : _mangaNotificationCount;
+      container.read(moviesNotificationCountProvider.notifier).state = 
+          _moviesBadgeCleared ? 0 : _moviesNotificationCount;
+    }
+  }
+
+  final db.AppDatabase _db = db.AppDatabase();
+  db.AppDatabase get database => _db;
+
   List<LibraryItem> _items = [];
   List<LibraryCategory> _categories = [];
-  Map<int, Map<String, dynamic>> _mangaCache = {};
-  Map<int, Map<String, dynamic>> _animeCache = {};
-  Map<int, Map<String, dynamic>> _movieCache = {};
+  final Map<int, Map<String, dynamic>> _mangaCache = LazyJsonMap();
+  final Map<int, Map<String, dynamic>> _animeCache = LazyJsonMap();
+  final Map<int, Map<String, dynamic>> _movieCache = LazyJsonMap();
   int _animeNotificationCount = 0;
   int _mangaNotificationCount = 0;
   int _moviesNotificationCount = 0;
 
-  // Debounce disk writes â€” avoids 16+ MB/s I/O spikes
-  Timer? _persistDebounce;
   SharedPreferences? _prefs;
 
   bool _animeBadgeCleared = false;
@@ -150,26 +154,42 @@ class LibraryState extends ChangeNotifier {
       _moviesBadgeCleared = true;
       notifyListeners();
     }
+    _publishNotificationCounts();
     acknowledgeNotifications(mode); // fire-and-forget, never block UI
   }
 
   // --- Notification state helpers ---
-  // All notification ack/start data stored as TWO single JSON blobs.
-  // On Windows, each prefs.setInt() rewrites the whole file — N items = N rewrites.
-  // Using a single setString() reduces that to exactly 1 write regardless of library size.
   static const String _notifAckKey = 'notif_ack_all';    // Map<"mode_id", int>
   static const String _notifStartKey = 'notif_start_all'; // Map<"mode_id", int>
 
-  Map<String, int> _loadNotifMap(SharedPreferences prefs, String key) {
-    try {
-      final s = prefs.getString(key);
-      if (s == null) return {};
-      return (jsonDecode(s) as Map).map((k, v) => MapEntry(k.toString(), (v as num).toInt()));
-    } catch (_) { return {}; }
+  Future<Map<String, int>> _loadNotifMap(SharedPreferences prefs, String key) async {
+    final acks = await _db.select(_db.notificationAcks).get();
+    if (key == _notifAckKey) {
+      return {for (var ack in acks) ack.mediaKey: ack.ackValue};
+    } else {
+      return {for (var ack in acks) ack.mediaKey: ack.startValue};
+    }
   }
 
   Future<void> _saveNotifMap(SharedPreferences prefs, String key, Map<String, int> map) async {
-    await prefs.setString(key, jsonEncode(map));
+    await _db.transaction(() async {
+      for (var entry in map.entries) {
+        final mediaKey = entry.key;
+        final val = entry.value;
+
+        final existing = await (_db.select(_db.notificationAcks)..where((t) => t.mediaKey.equals(mediaKey))).getSingleOrNull();
+        final int currentAck = key == _notifAckKey ? val : (existing?.ackValue ?? val);
+        final int currentStart = key == _notifStartKey ? val : (existing?.startValue ?? val);
+
+        await _db.into(_db.notificationAcks).insertOnConflictUpdate(
+          db.NotificationAcksCompanion.insert(
+            mediaKey: mediaKey,
+            ackValue: currentAck,
+            startValue: currentStart,
+          ),
+        );
+      }
+    });
   }
   // ---
 
@@ -182,7 +202,7 @@ class LibraryState extends ChangeNotifier {
     if (libraryItems.isEmpty) return;
 
     final prefs = _prefs ?? await SharedPreferences.getInstance();
-    final ackMap = _loadNotifMap(prefs, _notifAckKey);
+    final ackMap = await _loadNotifMap(prefs, _notifAckKey);
 
     if (mode == AppMode.manga) {
       // Bulk-set all manga acks in memory, then write once
@@ -244,38 +264,183 @@ class LibraryState extends ChangeNotifier {
     SuwayomiService.host = prefs.getString('manga_server_host') ?? '127.0.0.1';
     SuwayomiService.port = prefs.getInt('manga_server_port') ?? 4567;
     
-    // Parse all caches directly — jsonDecode on in-memory strings is fast.
-    // compute() isolate spin-up is 200-400ms each on Windows, far worse than direct parsing.
+    await _migrateIfNecessary();
+
+    // Load everything synchronously from SQLite into memory for runtime backwards compatibility
     try {
-      final String? itemsJson = prefs.getString('library_items');
-      if (itemsJson != null) _items = _parseLibraryItems(itemsJson);
-    } catch (e) { debugPrint('Failed to load library items: $e'); }
+      final allItems = await _db.select(_db.libraryItems).get();
+      _items = allItems.map((item) => LibraryItem(
+        id: item.id,
+        mode: item.mode,
+        format: item.format,
+        addedAt: item.addedAt,
+        libraryStatus: item.libraryStatus,
+        rating: item.rating,
+        watchedEpisodes: item.watchedEpisodes,
+        totalEpisodes: item.totalEpisodes,
+        categoryIds: (jsonDecode(item.categoryIds) as List).map((c) => c.toString()).toList(),
+      )).toList();
+    } catch (e) {
+      debugPrint('Failed to load library items from SQLite: $e');
+    }
 
     try {
-      final String? catsJson = prefs.getString('library_categories');
-      if (catsJson != null) _categories = _parseCategories(catsJson);
-    } catch (e) { debugPrint('Failed to load library categories: $e'); }
+      final allCategories = await _db.select(_db.libraryCategories).get();
+      _categories = allCategories.map((cat) => LibraryCategory(
+        id: cat.id,
+        name: cat.name,
+        mode: cat.mode,
+      )).toList();
+    } catch (e) {
+      debugPrint('Failed to load categories from SQLite: $e');
+    }
 
     try {
-      final String? cacheJson = prefs.getString('manga_library_cache');
-      if (cacheJson != null) _mangaCache = _parseCache(cacheJson);
-    } catch (e) { debugPrint('Failed to load manga cache: $e'); }
-
-    try {
-      final String? animeCacheJson = prefs.getString('anime_library_cache');
-      if (animeCacheJson != null) _animeCache = _parseCache(animeCacheJson);
-    } catch (e) { debugPrint('Failed to load anime cache: $e'); }
-
-    try {
-      final String? movieCacheJson = prefs.getString('movie_library_cache');
-      if (movieCacheJson != null) _movieCache = _parseCache(movieCacheJson);
-    } catch (e) { debugPrint('Failed to load movie cache: $e'); }
+      final allCaches = await _db.select(_db.mediaCaches).get();
+      for (var cache in allCaches) {
+        if (cache.mode == 'manga') {
+          (_mangaCache as LazyJsonMap).setRaw(cache.id, cache.extraData);
+        } else if (cache.mode == 'anime') {
+          (_animeCache as LazyJsonMap).setRaw(cache.id, cache.extraData);
+        } else {
+          (_movieCache as LazyJsonMap).setRaw(cache.id, cache.extraData);
+        }
+      }
+    } catch (e) {
+      debugPrint('Failed to load media caches from SQLite: $e');
+    }
 
     notifyListeners();
+    _publishNotificationCounts();
     // Defer notification count update — runs well after app is interactive
     Future.delayed(const Duration(seconds: 30), () {
       updateNotificationCount();
     });
+  }
+
+  Future<void> _migrateIfNecessary() async {
+    final prefs = _prefs!;
+    final String? itemsJson = prefs.getString('library_items');
+    if (itemsJson == null) return; // Already migrated or empty
+
+    debugPrint('Starting one-time SharedPreferences to SQLite migration...');
+
+    try {
+      final List<dynamic> decodedItems = jsonDecode(itemsJson);
+      for (var itemMap in decodedItems) {
+        final item = LibraryItem.fromJson(itemMap);
+        await _db.into(_db.libraryItems).insertOnConflictUpdate(
+          db.LibraryItemsCompanion.insert(
+            id: item.id,
+            mode: item.mode,
+            format: item.format,
+            libraryStatus: item.libraryStatus,
+            rating: item.rating,
+            watchedEpisodes: item.watchedEpisodes,
+            totalEpisodes: drift.Value(item.totalEpisodes),
+            addedAt: item.addedAt,
+            categoryIds: jsonEncode(item.categoryIds),
+          ),
+        );
+      }
+
+      final String? catsJson = prefs.getString('library_categories');
+      if (catsJson != null) {
+        final List<dynamic> decodedCats = jsonDecode(catsJson);
+        for (var catMap in decodedCats) {
+          final cat = LibraryCategory.fromJson(catMap);
+          await _db.into(_db.libraryCategories).insertOnConflictUpdate(
+            db.LibraryCategoriesCompanion.insert(
+              id: cat.id,
+              name: cat.name,
+              mode: cat.mode,
+            ),
+          );
+        }
+      }
+
+      final String? mangaCacheJson = prefs.getString('manga_library_cache');
+      if (mangaCacheJson != null) {
+        final Map<String, dynamic> decoded = jsonDecode(mangaCacheJson);
+        for (var entry in decoded.entries) {
+          final val = entry.value;
+          await _db.into(_db.mediaCaches).insertOnConflictUpdate(
+            db.MediaCachesCompanion.insert(
+              id: int.parse(entry.key),
+              mode: 'manga',
+              title: val['title'] ?? 'Untitled',
+              coverImage: val['thumbnailUrl'] ?? '',
+              extraData: drift.Value(jsonEncode(val)),
+            ),
+          );
+        }
+      }
+
+      final String? animeCacheJson = prefs.getString('anime_library_cache');
+      if (animeCacheJson != null) {
+        final Map<String, dynamic> decoded = jsonDecode(animeCacheJson);
+        for (var entry in decoded.entries) {
+          final val = entry.value;
+          await _db.into(_db.mediaCaches).insertOnConflictUpdate(
+            db.MediaCachesCompanion.insert(
+              id: int.parse(entry.key),
+              mode: 'anime',
+              title: val['title']?['english'] ?? val['title']?['romaji'] ?? 'Untitled',
+              coverImage: val['coverImage']?['large'] ?? '',
+              extraData: drift.Value(jsonEncode(val)),
+            ),
+          );
+        }
+      }
+
+      final String? movieCacheJson = prefs.getString('movie_library_cache');
+      if (movieCacheJson != null) {
+        final Map<String, dynamic> decoded = jsonDecode(movieCacheJson);
+        for (var entry in decoded.entries) {
+          final val = entry.value;
+          await _db.into(_db.mediaCaches).insertOnConflictUpdate(
+            db.MediaCachesCompanion.insert(
+              id: int.parse(entry.key),
+              mode: 'movies',
+              title: val['title'] ?? 'Untitled',
+              coverImage: val['coverImage'] ?? '',
+              extraData: drift.Value(jsonEncode(val)),
+            ),
+          );
+        }
+      }
+
+      final String? ackString = prefs.getString('notif_ack_all');
+      if (ackString != null) {
+        final Map<String, dynamic> ackDecoded = jsonDecode(ackString);
+        final String? startString = prefs.getString('notif_start_all');
+        final Map<String, dynamic> startDecoded = startString != null ? jsonDecode(startString) : {};
+
+        for (var key in ackDecoded.keys) {
+          final ackVal = (ackDecoded[key] as num).toInt();
+          final startVal = (startDecoded[key] as num?)?.toInt() ?? ackVal;
+          await _db.into(_db.notificationAcks).insertOnConflictUpdate(
+            db.NotificationAcksCompanion.insert(
+              mediaKey: key,
+              ackValue: ackVal,
+              startValue: startVal,
+            ),
+          );
+        }
+      }
+      debugPrint('Migration to SQLite completed successfully!');
+    } catch (e) {
+      debugPrint('Migration failed: $e');
+    }
+
+    // Clear old SharedPreferences keys
+    await prefs.remove('library_items');
+    await prefs.remove('library_categories');
+    await prefs.remove('manga_library_cache');
+    await prefs.remove('anime_library_cache');
+    await prefs.remove('movie_library_cache');
+    await prefs.remove('notif_ack_all');
+    await prefs.remove('notif_start_all');
   }
 
   bool isSaved(int id, String mode) {
@@ -306,7 +471,7 @@ class LibraryState extends ChangeNotifier {
 
     _items.removeWhere((item) => item.id == id && item.mode == mode);
     
-    _items.add(LibraryItem(
+    final newItem = LibraryItem(
       id: id,
       mode: mode,
       format: format,
@@ -316,10 +481,29 @@ class LibraryState extends ChangeNotifier {
       watchedEpisodes: watchedEpisodes,
       totalEpisodes: totalEpisodes,
       categoryIds: finalCategories,
-    ));
+    );
+    _items.add(newItem);
+
+    // Save to SQLite
+    try {
+      await _db.into(_db.libraryItems).insertOnConflictUpdate(
+        db.LibraryItemsCompanion.insert(
+          id: id,
+          mode: mode,
+          format: format,
+          libraryStatus: libraryStatus,
+          rating: rating,
+          watchedEpisodes: watchedEpisodes,
+          totalEpisodes: drift.Value(totalEpisodes),
+          addedAt: newItem.addedAt,
+          categoryIds: jsonEncode(finalCategories),
+        ),
+      );
+    } catch (e) {
+      debugPrint('Failed to save library item to SQLite: $e');
+    }
     
     notifyListeners();
-    _persist();
 
     // Asynchronous background sync to AniList (only for anime)
     if (!bypassAnilistSync && mode == 'anime') {
@@ -430,8 +614,52 @@ class LibraryState extends ChangeNotifier {
       }
     }
 
+    // Batch insert imported items and caches into SQLite
+    try {
+      await _db.transaction(() async {
+        for (var item in _items) {
+          await _db.into(_db.libraryItems).insertOnConflictUpdate(
+            db.LibraryItemsCompanion.insert(
+              id: item.id,
+              mode: item.mode,
+              format: item.format,
+              libraryStatus: item.libraryStatus,
+              rating: item.rating,
+              watchedEpisodes: item.watchedEpisodes,
+              totalEpisodes: drift.Value(item.totalEpisodes),
+              addedAt: item.addedAt,
+              categoryIds: jsonEncode(item.categoryIds),
+            ),
+          );
+        }
+        for (var entry in _mangaCache.entries) {
+          await _db.into(_db.mediaCaches).insertOnConflictUpdate(
+            db.MediaCachesCompanion.insert(
+              id: entry.key,
+              mode: 'manga',
+              title: entry.value['title'] ?? 'Untitled',
+              coverImage: entry.value['thumbnailUrl'] ?? '',
+              extraData: drift.Value(jsonEncode(entry.value)),
+            ),
+          );
+        }
+        for (var entry in _animeCache.entries) {
+          await _db.into(_db.mediaCaches).insertOnConflictUpdate(
+            db.MediaCachesCompanion.insert(
+              id: entry.key,
+              mode: 'anime',
+              title: entry.value['title']?['english'] ?? entry.value['title']?['romaji'] ?? 'Untitled',
+              coverImage: entry.value['coverImage']?['large'] ?? '',
+              extraData: drift.Value(jsonEncode(entry.value)),
+            ),
+          );
+        }
+      });
+    } catch (e) {
+      debugPrint('Failed to batch save imported AniList items to SQLite: $e');
+    }
+
     notifyListeners();
-    _persist();
     return importedCount;
   }
 
@@ -444,61 +672,106 @@ class LibraryState extends ChangeNotifier {
     } else {
       _movieCache.remove(id);
     }
+
+    try {
+      await (_db.delete(_db.libraryItems)..where((t) => t.id.equals(id) & t.mode.equals(mode))).go();
+      await (_db.delete(_db.mediaCaches)..where((t) => t.id.equals(id) & t.mode.equals(mode))).go();
+    } catch (e) {
+      debugPrint('Failed to delete library item from SQLite: $e');
+    }
+
     notifyListeners();
-    _persist();
   }
 
-  // Schedules a debounced disk write â€” coalesces rapid successive calls into one
-  void _persist() {
-    _persistDebounce?.cancel();
-    _persistDebounce = Timer(const Duration(milliseconds: 500), _writeNow);
-  }
-
-  // Immediately flush all state to SharedPreferences
-  Future<void> _writeNow() async {
-    _prefs ??= await SharedPreferences.getInstance();
-    final prefs = _prefs!;
-    final String jsonString = jsonEncode(_items.map((item) => item.toJson()).toList());
-    await prefs.setString('library_items', jsonString);
-
-    final String catsJson = jsonEncode(_categories.map((cat) => cat.toJson()).toList());
-    await prefs.setString('library_categories', catsJson);
-
-    final String cacheJson = jsonEncode(_mangaCache.map((key, value) => MapEntry(key.toString(), value)));
-    await prefs.setString('manga_library_cache', cacheJson);
-
-    final String animeCacheJson = jsonEncode(_animeCache.map((key, value) => MapEntry(key.toString(), value)));
-    await prefs.setString('anime_library_cache', animeCacheJson);
-
-    final String movieCacheJson = jsonEncode(_movieCache.map((key, value) => MapEntry(key.toString(), value)));
-    await prefs.setString('movie_library_cache', movieCacheJson);
-  }
-
-  void updateAnimeCache(int id, Map<String, dynamic> data) {
+  Future<void> updateAnimeCache(int id, Map<String, dynamic> data) async {
     _animeCache[id] = data;
-    _persist();
+    try {
+      await _db.into(_db.mediaCaches).insertOnConflictUpdate(
+        db.MediaCachesCompanion.insert(
+          id: id,
+          mode: 'anime',
+          title: data['title']?['english'] ?? data['title']?['romaji'] ?? 'Untitled',
+          coverImage: data['coverImage']?['large'] ?? '',
+          extraData: drift.Value(jsonEncode(data)),
+        ),
+      );
+    } catch (e) {
+      debugPrint('Failed to save anime cache: $e');
+    }
+    notifyListeners();
   }
 
-  void updateAnimeCacheBatch(Map<int, Map<String, dynamic>> batch) {
+  Future<void> updateAnimeCacheBatch(Map<int, Map<String, dynamic>> batch) async {
     _animeCache.addAll(batch);
-    _persist();
+    try {
+      await _db.transaction(() async {
+        for (var entry in batch.entries) {
+          final id = entry.key;
+          final data = entry.value;
+          await _db.into(_db.mediaCaches).insertOnConflictUpdate(
+            db.MediaCachesCompanion.insert(
+              id: id,
+              mode: 'anime',
+              title: data['title']?['english'] ?? data['title']?['romaji'] ?? 'Untitled',
+              coverImage: data['coverImage']?['large'] ?? '',
+              extraData: drift.Value(jsonEncode(data)),
+            ),
+          );
+        }
+      });
+    } catch (e) {
+      debugPrint('Failed to save anime cache batch: $e');
+    }
+    notifyListeners();
   }
 
-  void updateMovieCache(int id, Map<String, dynamic> data) {
+  Future<void> updateMovieCache(int id, Map<String, dynamic> data) async {
     _movieCache[id] = data;
-    _persist();
+    try {
+      await _db.into(_db.mediaCaches).insertOnConflictUpdate(
+        db.MediaCachesCompanion.insert(
+          id: id,
+          mode: 'movies',
+          title: data['title'] ?? 'Untitled',
+          coverImage: data['coverImage'] ?? '',
+          extraData: drift.Value(jsonEncode(data)),
+        ),
+      );
+    } catch (e) {
+      debugPrint('Failed to save movie cache: $e');
+    }
+    notifyListeners();
   }
 
-  void updateMovieCacheBatch(Map<int, Map<String, dynamic>> batch) {
+  Future<void> updateMovieCacheBatch(Map<int, Map<String, dynamic>> batch) async {
     _movieCache.addAll(batch);
-    _persist();
+    try {
+      await _db.transaction(() async {
+        for (var entry in batch.entries) {
+          final id = entry.key;
+          final data = entry.value;
+          await _db.into(_db.mediaCaches).insertOnConflictUpdate(
+            db.MediaCachesCompanion.insert(
+              id: id,
+              mode: 'movies',
+              title: data['title'] ?? 'Untitled',
+              coverImage: data['coverImage'] ?? '',
+              extraData: drift.Value(jsonEncode(data)),
+            ),
+          );
+        }
+      });
+    } catch (e) {
+      debugPrint('Failed to save movie cache batch: $e');
+    }
+    notifyListeners();
   }
 
-  void updateItemEpisodesInMemory(int id, String mode, int totalEpisodes) {
+  Future<void> updateItemEpisodesInMemory(int id, String mode, int totalEpisodes) async {
     for (int i = 0; i < _items.length; i++) {
       if (_items[i].id == id && _items[i].mode == mode) {
         if (_items[i].totalEpisodes != totalEpisodes) {
-          _items[i] = LibraryItem(
+          final item = LibraryItem(
             id: _items[i].id,
             mode: _items[i].mode,
             format: _items[i].format,
@@ -509,6 +782,25 @@ class LibraryState extends ChangeNotifier {
             totalEpisodes: totalEpisodes,
             categoryIds: _items[i].categoryIds,
           );
+          _items[i] = item;
+
+          try {
+            await _db.into(_db.libraryItems).insertOnConflictUpdate(
+              db.LibraryItemsCompanion.insert(
+                id: item.id,
+                mode: item.mode,
+                format: item.format,
+                libraryStatus: item.libraryStatus,
+                rating: item.rating,
+                watchedEpisodes: item.watchedEpisodes,
+                totalEpisodes: drift.Value(totalEpisodes),
+                addedAt: item.addedAt,
+                categoryIds: jsonEncode(item.categoryIds),
+              ),
+            );
+          } catch (e) {
+            debugPrint('Failed to update episodes in SQLite: $e');
+          }
         }
         break;
       }
@@ -520,8 +812,19 @@ class LibraryState extends ChangeNotifier {
   Future<void> createCategory(String name, String mode) async {
     final id = 'cat_${DateTime.now().millisecondsSinceEpoch}_${name.hashCode.abs()}';
     _categories.add(LibraryCategory(id: id, name: name, mode: mode));
+
+    try {
+      await _db.into(_db.libraryCategories).insertOnConflictUpdate(
+        db.LibraryCategoriesCompanion.insert(
+          id: id,
+          name: name,
+          mode: mode,
+        ),
+      );
+    } catch (e) {
+      debugPrint('Failed to save category to SQLite: $e');
+    }
     notifyListeners();
-    _persist();
   }
 
   Future<void> deleteCategory(String id) async {
@@ -543,11 +846,33 @@ class LibraryState extends ChangeNotifier {
           totalEpisodes: item.totalEpisodes,
           categoryIds: updatedCats,
         );
+
+        try {
+          await _db.into(_db.libraryItems).insertOnConflictUpdate(
+            db.LibraryItemsCompanion.insert(
+              id: item.id,
+              mode: item.mode,
+              format: item.format,
+              libraryStatus: item.libraryStatus,
+              rating: item.rating,
+              watchedEpisodes: item.watchedEpisodes,
+              totalEpisodes: drift.Value(item.totalEpisodes),
+              addedAt: item.addedAt,
+              categoryIds: jsonEncode(updatedCats),
+            ),
+          );
+        } catch (e) {
+          debugPrint('Failed to update item category removal in SQLite: $e');
+        }
       }
     }
     
+    try {
+      await (_db.delete(_db.libraryCategories)..where((t) => t.id.equals(id))).go();
+    } catch (e) {
+      debugPrint('Failed to delete category from SQLite: $e');
+    }
     notifyListeners();
-    _persist();
   }
 
   Future<void> renameCategory(String id, String newName) async {
@@ -555,8 +880,19 @@ class LibraryState extends ChangeNotifier {
     if (idx != -1) {
       final mode = _categories[idx].mode;
       _categories[idx] = LibraryCategory(id: id, name: newName, mode: mode);
+
+      try {
+        await _db.into(_db.libraryCategories).insertOnConflictUpdate(
+          db.LibraryCategoriesCompanion.insert(
+            id: id,
+            name: newName,
+            mode: mode,
+          ),
+        );
+      } catch (e) {
+        debugPrint('Failed to rename category in SQLite: $e');
+      }
       notifyListeners();
-      _persist();
     }
   }
 
@@ -581,8 +917,25 @@ class LibraryState extends ChangeNotifier {
         totalEpisodes: item.totalEpisodes,
         categoryIds: updatedCats,
       );
+
+      try {
+        await _db.into(_db.libraryItems).insertOnConflictUpdate(
+          db.LibraryItemsCompanion.insert(
+            id: item.id,
+            mode: item.mode,
+            format: item.format,
+            libraryStatus: item.libraryStatus,
+            rating: item.rating,
+            watchedEpisodes: item.watchedEpisodes,
+            totalEpisodes: drift.Value(item.totalEpisodes),
+            addedAt: item.addedAt,
+            categoryIds: jsonEncode(updatedCats),
+          ),
+        );
+      } catch (e) {
+        debugPrint('Failed to toggle category in SQLite: $e');
+      }
       notifyListeners();
-      _persist();
     }
   }
 
@@ -601,8 +954,25 @@ class LibraryState extends ChangeNotifier {
         totalEpisodes: item.totalEpisodes,
         categoryIds: categoryIds,
       );
+
+      try {
+        await _db.into(_db.libraryItems).insertOnConflictUpdate(
+          db.LibraryItemsCompanion.insert(
+            id: item.id,
+            mode: item.mode,
+            format: item.format,
+            libraryStatus: item.libraryStatus,
+            rating: item.rating,
+            watchedEpisodes: item.watchedEpisodes,
+            totalEpisodes: drift.Value(item.totalEpisodes),
+            addedAt: item.addedAt,
+            categoryIds: jsonEncode(categoryIds),
+          ),
+        );
+      } catch (e) {
+        debugPrint('Failed to update categories in SQLite: $e');
+      }
       notifyListeners();
-      _persist();
     }
   }
 
@@ -619,143 +989,162 @@ class LibraryState extends ChangeNotifier {
       }
     }
 
-    // Load ALL notification state from two single JSON blobs — O(1) reads regardless of library size
-    final ackMap = _loadNotifMap(prefs, _notifAckKey);
-    final startMap = _loadNotifMap(prefs, _notifStartKey);
+    final ackMap = await _loadNotifMap(prefs, _notifAckKey);
+    final startMap = await _loadNotifMap(prefs, _notifStartKey);
     bool startMapDirty = false;
 
-    // 1. ANIME
-    final animeItems = _items.where((item) => item.mode == 'anime').toList();
+    // Gather IDs for synchronization
+    final animeIds = _items.where((item) => item.mode == 'anime').map((item) => item.id).toList();
+    final mangaIds = _items.where((item) => item.mode == 'manga').map((item) => item.id).toList();
+    final movieIds = _items.where((item) => item.mode == 'movies' && item.format == 'SERIES').map((item) => item.id).toList();
+
+    final bool isSuwayomiRunning = await SuwayomiManager.isSuwayomiRunning(SuwayomiService.port);
+    final suwayomiUrl = isSuwayomiRunning ? 'http://127.0.0.1:${SuwayomiService.port}' : '';
+
+    SyncResponse response;
+    try {
+      response = await SyncIsolateWorker().performSync(
+        SyncRequest(
+          animeIds: animeIds,
+          mangaIds: mangaIds,
+          movieIds: movieIds,
+          suwayomiBaseUrl: suwayomiUrl,
+        ),
+      );
+    } catch (e) {
+      debugPrint("Failed to perform background isolate sync: $e");
+      return;
+    }
+
     int animeCount = 0;
-    if (animeItems.isNotEmpty) {
-      final ids = animeItems.map((item) => item.id).toList();
-      try {
-        final details = await AnilistService().fetchLibraryDetails(ids, type: 'ANIME');
-        for (var media in details) {
-          final id = media['id'];
-          final localItem = animeItems.firstWhere((item) => item.id == id);
-          final int? nextEpisode = media['nextAiringEpisode']?['episode'];
-          final int totalEpisodes = media['episodes'] ?? 0;
-          final int latestReleased = nextEpisode != null ? (nextEpisode - 1) : totalEpisodes;
-
-          final String startKey = 'anime_$id';
-          if (!startMap.containsKey(startKey)) {
-            startMap[startKey] = latestReleased;
-            startMapDirty = true;
-          }
-
-          final localDownloads = DownloadService().tasks.where(
-            (t) => t.anilistId == id && t.status == DownloadStatus.completed
-          );
-          final int maxDownloaded = localDownloads.isEmpty
-              ? 0
-              : localDownloads.map((t) => t.episodeNumber ?? 0).fold(0, max);
-
-          int ackEp = ackMap['anime_$id'] ?? startMap[startKey]!;
-          int watchedOrDownloaded = max(localItem.watchedEpisodes, maxDownloaded);
-          if (ackEp < watchedOrDownloaded) ackEp = watchedOrDownloaded;
-          if (latestReleased > ackEp) animeCount++;
-        }
-      } catch (_) {}
-    }
-
-    // 2. MANGA
-    final mangaItems = _items.where((item) => item.mode == 'manga').toList();
     int mangaCount = 0;
-    if (mangaItems.isNotEmpty && await SuwayomiManager.isSuwayomiRunning(SuwayomiService.port)) {
-      final List<LibraryItem> itemsToReplace = [];
-      final List<Future<void>> checkTasks = mangaItems.map((item) async {
-        if (item.libraryStatus == 'completed') return;
-        try {
-          final chaptersList = await SuwayomiService().getChapters(item.id);
-          final int totalChapters = chaptersList.length;
-
-          if (item.totalEpisodes != totalChapters) {
-            itemsToReplace.add(LibraryItem(
-              id: item.id, mode: item.mode, format: item.format,
-              addedAt: item.addedAt, libraryStatus: item.libraryStatus,
-              rating: item.rating, watchedEpisodes: item.watchedEpisodes,
-              totalEpisodes: totalChapters, categoryIds: item.categoryIds,
-            ));
-          }
-
-          final String startKey = 'manga_${item.id}';
-          if (!startMap.containsKey(startKey)) {
-            startMap[startKey] = totalChapters;
-            startMapDirty = true;
-          }
-
-          int ackEp = ackMap['manga_${item.id}'] ?? startMap[startKey]!;
-          if (ackEp < item.watchedEpisodes) ackEp = item.watchedEpisodes;
-          if (totalChapters > ackEp) mangaCount++;
-        } catch (_) {}
-      }).toList();
-
-      await Future.wait(checkTasks);
-
-      if (itemsToReplace.isNotEmpty) {
-        for (final newItem in itemsToReplace) {
-          _items.removeWhere((x) => x.id == newItem.id && x.mode == 'manga');
-          _items.add(newItem);
-        }
-        _persist();
-      }
-    } else {
-      for (var item in mangaItems) {
-        final int totalChapters = item.totalEpisodes ?? 0;
-        final String startKey = 'manga_${item.id}';
-        if (!startMap.containsKey(startKey)) {
-          startMap[startKey] = totalChapters;
-          startMapDirty = true;
-        }
-        int ackEp = ackMap['manga_${item.id}'] ?? startMap[startKey]!;
-        if (ackEp < item.watchedEpisodes) ackEp = item.watchedEpisodes;
-        if (totalChapters > ackEp) mangaCount++;
-      }
-    }
-
-    // 3. MOVIES
-    final movieItems = _items.where((item) => item.mode == 'movies' && item.format == 'SERIES').toList();
     int movieCount = 0;
-    if (movieItems.isNotEmpty) {
-      final futures = movieItems.map((item) async {
-        final imdbId = 'tt${item.id.toString().padLeft(7, '0')}';
-        final url = 'https://v3-cinemeta.strem.io/meta/series/$imdbId.json';
-        try {
-          final response = await http.get(Uri.parse(url)).timeout(const Duration(seconds: 4));
-          if (response.statusCode == 200) {
-            final decoded = jsonDecode(response.body);
-            final videos = decoded['meta']?['videos'] as List? ?? [];
-            final int latestReleased = videos.length;
 
-            final String startKey = 'movies_${item.id}';
-            if (!startMap.containsKey(startKey)) {
-              startMap[startKey] = latestReleased;
-              startMapDirty = true;
-            }
+    // 1. Process Anime Results
+    for (var entry in response.animeLatestReleased.entries) {
+      final id = entry.key;
+      final latestReleased = entry.value;
+      final localItems = _items.where((item) => item.id == id && item.mode == 'anime');
+      if (localItems.isEmpty) continue;
+      final localItem = localItems.first;
 
-            final localDownloads = DownloadService().tasks.where(
-              (t) => t.anilistId == item.id && t.status == DownloadStatus.completed
-            );
-            final int maxDownloaded = localDownloads.isEmpty
-                ? 0
-                : localDownloads.map((t) => t.episodeNumber ?? 0).fold(0, max);
+      final String startKey = 'anime_$id';
+      if (!startMap.containsKey(startKey)) {
+        startMap[startKey] = latestReleased;
+        startMapDirty = true;
+      }
 
-            int ackEp = ackMap['movies_${item.id}'] ?? startMap[startKey]!;
-            int watchedOrDownloaded = max(item.watchedEpisodes, maxDownloaded);
-            if (ackEp < watchedOrDownloaded) ackEp = watchedOrDownloaded;
-            if (latestReleased > ackEp) return 1;
-          }
-        } catch (_) {}
-        return 0;
-      });
-      final results = await Future.wait(futures);
-      movieCount = results.fold(0, (sum, val) => sum + val);
+      final localDownloads = DownloadService().tasks.where(
+        (t) => t.anilistId == id && t.status == DownloadStatus.completed
+      );
+      final int maxDownloaded = localDownloads.isEmpty
+          ? 0
+          : localDownloads.map((t) => t.episodeNumber ?? 0).fold(0, max);
+
+      int ackEp = ackMap['anime_$id'] ?? startMap[startKey]!;
+      int watchedOrDownloaded = max(localItem.watchedEpisodes, maxDownloaded);
+      if (ackEp < watchedOrDownloaded) ackEp = watchedOrDownloaded;
+      if (latestReleased > ackEp) animeCount++;
+
+      // Save fresh details to cache
+      final freshDetails = response.freshAnimeDetails[id];
+      if (freshDetails != null) {
+        _animeCache[id] = freshDetails;
+        await _db.into(_db.mediaCaches).insertOnConflictUpdate(
+          db.MediaCachesCompanion.insert(
+            id: id,
+            mode: 'anime',
+            title: freshDetails['title']?['english'] ?? freshDetails['title']?['romaji'] ?? 'Untitled',
+            coverImage: freshDetails['coverImage']?['large'] ?? '',
+            extraData: drift.Value(jsonEncode(freshDetails)),
+          ),
+        );
+      }
     }
 
-    // Write start map only if new entries were added (1 write max)
+    // 2. Process Manga Results
+    final List<LibraryItem> mangaItemsToReplace = [];
+    for (var entry in response.mangaLatestReleased.entries) {
+      final id = entry.key;
+      final totalChapters = entry.value;
+      final localItems = _items.where((item) => item.id == id && item.mode == 'manga');
+      if (localItems.isEmpty) continue;
+      final localItem = localItems.first;
+
+      if (localItem.libraryStatus == 'completed') continue;
+
+      if (localItem.totalEpisodes != totalChapters) {
+        mangaItemsToReplace.add(LibraryItem(
+          id: localItem.id, mode: localItem.mode, format: localItem.format,
+          addedAt: localItem.addedAt, libraryStatus: localItem.libraryStatus,
+          rating: localItem.rating, watchedEpisodes: localItem.watchedEpisodes,
+          totalEpisodes: totalChapters, categoryIds: localItem.categoryIds,
+        ));
+      }
+
+      final String startKey = 'manga_$id';
+      if (!startMap.containsKey(startKey)) {
+        startMap[startKey] = totalChapters;
+        startMapDirty = true;
+      }
+
+      int ackEp = ackMap['manga_$id'] ?? startMap[startKey]!;
+      if (ackEp < localItem.watchedEpisodes) ackEp = localItem.watchedEpisodes;
+      if (totalChapters > ackEp) mangaCount++;
+    }
+
+    // Handle manga total episode updates
+    if (mangaItemsToReplace.isNotEmpty) {
+      for (final newItem in mangaItemsToReplace) {
+        _items.removeWhere((x) => x.id == newItem.id && x.mode == 'manga');
+        _items.add(newItem);
+
+        try {
+          await _db.into(_db.libraryItems).insertOnConflictUpdate(
+            db.LibraryItemsCompanion.insert(
+              id: newItem.id,
+              mode: newItem.mode,
+              format: newItem.format,
+              libraryStatus: newItem.libraryStatus,
+              rating: newItem.rating,
+              watchedEpisodes: newItem.watchedEpisodes,
+              totalEpisodes: drift.Value(newItem.totalEpisodes),
+              addedAt: newItem.addedAt,
+              categoryIds: jsonEncode(newItem.categoryIds),
+            ),
+          );
+        } catch (_) {}
+      }
+    }
+
+    // 3. Process Movie Results
+    for (var entry in response.movieLatestReleased.entries) {
+      final id = entry.key;
+      final latestReleased = entry.value;
+      final localItems = _items.where((item) => item.id == id && item.mode == 'movies');
+      if (localItems.isEmpty) continue;
+      final localItem = localItems.first;
+
+      final String startKey = 'movies_$id';
+      if (!startMap.containsKey(startKey)) {
+        startMap[startKey] = latestReleased;
+        startMapDirty = true;
+      }
+
+      final localDownloads = DownloadService().tasks.where(
+        (t) => t.anilistId == id && t.status == DownloadStatus.completed
+      );
+      final int maxDownloaded = localDownloads.isEmpty
+          ? 0
+          : localDownloads.map((t) => t.episodeNumber ?? 0).fold(0, max);
+
+      int ackEp = ackMap['movies_$id'] ?? startMap[startKey]!;
+      int watchedOrDownloaded = max(localItem.watchedEpisodes, maxDownloaded);
+      if (ackEp < watchedOrDownloaded) ackEp = watchedOrDownloaded;
+      if (latestReleased > ackEp) movieCount++;
+    }
+
     if (startMapDirty) await _saveNotifMap(prefs, _notifStartKey, startMap);
-    // Write last sync timestamp (1 write)
     await prefs.setInt('library_last_notif_sync', DateTime.now().millisecondsSinceEpoch);
 
     bool changed = false;
@@ -763,20 +1152,46 @@ class LibraryState extends ChangeNotifier {
     if (_mangaNotificationCount != mangaCount) { _mangaNotificationCount = mangaCount; _mangaBadgeCleared = false; changed = true; }
     if (_moviesNotificationCount != movieCount) { _moviesNotificationCount = movieCount; _moviesBadgeCleared = false; changed = true; }
 
-    if (changed) notifyListeners();
+    if (changed) {
+      notifyListeners();
+    }
+    _publishNotificationCounts();
   }
 
   void updateMangaCache(int id, Map<String, dynamic> data) {
     _mangaCache[id] = data;
-    _persist();
+    _db.into(_db.mediaCaches).insertOnConflictUpdate(
+      db.MediaCachesCompanion.insert(
+        id: id,
+        mode: 'manga',
+        title: data['title'] ?? 'Untitled',
+        coverImage: data['thumbnailUrl'] ?? '',
+        extraData: drift.Value(jsonEncode(data)),
+      ),
+    );
+    notifyListeners();
   }
 
   void updateMangaCacheBatch(Map<int, Map<String, dynamic>> batch) {
     _mangaCache.addAll(batch);
-    _persist();
+    _db.transaction(() async {
+      for (var entry in batch.entries) {
+        final id = entry.key;
+        final data = entry.value;
+        await _db.into(_db.mediaCaches).insertOnConflictUpdate(
+          db.MediaCachesCompanion.insert(
+            id: id,
+            mode: 'manga',
+            title: data['title'] ?? 'Untitled',
+            coverImage: data['thumbnailUrl'] ?? '',
+            extraData: drift.Value(jsonEncode(data)),
+          ),
+        );
+      }
+    });
+    notifyListeners();
   }
 
-  // Get the list of read chapter IDs for a manga
   List<String> getReadChapterIds(int mangaId) {
     final cache = _mangaCache[mangaId];
     if (cache == null) return [];
@@ -785,7 +1200,6 @@ class LibraryState extends ChangeNotifier {
     return list.map((e) => e.toString()).toList();
   }
 
-  // Mark a chapter as read/unread for a manga
   Future<void> setChapterReadStatus(int mangaId, String chapterId, bool read) async {
     final cache = _mangaCache[mangaId] ?? {};
     final list = List<String>.from(cache['readChapterIds'] ?? []);
@@ -798,12 +1212,11 @@ class LibraryState extends ChangeNotifier {
     }
     cache['readChapterIds'] = list;
     
-    // Also update watchedEpisodes in LibraryItem to count how many chapters are read
     final item = getItem(mangaId, 'manga');
     if (item != null) {
       _items = _items.map((i) {
         if (i.id == mangaId && i.mode == 'manga') {
-          return LibraryItem(
+          final updatedItem = LibraryItem(
             id: i.id,
             mode: i.mode,
             format: i.format,
@@ -814,14 +1227,97 @@ class LibraryState extends ChangeNotifier {
             totalEpisodes: i.totalEpisodes,
             categoryIds: i.categoryIds,
           );
+
+          _db.into(_db.libraryItems).insertOnConflictUpdate(
+            db.LibraryItemsCompanion.insert(
+              id: updatedItem.id,
+              mode: updatedItem.mode,
+              format: updatedItem.format,
+              libraryStatus: updatedItem.libraryStatus,
+              rating: updatedItem.rating,
+              watchedEpisodes: updatedItem.watchedEpisodes,
+              totalEpisodes: drift.Value(updatedItem.totalEpisodes),
+              addedAt: updatedItem.addedAt,
+              categoryIds: jsonEncode(updatedItem.categoryIds),
+            ),
+          );
+
+          return updatedItem;
         }
         return i;
       }).toList();
     }
 
     _mangaCache[mangaId] = cache;
+    
+    await _db.into(_db.mediaCaches).insertOnConflictUpdate(
+      db.MediaCachesCompanion.insert(
+        id: mangaId,
+        mode: 'manga',
+        title: cache['title'] ?? 'Untitled',
+        coverImage: cache['thumbnailUrl'] ?? '',
+        extraData: drift.Value(jsonEncode(cache)),
+      ),
+    );
+
     notifyListeners();
-    _persist();
   }
+}
+
+class LazyJsonMap extends MapBase<int, Map<String, dynamic>> {
+  final Map<int, dynamic> _inner = {};
+
+  void setRaw(int id, String? rawJson) {
+    if (rawJson != null && rawJson.isNotEmpty) {
+      _inner[id] = rawJson;
+    }
+  }
+
+  @override
+  Map<String, dynamic>? operator [](Object? key) {
+    if (key is! int) return null;
+    final val = _inner[key];
+    if (val == null) return null;
+    if (val is String) {
+      try {
+        final decoded = Map<String, dynamic>.from(jsonDecode(val));
+        _inner[key] = decoded;
+        return decoded;
+      } catch (_) {
+        return null;
+      }
+    }
+    return val as Map<String, dynamic>;
+  }
+
+  @override
+  void operator []=(int key, Map<String, dynamic> value) {
+    _inner[key] = value;
+  }
+
+  @override
+  void clear() => _inner.clear();
+
+  @override
+  Iterable<int> get keys => _inner.keys;
+
+  @override
+  Map<String, dynamic>? remove(Object? key) {
+    final val = _inner.remove(key);
+    if (val is String) {
+      try {
+        return Map<String, dynamic>.from(jsonDecode(val));
+      } catch (_) {
+        return null;
+      }
+    }
+    return val as Map<String, dynamic>?;
+  }
+
+  @override
+  int get length => _inner.length;
+
+  @override
+  bool containsKey(Object? key) => _inner.containsKey(key);
 }
 

@@ -36,7 +36,9 @@ class _BrandSplashScreenState extends State<BrandSplashScreen> with SingleTicker
 
     // Run initialization future and hold for a minimum of 2.2 seconds to show the animation
     Future.wait([
-      widget.initFuture,
+      widget.initFuture.catchError((e, stack) {
+        debugPrint("Error during app initialization: $e\n$stack");
+      }),
       Future.delayed(const Duration(milliseconds: 2200)),
     ]).then((_) {
       if (mounted) {
@@ -66,9 +68,9 @@ class _BrandSplashScreenState extends State<BrandSplashScreen> with SingleTicker
                   end: const Alignment(2.0, 2.0),
                   colors: [
                     Colors.transparent,
-                    Colors.black.withValues(alpha: 0.15),
-                    Colors.black.withValues(alpha: 0.95),
-                    Colors.black.withValues(alpha: 0.15),
+                    Colors.white.withValues(alpha: 0.15),
+                    Colors.white.withValues(alpha: 0.8),
+                    Colors.white.withValues(alpha: 0.15),
                     Colors.transparent,
                   ],
                   stops: const [0.0, 0.3, 0.5, 0.7, 1.0],

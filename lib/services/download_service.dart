@@ -120,10 +120,10 @@ class DownloadService extends ChangeNotifier {
     final newFile = File('${dir.path}/downloads.json');
     // Migrate legacy file if it exists
     final legacyFile = File('${Directory.current.path}/downloads.json');
-    if (legacyFile.existsSync() && !newFile.existsSync()) {
+    if (await legacyFile.exists() && !await newFile.exists()) {
       try {
-        legacyFile.copySync(newFile.path);
-        legacyFile.deleteSync();
+        await legacyFile.copy(newFile.path);
+        await legacyFile.delete();
       } catch (e) {
         debugPrint("Error migrating downloads database: $e");
       }
@@ -208,7 +208,7 @@ class DownloadService extends ChangeNotifier {
       }
     }
     final downloadsDir = Directory(baseDir);
-    if (!downloadsDir.existsSync()) {
+    if (!await downloadsDir.exists()) {
       await downloadsDir.create(recursive: true);
     }
 

@@ -1166,21 +1166,22 @@ class _MovieEpisodeCardState extends State<_MovieEpisodeCard> {
                     ),
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(5.0),
-                      child: ColorFiltered(
-                        colorFilter: isWatched
-                            ? const ColorFilter.matrix(<double>[
-                                0.2126, 0.7152, 0.0722, 0, 0,
-                                0.2126, 0.7152, 0.0722, 0, 0,
-                                0.2126, 0.7152, 0.0722, 0, 0,
-                                0,      0,      0,      1, 0,
-                              ])
-                            : const ColorFilter.mode(
-                                Colors.transparent, BlendMode.multiply),
-                        child: Opacity(
-                          opacity: isWatched ? 0.5 : 1.0,
-                          child: Stack(
-                            children: [
-                              Positioned.fill(
+                      child: Stack(
+                        children: [
+                          // Thumbnail image (ColorFiltered and Opacity wrap ONLY the image)
+                          Positioned.fill(
+                            child: ColorFiltered(
+                              colorFilter: isWatched
+                                  ? const ColorFilter.matrix(<double>[
+                                      0.2126, 0.7152, 0.0722, 0, 0,
+                                      0.2126, 0.7152, 0.0722, 0, 0,
+                                      0.2126, 0.7152, 0.0722, 0, 0,
+                                      0,      0,      0,      1, 0,
+                                    ])
+                                  : const ColorFilter.mode(
+                                      Colors.transparent, BlendMode.multiply),
+                              child: Opacity(
+                                opacity: isWatched ? 0.5 : 1.0,
                                 child: AnimatedScale(
                                   scale: _isHovered ? 1.05 : 1.0,
                                   duration: const Duration(milliseconds: 150),
@@ -1194,64 +1195,64 @@ class _MovieEpisodeCardState extends State<_MovieEpisodeCard> {
                                       : _placeholder(),
                                 ),
                               ),
-                              Positioned.fill(
-                                child: AnimatedOpacity(
-                                  opacity: _isHovered ? 1.0 : 0.0,
-                                  duration: const Duration(milliseconds: 150),
-                                  child: Container(
-                                    color: Colors.black.withValues(alpha: 0.4),
-                                    child: const Center(
-                                      child: CircleAvatar(
-                                        radius: 18,
-                                        backgroundColor: Colors.white,
-                                        child: Icon(Icons.play_arrow,
-                                            color: Colors.black, size: 20),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              Positioned(
-                                top: 8,
-                                left: 8,
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 6, vertical: 3),
-                                  decoration: BoxDecoration(
-                                    color: Colors.black87,
-                                    borderRadius: BorderRadius.circular(4),
-                                    border: Border.all(color: Colors.white10),
-                                  ),
-                                  child: Text(
-                                    'EP ${widget.epNum}',
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 10.0,
-                                      fontWeight: FontWeight.bold,
-                                      fontFamily: 'Outfit',
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              // Progress bar
-                              if (ratio > 0.0 && ratio < 0.90)
-                                Positioned(
-                                  left: 0,
-                                  right: 0,
-                                  bottom: 0,
-                                  height: 3.5,
-                                  child: Container(
-                                    color: Colors.white24,
-                                    alignment: Alignment.centerLeft,
-                                    child: FractionallySizedBox(
-                                      widthFactor: ratio,
-                                      child: Container(color: Colors.amber),
-                                    ),
-                                  ),
-                                ),
-                            ],
+                            ),
                           ),
-                        ),
+                          Positioned.fill(
+                            child: AnimatedOpacity(
+                              opacity: _isHovered ? 1.0 : 0.0,
+                              duration: const Duration(milliseconds: 150),
+                              child: Container(
+                                color: Colors.black.withValues(alpha: 0.4),
+                                child: const Center(
+                                  child: CircleAvatar(
+                                    radius: 18,
+                                    backgroundColor: Colors.white,
+                                    child: Icon(Icons.play_arrow,
+                                        color: Colors.black, size: 20),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                          Positioned(
+                            top: 8,
+                            left: 8,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 6, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: Colors.black87,
+                                borderRadius: BorderRadius.circular(4),
+                                border: Border.all(color: Colors.white10),
+                              ),
+                              child: Text(
+                                  'EP ${widget.epNum}',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 10.0,
+                                    fontWeight: FontWeight.bold,
+                                    fontFamily: 'Outfit',
+                                  ),
+                                ),
+                              ),
+                            ),
+                            // Progress bar
+                            if (ratio > 0.0 && ratio < 0.90)
+                              Positioned(
+                                left: 0,
+                                right: 0,
+                                bottom: 0,
+                                height: 3.5,
+                                child: Container(
+                                  color: Colors.white24,
+                                  alignment: Alignment.centerLeft,
+                                  child: FractionallySizedBox(
+                                    widthFactor: ratio,
+                                    child: Container(color: Colors.amber),
+                                  ),
+                                ),
+                              ),
+                        ],
                       ),
                     ),
                   ),

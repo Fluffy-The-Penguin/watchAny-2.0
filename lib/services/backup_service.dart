@@ -56,20 +56,22 @@ class BackupService {
 
       final prefs = await SharedPreferences.getInstance();
 
-      // 1. Backup Library Items (write raw strings directly — avoids double decode/re-encode)
-      final String? itemsJson = prefs.getString('library_items');
-      final String? catsJson = prefs.getString('library_categories');
-      final String? cacheJson = prefs.getString('manga_library_cache');
+      // 1. Backup Library Items (serialize from memory, which is in sync with SQLite)
+      final libraryState = LibraryState();
+      final items = libraryState.items;
+      final categories = libraryState.categories;
+      final mangaCache = libraryState.mangaCache;
 
-      if (itemsJson != null || catsJson != null || cacheJson != null) {
+      if (items.isNotEmpty || categories.isNotEmpty || mangaCache.isNotEmpty) {
         final ts = DateTime.now().toIso8601String();
+        final libraryBackup = {
+          'library_items': items.map((item) => item.toJson()).toList(),
+          'library_categories': categories.map((cat) => cat.toJson()).toList(),
+          'manga_library_cache': mangaCache.map((key, value) => MapEntry(key.toString(), value)),
+          'timestamp': ts,
+        };
         final libraryFile = File('${dir.path}/library_backup.json');
-        await libraryFile.writeAsString(
-          '{"library_items":${itemsJson ?? "[]"},'
-          '"library_categories":${catsJson ?? "[]"},'
-          '"manga_library_cache":${cacheJson ?? "{}"},'
-          '"timestamp":"$ts"}',
-        );
+        await libraryFile.writeAsString(jsonEncode(libraryBackup));
       }
 
       // 2. Backup App Settings — exclude large cache blobs (anime/movie caches, notif state)
@@ -126,8 +128,8 @@ class BackupService {
 
       final prefs = await SharedPreferences.getInstance();
 
-      // Check if we are restoring onto a clean app instance
-      final bool hasLocalLibrary = prefs.getString('library_items') != null;
+      // Check if we are restoring onto a clean app instance (no local database items)
+      final bool hasLocalLibrary = LibraryState().items.isNotEmpty;
       
       // 1. Restore App Settings (do not overwrite critical paths if they exist)
       final settingsFile = File('${backupDir.path}/settings_backup.json');
@@ -167,6 +169,8 @@ class BackupService {
           final categories = libraryBackup['library_categories'];
           final mangaCache = libraryBackup['manga_library_cache'];
 
+          // Stage items to SharedPreferences. When LibraryState.init() runs next,
+          // it will detect them, migrate them atomically into SQLite, and clear the keys.
           if (items != null) {
             await prefs.setString('library_items', jsonEncode(items));
           }
@@ -176,7 +180,7 @@ class BackupService {
           if (mangaCache != null) {
             await prefs.setString('manga_library_cache', jsonEncode(mangaCache));
           }
-          debugPrint("Library items and categories successfully restored.");
+          debugPrint("Library items staged for database migration.");
         }
       }
 

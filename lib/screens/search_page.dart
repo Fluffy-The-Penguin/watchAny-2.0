@@ -705,14 +705,20 @@ class _SearchPageState extends State<SearchPage> {
       child: TextField(
         controller: _searchController,
         style: const TextStyle(color: Colors.white, fontSize: 13.0, fontFamily: 'Outfit'),
+        textAlignVertical: TextAlignVertical.center,
         decoration: InputDecoration(
+          isDense: true,
+          contentPadding: const EdgeInsets.symmetric(vertical: 10.0),
           hintText: widget.mode == AppMode.manga
               ? 'Search manga...'
               : (widget.mode == AppMode.movies ? 'Search movies & series...' : 'Search anime...'),
-          hintStyle: const TextStyle(color: Colors.white24, fontSize: 13.0),
+          hintStyle: const TextStyle(color: Colors.white24, fontSize: 13.0, fontFamily: 'Outfit'),
           prefixIcon: const Icon(Icons.search, color: Colors.white38, size: 16),
+          prefixIconConstraints: const BoxConstraints(
+            minWidth: 36,
+            maxHeight: 38,
+          ),
           border: InputBorder.none,
-          contentPadding: const EdgeInsets.symmetric(vertical: 8.0),
         ),
         onSubmitted: (_) => _performSearch(),
       ),
@@ -1021,14 +1027,20 @@ class _SearchPageState extends State<SearchPage> {
                 child: TextField(
                   controller: _searchController,
                   style: const TextStyle(color: Colors.white, fontSize: 13.0, fontFamily: 'Outfit'),
+                  textAlignVertical: TextAlignVertical.center,
                   decoration: InputDecoration(
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(vertical: 10.0),
                     hintText: widget.mode == AppMode.manga
                         ? 'Search manga...'
                         : (widget.mode == AppMode.movies ? 'Search movies & series...' : 'Search anime...'),
-                    hintStyle: const TextStyle(color: Colors.white24, fontSize: 13.0),
+                    hintStyle: const TextStyle(color: Colors.white24, fontSize: 13.0, fontFamily: 'Outfit'),
                     prefixIcon: const Icon(Icons.search, color: Colors.white38, size: 16),
+                    prefixIconConstraints: const BoxConstraints(
+                      minWidth: 36,
+                      maxHeight: 38,
+                    ),
                     border: InputBorder.none,
-                    contentPadding: const EdgeInsets.symmetric(vertical: 8.0),
                   ),
                   onSubmitted: (_) => _performSearch(),
                 ),

@@ -27,16 +27,18 @@ class TorrServerManager {
 
   static Future<int> _findAvailablePort(int startPort) async {
     int port = startPort;
-    while (port < startPort + 100) {
-      if (await _isTorrServerRunning(port)) {
-        developer.log('TorrServer is already running on port $port. Will reuse.', name: 'TorrServerManager');
-        return port;
-      }
+    while (port < startPort + 10) {
       try {
+        // Try binding instantly (takes ~1ms)
         final socket = await ServerSocket.bind(InternetAddress.loopbackIPv4, port);
         await socket.close();
         return port;
       } catch (_) {
+        // Port is occupied, check if TorrServer is already running on it
+        if (await _isTorrServerRunning(port)) {
+          developer.log('TorrServer is already running on port $port. Will reuse.', name: 'TorrServerManager');
+          return port;
+        }
         port++;
       }
     }

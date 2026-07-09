@@ -19,6 +19,9 @@ import 'screens/shell_layout.dart';
 import 'screens/setup_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'widgets/brand_splash_screen.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'state/library_providers.dart';
+import 'services/android_background_sync.dart';
 
 class MyCustomScrollBehavior extends MaterialScrollBehavior {
   @override
@@ -61,6 +64,7 @@ void main() async {
     
     windowManager.waitUntilReadyToShow(windowOptions, () async {
       await windowManager.setAsFrameless();
+      await windowManager.setHasShadow(false);
       await windowManager.show();
       await windowManager.focus();
       await windowManager.setPreventClose(true);
@@ -71,7 +75,25 @@ void main() async {
   // Pre-warm SharedPreferences so all subsequent getInstance() calls are instant
   await SharedPreferences.getInstance();
 
-  runApp(const MyApp());
+  // Configure image cache boundaries
+  final imageCache = PaintingBinding.instance.imageCache;
+  if (isDesktop) {
+    imageCache.maximumSize = 150;
+    imageCache.maximumSizeBytes = 80 * 1024 * 1024; // 80 MB
+  } else {
+    imageCache.maximumSize = 80;
+    imageCache.maximumSizeBytes = 40 * 1024 * 1024; // 40 MB
+  }
+
+  final container = ProviderContainer();
+  RiverpodContainerHolder.container = container;
+
+  runApp(
+    UncontrolledProviderScope(
+      container: container,
+      child: const MyApp(),
+    ),
+  );
 }
 
 class MyApp extends StatefulWidget {
@@ -81,16 +103,19 @@ class MyApp extends StatefulWidget {
   State<MyApp> createState() => _MyAppState();
 }
 
-class _MyAppState extends State<MyApp> with WindowListener {
+class _MyAppState extends State<MyApp> with WindowListener, WidgetsBindingObserver {
   final NavigationState _navigationState = NavigationState();
   final bool _isDesktop = !kIsWeb && (Platform.isWindows || Platform.isMacOS || Platform.isLinux);
   late Future<void> _initFuture;
   bool _showSetup = false;
   bool _isLoading = true;
+  double _savedWidth = 1280.0;
+  double _savedHeight = 720.0;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _initFuture = _initializeApp();
     if (_isDesktop) {
       windowManager.addListener(this);
@@ -103,6 +128,8 @@ class _MyAppState extends State<MyApp> with WindowListener {
   Future<void> _initializeApp() async {
     // 1. Initial SharedPreferences load
     final prefs = await SharedPreferences.getInstance();
+    _savedWidth = prefs.getDouble('window_width') ?? 1280.0;
+    _savedHeight = prefs.getDouble('window_height') ?? 720.0;
     final bool hasLocalLibrary = prefs.getString('library_items') != null;
     
     // Restore backups ONLY if there is no local database (saves massive redundant I/O on normal boots)
@@ -128,10 +155,14 @@ class _MyAppState extends State<MyApp> with WindowListener {
 
     // 4. Initialize ExtensionService early to load local extensions in the background
     ExtensionService().init();
+
+    // 5. Register WorkManager background synchronization for Android devices
+    AndroidBackgroundSync().init();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     if (_isDesktop) {
       windowManager.removeListener(this);
     }
@@ -142,8 +173,22 @@ class _MyAppState extends State<MyApp> with WindowListener {
   }
 
   @override
+  void didHaveMemoryPressure() {
+    super.didHaveMemoryPressure();
+    PaintingBinding.instance.imageCache.clear();
+    debugPrint("OS memory pressure signal received. Cleared ImageCache.");
+  }
+
+  @override
   void onWindowClose() async {
     if (_isDesktop) {
+      try {
+        final size = await windowManager.getSize();
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setDouble('window_width', size.width);
+        await prefs.setDouble('window_height', size.height);
+      } catch (_) {}
+
       try {
         await windowManager.hide();
       } catch (_) {}
@@ -236,12 +281,13 @@ class _MyAppState extends State<MyApp> with WindowListener {
                 onComplete: () {
                   if (_isDesktop) {
                     // Fire and forget size changes asynchronously so we NEVER block the loading state transition
-                    windowManager.setSize(const Size(1280, 720), animate: true);
+                    windowManager.setSize(Size(_savedWidth, _savedHeight), animate: true);
                     windowManager.center();
                     
                     // Schedule borders and app reveal after 450ms, guaranteed to run
                     Future.delayed(const Duration(milliseconds: 450), () async {
                       await windowManager.setResizable(true);
+                      await windowManager.setHasShadow(true);
                       await windowManager.setTitleBarStyle(TitleBarStyle.hidden);
                       await windowManager.setMinimumSize(const Size(360, 500));
                       if (mounted) {

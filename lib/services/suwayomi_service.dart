@@ -17,9 +17,17 @@ class SuwayomiService {
     return input.hashCode.abs();
   }
 
-  Future<void> registerMangaPath(int hash, String sourceId, String url) async {
+  Future<void> registerMangaPath(int hash, String sourceId, String url, {String? extName}) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('manga_path_$hash', '$sourceId:$url');
+    if (extName != null && extName.isNotEmpty) {
+      await prefs.setString('manga_extension_$hash', extName);
+    }
+  }
+
+  Future<String?> getMangaExtensionName(int hash) async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString('manga_extension_$hash');
   }
 
   Future<Map<String, String>?> getMangaPath(int hash) async {

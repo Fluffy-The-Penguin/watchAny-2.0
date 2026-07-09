@@ -1,0 +1,61 @@
+CREATE TABLE library_items (
+    id INT NOT NULL,
+    mode TEXT NOT NULL,
+    format TEXT NOT NULL,
+    library_status TEXT NOT NULL,
+    rating REAL NOT NULL,
+    watched_episodes INT NOT NULL,
+    total_episodes INT,
+    added_at DATETIME NOT NULL,
+    category_ids TEXT NOT NULL, -- comma-separated or JSON list
+    PRIMARY KEY (id, mode)
+);
+
+CREATE TABLE library_categories (
+    id TEXT NOT NULL PRIMARY KEY,
+    name TEXT NOT NULL,
+    mode TEXT NOT NULL
+);
+
+CREATE TABLE media_caches (
+    id INT NOT NULL,
+    mode TEXT NOT NULL,
+    title TEXT NOT NULL,
+    cover_image TEXT NOT NULL,
+    average_score INT,
+    format TEXT,
+    status TEXT,
+    banner_image TEXT,
+    extra_data TEXT, -- JSON blob for details
+    PRIMARY KEY (id, mode)
+);
+
+CREATE TABLE notification_acks (
+    media_key TEXT NOT NULL PRIMARY KEY, -- Format: 'mode_id' (e.g. 'anime_123')
+    ack_value INT NOT NULL,
+    start_value INT NOT NULL
+);
+
+-- FTS5 virtual table for searching titles
+CREATE VIRTUAL TABLE library_fts USING fts5(
+    media_id,
+    media_mode,
+    title,
+    synonyms
+);
+
+-- Triggers to auto-sync library_fts with media_caches
+CREATE TRIGGER media_caches_insert_fts AFTER INSERT ON media_caches BEGIN
+    INSERT INTO library_fts(media_id, media_mode, title, synonyms) 
+    VALUES (new.id, new.mode, new.title, new.extra_data);
+END;
+
+CREATE TRIGGER media_caches_delete_fts AFTER DELETE ON media_caches BEGIN
+    DELETE FROM library_fts WHERE media_id = old.id AND media_mode = old.mode;
+END;
+
+CREATE TRIGGER media_caches_update_fts AFTER UPDATE ON media_caches BEGIN
+    DELETE FROM library_fts WHERE media_id = old.id AND media_mode = old.mode;
+    INSERT INTO library_fts(media_id, media_mode, title, synonyms) 
+    VALUES (new.id, new.mode, new.title, new.extra_data);
+END;

@@ -102,7 +102,7 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
                 : streaming.length);
 
         final bool isHentai = (data['genres'] as List<dynamic>? ?? []).contains('Hentai');
-        if (isHentai && totalCount == 0) {
+        if (isHentai) {
           final titlesList = <String>[];
           if (data['title']['english'] != null) titlesList.add(data['title']['english']);
           if (data['title']['romaji'] != null) titlesList.add(data['title']['romaji']);
@@ -126,7 +126,9 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
               maxEp = epNum;
             }
           }
-          totalCount = maxEp;
+          if (maxEp > totalCount) {
+            totalCount = maxEp;
+          }
         }
 
         Map<String, dynamic> aniZipEpisodes = {};
@@ -2228,21 +2230,21 @@ class _EpisodeCardState extends State<_EpisodeCard> {
                 ),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(5.0),
-                  child: ColorFiltered(
-                    colorFilter: isWatched
-                        ? const ColorFilter.matrix(<double>[
-                            0.2126, 0.7152, 0.0722, 0, 0,
-                            0.2126, 0.7152, 0.0722, 0, 0,
-                            0.2126, 0.7152, 0.0722, 0, 0,
-                            0,      0,      0,      1, 0,
-                          ])
-                        : const ColorFilter.mode(Colors.transparent, BlendMode.multiply),
-                    child: Opacity(
-                      opacity: isWatched ? 0.5 : 1.0,
-                      child: Stack(
-                        children: [
-                          // Thumbnail image
-                          Positioned.fill(
+                  child: Stack(
+                    children: [
+                      // Thumbnail image (ColorFiltered and Opacity wrap ONLY the image)
+                      Positioned.fill(
+                        child: ColorFiltered(
+                          colorFilter: isWatched
+                              ? const ColorFilter.matrix(<double>[
+                                  0.2126, 0.7152, 0.0722, 0, 0,
+                                  0.2126, 0.7152, 0.0722, 0, 0,
+                                  0.2126, 0.7152, 0.0722, 0, 0,
+                                  0,      0,      0,      1, 0,
+                                ])
+                              : const ColorFilter.mode(Colors.transparent, BlendMode.multiply),
+                          child: Opacity(
+                            opacity: isWatched ? 0.5 : 1.0,
                             child: AnimatedScale(
                               scale: _isHovered ? 1.05 : 1.0,
                               duration: const Duration(milliseconds: 150),
@@ -2261,105 +2263,105 @@ class _EpisodeCardState extends State<_EpisodeCard> {
                                   : _buildEpisodePlaceholder(),
                             ),
                           ),
-                          
-                          // Play Icon overlay
-                          Positioned.fill(
-                            child: AnimatedOpacity(
-                              opacity: _isHovered ? 1.0 : 0.0,
-                              duration: const Duration(milliseconds: 150),
-                              child: Container(
-                                color: Colors.black.withValues(alpha: 0.4),
-                                child: const Center(
-                                  child: CircleAvatar(
-                                    radius: 18.0,
-                                    backgroundColor: Colors.white,
-                                    child: Icon(Icons.play_arrow, color: Colors.black, size: 20.0),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-
-                          // Episode Number Badge (Top-Left)
-                          Positioned(
-                            top: 8.0,
-                            left: 8.0,
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 6.0, vertical: 3.0),
-                              decoration: BoxDecoration(
-                                color: Colors.black.withValues(alpha: 0.75),
-                                borderRadius: BorderRadius.circular(4.0),
-                              ),
-                              child: Text(
-                                'EP ${widget.epNum}',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 9.0,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                          ),
-                          if (isDownloaded)
-                            Positioned(
-                              top: 8.0,
-                              right: 8.0,
-                              child: Container(
-                                padding: const EdgeInsets.all(4.0),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFF2EC4B6).withValues(alpha: 0.85),
-                                  shape: BoxShape.circle,
-                                ),
-                                child: const Icon(
-                                  Icons.download_done,
-                                  color: Colors.white,
-                                  size: 11.0,
-                                ),
-                              ),
-                            ),
-
-                          // Site badge (Bottom-Right)
-                          if (widget.site.isNotEmpty)
-                            Positioned(
-                              bottom: 6.0,
-                              right: 6.0,
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 5.0, vertical: 2.0),
-                                decoration: BoxDecoration(
-                                  color: Colors.black.withValues(alpha: 0.65),
-                                  borderRadius: BorderRadius.circular(3.0),
-                                ),
-                                child: Text(
-                                  widget.site,
-                                  style: const TextStyle(
-                                    color: Colors.white70,
-                                    fontSize: 8.5,
-                                  ),
-                                ),
-                              ),
-                            ),
-
-                          // Progress Bar overlay
-                          if (ratio > 0)
-                            Positioned(
-                              left: 0,
-                              right: 0,
-                              bottom: 0,
-                              height: 3.5,
-                              child: Container(
-                                color: Colors.white24,
-                                alignment: Alignment.centerLeft,
-                                child: FractionallySizedBox(
-                                  widthFactor: ratio,
-                                  child: Container(
-                                    color: Colors.white,
-                                  ),
-                                ),
-                              ),
-                            ),
-                        ],
+                        ),
                       ),
-                    ),
+                      
+                      // Play Icon overlay
+                      Positioned.fill(
+                        child: AnimatedOpacity(
+                          opacity: _isHovered ? 1.0 : 0.0,
+                          duration: const Duration(milliseconds: 150),
+                          child: Container(
+                            color: Colors.black.withValues(alpha: 0.4),
+                            child: const Center(
+                              child: CircleAvatar(
+                                radius: 18.0,
+                                backgroundColor: Colors.white,
+                                child: Icon(Icons.play_arrow, color: Colors.black, size: 20.0),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+
+                      // Episode Number Badge (Top-Left)
+                      Positioned(
+                        top: 8.0,
+                        left: 8.0,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6.0, vertical: 3.0),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.75),
+                            borderRadius: BorderRadius.circular(4.0),
+                          ),
+                          child: Text(
+                            'EP ${widget.epNum}',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 9.0,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ),
+                      if (isDownloaded)
+                        Positioned(
+                          top: 8.0,
+                          right: 8.0,
+                          child: Container(
+                            padding: const EdgeInsets.all(4.0),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF2EC4B6).withValues(alpha: 0.85),
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(
+                              Icons.download_done,
+                              color: Colors.white,
+                              size: 11.0,
+                            ),
+                          ),
+                        ),
+
+                      // Site badge (Bottom-Right)
+                      if (widget.site.isNotEmpty)
+                        Positioned(
+                          bottom: 6.0,
+                          right: 6.0,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 5.0, vertical: 2.0),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withValues(alpha: 0.65),
+                              borderRadius: BorderRadius.circular(3.0),
+                            ),
+                            child: Text(
+                              widget.site,
+                              style: const TextStyle(
+                                color: Colors.white70,
+                                fontSize: 8.5,
+                              ),
+                            ),
+                          ),
+                        ),
+
+                      // Progress Bar overlay
+                      if (ratio > 0)
+                        Positioned(
+                          left: 0,
+                          right: 0,
+                          bottom: 0,
+                          height: 3.5,
+                          child: Container(
+                            color: Colors.white24,
+                            alignment: Alignment.centerLeft,
+                            child: FractionallySizedBox(
+                              widthFactor: ratio,
+                              child: Container(
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
                 ),
               ),

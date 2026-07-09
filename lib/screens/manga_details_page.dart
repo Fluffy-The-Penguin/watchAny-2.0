@@ -49,9 +49,51 @@ class _MangaDetailsPageState extends State<MangaDetailsPage> {
 
     try {
       final info = await _suwayomiService.getMangaDetails(_parsedMangaId);
+      
+      if (info == null) {
+        final pathInfo = await _suwayomiService.getMangaPath(_parsedMangaId);
+        String msg = "Error loading manga details. Please verify your extension is installed.";
+        if (pathInfo != null) {
+          final sourceId = pathInfo['sourceId'] ?? '';
+          final savedExtName = await _suwayomiService.getMangaExtensionName(_parsedMangaId);
+          
+          final Map<String, String> commonSourceNames = {
+            '1797754663718263026': 'IMHentai',
+            '2495670732386221764': 'MangaDex',
+            '674510793616616656': 'MangaLife',
+            '3016480572224097495': 'MangaPark',
+            '4778103322122606556': 'MangaSee',
+            '6608552103444641979': 'ReadMng',
+            '4934091395535313936': 'Mangakakalot',
+            '4397756184514589920': 'Asura Scans',
+            '8029013098315263640': 'Flame Comics',
+            '8934524458823724892': 'MangaReader',
+            '6188448937664687595': 'Bato.to',
+            '7080517865249514686': 'NHentai',
+            '4751475184856950293': 'Webtoons',
+            '3297120349812398492': 'MangaHasu',
+            '6948512395539502391': 'ReadComicOnline',
+          };
+          
+          final resolvedExtName = savedExtName ?? commonSourceNames[sourceId];
+          if (resolvedExtName != null && resolvedExtName.isNotEmpty) {
+            msg = "Manga extension '$resolvedExtName' is not installed. Please install it from the Extensions tab to view details.";
+          } else if (sourceId.isNotEmpty) {
+            msg = "Manga source ID '$sourceId' is not installed. Please install the corresponding extension to view details.";
+          }
+        }
+        if (mounted) {
+          setState(() {
+            _errorMessage = msg;
+            _isLoading = false;
+          });
+        }
+        return;
+      }
+
       final chaps = await _suwayomiService.getChapters(_parsedMangaId);
       
-      if (info != null && LibraryState().isSaved(_parsedMangaId, 'manga')) {
+      if (LibraryState().isSaved(_parsedMangaId, 'manga')) {
         LibraryState().updateMangaCache(_parsedMangaId, info);
       }
       

@@ -49,6 +49,9 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
   final TextEditingController _searchController = TextEditingController();
   bool _engineStarted = false;
   Map<String, List<dynamic>> _globalSearchResults = {};
+  final Map<String, int> _globalSearchPages = {};
+  final Map<String, bool> _globalSearchLoadingMore = {};
+  final Map<String, bool> _globalSearchHasMore = {};
 
   SharedPreferences? _prefs;
   String? _selectedExtensionName;
@@ -353,6 +356,9 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
     if (query.isEmpty) {
       setState(() {
         _globalSearchResults = {};
+        _globalSearchPages.clear();
+        _globalSearchLoadingMore.clear();
+        _globalSearchHasMore.clear();
         _loadingCatalog = false;
       });
       return;
@@ -363,6 +369,9 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
         _loadingCatalog = true;
         _catalogError = null;
         _globalSearchResults = {};
+        _globalSearchPages.clear();
+        _globalSearchLoadingMore.clear();
+        _globalSearchHasMore.clear();
       });
     }
 
@@ -388,11 +397,15 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
         if (!mounted || _catalogSearchQuery != query) return;
         setState(() {
           _globalSearchResults[extName] = list;
+          _globalSearchPages[extName] = 1;
+          _globalSearchHasMore[extName] = list.length >= 20;
         });
       }).catchError((e) {
         if (!mounted || _catalogSearchQuery != query) return;
         setState(() {
           _globalSearchResults[extName] = [];
+          _globalSearchPages[extName] = 1;
+          _globalSearchHasMore[extName] = false;
         });
       }).whenComplete(() {
         if (!mounted || _catalogSearchQuery != query) return;
@@ -404,6 +417,110 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
         }
       });
     }
+  }
+
+  Future<void> _loadMoreForGlobalSource(String extName) async {
+    if (_globalSearchLoadingMore[extName] == true) return;
+
+    final query = _catalogSearchQuery;
+    final sourceId = _getPreferredSourceIds()[extName] ?? '';
+    if (sourceId.isEmpty) return;
+
+    final nextPage = (_globalSearchPages[extName] ?? 1) + 1;
+
+    setState(() {
+      _globalSearchLoadingMore[extName] = true;
+    });
+
+    try {
+      final newItems = await _suwayomiService.fetchSourceManga(
+        sourceId: sourceId,
+        page: nextPage,
+        query: query,
+      );
+
+      if (!mounted || _catalogSearchQuery != query) return;
+
+      setState(() {
+        final currentItems = _globalSearchResults[extName] ?? [];
+        _globalSearchResults[extName] = [...currentItems, ...newItems];
+        _globalSearchPages[extName] = nextPage;
+        _globalSearchHasMore[extName] = newItems.length >= 20;
+        _globalSearchLoadingMore[extName] = false;
+      });
+    } catch (e) {
+      if (!mounted || _catalogSearchQuery != query) return;
+      setState(() {
+        _globalSearchLoadingMore[extName] = false;
+        _globalSearchHasMore[extName] = false;
+      });
+    }
+  }
+
+  Widget _buildLoadMoreCard(String extName) {
+    final isLoading = _globalSearchLoadingMore[extName] == true;
+    return Container(
+      width: 110.0,
+      margin: const EdgeInsets.only(right: 14.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(6.0),
+              child: Container(
+                color: const Color(0xFF0F0F11),
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: isLoading ? null : () => _loadMoreForGlobalSource(extName),
+                    child: Center(
+                      child: isLoading
+                          ? const SizedBox(
+                              width: 20.0,
+                              height: 20.0,
+                              child: CircularProgressIndicator(
+                                color: Colors.blueAccent,
+                                strokeWidth: 2.0,
+                              ),
+                            )
+                          : const Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.add_circle_outline, color: Colors.blueAccent, size: 24.0),
+                                SizedBox(height: 6.0),
+                                Text(
+                                  'Load More',
+                                  style: TextStyle(
+                                    color: Colors.blueAccent,
+                                    fontSize: 11.0,
+                                    fontWeight: FontWeight.bold,
+                                    fontFamily: 'Outfit',
+                                  ),
+                                ),
+                              ],
+                            ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 6.0),
+          const Text(
+            'More Results',
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: Colors.white30,
+              fontSize: 11.5,
+              fontWeight: FontWeight.bold,
+              fontFamily: 'Outfit',
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Map<String, String> _getPreferredSourceIds() {
@@ -1015,8 +1132,11 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
                           child: ListView.builder(
                             scrollDirection: Axis.horizontal,
                             physics: const BouncingScrollPhysics(),
-                            itemCount: list.length,
+                            itemCount: list.length + (_globalSearchHasMore[extName] == true ? 1 : 0),
                             itemBuilder: (context, index) {
+                              if (index == list.length) {
+                                return _buildLoadMoreCard(extName);
+                              }
                               final manga = list[index];
                               final String title = manga['title']?.toString() ?? 'Unknown Title';
                               final String? coverUrl = manga['thumbnailUrl']?.toString();
@@ -1031,7 +1151,7 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
                                     if (mangaId != 0) {
                                       final sourceId = _getPreferredSourceIds()[extName] ?? '';
                                       final mangaUrl = manga['url']?.toString() ?? '';
-                                      await SuwayomiService().registerMangaPath(mangaId, sourceId, mangaUrl);
+                                      await SuwayomiService().registerMangaPath(mangaId, sourceId, mangaUrl, extName: extName);
                                       widget.navigationState.selectManga(mangaId.toString());
                                     }
                                   },
@@ -1130,7 +1250,7 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
                       onTap: () async {
                         if (mangaId != 0) {
                           final mangaUrl = manga['url']?.toString() ?? '';
-                          await SuwayomiService().registerMangaPath(mangaId, _selectedSourceId ?? '', mangaUrl);
+                          await SuwayomiService().registerMangaPath(mangaId, _selectedSourceId ?? '', mangaUrl, extName: _selectedExtensionName);
                           widget.navigationState.selectManga(mangaId.toString());
                         }
                       },

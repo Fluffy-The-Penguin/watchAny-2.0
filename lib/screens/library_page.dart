@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import '../services/notification_service.dart';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -1729,7 +1729,7 @@ class _LibraryPageState extends State<LibraryPage> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Text(
-                  'Change Status for ${_selectedItemIds.length} items',
+                  isManga ? 'Mark ${_selectedItemIds.length} items' : 'Change Status for ${_selectedItemIds.length} items',
                   textAlign: TextAlign.center,
                   style: const TextStyle(
                     color: Colors.white,
@@ -1739,26 +1739,39 @@ class _LibraryPageState extends State<LibraryPage> {
                   ),
                 ),
                 const SizedBox(height: 20.0),
-                ListTile(
-                  leading: const Icon(Icons.play_circle_outline, color: Colors.blueAccent),
-                  title: Text(isManga ? 'Reading' : 'Watching', style: const TextStyle(color: Colors.white, fontFamily: 'Outfit')),
-                  onTap: () => _updateMassStatus('watching'),
-                ),
-                ListTile(
-                  leading: const Icon(Icons.bookmark_outline, color: Colors.white70),
-                  title: const Text('Planning', style: TextStyle(color: Colors.white, fontFamily: 'Outfit')),
-                  onTap: () => _updateMassStatus('planning'),
-                ),
-                ListTile(
-                  leading: const Icon(Icons.check_circle_outline, color: Colors.green),
-                  title: const Text('Completed', style: TextStyle(color: Colors.white, fontFamily: 'Outfit')),
-                  onTap: () => _updateMassStatus('completed'),
-                ),
-                ListTile(
-                  leading: const Icon(Icons.pause_circle_outline, color: Colors.redAccent),
-                  title: const Text('Dropped / Paused', style: TextStyle(color: Colors.white, fontFamily: 'Outfit')),
-                  onTap: () => _updateMassStatus('paused_dropped'),
-                ),
+                if (isManga) ...[
+                  ListTile(
+                    leading: const Icon(Icons.check_circle_outline, color: Colors.green),
+                    title: const Text('Mark as Read', style: TextStyle(color: Colors.white, fontFamily: 'Outfit')),
+                    onTap: () => _updateMassStatus('completed'),
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.history_toggle_off_outlined, color: Colors.blueAccent),
+                    title: const Text('Mark as Unread', style: TextStyle(color: Colors.white, fontFamily: 'Outfit')),
+                    onTap: () => _updateMassStatus('watching'),
+                  ),
+                ] else ...[
+                  ListTile(
+                    leading: const Icon(Icons.play_circle_outline, color: Colors.blueAccent),
+                    title: const Text('Watching', style: TextStyle(color: Colors.white, fontFamily: 'Outfit')),
+                    onTap: () => _updateMassStatus('watching'),
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.bookmark_outline, color: Colors.white70),
+                    title: const Text('Planning', style: TextStyle(color: Colors.white, fontFamily: 'Outfit')),
+                    onTap: () => _updateMassStatus('planning'),
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.check_circle_outline, color: Colors.green),
+                    title: const Text('Completed', style: TextStyle(color: Colors.white, fontFamily: 'Outfit')),
+                    onTap: () => _updateMassStatus('completed'),
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.pause_circle_outline, color: Colors.redAccent),
+                    title: const Text('Dropped / Paused', style: TextStyle(color: Colors.white, fontFamily: 'Outfit')),
+                    onTap: () => _updateMassStatus('paused_dropped'),
+                  ),
+                ],
               ],
             ),
           ),

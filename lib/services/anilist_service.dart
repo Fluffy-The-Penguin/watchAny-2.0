@@ -1,9 +1,55 @@
 import 'dart:convert';
-import 'package:http/http.dart' as http;
+import 'package:dio/dio.dart';
+import 'package:dio_http2_adapter/dio_http2_adapter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+class _MockHttpResponse {
+  final int statusCode;
+  final String body;
+  final Map<String, String> headers;
+  _MockHttpResponse(this.statusCode, this.body, {this.headers = const {}});
+}
 
 class AnilistService {
   static const String _endpoint = 'https://graphql.anilist.co';
+
+  static final Dio _dio = Dio()
+    ..httpClientAdapter = Http2Adapter(
+      ConnectionManager(idleTimeout: const Duration(seconds: 15)),
+    );
+
+  Future<_MockHttpResponse> _post(String query, Map<String, dynamic>? variables, {Map<String, String>? headers}) async {
+    final Map<String, dynamic> finalHeaders = {..._headers};
+    if (headers != null) finalHeaders.addAll(headers);
+
+    try {
+      final response = await _dio.post(
+        _endpoint,
+        data: {
+          'query': query,
+          'variables': variables,
+        },
+        options: Options(
+          headers: finalHeaders,
+          validateStatus: (status) => true,
+        ),
+      );
+      
+      final Map<String, String> headerMap = {};
+      response.headers.forEach((name, values) {
+        headerMap[name] = values.join(',');
+      });
+
+      final String jsonStr = response.data is String ? response.data : jsonEncode(response.data);
+      return _MockHttpResponse(
+        response.statusCode ?? 200, 
+        jsonStr, 
+        headers: headerMap,
+      );
+    } catch (e) {
+      return _MockHttpResponse(500, jsonEncode({'errors': [{'message': e.toString()}]}));
+    }
+  }
 
   static const Map<String, String> _headers = {
     'Content-Type': 'application/json',
@@ -188,14 +234,7 @@ class AnilistService {
     };
 
     try {
-      final response = await http.post(
-        Uri.parse(_endpoint),
-        headers: _headers,
-        body: jsonEncode({
-          'query': query,
-          'variables': variables,
-        }),
-      );
+      final response = await _post(query, variables);
 
       if (response.statusCode == 200) {
         final body = jsonDecode(response.body);
@@ -326,14 +365,7 @@ class AnilistService {
     };
 
     try {
-      final response = await http.post(
-        Uri.parse(_endpoint),
-        headers: _headers,
-        body: jsonEncode({
-          'query': query,
-          'variables': variables,
-        }),
-      );
+      final response = await _post(query, variables);
 
       if (response.statusCode == 200) {
         final body = jsonDecode(response.body);
@@ -422,14 +454,7 @@ class AnilistService {
     }
 
     try {
-      final response = await http.post(
-        Uri.parse(_endpoint),
-        headers: _headers,
-        body: jsonEncode({
-          'query': query,
-          'variables': variables,
-        }),
-      );
+      final response = await _post(query, variables);
 
       if (response.statusCode == 200) {
         final body = jsonDecode(response.body);
@@ -505,17 +530,10 @@ class AnilistService {
       }
     ''';
 
-    final response = await http.post(
-      Uri.parse(_endpoint),
-      headers: _headers,
-      body: jsonEncode({
-        'query': query,
-        'variables': {
-          'ids': ids,
-          'type': type,
-        },
-      }),
-    );
+    final response = await _post(query, {
+      'ids': ids,
+      'type': type,
+    });
 
     if (response.statusCode == 200) {
       final body = jsonDecode(response.body);
@@ -585,14 +603,7 @@ class AnilistService {
 
     for (int attempt = 0; attempt < 3; attempt++) {
       try {
-        final response = await http.post(
-          Uri.parse(_endpoint),
-          headers: _headers,
-          body: jsonEncode({
-            'query': query,
-            'variables': variables,
-          }),
-        ).timeout(const Duration(seconds: 4));
+        final response = await _post(query, variables);
 
         if (response.statusCode == 200) {
           final body = jsonDecode(response.body);
@@ -643,17 +654,10 @@ class AnilistService {
     ''';
     
     try {
-      final response = await http.post(
-        Uri.parse(_endpoint),
-        headers: _headers,
-        body: jsonEncode({
-          'query': query,
-          'variables': {
-            'ids': ids,
-            'type': type,
-          },
-        }),
-      );
+      final response = await _post(query, {
+        'ids': ids,
+        'type': type,
+      });
       
       if (response.statusCode == 200) {
         final body = jsonDecode(response.body);
@@ -668,20 +672,33 @@ class AnilistService {
   Future<String?> exchangeCodeForToken(String code) async {
     const tokenUrl = 'https://anilist.co/api/v2/oauth/token';
     try {
-      final response = await http.post(
-        Uri.parse(tokenUrl),
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'Accept': 'application/json',
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-        },
-        body: {
+      final dioResponse = await _dio.post(
+        tokenUrl,
+        data: {
           'grant_type': 'authorization_code',
           'client_id': '45095',
           'client_secret': 'VzfQd0wcEAg2VUiWEV8oCiZMGsVI0QsXrvSONL8r',
           'redirect_uri': 'https://anilist.co/api/v2/oauth/pin',
           'code': code.trim(),
         },
+        options: Options(
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Accept': 'application/json',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+          },
+          contentType: Headers.formUrlEncodedContentType,
+        ),
+      );
+      final Map<String, String> headerMap = {};
+      dioResponse.headers.forEach((name, values) {
+        headerMap[name] = values.join(',');
+      });
+
+      final response = _MockHttpResponse(
+        dioResponse.statusCode ?? 200,
+        dioResponse.data is String ? dioResponse.data : jsonEncode(dioResponse.data),
+        headers: headerMap,
       );
 
       if (response.statusCode == 200) {
@@ -719,15 +736,12 @@ class AnilistService {
     ''';
 
     try {
-      final response = await http.post(
-        Uri.parse(_endpoint),
+      final response = await _post(
+        query,
+        null,
         headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
           'Authorization': 'Bearer $token',
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
         },
-        body: jsonEncode({'query': query}),
       );
 
       if (response.statusCode == 200) {
@@ -774,21 +788,15 @@ class AnilistService {
     ''';
 
     try {
-      final response = await http.post(
-        Uri.parse(_endpoint),
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'Authorization': 'Bearer $token',
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+      final response = await _post(
+        query,
+        {
+          'userId': userId,
+          'type': type,
         },
-        body: jsonEncode({
-          'query': query,
-          'variables': {
-            'userId': userId,
-            'type': type,
-          },
-        }),
+        headers: {
+          'Authorization': 'Bearer $token',
+        },
       );
 
       if (response.statusCode == 200) {
@@ -835,23 +843,17 @@ class AnilistService {
     }
 
     try {
-      final response = await http.post(
-        Uri.parse(_endpoint),
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'Authorization': 'Bearer $token',
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+      final response = await _post(
+        query,
+        {
+          'mediaId': mediaId,
+          'status': aniListStatus,
+          'progress': progress,
+          'score': score,
         },
-        body: jsonEncode({
-          'query': query,
-          'variables': {
-            'mediaId': mediaId,
-            'status': aniListStatus,
-            'progress': progress,
-            'score': score,
-          },
-        }),
+        headers: {
+          'Authorization': 'Bearer $token',
+        },
       );
 
       if (response.statusCode == 200) {

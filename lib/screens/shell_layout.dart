@@ -23,6 +23,8 @@ import 'player_screen.dart';
 import 'schedule_page.dart';
 import 'history_page.dart';
 import 'notifications_page.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../state/library_providers.dart';
 import 'movies_details_page.dart';
 import 'profile_page.dart';
 import '../state/anilist_auth_state.dart';
@@ -272,10 +274,17 @@ class ShellLayout extends StatelessWidget {
                           onViewAll: () => navigationState.setPage(TabPage.history),
                         ),
                       ),
-                      ListenableBuilder(
-                        listenable: LibraryState(),
-                        builder: (context, child) {
-                          final count = LibraryState().getNotificationCount(navigationState.currentMode);
+                      Consumer(
+                        builder: (context, ref, child) {
+                          final int count;
+                          if (navigationState.currentMode == AppMode.anime) {
+                            count = ref.watch(animeNotificationCountProvider);
+                          } else if (navigationState.currentMode == AppMode.manga) {
+                            count = ref.watch(mangaNotificationCountProvider);
+                          } else {
+                            count = ref.watch(moviesNotificationCountProvider);
+                          }
+
                           return IconButton(
                             icon: Stack(
                               clipBehavior: Clip.none,

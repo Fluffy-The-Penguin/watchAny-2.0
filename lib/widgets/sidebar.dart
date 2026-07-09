@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../state/navigation_state.dart';
 import '../state/library_state.dart';
 import '../state/app_settings.dart';
+import '../state/library_providers.dart';
 
 class Sidebar extends StatelessWidget {
   final NavigationState state;
@@ -20,11 +22,20 @@ class Sidebar extends StatelessWidget {
     final isExpanded = state.isSidebarExpanded;
 
     return ListenableBuilder(
-      listenable: Listenable.merge([LibraryState(), AppSettings()]),
+      listenable: AppSettings(),
       builder: (context, child) {
-        final notifCount = LibraryState().getNotificationCount(state.currentMode);
+        return Consumer(
+          builder: (context, ref, child) {
+            final int notifCount;
+            if (state.currentMode == AppMode.anime) {
+              notifCount = ref.watch(animeNotificationCountProvider);
+            } else if (state.currentMode == AppMode.manga) {
+              notifCount = ref.watch(mangaNotificationCountProvider);
+            } else {
+              notifCount = ref.watch(moviesNotificationCountProvider);
+            }
 
-        return AnimatedContainer(
+            return AnimatedContainer(
           duration: const Duration(milliseconds: 200),
           curve: Curves.easeInOut,
           width: isExpanded ? 220.0 : 60.0,
@@ -158,6 +169,8 @@ class Sidebar extends StatelessWidget {
         );
       },
     );
+  },
+);
   }
 }
 
