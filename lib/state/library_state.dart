@@ -150,7 +150,7 @@ class LibraryState extends ChangeNotifier {
       _moviesBadgeCleared = true;
       notifyListeners();
     }
-    acknowledgeNotifications(mode);
+    acknowledgeNotifications(mode); // fire-and-forget, never block UI
   }
 
   Future<void> acknowledgeNotifications(AppMode mode) async {
@@ -169,7 +169,7 @@ class LibraryState extends ChangeNotifier {
         final int totalChapters = item.totalEpisodes ?? 0;
         await prefs.setInt('notif_acknowledged_manga_${item.id}', totalChapters);
       }
-      await updateNotificationCount(force: true);
+      updateNotificationCount(force: true); // fire-and-forget
       return;
     }
 
@@ -190,7 +190,7 @@ class LibraryState extends ChangeNotifier {
         } catch (_) {}
       });
       await Future.wait(futures);
-      await updateNotificationCount(force: true);
+      updateNotificationCount(force: true); // fire-and-forget
       return;
     }
 
@@ -213,55 +213,48 @@ class LibraryState extends ChangeNotifier {
           await prefs.setInt('notif_acknowledged_${localModeStr}_$id', latestReleased);
         }
       }
-      await updateNotificationCount(force: true);
+      updateNotificationCount(force: true); // fire-and-forget
     } catch (_) {}
   }
 
   Future<void> init() async {
-    final prefs = await SharedPreferences.getInstance();
+    _prefs = await SharedPreferences.getInstance();
+    final prefs = _prefs!;
     
     // Load host and port for Suwayomi manga engine
     SuwayomiService.host = prefs.getString('manga_server_host') ?? '127.0.0.1';
     SuwayomiService.port = prefs.getInt('manga_server_port') ?? 4567;
     
-    // Load library items, categories, and caches in parallel on background isolates
-    final String? itemsJson = prefs.getString('library_items');
-    final String? catsJson = prefs.getString('library_categories');
-    final String? cacheJson = prefs.getString('manga_library_cache');
-    final String? animeCacheJson = prefs.getString('anime_library_cache');
-    final String? movieCacheJson = prefs.getString('movie_library_cache');
+    // Parse all caches directly — jsonDecode on in-memory strings is fast.
+    // compute() isolate spin-up is 200-400ms each on Windows, far worse than direct parsing.
+    try {
+      final String? itemsJson = prefs.getString('library_items');
+      if (itemsJson != null) _items = _parseLibraryItems(itemsJson);
+    } catch (e) { debugPrint('Failed to load library items: $e'); }
 
-    final List<Future<void>> parseTasks = [];
-    if (itemsJson != null) {
-      parseTasks.add(compute(_parseLibraryItems, itemsJson).then((v) => _items = v).catchError((e) {
-        debugPrint('Failed to load library items: $e');
-      }));
-    }
-    if (catsJson != null) {
-      parseTasks.add(compute(_parseCategories, catsJson).then((v) => _categories = v).catchError((e) {
-        debugPrint('Failed to load library categories: $e');
-      }));
-    }
-    if (cacheJson != null) {
-      parseTasks.add(compute(_parseCache, cacheJson).then((v) => _mangaCache = v).catchError((e) {
-        debugPrint('Failed to load manga cache: $e');
-      }));
-    }
-    if (animeCacheJson != null) {
-      parseTasks.add(compute(_parseCache, animeCacheJson).then((v) => _animeCache = v).catchError((e) {
-        debugPrint('Failed to load anime cache: $e');
-      }));
-    }
-    if (movieCacheJson != null) {
-      parseTasks.add(compute(_parseCache, movieCacheJson).then((v) => _movieCache = v).catchError((e) {
-        debugPrint('Failed to load movie cache: $e');
-      }));
-    }
-    await Future.wait(parseTasks);
+    try {
+      final String? catsJson = prefs.getString('library_categories');
+      if (catsJson != null) _categories = _parseCategories(catsJson);
+    } catch (e) { debugPrint('Failed to load library categories: $e'); }
+
+    try {
+      final String? cacheJson = prefs.getString('manga_library_cache');
+      if (cacheJson != null) _mangaCache = _parseCache(cacheJson);
+    } catch (e) { debugPrint('Failed to load manga cache: $e'); }
+
+    try {
+      final String? animeCacheJson = prefs.getString('anime_library_cache');
+      if (animeCacheJson != null) _animeCache = _parseCache(animeCacheJson);
+    } catch (e) { debugPrint('Failed to load anime cache: $e'); }
+
+    try {
+      final String? movieCacheJson = prefs.getString('movie_library_cache');
+      if (movieCacheJson != null) _movieCache = _parseCache(movieCacheJson);
+    } catch (e) { debugPrint('Failed to load movie cache: $e'); }
 
     notifyListeners();
-    // Defer notification count update to run in the background after startup to avoid lag
-    Future.delayed(const Duration(seconds: 3), () {
+    // Defer notification count update — runs well after app is interactive
+    Future.delayed(const Duration(seconds: 30), () {
       updateNotificationCount();
     });
   }

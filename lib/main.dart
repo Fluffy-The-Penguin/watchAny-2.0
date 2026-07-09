@@ -68,6 +68,9 @@ void main() async {
     });
   }
 
+  // Pre-warm SharedPreferences so all subsequent getInstance() calls are instant
+  await SharedPreferences.getInstance();
+
   runApp(const MyApp());
 }
 
