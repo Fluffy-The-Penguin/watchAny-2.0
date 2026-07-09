@@ -176,24 +176,19 @@ class _LibraryPageState extends State<LibraryPage> {
         } catch (_) {}
       }));
 
-      for (final details in fetchedDetails) {
-        final int id = details['id'] as int;
-        await LibraryState().updateMangaCache(id, details);
+      if (fetchedDetails.isNotEmpty) {
+        final Map<int, Map<String, dynamic>> cacheBatch = {};
+        for (final details in fetchedDetails) {
+          final int id = details['id'] as int;
+          cacheBatch[id] = details;
 
-        final item = LibraryState().getItem(id, 'manga');
-        if (item != null) {
-          await LibraryState().saveItem(
-            id: item.id,
-            mode: item.mode,
-            format: item.format,
-            libraryStatus: item.libraryStatus,
-            rating: item.rating,
-            watchedEpisodes: item.watchedEpisodes,
-            totalEpisodes: item.totalEpisodes,
-            categoryIds: item.categoryIds,
-            bypassAnilistSync: true,
-          );
+          final item = LibraryState().getItem(id, 'manga');
+          if (item != null) {
+            final int totalChapters = (details['chapters'] as List?)?.length ?? 0;
+            LibraryState().updateItemEpisodesInMemory(id, 'manga', totalChapters);
+          }
         }
+        await LibraryState().updateMangaCacheBatch(cacheBatch);
       }
     } catch (_) {} finally {
       _isBackgroundFetchingMissing = false;

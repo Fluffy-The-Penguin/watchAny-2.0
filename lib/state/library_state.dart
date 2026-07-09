@@ -303,7 +303,7 @@ class LibraryState extends ChangeNotifier {
     
     notifyListeners();
     await _persist();
-    updateNotificationCount(force: true);
+    updateNotificationCount(force: false);
 
     // Asynchronous background sync to AniList (only for anime)
     if (!bypassAnilistSync && mode == 'anime') {
@@ -431,7 +431,7 @@ class LibraryState extends ChangeNotifier {
     }
     notifyListeners();
     await _persist();
-    updateNotificationCount(force: true);
+    updateNotificationCount(force: false);
   }
 
   Future<void> _persist() async {
@@ -470,6 +470,27 @@ class LibraryState extends ChangeNotifier {
   Future<void> updateMovieCacheBatch(Map<int, Map<String, dynamic>> batch) async {
     _movieCache.addAll(batch);
     await _persist();
+  }
+
+  void updateItemEpisodesInMemory(int id, String mode, int totalEpisodes) {
+    for (int i = 0; i < _items.length; i++) {
+      if (_items[i].id == id && _items[i].mode == mode) {
+        if (_items[i].totalEpisodes != totalEpisodes) {
+          _items[i] = LibraryItem(
+            id: _items[i].id,
+            mode: _items[i].mode,
+            format: _items[i].format,
+            addedAt: _items[i].addedAt,
+            libraryStatus: _items[i].libraryStatus,
+            rating: _items[i].rating,
+            watchedEpisodes: _items[i].watchedEpisodes,
+            totalEpisodes: totalEpisodes,
+            categoryIds: _items[i].categoryIds,
+          );
+        }
+        break;
+      }
+    }
   }
 
   // --- Categories CRUD helper methods ---
@@ -758,6 +779,12 @@ class LibraryState extends ChangeNotifier {
 
   Future<void> updateMangaCache(int id, Map<String, dynamic> data) async {
     _mangaCache[id] = data;
+    notifyListeners();
+    await _persist();
+  }
+
+  Future<void> updateMangaCacheBatch(Map<int, Map<String, dynamic>> batch) async {
+    _mangaCache.addAll(batch);
     notifyListeners();
     await _persist();
   }
