@@ -153,27 +153,49 @@ class LibraryState extends ChangeNotifier {
     acknowledgeNotifications(mode); // fire-and-forget, never block UI
   }
 
+  // --- Notification state helpers ---
+  // All notification ack/start data stored as TWO single JSON blobs.
+  // On Windows, each prefs.setInt() rewrites the whole file — N items = N rewrites.
+  // Using a single setString() reduces that to exactly 1 write regardless of library size.
+  static const String _notifAckKey = 'notif_ack_all';    // Map<"mode_id", int>
+  static const String _notifStartKey = 'notif_start_all'; // Map<"mode_id", int>
+
+  Map<String, int> _loadNotifMap(SharedPreferences prefs, String key) {
+    try {
+      final s = prefs.getString(key);
+      if (s == null) return {};
+      return (jsonDecode(s) as Map).map((k, v) => MapEntry(k.toString(), (v as num).toInt()));
+    } catch (_) { return {}; }
+  }
+
+  Future<void> _saveNotifMap(SharedPreferences prefs, String key, Map<String, int> map) async {
+    await prefs.setString(key, jsonEncode(map));
+  }
+  // ---
+
   Future<void> acknowledgeNotifications(AppMode mode) async {
     final String localModeStr = mode == AppMode.manga
         ? 'manga'
         : (mode == AppMode.movies ? 'movies' : 'anime');
-    final String anilistTypeStr = mode == AppMode.manga ? 'MANGA' : 'ANIME';
-    
+
     final libraryItems = _items.where((item) => item.mode == localModeStr).toList();
     if (libraryItems.isEmpty) return;
-    
-    final prefs = await SharedPreferences.getInstance();
+
+    final prefs = _prefs ?? await SharedPreferences.getInstance();
+    final ackMap = _loadNotifMap(prefs, _notifAckKey);
 
     if (mode == AppMode.manga) {
+      // Bulk-set all manga acks in memory, then write once
       for (var item in libraryItems) {
-        final int totalChapters = item.totalEpisodes ?? 0;
-        await prefs.setInt('notif_acknowledged_manga_${item.id}', totalChapters);
+        ackMap['manga_${item.id}'] = item.totalEpisodes ?? 0;
       }
+      await _saveNotifMap(prefs, _notifAckKey, ackMap); // 1 write
       updateNotificationCount(force: true); // fire-and-forget
       return;
     }
 
     if (mode == AppMode.movies) {
+      // Fetch latest episode counts concurrently, then write all acks at once
       final futures = libraryItems.where((item) => item.format == 'SERIES').map((item) async {
         final imdbId = 'tt${item.id.toString().padLeft(7, '0')}';
         final url = 'https://v3-cinemeta.strem.io/meta/series/$imdbId.json';
@@ -184,35 +206,32 @@ class LibraryState extends ChangeNotifier {
             final videos = decoded['meta']?['videos'] as List? ?? [];
             final int latestReleased = videos.length;
             if (latestReleased > item.watchedEpisodes) {
-              await prefs.setInt('notif_acknowledged_movies_${item.id}', latestReleased);
+              ackMap['movies_${item.id}'] = latestReleased;
             }
           }
         } catch (_) {}
       });
       await Future.wait(futures);
+      await _saveNotifMap(prefs, _notifAckKey, ackMap); // 1 write
       updateNotificationCount(force: true); // fire-and-forget
       return;
     }
 
+    // Anime
     final ids = libraryItems.map((item) => item.id).toList();
     try {
-      final details = await AnilistService().fetchLibraryDetails(ids, type: anilistTypeStr);
+      final details = await AnilistService().fetchLibraryDetails(ids, type: 'ANIME');
       for (var media in details) {
         final id = media['id'];
         final localItem = libraryItems.firstWhere((item) => item.id == id);
-        
         final int? nextEpisode = media['nextAiringEpisode']?['episode'];
         final int totalEpisodes = media['episodes'] ?? 0;
-        final int totalChapters = media['chapters'] ?? 0;
-        
-        final int latestReleased = mode == AppMode.manga
-            ? totalChapters
-            : (nextEpisode != null ? (nextEpisode - 1) : totalEpisodes);
-            
+        final int latestReleased = nextEpisode != null ? (nextEpisode - 1) : totalEpisodes;
         if (latestReleased > localItem.watchedEpisodes) {
-          await prefs.setInt('notif_acknowledged_${localModeStr}_$id', latestReleased);
+          ackMap['anime_$id'] = latestReleased;
         }
       }
+      await _saveNotifMap(prefs, _notifAckKey, ackMap); // 1 write
       updateNotificationCount(force: true); // fire-and-forget
     } catch (_) {}
   }
@@ -588,7 +607,7 @@ class LibraryState extends ChangeNotifier {
   }
 
   Future<void> updateNotificationCount({bool force = false}) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = _prefs ?? await SharedPreferences.getInstance();
 
     if (!force) {
       final int? lastSync = prefs.getInt('library_last_notif_sync');
@@ -599,6 +618,11 @@ class LibraryState extends ChangeNotifier {
         }
       }
     }
+
+    // Load ALL notification state from two single JSON blobs — O(1) reads regardless of library size
+    final ackMap = _loadNotifMap(prefs, _notifAckKey);
+    final startMap = _loadNotifMap(prefs, _notifStartKey);
+    bool startMapDirty = false;
 
     // 1. ANIME
     final animeItems = _items.where((item) => item.mode == 'anime').toList();
@@ -613,29 +637,24 @@ class LibraryState extends ChangeNotifier {
           final int? nextEpisode = media['nextAiringEpisode']?['episode'];
           final int totalEpisodes = media['episodes'] ?? 0;
           final int latestReleased = nextEpisode != null ? (nextEpisode - 1) : totalEpisodes;
-          
-          final String startEpKey = 'notif_start_episode_anime_$id';
-          int? startEp = prefs.getInt(startEpKey);
-          if (startEp == null) {
-            startEp = latestReleased;
-            await prefs.setInt(startEpKey, startEp);
+
+          final String startKey = 'anime_$id';
+          if (!startMap.containsKey(startKey)) {
+            startMap[startKey] = latestReleased;
+            startMapDirty = true;
           }
 
           final localDownloads = DownloadService().tasks.where(
             (t) => t.anilistId == id && t.status == DownloadStatus.completed
           );
-          final int maxDownloaded = localDownloads.isEmpty 
-              ? 0 
+          final int maxDownloaded = localDownloads.isEmpty
+              ? 0
               : localDownloads.map((t) => t.episodeNumber ?? 0).fold(0, max);
 
-          int ackEp = prefs.getInt('notif_acknowledged_anime_$id') ?? startEp;
+          int ackEp = ackMap['anime_$id'] ?? startMap[startKey]!;
           int watchedOrDownloaded = max(localItem.watchedEpisodes, maxDownloaded);
-          if (ackEp < watchedOrDownloaded) {
-            ackEp = watchedOrDownloaded;
-          }
-          if (latestReleased > ackEp) {
-            animeCount++;
-          }
+          if (ackEp < watchedOrDownloaded) ackEp = watchedOrDownloaded;
+          if (latestReleased > ackEp) animeCount++;
         }
       } catch (_) {}
     }
@@ -650,35 +669,25 @@ class LibraryState extends ChangeNotifier {
         try {
           final chaptersList = await SuwayomiService().getChapters(item.id);
           final int totalChapters = chaptersList.length;
-          
+
           if (item.totalEpisodes != totalChapters) {
             itemsToReplace.add(LibraryItem(
-              id: item.id,
-              mode: item.mode,
-              format: item.format,
-              addedAt: item.addedAt,
-              libraryStatus: item.libraryStatus,
-              rating: item.rating,
-              watchedEpisodes: item.watchedEpisodes,
-              totalEpisodes: totalChapters,
-              categoryIds: item.categoryIds,
+              id: item.id, mode: item.mode, format: item.format,
+              addedAt: item.addedAt, libraryStatus: item.libraryStatus,
+              rating: item.rating, watchedEpisodes: item.watchedEpisodes,
+              totalEpisodes: totalChapters, categoryIds: item.categoryIds,
             ));
           }
 
-          final String startChapterKey = 'notif_start_chapter_manga_${item.id}';
-          int? startChapter = prefs.getInt(startChapterKey);
-          if (startChapter == null) {
-            startChapter = totalChapters;
-            await prefs.setInt(startChapterKey, startChapter);
+          final String startKey = 'manga_${item.id}';
+          if (!startMap.containsKey(startKey)) {
+            startMap[startKey] = totalChapters;
+            startMapDirty = true;
           }
 
-          int ackEp = prefs.getInt('notif_acknowledged_manga_${item.id}') ?? startChapter;
-          if (ackEp < item.watchedEpisodes) {
-            ackEp = item.watchedEpisodes;
-          }
-          if (totalChapters > ackEp) {
-            mangaCount++;
-          }
+          int ackEp = ackMap['manga_${item.id}'] ?? startMap[startKey]!;
+          if (ackEp < item.watchedEpisodes) ackEp = item.watchedEpisodes;
+          if (totalChapters > ackEp) mangaCount++;
         } catch (_) {}
       }).toList();
 
@@ -694,25 +703,18 @@ class LibraryState extends ChangeNotifier {
     } else {
       for (var item in mangaItems) {
         final int totalChapters = item.totalEpisodes ?? 0;
-        
-        final String startChapterKey = 'notif_start_chapter_manga_${item.id}';
-        int? startChapter = prefs.getInt(startChapterKey);
-        if (startChapter == null) {
-          startChapter = totalChapters;
-          await prefs.setInt(startChapterKey, startChapter);
+        final String startKey = 'manga_${item.id}';
+        if (!startMap.containsKey(startKey)) {
+          startMap[startKey] = totalChapters;
+          startMapDirty = true;
         }
-
-        int ackEp = prefs.getInt('notif_acknowledged_manga_${item.id}') ?? startChapter;
-        if (ackEp < item.watchedEpisodes) {
-          ackEp = item.watchedEpisodes;
-        }
-        if (totalChapters > ackEp) {
-          mangaCount++;
-        }
+        int ackEp = ackMap['manga_${item.id}'] ?? startMap[startKey]!;
+        if (ackEp < item.watchedEpisodes) ackEp = item.watchedEpisodes;
+        if (totalChapters > ackEp) mangaCount++;
       }
     }
 
-    // 3. MOVIES / TV Series notification updates using Cinemeta
+    // 3. MOVIES
     final movieItems = _items.where((item) => item.mode == 'movies' && item.format == 'SERIES').toList();
     int movieCount = 0;
     if (movieItems.isNotEmpty) {
@@ -725,29 +727,24 @@ class LibraryState extends ChangeNotifier {
             final decoded = jsonDecode(response.body);
             final videos = decoded['meta']?['videos'] as List? ?? [];
             final int latestReleased = videos.length;
-            
-            final String startEpKey = 'notif_start_episode_movies_${item.id}';
-            int? startEp = prefs.getInt(startEpKey);
-            if (startEp == null) {
-              startEp = latestReleased;
-              await prefs.setInt(startEpKey, startEp);
+
+            final String startKey = 'movies_${item.id}';
+            if (!startMap.containsKey(startKey)) {
+              startMap[startKey] = latestReleased;
+              startMapDirty = true;
             }
 
             final localDownloads = DownloadService().tasks.where(
               (t) => t.anilistId == item.id && t.status == DownloadStatus.completed
             );
-            final int maxDownloaded = localDownloads.isEmpty 
-                ? 0 
+            final int maxDownloaded = localDownloads.isEmpty
+                ? 0
                 : localDownloads.map((t) => t.episodeNumber ?? 0).fold(0, max);
 
-            int ackEp = prefs.getInt('notif_acknowledged_movies_${item.id}') ?? startEp;
+            int ackEp = ackMap['movies_${item.id}'] ?? startMap[startKey]!;
             int watchedOrDownloaded = max(item.watchedEpisodes, maxDownloaded);
-            if (ackEp < watchedOrDownloaded) {
-              ackEp = watchedOrDownloaded;
-            }
-            if (latestReleased > ackEp) {
-              return 1;
-            }
+            if (ackEp < watchedOrDownloaded) ackEp = watchedOrDownloaded;
+            if (latestReleased > ackEp) return 1;
           }
         } catch (_) {}
         return 0;
@@ -756,28 +753,17 @@ class LibraryState extends ChangeNotifier {
       movieCount = results.fold(0, (sum, val) => sum + val);
     }
 
-    bool changed = false;
-    if (_animeNotificationCount != animeCount) {
-      _animeNotificationCount = animeCount;
-      _animeBadgeCleared = false;
-      changed = true;
-    }
-    if (_mangaNotificationCount != mangaCount) {
-      _mangaNotificationCount = mangaCount;
-      _mangaBadgeCleared = false;
-      changed = true;
-    }
-    if (_moviesNotificationCount != movieCount) {
-      _moviesNotificationCount = movieCount;
-      _moviesBadgeCleared = false;
-      changed = true;
-    }
-
+    // Write start map only if new entries were added (1 write max)
+    if (startMapDirty) await _saveNotifMap(prefs, _notifStartKey, startMap);
+    // Write last sync timestamp (1 write)
     await prefs.setInt('library_last_notif_sync', DateTime.now().millisecondsSinceEpoch);
 
-    if (changed) {
-      notifyListeners();
-    }
+    bool changed = false;
+    if (_animeNotificationCount != animeCount) { _animeNotificationCount = animeCount; _animeBadgeCleared = false; changed = true; }
+    if (_mangaNotificationCount != mangaCount) { _mangaNotificationCount = mangaCount; _mangaBadgeCleared = false; changed = true; }
+    if (_moviesNotificationCount != movieCount) { _moviesNotificationCount = movieCount; _moviesBadgeCleared = false; changed = true; }
+
+    if (changed) notifyListeners();
   }
 
   void updateMangaCache(int id, Map<String, dynamic> data) {
