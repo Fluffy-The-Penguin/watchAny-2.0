@@ -53,18 +53,32 @@ class _LibraryPageState extends State<LibraryPage> {
     _loadLibraryData();
     LibraryState().addListener(_onLibraryChanged);
     DownloadService().addListener(_onLibraryChanged);
+    widget.navigationState.addListener(_onNavigationChanged);
   }
 
   @override
   void dispose() {
     LibraryState().removeListener(_onLibraryChanged);
     DownloadService().removeListener(_onLibraryChanged);
+    widget.navigationState.removeListener(_onNavigationChanged);
     _searchController.dispose();
     super.dispose();
   }
 
+  void _onNavigationChanged() {
+    final nav = widget.navigationState;
+    final isCurrentMode = nav.currentMode == widget.mode;
+    final isCurrentPage = nav.currentPage == TabPage.library;
+    if (isCurrentMode && isCurrentPage) {
+      _loadLibraryData();
+    }
+  }
+
   void _onLibraryChanged() {
-    if (mounted) {
+    final nav = widget.navigationState;
+    final isCurrentMode = nav.currentMode == widget.mode;
+    final isCurrentPage = nav.currentPage == TabPage.library;
+    if (isCurrentMode && isCurrentPage && mounted) {
       _loadLibraryData();
     }
   }

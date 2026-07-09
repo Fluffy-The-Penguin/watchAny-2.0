@@ -156,10 +156,15 @@ class _MyAppState extends State<MyApp> with WindowListener {
     }
   }
 
+  AppMode? _lastTorrMode;
+
   void _handleNavigationModeChange() {
     if (!_isDesktop && !Platform.isAndroid) return;
     final settings = AppSettings();
     final mode = _navigationState.currentMode;
+    if (mode == _lastTorrMode) return;
+    _lastTorrMode = mode;
+
     // Only start TorrServer if anime or movies section is enabled and currently active
     final needsTorr = (mode == AppMode.anime && settings.isModeEnabled(AppMode.anime)) ||
                       (mode == AppMode.movies && settings.isModeEnabled(AppMode.movies));

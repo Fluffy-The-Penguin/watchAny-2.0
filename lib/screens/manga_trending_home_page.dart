@@ -49,11 +49,22 @@ class _MangaTrendingHomePageState extends State<MangaTrendingHomePage> {
     super.dispose();
   }
 
+  AppMode? _lastMode;
+  TabPage? _lastPage;
+
   void _onNavigationChanged() {
-    if (widget.navigationState.currentMode == AppMode.manga &&
-        widget.navigationState.currentPage == TabPage.home) {
-      _loadPins();
-      _loadSources();
+    final curMode = widget.navigationState.currentMode;
+    final curPage = widget.navigationState.currentPage;
+    if (curMode == AppMode.manga && curPage == TabPage.home) {
+      if (_lastMode != curMode || _lastPage != curPage) {
+        _lastMode = curMode;
+        _lastPage = curPage;
+        _loadPins();
+        _loadSources();
+      }
+    } else {
+      _lastMode = curMode;
+      _lastPage = curPage;
     }
   }
 

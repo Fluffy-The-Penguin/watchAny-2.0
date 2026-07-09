@@ -66,6 +66,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
 
     // Listen to download changes to auto-select task if none selected
     DownloadService().addListener(_onDownloadTasksChanged);
+    NavigationState().addListener(_onNavigationChanged);
 
     // Periodic stats polling
     _startStatsPolling();
@@ -75,27 +76,46 @@ class _DownloadsPageState extends State<DownloadsPage> {
   void dispose() {
     _statsTimer?.cancel();
     DownloadService().removeListener(_onDownloadTasksChanged);
+    NavigationState().removeListener(_onNavigationChanged);
     _serverUrlController.dispose();
     _downloadPathController.dispose();
     _searchController.dispose();
     super.dispose();
   }
 
+  void _onNavigationChanged() {
+    final nav = NavigationState();
+    final isCurrentMode = nav.currentMode == widget.mode;
+    final isCurrentPage = nav.currentPage == TabPage.downloads;
+    if (isCurrentMode && isCurrentPage) {
+      _onDownloadTasksChanged();
+    }
+  }
+
   void _onDownloadTasksChanged() {
     if (mounted) {
-      setState(() {
-        final tasks = _tasks;
-        if (_selectedTaskId == null && tasks.isNotEmpty) {
-          _selectedTaskId = tasks.first.id;
-        }
-      });
+      final nav = NavigationState();
+      final isCurrentMode = nav.currentMode == widget.mode;
+      final isCurrentPage = nav.currentPage == TabPage.downloads;
+      if (isCurrentMode && isCurrentPage) {
+        setState(() {
+          final tasks = _tasks;
+          if (_selectedTaskId == null && tasks.isNotEmpty) {
+            _selectedTaskId = tasks.first.id;
+          }
+        });
+      }
     }
   }
 
   void _startStatsPolling() {
     _statsTimer?.cancel();
     _statsTimer = Timer.periodic(const Duration(seconds: 2), (timer) {
-      if (mounted && (_activeTab == DownloadsTab.overview || _activeTab == DownloadsTab.files)) {
+      final nav = NavigationState();
+      final isCurrentMode = nav.currentMode == widget.mode;
+      final isCurrentPage = nav.currentPage == TabPage.downloads;
+      if (mounted && isCurrentMode && isCurrentPage &&
+          (_activeTab == DownloadsTab.overview || _activeTab == DownloadsTab.files)) {
         _fetchActiveTorrentStats();
       }
     });

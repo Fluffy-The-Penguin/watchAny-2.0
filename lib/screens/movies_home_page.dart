@@ -421,15 +421,29 @@ class _ContinueWatchingRailState extends State<_ContinueWatchingRail> {
     super.initState();
     _loadItems();
     PlayerState().addListener(_onPlayerChange);
+    widget.navigationState.addListener(_onNavigationChanged);
   }
 
   @override
   void dispose() {
     PlayerState().removeListener(_onPlayerChange);
+    widget.navigationState.removeListener(_onNavigationChanged);
     super.dispose();
   }
 
-  void _onPlayerChange() => _loadItems();
+  void _onNavigationChanged() {
+    final nav = widget.navigationState;
+    if (nav.currentMode == AppMode.movies && nav.currentPage == TabPage.home) {
+      _loadItems();
+    }
+  }
+
+  void _onPlayerChange() {
+    final nav = widget.navigationState;
+    if (nav.currentMode == AppMode.movies && nav.currentPage == TabPage.home) {
+      _loadItems();
+    }
+  }
 
   Future<void> _loadItems() async {
     final filtered = await PlayerState.getContinueWatchingList(isAnime: false);
