@@ -231,7 +231,6 @@ class SuwayomiService {
           if (url.isEmpty) continue;
 
           final int hash = _generateHash('$sourceId:$url');
-          await registerMangaPath(hash, sourceId, url);
 
           final coverUrl = manga['thumbnailUrl']?.toString() ?? '';
           final proxiedCover = coverUrl.isNotEmpty

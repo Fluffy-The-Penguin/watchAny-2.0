@@ -1027,8 +1027,11 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
                                 width: 110.0,
                                 margin: const EdgeInsets.only(right: 14.0),
                                 child: GestureDetector(
-                                  onTap: () {
+                                  onTap: () async {
                                     if (mangaId != 0) {
+                                      final sourceId = _getPreferredSourceIds()[extName] ?? '';
+                                      final mangaUrl = manga['url']?.toString() ?? '';
+                                      await SuwayomiService().registerMangaPath(mangaId, sourceId, mangaUrl);
                                       widget.navigationState.selectManga(mangaId.toString());
                                     }
                                   },
@@ -1124,8 +1127,10 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
 
                   final cardWidget = RepaintBoundary(
                     child: GestureDetector(
-                      onTap: () {
+                      onTap: () async {
                         if (mangaId != 0) {
+                          final mangaUrl = manga['url']?.toString() ?? '';
+                          await SuwayomiService().registerMangaPath(mangaId, _selectedSourceId ?? '', mangaUrl);
                           widget.navigationState.selectManga(mangaId.toString());
                         }
                       },
