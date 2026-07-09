@@ -70,7 +70,8 @@ class _LibraryPageState extends State<LibraryPage> {
   }
 
   // Load basic details for all saved IDs in this mode
-  Future<void> _loadLibraryData() async {
+  // Load basic details for all saved IDs in this mode
+  void _loadLibraryData() {
     final modeStr = widget.mode.name;
     final savedItems = LibraryState().items.where((item) => item.mode == modeStr).toList();
 
@@ -86,11 +87,11 @@ class _LibraryPageState extends State<LibraryPage> {
 
     try {
       List<dynamic> loadedMedia = [];
+      final List<int> missingIds = [];
 
       if (widget.mode == AppMode.anime) {
         final cache = LibraryState().animeCache;
         final list = <Map<String, dynamic>>[];
-        final missingIds = <int>[];
         
         for (final item in savedItems) {
           if (cache.containsKey(item.id)) {
@@ -108,7 +109,6 @@ class _LibraryPageState extends State<LibraryPage> {
       } else if (widget.mode == AppMode.manga) {
         final cache = LibraryState().mangaCache;
         final list = <Map<String, dynamic>>[];
-        final missingIds = <int>[];
         
         for (final item in savedItems) {
           if (cache.containsKey(item.id)) {
@@ -127,7 +127,6 @@ class _LibraryPageState extends State<LibraryPage> {
         // Movies/Series (TMDB)
         final cache = LibraryState().movieCache;
         final list = <Map<String, dynamic>>[];
-        final missingIds = <int>[];
         
         for (final item in savedItems) {
           if (cache.containsKey(item.id)) {
@@ -147,7 +146,7 @@ class _LibraryPageState extends State<LibraryPage> {
       if (mounted) {
         setState(() {
           _fetchedMedia = loadedMedia;
-          _isLoading = false;
+          _isLoading = loadedMedia.isEmpty && missingIds.isNotEmpty;
           _errorMessage = null;
         });
       }
