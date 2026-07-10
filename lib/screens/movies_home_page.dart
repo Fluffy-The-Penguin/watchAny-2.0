@@ -7,6 +7,7 @@ import '../services/stremio_addon_service.dart';
 import '../state/player_state.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'movies_details_page.dart';
+import '../widgets/smooth_scroll_area.dart';
 
 class MoviesHomePage extends StatefulWidget {
   final NavigationState navigationState;
@@ -209,9 +210,11 @@ class _MoviesHomePageState extends State<MoviesHomePage> {
         onRefresh: _loadCatalogs,
         color: Colors.white,
         backgroundColor: const Color(0xFF0F0F11),
-        child: SingleChildScrollView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          child: Column(
+        child: SmoothScrollArea(
+          builder: (controller, physics) => SingleChildScrollView(
+            controller: controller,
+            physics: physics,
+            child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // 1. Featured Hero Banner
@@ -276,6 +279,7 @@ class _MoviesHomePageState extends State<MoviesHomePage> {
             ],
           ),
         ),
+      ),
       ),
     );
   }

@@ -18,6 +18,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../state/anilist_auth_state.dart';
 import '../state/library_state.dart';
+import '../widgets/smooth_scroll_area.dart';
 
 enum SettingsCategory {
   general,
@@ -2959,9 +2960,12 @@ class _SettingsPageState extends State<SettingsPage> {
     final double screenWidth = MediaQuery.of(context).size.width;
     final bool isMobile = screenWidth < 650;
 
-    final Widget contentPane = SingleChildScrollView(
-      padding: EdgeInsets.all(isMobile ? 16.0 : 32.0),
-      child: Column(
+    final Widget contentPane = SmoothScrollArea(
+      builder: (controller, physics) => SingleChildScrollView(
+        controller: controller,
+        physics: physics,
+        padding: EdgeInsets.all(isMobile ? 16.0 : 32.0),
+        child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // Title Header
@@ -3011,6 +3015,7 @@ class _SettingsPageState extends State<SettingsPage> {
           ],
         ],
       ),
+    ),
     );
 
     return Scaffold(

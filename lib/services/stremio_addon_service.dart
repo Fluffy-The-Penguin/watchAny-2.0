@@ -175,31 +175,23 @@ class StremioAddonService extends ChangeNotifier {
         'types': ['movie', 'series'],
         'resources': ['catalog', 'meta'],
         'catalogs': [
-          {'id': 'top', 'type': 'movie', 'name': 'Popular Movies'},
-          {'id': 'top', 'type': 'series', 'name': 'Popular TV Shows'},
+          {
+            'id': 'top',
+            'type': 'movie',
+            'name': 'Popular Movies',
+            'extra': [
+              {'name': 'search', 'isRequired': false}
+            ]
+          },
+          {
+            'id': 'top',
+            'type': 'series',
+            'name': 'Popular TV Shows',
+            'extra': [
+              {'name': 'search', 'isRequired': false}
+            ]
+          },
         ],
-        'idPrefixes': ['tt'],
-      },
-      {
-        'url': 'https://torrentio.strem.fun/manifest.json',
-        'id': 'torrentio.stremio',
-        'name': 'Torrentio',
-        'description': 'Provides torrent streams from public providers.',
-        'version': '0.0.14',
-        'types': ['movie', 'series'],
-        'resources': ['stream'],
-        'catalogs': [],
-        'idPrefixes': ['tt'],
-      },
-      {
-        'url': 'https://opensubtitles-v3.strem.io/manifest.json',
-        'id': 'opensubtitles-v3',
-        'name': 'OpenSubtitles v3',
-        'description': 'Official OpenSubtitles v3 addon.',
-        'version': '1.0.0',
-        'types': ['movie', 'series'],
-        'resources': ['subtitles'],
-        'catalogs': [],
         'idPrefixes': ['tt'],
       },
     ];

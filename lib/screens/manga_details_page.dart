@@ -6,6 +6,7 @@ import '../services/suwayomi_service.dart';
 import '../state/navigation_state.dart';
 import '../state/library_state.dart';
 import 'manga_reader_page.dart';
+import '../widgets/smooth_scroll_area.dart';
 
 class MangaDetailsPage extends StatefulWidget {
   final String mangaId;
@@ -94,6 +95,7 @@ class _MangaDetailsPageState extends State<MangaDetailsPage> {
       final chaps = await _suwayomiService.getChapters(_parsedMangaId);
       
       if (LibraryState().isSaved(_parsedMangaId, 'manga')) {
+        info['cachedChapters'] = chaps;
         LibraryState().updateMangaCache(_parsedMangaId, info);
       }
       
@@ -105,11 +107,23 @@ class _MangaDetailsPageState extends State<MangaDetailsPage> {
         });
       }
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          _errorMessage = e.toString();
-          _isLoading = false;
-        });
+      final cached = LibraryState().mangaCache[_parsedMangaId];
+      if (cached != null) {
+        if (mounted) {
+          setState(() {
+            _details = cached;
+            _chapters = cached['cachedChapters'] as List<dynamic>? ?? [];
+            _isLoading = false;
+            _errorMessage = null;
+          });
+        }
+      } else {
+        if (mounted) {
+          setState(() {
+            _errorMessage = e.toString();
+            _isLoading = false;
+          });
+        }
       }
     }
   }
@@ -274,9 +288,12 @@ class _MangaDetailsPageState extends State<MangaDetailsPage> {
 
           // 2. Main scrollable content
           Positioned.fill(
-            child: SingleChildScrollView(
-              child: Padding(
-                padding: const EdgeInsets.only(top: 40.0, bottom: 40.0),
+            child: SmoothScrollArea(
+              builder: (controller, physics) => SingleChildScrollView(
+                controller: controller,
+                physics: physics,
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 40.0, bottom: 40.0),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -492,6 +509,7 @@ class _MangaDetailsPageState extends State<MangaDetailsPage> {
                 ),
               ),
             ),
+          ),
           ),
         ],
       ),

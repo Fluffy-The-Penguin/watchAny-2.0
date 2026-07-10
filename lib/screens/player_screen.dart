@@ -61,6 +61,30 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
   late final FocusNode _playerFocusNode = FocusNode();
   bool _isMaximized = false;
 
+  Timer? _hideControlsTimer;
+  bool _hideCursor = false;
+  bool _showAppBar = true;
+
+  void _resetHideControlsTimer() {
+    if (_hideCursor || !_showAppBar) {
+      if (mounted) {
+        setState(() {
+          _hideCursor = false;
+          _showAppBar = true;
+        });
+      }
+    }
+    _hideControlsTimer?.cancel();
+    _hideControlsTimer = Timer(const Duration(seconds: 3), () {
+      if (mounted && _overlayEntry == null) {
+        setState(() {
+          _hideCursor = true;
+          _showAppBar = false;
+        });
+      }
+    });
+  }
+
   final LayerLink _layerLink = LayerLink();
   OverlayEntry? _overlayEntry;
   DateTime? _lastClosedTime;
@@ -137,6 +161,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
   @override
   void initState() {
     super.initState();
+    _resetHideControlsTimer();
     windowManager.addListener(this);
     _checkMaximizedState();
     _subscriptions.add(player.stream.completed.listen((completed) {
@@ -175,6 +200,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
 
   @override
   void dispose() {
+    _hideControlsTimer?.cancel();
     AppSettings().removeListener(_onSettingsChanged);
     PlayerState().removeListener(_handlePlayerStateChange);
     _playerFocusNode.dispose();
@@ -748,15 +774,83 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
                 isFromPlayer: true,
                 streams: allStreams,
                 title: widget.title,
-                onStreamSelected: (stream) {
+                onStreamSelected: (stream, {isDownload = false}) {
                   Navigator.pop(context);
-                  final String streamUrl = stream['url']?.toString() ?? '';
-                  final String streamTitle = stream['title']?.toString() ?? 'Stream';
-                  PlayerState().updateActiveEpisode(
-                    streamUrl: streamUrl,
-                    title: streamTitle,
-                    episodeNumber: targetEpNum,
-                  );
+                  if (isDownload && stream['infoHash'] != null) {
+                    final String hash = stream['infoHash'].toString();
+                    final String streamTitle = stream['title']?.toString() ?? stream['name']?.toString() ?? '';
+                    final int seeders = _getStreamSeeders(stream);
+                    final int sizeBytes = stream['size'] != null ? (int.tryParse(stream['size'].toString()) ?? 0) : 0;
+
+                    final List<dynamic>? sources = stream['sources'] as List?;
+                    String magnetLink = 'magnet:?xt=urn:btih:$hash';
+                    final List<String> trackers = [];
+                    if (sources != null && sources.isNotEmpty) {
+                      for (final src in sources) {
+                        final s = src.toString();
+                        if (s.startsWith('tracker:')) {
+                          trackers.add(s.replaceFirst('tracker:', ''));
+                        } else if (!s.startsWith('dht:')) {
+                          trackers.add(s);
+                        }
+                      }
+                    }
+                    if (trackers.isEmpty) {
+                      trackers.addAll([
+                        'udp://tracker.coppersurfer.tk:6969/announce',
+                        'udp://tracker.openittracker.com:80/announce',
+                        'udp://tracker.opentrackr.org:1337/announce',
+                        'udp://explodie.org:6969/announce',
+                        'udp://9.rarbg.to:2710/announce',
+                        'udp://9.rarbg.me:2780/announce',
+                        'udp://open.stealth.si:80/announce',
+                        'udp://tracker.torrent.eu.org:451/announce',
+                        'udp://opentracker.i2p.rocks:6969/announce',
+                      ]);
+                    }
+                    for (final tr in trackers) {
+                      magnetLink += '&tr=${Uri.encodeComponent(tr)}';
+                    }
+
+                    final torrentStream = TorrentStream(
+                      title: streamTitle.isNotEmpty ? streamTitle : widget.title,
+                      link: magnetLink,
+                      seeders: seeders,
+                      leechers: 0,
+                      downloads: 0,
+                      hash: hash,
+                      size: sizeBytes,
+                      accuracy: 'high',
+                      type: PlayerState().isMovie == true ? 'movie' : 'series',
+                      extensionName: stream['addonName']?.toString() ?? 'Stremio Addon',
+                    );
+
+                    showDialog(
+                      context: context,
+                      barrierDismissible: false,
+                      builder: (dialogCtx) => PlaybackProgressDialog(
+                        stream: torrentStream,
+                        parentContext: context,
+                        anilistId: null,
+                        movieId: PlayerState().movieId ?? '',
+                        episodeNumber: targetEpNum,
+                        titles: [widget.title],
+                        episodeCount: widget.episodes?.length ?? 1,
+                        isMovie: PlayerState().isMovie == true,
+                        media: widget.media ?? {},
+                        episodes: widget.episodes,
+                        isDownload: true,
+                      ),
+                    );
+                  } else {
+                    final String streamUrl = stream['url']?.toString() ?? '';
+                    final String streamTitle = stream['title']?.toString() ?? 'Stream';
+                    PlayerState().updateActiveEpisode(
+                      streamUrl: streamUrl,
+                      title: streamTitle,
+                      episodeNumber: targetEpNum,
+                    );
+                  }
                 },
               ),
             ),
@@ -1322,6 +1416,122 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
             fit: StackFit.expand,
             children: [
               videoWidget,
+              if (isDesktop)
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  child: AnimatedSlide(
+                    offset: _showAppBar ? Offset.zero : const Offset(0, -1),
+                    duration: const Duration(milliseconds: 250),
+                    curve: Curves.easeInOut,
+                    child: AnimatedOpacity(
+                      opacity: _showAppBar ? 1.0 : 0.0,
+                      duration: const Duration(milliseconds: 250),
+                      child: Container(
+                        height: 40.0,
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              Colors.black.withValues(alpha: 0.8),
+                              Colors.black.withValues(alpha: 0.0),
+                            ],
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            const SizedBox(width: 8.0),
+                            SizedBox(
+                              width: 32.0,
+                              height: 32.0,
+                              child: IconButton(
+                                padding: EdgeInsets.zero,
+                                icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 16.0),
+                                onPressed: () async {
+                                  try {
+                                    final isFullScreen = await windowManager.isFullScreen();
+                                    if (isFullScreen) {
+                                      await windowManager.setFullScreen(false);
+                                    }
+                                  } catch (_) {}
+                                  PlayerState().minimize();
+                                },
+                              ),
+                            ),
+                            const SizedBox(width: 8.0),
+                            Expanded(
+                              child: GestureDetector(
+                                behavior: HitTestBehavior.translucent,
+                                onPanStart: (details) {
+                                  windowManager.startDragging();
+                                },
+                                onDoubleTap: () async {
+                                  final isMax = await windowManager.isMaximized();
+                                  if (isMax) {
+                                    await windowManager.unmaximize();
+                                  } else {
+                                    await windowManager.maximize();
+                                  }
+                                  _checkMaximizedState();
+                                },
+                                child: Container(
+                                  alignment: Alignment.centerLeft,
+                                  child: Text(
+                                    currentTitle,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 14.0,
+                                      fontFamily: 'Outfit',
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            // Minimize
+                            _PlayerTitleBarButton(
+                              icon: Icons.remove,
+                              onPressed: () async {
+                                await windowManager.minimize();
+                              },
+                              hoverColor: Colors.white10,
+                              iconSize: 16.0,
+                            ),
+                            // Maximize / Restore
+                            _PlayerTitleBarButton(
+                              icon: _isMaximized ? Icons.filter_none : Icons.crop_square,
+                              onPressed: () async {
+                                final isMax = await windowManager.isMaximized();
+                                if (isMax) {
+                                  await windowManager.unmaximize();
+                                } else {
+                                  await windowManager.maximize();
+                                }
+                                _checkMaximizedState();
+                              },
+                              hoverColor: Colors.white10,
+                              iconSize: 12.0,
+                            ),
+                            // Close
+                            _PlayerTitleBarButton(
+                              icon: Icons.close,
+                              onPressed: () async {
+                                await windowManager.close();
+                              },
+                              hoverColor: Colors.red.withValues(alpha: 0.8),
+                              hoverIconColor: Colors.white,
+                              iconSize: 16.0,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
             ],
           );
 
@@ -1558,171 +1768,84 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
       child: desktopTheme,
     );
 
-    return Focus(
-      focusNode: _playerFocusNode,
-      autofocus: true,
-      onKeyEvent: (FocusNode node, KeyEvent event) {
-        if (event is KeyDownEvent) {
-          final primaryFocus = FocusManager.instance.primaryFocus;
-          if (primaryFocus != null && primaryFocus.context != null) {
-            final w = primaryFocus.context!.widget;
-            if (w is EditableText) {
-              return KeyEventResult.ignored;
-            }
-          }
-
-          final key = event.logicalKey;
-          if (key == LogicalKeyboardKey.arrowLeft) {
-            final current = player.state.position;
-            final target = (current.inSeconds - 10).clamp(0, player.state.duration.inSeconds);
-            player.seek(Duration(seconds: target));
-            return KeyEventResult.handled;
-          } else if (key == LogicalKeyboardKey.arrowRight) {
-            final current = player.state.position;
-            final target = (current.inSeconds + 10).clamp(0, player.state.duration.inSeconds);
-            player.seek(Duration(seconds: target));
-            return KeyEventResult.handled;
-          } else if (key == LogicalKeyboardKey.space) {
-            player.playOrPause();
-            return KeyEventResult.handled;
-          } else if (key == LogicalKeyboardKey.arrowUp) {
-            final vol = (player.state.volume + 5.0).clamp(0.0, 100.0);
-            player.setVolume(vol);
-            return KeyEventResult.handled;
-          } else if (key == LogicalKeyboardKey.arrowDown) {
-            final vol = (player.state.volume - 5.0).clamp(0.0, 100.0);
-            player.setVolume(vol);
-            return KeyEventResult.handled;
-          } else if (key == LogicalKeyboardKey.keyF) {
-            final isFull = PlayerState().isFullscreen;
-            if (isFull) {
-              PlayerState().exitFullscreen();
-              if (isDesktop) {
-                windowManager.setFullScreen(false);
-                SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: SystemUiOverlay.values);
-              } else {
-                SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: SystemUiOverlay.values);
-                SystemChrome.setPreferredOrientations([
-                  DeviceOrientation.portraitUp,
-                  DeviceOrientation.portraitDown,
-                  DeviceOrientation.landscapeLeft,
-                  DeviceOrientation.landscapeRight
-                ]);
-              }
-            } else {
-              PlayerState().enterFullscreen();
-              if (isDesktop) {
-                windowManager.setFullScreen(true);
-                SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-              } else {
-                SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-                SystemChrome.setPreferredOrientations([
-                  DeviceOrientation.landscapeLeft,
-                  DeviceOrientation.landscapeRight
-                ]);
+    return MouseRegion(
+      cursor: _hideCursor ? SystemMouseCursors.none : MouseCursor.defer,
+      onHover: (_) => _resetHideControlsTimer(),
+      child: Focus(
+        focusNode: _playerFocusNode,
+        autofocus: true,
+        onKeyEvent: (FocusNode node, KeyEvent event) {
+          _resetHideControlsTimer();
+          if (event is KeyDownEvent) {
+            final primaryFocus = FocusManager.instance.primaryFocus;
+            if (primaryFocus != null && primaryFocus.context != null) {
+              final w = primaryFocus.context!.widget;
+              if (w is EditableText) {
+                return KeyEventResult.ignored;
               }
             }
-            return KeyEventResult.handled;
+  
+            final key = event.logicalKey;
+            if (key == LogicalKeyboardKey.arrowLeft) {
+              final current = player.state.position;
+              final target = (current.inSeconds - 10).clamp(0, player.state.duration.inSeconds);
+              player.seek(Duration(seconds: target));
+              return KeyEventResult.handled;
+            } else if (key == LogicalKeyboardKey.arrowRight) {
+              final current = player.state.position;
+              final target = (current.inSeconds + 10).clamp(0, player.state.duration.inSeconds);
+              player.seek(Duration(seconds: target));
+              return KeyEventResult.handled;
+            } else if (key == LogicalKeyboardKey.space) {
+              player.playOrPause();
+              return KeyEventResult.handled;
+            } else if (key == LogicalKeyboardKey.arrowUp) {
+              final vol = (player.state.volume + 5.0).clamp(0.0, 100.0);
+              player.setVolume(vol);
+              return KeyEventResult.handled;
+            } else if (key == LogicalKeyboardKey.arrowDown) {
+              final vol = (player.state.volume - 5.0).clamp(0.0, 100.0);
+              player.setVolume(vol);
+              return KeyEventResult.handled;
+            } else if (key == LogicalKeyboardKey.keyF) {
+              final isFull = PlayerState().isFullscreen;
+              if (isFull) {
+                PlayerState().exitFullscreen();
+                if (isDesktop) {
+                  windowManager.setFullScreen(false);
+                  SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: SystemUiOverlay.values);
+                } else {
+                  SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: SystemUiOverlay.values);
+                  SystemChrome.setPreferredOrientations([
+                    DeviceOrientation.portraitUp,
+                    DeviceOrientation.portraitDown,
+                    DeviceOrientation.landscapeLeft,
+                    DeviceOrientation.landscapeRight
+                  ]);
+                }
+              } else {
+                PlayerState().enterFullscreen();
+                if (isDesktop) {
+                  windowManager.setFullScreen(true);
+                  SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+                } else {
+                  SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+                  SystemChrome.setPreferredOrientations([
+                    DeviceOrientation.landscapeLeft,
+                    DeviceOrientation.landscapeRight
+                  ]);
+                }
+              }
+              return KeyEventResult.handled;
+            }
           }
-        }
-        return KeyEventResult.ignored;
-      },
-      child: Scaffold(
-        backgroundColor: Colors.black,
-        appBar: isDesktop
-            ? AppBar(
-                backgroundColor: Colors.black,
-                elevation: 0,
-                toolbarHeight: 36.0,
-                titleSpacing: 0,
-                actionsPadding: EdgeInsets.zero,
-                title: GestureDetector(
-                  behavior: HitTestBehavior.translucent,
-                  onPanStart: (details) {
-                    windowManager.startDragging();
-                  },
-                  onDoubleTap: () async {
-                    final isMax = await windowManager.isMaximized();
-                    if (isMax) {
-                      await windowManager.unmaximize();
-                    } else {
-                      await windowManager.maximize();
-                    }
-                    _checkMaximizedState();
-                  },
-                  child: Container(
-                    width: double.infinity,
-                    height: 36.0,
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      currentTitle,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: Colors.white, fontSize: 15.0, fontFamily: 'Outfit', fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                ),
-                leading: SizedBox(
-                  width: 40.0,
-                  height: 36.0,
-                  child: IconButton(
-                    padding: EdgeInsets.zero,
-                    icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 16.0),
-                    onPressed: () async {
-                      if (isDesktop) {
-                        try {
-                          final isFullScreen = await windowManager.isFullScreen();
-                          if (isFullScreen) {
-                            await windowManager.setFullScreen(false);
-                          }
-                        } catch (_) {}
-                      } else {
-                        PlayerState().exitFullscreen();
-                        SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: SystemUiOverlay.values);
-                      }
-                      PlayerState().minimize();
-                    },
-                  ),
-                ),
-                actions: [
-                  // Minimize
-                  _PlayerTitleBarButton(
-                    icon: Icons.remove,
-                    onPressed: () async {
-                      await windowManager.minimize();
-                    },
-                    hoverColor: Colors.white10,
-                    iconSize: 16.0,
-                  ),
-                  // Maximize / Restore
-                  _PlayerTitleBarButton(
-                    icon: _isMaximized ? Icons.filter_none : Icons.crop_square,
-                    onPressed: () async {
-                      final isMax = await windowManager.isMaximized();
-                      if (isMax) {
-                        await windowManager.unmaximize();
-                      } else {
-                        await windowManager.maximize();
-                      }
-                      _checkMaximizedState();
-                    },
-                    hoverColor: Colors.white10,
-                    iconSize: 12.0,
-                  ),
-                  // Close
-                  _PlayerTitleBarButton(
-                    icon: Icons.close,
-                    onPressed: () async {
-                      await windowManager.close();
-                    },
-                    hoverColor: Colors.red.withValues(alpha: 0.8),
-                    hoverIconColor: Colors.white,
-                    iconSize: 16.0,
-                  ),
-                ],
-              )
-            : null,
-        body: mobileTheme,
+          return KeyEventResult.ignored;
+        },
+        child: Scaffold(
+          backgroundColor: Colors.black,
+          appBar: null,
+          body: mobileTheme,
+        ),
       ),
     );
       },
@@ -1732,10 +1855,31 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
   void _changeStremioEpisode(int epNum) {
     final List videos = widget.episodes ?? [];
     final epObj = videos.firstWhere(
-      (v) => v['episode'] == epNum,
+      (v) => v is Map && v['episode'] == epNum,
       orElse: () => null,
     );
-    final String targetId = epObj?['id'] ?? '${PlayerState().movieId}:$epNum';
+
+    String targetId = '';
+    if (epObj != null && epObj['id'] != null && epObj['id'].toString().isNotEmpty) {
+      targetId = epObj['id'].toString();
+    } else {
+      final String rawMovieId = PlayerState().movieId ?? '';
+      final String cleanId = rawMovieId.replaceAll('series:', '').replaceAll('movie:', '');
+      
+      if (cleanId.startsWith('tt')) {
+        int season = 1;
+        if (epObj != null && epObj['season'] != null) {
+          season = (epObj['season'] as num).toInt();
+        } else if (videos.isNotEmpty && videos.first is Map && videos.first['season'] != null) {
+          season = (videos.first['season'] as num).toInt();
+        }
+        targetId = '$cleanId:$season:$epNum';
+      } else {
+        targetId = '$cleanId:$epNum';
+      }
+    }
+    
+    targetId = targetId.replaceAll('series:', '').replaceAll('movie:', '');
     
     _fetchStremioStreamsAndPlay(epNum, targetId);
   }
@@ -2071,7 +2215,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
       return int.tryParse(stream['seeders'].toString()) ?? 0;
     }
     final title = stream['title']?.toString() ?? '';
-    final match = RegExp(r'(?:👤|seeders:?\s*)(\d+)\b', caseSensitive: false).firstMatch(title);
+    final match = RegExp(r'(?:👤|seeders:?)\s*(\d+)\b', caseSensitive: false).firstMatch(title);
     if (match != null) {
       return int.tryParse(match.group(1)!) ?? 0;
     }

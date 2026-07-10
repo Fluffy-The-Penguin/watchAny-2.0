@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 class MovieStreamSelectorPanel extends StatefulWidget {
   final List<dynamic> streams;
   final String title;
-  final void Function(dynamic stream) onStreamSelected;
+  final void Function(dynamic stream, {bool isDownload}) onStreamSelected;
   final bool isFromPlayer;
 
   const MovieStreamSelectorPanel({
@@ -55,7 +55,7 @@ class _MovieStreamSelectorPanelState extends State<MovieStreamSelectorPanel> {
   int _extractSeeders(dynamic s) {
     if (s['seeders'] != null) return int.tryParse(s['seeders'].toString()) ?? 0;
     final t = s['title']?.toString() ?? s['description']?.toString() ?? '';
-    final m = RegExp(r'(?:👤|seeders?:?\s*)(\d+)', caseSensitive: false).firstMatch(t);
+    final m = RegExp(r'(?:👤|seeders?:?)\s*(\d+)', caseSensitive: false).firstMatch(t);
     return m != null ? (int.tryParse(m.group(1)!) ?? 0) : 0;
   }
 
@@ -63,11 +63,11 @@ class _MovieStreamSelectorPanelState extends State<MovieStreamSelectorPanel> {
     if (s['peers'] != null) return int.tryParse(s['peers'].toString()) ?? 0;
     if (s['leechers'] != null) return int.tryParse(s['leechers'].toString()) ?? 0;
     final t = s['title']?.toString() ?? s['description']?.toString() ?? '';
-    final m1 = RegExp(r'(?:👥|peers?:?\s*|leechers?:?\s*)(\d+)', caseSensitive: false).firstMatch(t);
+    final m1 = RegExp(r'(?:👥|peers?:?|leechers?:?)\s*(\d+)', caseSensitive: false).firstMatch(t);
     if (m1 != null) {
       return int.tryParse(m1.group(1)!) ?? 0;
     }
-    final m2 = RegExp(r'(?:👤|seeders?:?\s*)(\d+)\s*/\s*(\d+)', caseSensitive: false).firstMatch(t);
+    final m2 = RegExp(r'(?:👤|seeders?:?)\s*(\d+)\s*/\s*(\d+)', caseSensitive: false).firstMatch(t);
     if (m2 != null) {
       return int.tryParse(m2.group(2)!) ?? 0;
     }
@@ -235,243 +235,146 @@ class _MovieStreamSelectorPanelState extends State<MovieStreamSelectorPanel> {
   }
 
   Widget _buildFilterRow(bool isMobile) {
-    final qualitySelector = Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        const Text(
-          'Quality',
-          style: TextStyle(color: Colors.white38, fontSize: 11.0, fontFamily: 'Outfit'),
-        ),
-        const SizedBox(width: 8.0),
-        Container(
-          height: 36.0,
-          padding: const EdgeInsets.symmetric(horizontal: 10.0),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.03),
-            borderRadius: BorderRadius.circular(8.0),
-            border: Border.all(color: Colors.white10),
-          ),
-          child: DropdownButtonHideUnderline(
-            child: DropdownButton<String?>(
-              value: _selectedResolution,
-              isDense: true,
-              icon: const Padding(
-                padding: EdgeInsets.only(left: 4.0),
-                child: Icon(Icons.arrow_drop_down, color: Colors.white38, size: 18),
-              ),
-              dropdownColor: const Color(0xFF0F0F11),
-              style: const TextStyle(color: Colors.white70, fontSize: 12.0, fontWeight: FontWeight.w600, fontFamily: 'Outfit'),
-              items: const [
-                DropdownMenuItem(value: null, child: Text('All')),
-                DropdownMenuItem(value: '4K', child: Text('4K / UHD')),
-                DropdownMenuItem(value: '1080', child: Text('1080p')),
-                DropdownMenuItem(value: '720', child: Text('720p')),
-                DropdownMenuItem(value: '480', child: Text('SD / 480p')),
-              ],
-              onChanged: (val) {
-                setState(() => _selectedResolution = val);
-              },
-            ),
-          ),
-        ),
-      ],
+    final resolutions = [
+      {'label': 'All', 'value': null},
+      {'label': '4K / UHD', 'value': '4K'},
+      {'label': '1080p', 'value': '1080'},
+      {'label': '720p', 'value': '720'},
+      {'label': 'SD / 480p', 'value': '480'},
+    ];
+
+    final qualityDropdown = _buildDropdown<String?>(
+      label: 'Quality',
+      value: _selectedResolution,
+      items: resolutions.map((res) {
+        return DropdownMenuItem<String?>(
+          value: res['value'] as String?,
+          child: Text(res['label'] as String),
+        );
+      }).toList(),
+      onChanged: (val) {
+        setState(() {
+          _selectedResolution = val;
+        });
+      },
     );
 
-    final typeSelector = Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        const Text(
-          'Type',
-          style: TextStyle(color: Colors.white38, fontSize: 11.0, fontFamily: 'Outfit'),
-        ),
-        const SizedBox(width: 8.0),
-        Container(
-          height: 36.0,
-          padding: const EdgeInsets.symmetric(horizontal: 10.0),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.03),
-            borderRadius: BorderRadius.circular(8.0),
-            border: Border.all(color: Colors.white10),
-          ),
-          child: DropdownButtonHideUnderline(
-            child: DropdownButton<String>(
-              value: _selectedTypeFilter,
-              isDense: true,
-              icon: const Padding(
-                padding: EdgeInsets.only(left: 4.0),
-                child: Icon(Icons.arrow_drop_down, color: Colors.white38, size: 18),
-              ),
-              dropdownColor: const Color(0xFF0F0F11),
-              style: const TextStyle(color: Colors.white70, fontSize: 12.0, fontWeight: FontWeight.w600, fontFamily: 'Outfit'),
-              items: const [
-                DropdownMenuItem(value: 'all', child: Text('All')),
-                DropdownMenuItem(value: 'torrent', child: Text('Torrents')),
-                DropdownMenuItem(value: 'direct', child: Text('Direct URLs')),
-              ],
-              onChanged: (val) {
-                if (val != null) setState(() => _selectedTypeFilter = val);
-              },
-            ),
-          ),
-        ),
+    final typeDropdown = _buildDropdown<String>(
+      label: 'Type',
+      value: _selectedTypeFilter,
+      items: const [
+        DropdownMenuItem(value: 'all', child: Text('All')),
+        DropdownMenuItem(value: 'torrent', child: Text('Torrents')),
+        DropdownMenuItem(value: 'direct', child: Text('Direct URLs')),
       ],
+      onChanged: (val) {
+        if (val != null) {
+          setState(() {
+            _selectedTypeFilter = val;
+          });
+        }
+      },
     );
 
-    final sizeSelector = Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        const Text(
-          'Size',
-          style: TextStyle(color: Colors.white38, fontSize: 11.0, fontFamily: 'Outfit'),
-        ),
-        const SizedBox(width: 8.0),
-        Container(
-          height: 36.0,
-          padding: const EdgeInsets.symmetric(horizontal: 10.0),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.03),
-            borderRadius: BorderRadius.circular(8.0),
-            border: Border.all(color: Colors.white10),
-          ),
-          child: DropdownButtonHideUnderline(
-            child: DropdownButton<int?>(
-              value: _selectedMaxSize,
-              isDense: true,
-              icon: const Padding(
-                padding: EdgeInsets.only(left: 4.0),
-                child: Icon(Icons.arrow_drop_down, color: Colors.white38, size: 18),
-              ),
-              dropdownColor: const Color(0xFF0F0F11),
-              style: const TextStyle(color: Colors.white70, fontSize: 12.0, fontWeight: FontWeight.w600, fontFamily: 'Outfit'),
-              items: const [
-                DropdownMenuItem(value: null, child: Text('All Sizes')),
-                DropdownMenuItem(value: 524288000, child: Text('< 500 MB')),
-                DropdownMenuItem(value: 1073741824, child: Text('< 1 GB')),
-                DropdownMenuItem(value: 2147483648, child: Text('< 2 GB')),
-                DropdownMenuItem(value: 5368709120, child: Text('< 5 GB')),
-                DropdownMenuItem(value: 10737418240, child: Text('< 10 GB')),
-                DropdownMenuItem(value: 16106127360, child: Text('< 15 GB')),
-                DropdownMenuItem(value: 21474836480, child: Text('< 20 GB')),
-                DropdownMenuItem(value: 32212254720, child: Text('< 30 GB')),
-                DropdownMenuItem(value: 53687091200, child: Text('< 50 GB')),
-                DropdownMenuItem(value: 107374182400, child: Text('< 100 GB')),
-              ],
-              onChanged: (val) {
-                setState(() => _selectedMaxSize = val);
-              },
-            ),
-          ),
-        ),
+    final sizeDropdown = _buildDropdown<int?>(
+      label: 'Size',
+      value: _selectedMaxSize,
+      items: const [
+        DropdownMenuItem(value: null, child: Text('All Sizes')),
+        DropdownMenuItem(value: 524288000, child: Text('< 500 MB')),
+        DropdownMenuItem(value: 1073741824, child: Text('< 1 GB')),
+        DropdownMenuItem(value: 2147483648, child: Text('< 2 GB')),
+        DropdownMenuItem(value: 5368709120, child: Text('< 5 GB')),
+        DropdownMenuItem(value: 10737418240, child: Text('< 10 GB')),
+        DropdownMenuItem(value: 16106127360, child: Text('< 15 GB')),
+        DropdownMenuItem(value: 21474836480, child: Text('< 20 GB')),
+        DropdownMenuItem(value: 32212254720, child: Text('< 30 GB')),
+        DropdownMenuItem(value: 53687091200, child: Text('< 50 GB')),
+        DropdownMenuItem(value: 107374182400, child: Text('< 100 GB')),
       ],
+      onChanged: (val) {
+        setState(() {
+          _selectedMaxSize = val;
+        });
+      },
     );
 
-    final sortSelector = Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        const Text(
-          'Sort',
-          style: TextStyle(color: Colors.white38, fontSize: 11.0, fontFamily: 'Outfit'),
-        ),
-        const SizedBox(width: 8.0),
-        Container(
-          height: 36.0,
-          padding: const EdgeInsets.symmetric(horizontal: 10.0),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.03),
-            borderRadius: BorderRadius.circular(8.0),
-            border: Border.all(color: Colors.white10),
-          ),
-          child: DropdownButtonHideUnderline(
-            child: DropdownButton<String>(
-              value: _selectedSortOrder,
-              isDense: true,
-              icon: const Padding(
-                padding: EdgeInsets.only(left: 4.0),
-                child: Icon(Icons.arrow_drop_down, color: Colors.white38, size: 18),
-              ),
-              dropdownColor: const Color(0xFF0F0F11),
-              style: const TextStyle(color: Colors.white70, fontSize: 12.0, fontWeight: FontWeight.w600, fontFamily: 'Outfit'),
-              items: const [
-                DropdownMenuItem(value: 'default', child: Text('Default')),
-                DropdownMenuItem(value: 'seeders', child: Text('Seeders')),
-                DropdownMenuItem(value: 'size_desc', child: Text('Size (Large)')),
-                DropdownMenuItem(value: 'size_asc', child: Text('Size (Small)')),
-              ],
-              onChanged: (val) {
-                if (val != null) setState(() => _selectedSortOrder = val);
-              },
-            ),
-          ),
-        ),
+    final sortDropdown = _buildDropdown<String>(
+      label: 'Sort',
+      value: _selectedSortOrder,
+      items: const [
+        DropdownMenuItem(value: 'default', child: Text('Default')),
+        DropdownMenuItem(value: 'seeders', child: Text('Seeders')),
+        DropdownMenuItem(value: 'size_desc', child: Text('Size (Large)')),
+        DropdownMenuItem(value: 'size_asc', child: Text('Size (Small)')),
       ],
+      onChanged: (val) {
+        if (val != null) {
+          setState(() {
+            _selectedSortOrder = val;
+          });
+        }
+      },
     );
 
     final selectorsWrap = Wrap(
-      spacing: 16.0,
+      spacing: 12.0,
       runSpacing: 8.0,
       alignment: WrapAlignment.start,
       crossAxisAlignment: WrapCrossAlignment.center,
       children: [
-        qualitySelector,
-        typeSelector,
-        sizeSelector,
-        sortSelector,
+        qualityDropdown,
+        typeDropdown,
+        sizeDropdown,
+        sortDropdown,
       ],
     );
 
     final searchField = SizedBox(
-      height: 36.0,
+      height: 28.0,
       width: isMobile ? double.infinity : 180.0,
       child: TextField(
         controller: _searchController,
-        style: const TextStyle(color: Colors.white, fontSize: 12.0),
+        style: const TextStyle(color: Colors.white, fontSize: 11.5, fontFamily: 'Outfit'),
         decoration: InputDecoration(
           hintText: 'Search title...',
-          hintStyle: const TextStyle(color: Colors.white24),
-          prefixIcon: const Icon(Icons.search, color: Colors.white24, size: 16),
+          hintStyle: const TextStyle(color: Colors.white24, fontSize: 11.5),
+          prefixIcon: const Icon(Icons.search, color: Colors.white24, size: 14),
           filled: true,
           fillColor: Colors.white.withValues(alpha: 0.03),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(6.0),
-            borderSide: const BorderSide(color: Colors.white10),
-          ),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 0),
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(6.0),
-            borderSide: const BorderSide(color: Colors.white10),
+            borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(6.0),
             borderSide: const BorderSide(color: Colors.white30),
           ),
-          contentPadding: const EdgeInsets.symmetric(horizontal: 12.0),
         ),
         onChanged: (val) => setState(() {}),
       ),
     );
 
     final exclusionsInput = SizedBox(
-      height: 36.0,
+      height: 28.0,
       child: TextField(
         controller: _excludeController,
-        style: const TextStyle(color: Colors.white, fontSize: 12.0),
+        style: const TextStyle(color: Colors.white, fontSize: 11.5, fontFamily: 'Outfit'),
         decoration: InputDecoration(
           hintText: 'Add exclusions (comma separated)...',
-          hintStyle: const TextStyle(color: Colors.white24),
+          hintStyle: const TextStyle(color: Colors.white24, fontSize: 11.5),
           filled: true,
           fillColor: Colors.white.withValues(alpha: 0.03),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(6.0),
-            borderSide: const BorderSide(color: Colors.white10),
-          ),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 0),
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(6.0),
-            borderSide: const BorderSide(color: Colors.white10),
+            borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(6.0),
             borderSide: const BorderSide(color: Colors.white30),
           ),
-          contentPadding: const EdgeInsets.symmetric(horizontal: 12.0),
         ),
         onSubmitted: (val) {
           final parts = val.split(',').map((p) => p.trim()).where((p) => p.isNotEmpty);
@@ -491,23 +394,28 @@ class _MovieStreamSelectorPanelState extends State<MovieStreamSelectorPanel> {
         if (_exclusions.isNotEmpty) ...[
           Text(
             '${_exclusions.length} Excl.',
-            style: const TextStyle(color: Colors.white38, fontSize: 12.0),
+            style: const TextStyle(color: Colors.white38, fontSize: 11.5, fontFamily: 'Outfit'),
           ),
-          IconButton(
-            icon: const Icon(Icons.clear_all, color: Colors.white54, size: 18.0),
+          const SizedBox(width: 4.0),
+          TextButton(
             onPressed: () {
               setState(() {
                 _exclusions.clear();
               });
             },
-            tooltip: 'Clear exclusions',
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            child: const Text('Clear All', style: TextStyle(color: Colors.redAccent, fontSize: 11.5, fontFamily: 'Outfit')),
           ),
         ],
       ],
     );
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+      padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 12.0),
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.02),
         border: const Border(bottom: BorderSide(color: Colors.white10, width: 1.0)),
@@ -521,13 +429,7 @@ class _MovieStreamSelectorPanelState extends State<MovieStreamSelectorPanel> {
                   children: [
                     selectorsWrap,
                     const SizedBox(height: 8.0),
-                    Row(
-                      children: [
-                        Expanded(child: searchField),
-                        const SizedBox(width: 8.0),
-                        exclusionsActions,
-                      ],
-                    ),
+                    searchField,
                   ],
                 )
               : Row(
@@ -535,12 +437,48 @@ class _MovieStreamSelectorPanelState extends State<MovieStreamSelectorPanel> {
                     Expanded(child: selectorsWrap),
                     const SizedBox(width: 16.0),
                     searchField,
-                    const SizedBox(width: 8.0),
+                  ],
+                ),
+          const SizedBox(height: 12.0),
+          isMobile
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    exclusionsInput,
+                    const SizedBox(height: 8.0),
+                    exclusionsActions,
+                  ],
+                )
+              : Row(
+                  children: [
+                    Expanded(child: exclusionsInput),
+                    const SizedBox(width: 16.0),
                     exclusionsActions,
                   ],
                 ),
-          const SizedBox(height: 8.0),
-          exclusionsInput,
+          if (_exclusions.isNotEmpty) ...[
+            const SizedBox(height: 8.0),
+            Wrap(
+              spacing: 6.0,
+              runSpacing: 6.0,
+              children: _exclusions.map((excl) {
+                return Chip(
+                  label: Text(
+                    excl,
+                    style: const TextStyle(color: Colors.white70, fontSize: 10.5, fontFamily: 'Outfit'),
+                  ),
+                  backgroundColor: Colors.white.withValues(alpha: 0.05),
+                  padding: EdgeInsets.zero,
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  onDeleted: () {
+                    setState(() {
+                      _exclusions.remove(excl);
+                    });
+                  },
+                );
+              }).toList(),
+            ),
+          ],
         ],
       ),
     );
@@ -694,16 +632,29 @@ class _MovieStreamSelectorPanelState extends State<MovieStreamSelectorPanel> {
             ],
           ),
         ),
-        trailing: ElevatedButton(
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.amber,
-            foregroundColor: Colors.black,
-            padding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 8.0),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6.0)),
-          ),
-          onPressed: () => widget.onStreamSelected(stream),
-          child: const Text('Play',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12.0)),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (isTorrent) ...[
+              IconButton(
+                icon: const Icon(Icons.download, color: Colors.white70),
+                tooltip: 'Download stream',
+                onPressed: () => widget.onStreamSelected(stream, isDownload: true),
+              ),
+              const SizedBox(width: 8.0),
+            ],
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.amber,
+                foregroundColor: Colors.black,
+                padding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 8.0),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6.0)),
+              ),
+              onPressed: () => widget.onStreamSelected(stream, isDownload: false),
+              child: const Text('Play',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12.0)),
+            ),
+          ],
         ),
       ),
     );
@@ -730,5 +681,42 @@ class _MovieStreamSelectorPanelState extends State<MovieStreamSelectorPanel> {
     if (t.contains('dv') || t.contains('dolby vision')) tags.add('DV');
     if (t.contains('dual') || t.contains('multi')) tags.add('Dual Audio');
     return tags;
+  }
+
+  Widget _buildDropdown<T>({
+    required String label,
+    required T value,
+    required List<DropdownMenuItem<T>> items,
+    required ValueChanged<T?> onChanged,
+  }) {
+    return Container(
+      height: 28.0,
+      padding: const EdgeInsets.symmetric(horizontal: 10.0),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.03),
+        borderRadius: BorderRadius.circular(6.0),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            '$label: ',
+            style: const TextStyle(color: Colors.white38, fontSize: 11.5, fontFamily: 'Outfit'),
+          ),
+          DropdownButtonHideUnderline(
+            child: DropdownButton<T>(
+              value: value,
+              isDense: true,
+              icon: const Icon(Icons.arrow_drop_down, color: Colors.white38, size: 16),
+              dropdownColor: const Color(0xFF0F0F11),
+              style: const TextStyle(color: Colors.white70, fontSize: 11.5, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+              items: items,
+              onChanged: onChanged,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }

@@ -3,12 +3,14 @@ import 'dart:developer' as developer;
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:collection/collection.dart';
 import '../services/anilist_service.dart';
 import '../services/tmdb_service.dart';
 import '../services/stremio_addon_service.dart';
 import '../state/navigation_state.dart';
 import '../state/library_state.dart';
 import 'manga_home_page.dart';
+import '../widgets/smooth_scroll_area.dart';
 
 class SearchPage extends StatefulWidget {
   final AppMode mode;
@@ -40,6 +42,12 @@ class _SearchPageState extends State<SearchPage> {
   List<StremioAddon> _stremioSearchAddons = [];
   String _selectedSource = 'global'; // 'global', 'tmdb', or '<addon_id>'
   String _selectedCatalogId = 'all'; // 'all', or '${catalog['id']}_${catalog['type']}'
+
+  // Stremio Grouped Results and Pagination
+  Map<String, List<dynamic>> _stremioGroupedResults = {};
+  Map<String, int> _stremioPages = {};
+  Map<String, bool> _stremioHasMore = {};
+  Map<String, bool> _stremioLoadingMore = {};
 
   // Manga Grouped Search State
   Map<String, List<dynamic>> _mangaGroupedResults = {};
@@ -120,6 +128,10 @@ class _SearchPageState extends State<SearchPage> {
         _errorMessage = null;
         _currentPage = 1;
         _results = [];
+        _stremioGroupedResults = {};
+        _stremioPages = {};
+        _stremioHasMore = {};
+        _stremioLoadingMore = {};
       });
     } else {
       setState(() {
@@ -173,7 +185,6 @@ class _SearchPageState extends State<SearchPage> {
               ? targets
               : targets.where((a) => a.id == _selectedSource);
 
-          final List<dynamic> combinedResults = [];
           final futures = <Future<void>>[];
 
           for (final addon in filteredTargets) {
@@ -194,12 +205,6 @@ class _SearchPageState extends State<SearchPage> {
               final type = catalog['type']?.toString() ?? 'movie';
               final catId = catalog['id']?.toString() ?? '';
 
-              if (queryText.isNotEmpty) {
-                final extra = catalog['extra'] as List?;
-                final bool supportsSearch = extra != null && extra.any((e) => e is Map && e['name'] == 'search');
-                if (!supportsSearch) continue;
-              }
-
               futures.add(() async {
                 try {
                   final url = queryText.isEmpty
@@ -210,9 +215,10 @@ class _SearchPageState extends State<SearchPage> {
                   if (response.statusCode == 200) {
                     final data = jsonDecode(response.body);
                     final List metas = data['metas'] ?? [];
+                    final List<dynamic> items = [];
                     for (final meta in metas) {
                       if (meta is Map) {
-                        combinedResults.add({
+                        items.add({
                           'id': meta['id']?.toString() ?? '',
                           'title': meta['name']?.toString() ?? meta['title']?.toString() ?? 'Untitled',
                           'coverImage': {
@@ -224,6 +230,17 @@ class _SearchPageState extends State<SearchPage> {
                           'format': (meta['type']?.toString() == 'series') ? 'TV' : 'MOVIE',
                           'addonName': addon.name,
                           'catalogName': catalog['name'] ?? addon.name,
+                        });
+                      }
+                    }
+                    if (items.isNotEmpty) {
+                      final key = '${addon.id}|${catalog['id']}|$type|${addon.name}|${catalog['name'] ?? addon.name}';
+                      if (mounted) {
+                        setState(() {
+                          _stremioGroupedResults[key] = items;
+                          _stremioPages[key] = 1;
+                          _stremioHasMore[key] = items.length >= 20;
+                          _stremioLoadingMore[key] = false;
                         });
                       }
                     }
@@ -239,7 +256,7 @@ class _SearchPageState extends State<SearchPage> {
             await Future.wait(futures);
           }
 
-          newResults = combinedResults;
+          newResults = [];
           _hasNextPage = false;
         }
       } else {
@@ -310,6 +327,18 @@ class _SearchPageState extends State<SearchPage> {
       return _buildMangaGroupedResults();
     }
 
+    if (widget.mode == AppMode.movies && _selectedSource != 'tmdb') {
+      if (_isLoading && _stremioGroupedResults.isEmpty) {
+        return const Center(
+          child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.0),
+        );
+      }
+      if (_errorMessage != null) {
+        return _buildErrorView();
+      }
+      return _buildStremioGroupedResults();
+    }
+
     if (_isLoading && _results.isEmpty) {
       return const Center(
         child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.0),
@@ -329,37 +358,41 @@ class _SearchPageState extends State<SearchPage> {
         }
         return false;
       },
-      child: GridView.builder(
-        padding: const EdgeInsets.all(16.0),
-        gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-          maxCrossAxisExtent: 150.0,
-          mainAxisExtent: 240.0,
-          crossAxisSpacing: 14.0,
-          mainAxisSpacing: 14.0,
-        ),
-        itemCount: _results.length + (_hasNextPage ? 1 : 0),
-        itemBuilder: (context, index) {
-          if (index == _results.length) {
-            return const Center(
-              child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.0),
+      child: SmoothScrollArea(
+        builder: (controller, physics) => GridView.builder(
+          controller: controller,
+          physics: physics,
+          padding: const EdgeInsets.all(16.0),
+          gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+            maxCrossAxisExtent: 150.0,
+            mainAxisExtent: 240.0,
+            crossAxisSpacing: 14.0,
+            mainAxisSpacing: 14.0,
+          ),
+          itemCount: _results.length + (_hasNextPage ? 1 : 0),
+          itemBuilder: (context, index) {
+            if (index == _results.length) {
+              return const Center(
+                child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.0),
+              );
+            }
+            final media = _results[index];
+            return _SearchMediaCard(
+              media: media,
+              mode: widget.mode,
+              onTap: () {
+                if (widget.mode == AppMode.movies) {
+                  final idStr = media['id']?.toString() ?? '';
+                  final isTv = media['format'] == 'TV' || media['type']?.toString() == 'series';
+                  final typeStr = isTv ? 'series' : 'movie';
+                  widget.navigationState.selectMovie('$typeStr:$idStr');
+                } else {
+                  widget.navigationState.selectAnime(media['id']);
+                }
+              },
             );
-          }
-          final media = _results[index];
-          return _SearchMediaCard(
-            media: media,
-            mode: widget.mode,
-            onTap: () {
-              if (widget.mode == AppMode.movies) {
-                final idStr = media['id']?.toString() ?? '';
-                final isTv = media['format'] == 'TV' || media['type']?.toString() == 'series';
-                final typeStr = isTv ? 'series' : 'movie';
-                widget.navigationState.selectMovie('$typeStr:$idStr');
-              } else {
-                widget.navigationState.selectAnime(media['id']);
-              }
-            },
-          );
-        },
+          },
+        ),
       ),
     );
   }
@@ -452,10 +485,13 @@ class _SearchPageState extends State<SearchPage> {
       );
     }
 
-    return ListView.builder(
-      padding: const EdgeInsets.symmetric(vertical: 12.0),
-      itemCount: _mangaGroupedResults.length,
-      itemBuilder: (context, index) {
+    return SmoothScrollArea(
+      builder: (controller, physics) => ListView.builder(
+        controller: controller,
+        physics: physics,
+        padding: const EdgeInsets.symmetric(vertical: 12.0),
+        itemCount: _mangaGroupedResults.length,
+        itemBuilder: (context, index) {
         final entry = _mangaGroupedResults.entries.elementAt(index);
         final sourceName = entry.key;
         final list = entry.value;
@@ -568,6 +604,342 @@ class _SearchPageState extends State<SearchPage> {
           ],
         );
       },
+    ),
+    );
+  }
+
+  Future<void> _loadMoreForStremioSource(String railKey) async {
+    if (_stremioLoadingMore[railKey] == true) return;
+
+    final parts = railKey.split('|');
+    if (parts.length < 5) return;
+    final addonId = parts[0];
+    final catId = parts[1];
+    final type = parts[2];
+    final addonName = parts[3];
+    final catName = parts[4];
+
+    final service = StremioAddonService();
+    await service.init();
+    final addonObj = service.addons.firstWhereOrNull((a) => a.id == addonId);
+    if (addonObj == null) return;
+
+    final currentItems = _stremioGroupedResults[railKey] ?? [];
+    final skip = currentItems.length;
+
+    setState(() {
+      _stremioLoadingMore[railKey] = true;
+    });
+
+    try {
+      final queryText = _searchController.text.trim();
+      final url = queryText.isEmpty
+          ? '${addonObj.baseUrl}/catalog/$type/$catId/skip=$skip.json'
+          : '${addonObj.baseUrl}/catalog/$type/$catId/search=${Uri.encodeComponent(queryText)}&skip=$skip.json';
+
+      final response = await http.get(Uri.parse(url)).timeout(const Duration(seconds: 10));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final List metas = data['metas'] ?? [];
+        final List<dynamic> newItems = [];
+        for (final meta in metas) {
+          if (meta is Map) {
+            newItems.add({
+              'id': meta['id']?.toString() ?? '',
+              'title': meta['name']?.toString() ?? meta['title']?.toString() ?? 'Untitled',
+              'coverImage': {
+                'large': meta['poster']?.toString() ?? meta['coverImage']?.toString() ?? '',
+              },
+              'averageScore': double.tryParse(meta['imdbRating']?.toString() ?? '') != null
+                  ? (double.parse(meta['imdbRating'].toString()) * 10).toInt()
+                  : null,
+              'format': (meta['type']?.toString() == 'series') ? 'TV' : 'MOVIE',
+              'addonName': addonName,
+              'catalogName': catName,
+            });
+          }
+        }
+
+        if (mounted) {
+          setState(() {
+            _stremioGroupedResults[railKey] = [...currentItems, ...newItems];
+            _stremioPages[railKey] = (_stremioPages[railKey] ?? 1) + 1;
+            _stremioHasMore[railKey] = newItems.length >= 20;
+            _stremioLoadingMore[railKey] = false;
+          });
+        }
+      } else {
+        throw Exception('HTTP ${response.statusCode}');
+      }
+    } catch (e) {
+      developer.log('Error loading more for Stremio rail $railKey', error: e);
+      if (mounted) {
+        setState(() {
+          _stremioLoadingMore[railKey] = false;
+          _stremioHasMore[railKey] = false;
+        });
+      }
+    }
+  }
+
+  Widget _buildStremioGroupedResults() {
+    if (_stremioGroupedResults.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.search_off_outlined, color: Colors.white24, size: 44.0),
+            const SizedBox(height: 12.0),
+            Text(
+              _searchController.text.trim().isEmpty
+                  ? 'No movies or TV shows available in catalog.'
+                  : 'No results found on any active addon.',
+              style: const TextStyle(color: Colors.white38, fontSize: 14.0, fontFamily: 'Outfit'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final bool isSingleCatalog = _selectedSource != 'global' && _selectedCatalogId != 'all';
+
+    if (isSingleCatalog) {
+      final entry = _stremioGroupedResults.entries.first;
+      final railKey = entry.key;
+      final list = entry.value;
+      final hasMore = _stremioHasMore[railKey] ?? false;
+      final isLoadingMore = _stremioLoadingMore[railKey] == true;
+
+      return NotificationListener<ScrollNotification>(
+        onNotification: (scrollInfo) {
+          if (scrollInfo.metrics.pixels >= scrollInfo.metrics.maxScrollExtent - 200) {
+            if (hasMore && !isLoadingMore) {
+              _loadMoreForStremioSource(railKey);
+            }
+          }
+          return false;
+        },
+        child: SmoothScrollArea(
+          builder: (controller, physics) => GridView.builder(
+            controller: controller,
+            physics: physics,
+            padding: const EdgeInsets.all(16.0),
+            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+              maxCrossAxisExtent: 150.0,
+              mainAxisExtent: 240.0,
+              crossAxisSpacing: 14.0,
+              mainAxisSpacing: 14.0,
+            ),
+            itemCount: list.length + (hasMore ? 1 : 0),
+            itemBuilder: (context, idx) {
+              if (idx == list.length) {
+                return const Center(
+                  child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.0),
+                );
+              }
+              final item = list[idx];
+              return _SearchMediaCard(
+                media: item,
+                mode: widget.mode,
+                onTap: () {
+                  final idStr = item['id']?.toString() ?? '';
+                  final isTv = item['format'] == 'TV' || item['type']?.toString() == 'series';
+                  final typeStr = isTv ? 'series' : 'movie';
+                  widget.navigationState.selectMovie('$typeStr:$idStr');
+                },
+              );
+            },
+          ),
+        ),
+      );
+    }
+
+    return SmoothScrollArea(
+      builder: (controller, physics) => ListView.builder(
+        controller: controller,
+        physics: physics,
+        padding: const EdgeInsets.symmetric(vertical: 12.0),
+        itemCount: _stremioGroupedResults.length,
+        itemBuilder: (context, index) {
+          final entry = _stremioGroupedResults.entries.elementAt(index);
+          final railKey = entry.key;
+          final list = entry.value;
+
+          final parts = railKey.split('|');
+          final addonName = parts.length >= 4 ? parts[3] : 'Addon';
+          final catName = parts.length >= 5 ? parts[4] : 'Catalog';
+
+          final hasMore = _stremioHasMore[railKey] ?? false;
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(4.0),
+                      decoration: BoxDecoration(
+                        color: Colors.blueAccent.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(4.0),
+                      ),
+                      child: const Icon(Icons.movie_outlined, color: Colors.blueAccent, size: 16),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      '$addonName — $catName',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontFamily: 'Outfit',
+                        fontSize: 15.0,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 0.3,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      '(${list.length})',
+                      style: const TextStyle(
+                        color: Colors.white38,
+                        fontFamily: 'Outfit',
+                        fontSize: 13.0,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8.0),
+              SizedBox(
+                height: 255.0,
+                child: ListView.builder(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 12.0),
+                  itemCount: list.length + (hasMore ? 1 : 0),
+                  itemBuilder: (context, idx) {
+                    if (idx == list.length) {
+                      final isLoading = _stremioLoadingMore[railKey] == true;
+                      return Container(
+                        width: 110.0,
+                        margin: const EdgeInsets.symmetric(horizontal: 6.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(10.0),
+                                child: Container(
+                                  color: const Color(0xFF0F0F11),
+                                  child: Material(
+                                    color: Colors.transparent,
+                                    child: InkWell(
+                                      onTap: isLoading ? null : () => _loadMoreForStremioSource(railKey),
+                                      child: Center(
+                                        child: isLoading
+                                            ? const SizedBox(
+                                                width: 20.0,
+                                                height: 20.0,
+                                                child: CircularProgressIndicator(
+                                                  color: Colors.blueAccent,
+                                                  strokeWidth: 2.0,
+                                                ),
+                                              )
+                                            : const Column(
+                                                mainAxisAlignment: MainAxisAlignment.center,
+                                                children: [
+                                                  Icon(Icons.add_circle_outline, color: Colors.blueAccent, size: 24.0),
+                                                  SizedBox(height: 6.0),
+                                                  Text(
+                                                    'Load More',
+                                                    style: TextStyle(
+                                                      color: Colors.blueAccent,
+                                                      fontSize: 11.0,
+                                                      fontWeight: FontWeight.bold,
+                                                      fontFamily: 'Outfit',
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 38.0), // spacer to match card text offset
+                          ],
+                        ),
+                      );
+                    }
+
+                    final item = list[idx];
+                    return Container(
+                      width: 130.0,
+                      margin: const EdgeInsets.symmetric(horizontal: 6.0),
+                      child: InkWell(
+                        onTap: () {
+                          final idStr = item['id']?.toString() ?? '';
+                          final isTv = item['format'] == 'TV' || item['type']?.toString() == 'series';
+                          final typeStr = isTv ? 'series' : 'movie';
+                          widget.navigationState.selectMovie('$typeStr:$idStr');
+                        },
+                        borderRadius: BorderRadius.circular(10.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(10.0),
+                              child: AspectRatio(
+                                aspectRatio: 3 / 4.2,
+                                child: Container(
+                                  color: Colors.white.withValues(alpha: 0.03),
+                                  child: item['coverImage'] != null &&
+                                          item['coverImage']['large'] != null &&
+                                          (item['coverImage']['large'] as String).isNotEmpty
+                                      ? CachedNetworkImage(
+                                          imageUrl: item['coverImage']['large'],
+                                          fit: BoxFit.cover,
+                                          placeholder: (context, url) => Container(color: Colors.black26),
+                                          errorWidget: (context, url, err) => const Center(
+                                            child: Icon(Icons.broken_image, color: Colors.white24, size: 24.0),
+                                          ),
+                                        )
+                                      : const Center(
+                                          child: Icon(Icons.image, color: Colors.white24, size: 24.0),
+                                        ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 8.0),
+                            Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 2.0),
+                              child: Text(
+                                item['title'] ?? 'Unknown Movie',
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: Colors.white.withValues(alpha: 0.85),
+                                  fontFamily: 'Outfit',
+                                  fontSize: 12.0,
+                                  fontWeight: FontWeight.w600,
+                                  height: 1.25,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 12.0),
+              const Divider(color: Colors.white10, height: 1.0, indent: 16.0, endIndent: 16.0),
+              const SizedBox(height: 12.0),
+            ],
+          );
+        },
+      ),
     );
   }
 

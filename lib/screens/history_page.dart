@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../state/navigation_state.dart';
 import '../state/player_state.dart';
+import '../widgets/smooth_scroll_area.dart';
 
 class HistoryPage extends StatefulWidget {
   final AppMode mode;
@@ -231,10 +232,13 @@ class _HistoryPageState extends State<HistoryPage> {
                             ],
                           ),
                         )
-                      : ListView.builder(
-                          padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 8.0),
-                          itemCount: _historyItems.length,
-                          itemBuilder: (context, index) {
+                      : SmoothScrollArea(
+                          builder: (controller, physics) => ListView.builder(
+                            controller: controller,
+                            physics: physics,
+                            padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 8.0),
+                            itemCount: _historyItems.length,
+                            itemBuilder: (context, index) {
                             final item = _historyItems[index];
                             final media = item['media'] ?? {};
                             final title = media['title'] is Map
@@ -374,6 +378,7 @@ class _HistoryPageState extends State<HistoryPage> {
                             );
                           },
                         ),
+                      ),
             ),
           ],
         ),

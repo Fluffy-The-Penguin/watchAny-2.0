@@ -8,6 +8,7 @@ import '../services/anilist_service.dart';
 import '../services/tmdb_service.dart';
 import '../services/download_service.dart';
 import '../services/suwayomi_service.dart';
+import '../widgets/smooth_scroll_area.dart';
 
 class LibraryPage extends StatefulWidget {
   final AppMode mode;
@@ -544,6 +545,17 @@ class _LibraryPageState extends State<LibraryPage> {
           final title = (media['title'] ?? '').toString().toLowerCase();
           return title.contains(query);
         }
+        if (widget.mode == AppMode.movies) {
+          String t = '';
+          if (media['title'] is Map) {
+            t = (media['title']?['english'] ?? media['title']?['romaji'] ?? '').toString();
+          } else if (media['title'] is String) {
+            t = media['title'] as String;
+          } else if (media['name'] is String) {
+            t = media['name'] as String;
+          }
+          return t.toLowerCase().contains(query);
+        }
         final title = (media['title']?['english'] ?? media['title']?['romaji'] ?? '').toString().toLowerCase();
         final nativeTitle = (media['title']?['native'] ?? '').toString().toLowerCase();
         return title.contains(query) || nativeTitle.contains(query);
@@ -608,47 +620,51 @@ class _LibraryPageState extends State<LibraryPage> {
       return _buildEmptyStateForCategory(categoryId);
     }
 
-    return GridView.builder(
-      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: 150.0,
-        mainAxisExtent: 248.0,
-        crossAxisSpacing: 14.0,
-        mainAxisSpacing: 14.0,
-      ),
-      itemCount: items.length,
-      itemBuilder: (context, index) {
-        final media = items[index];
-        final int id = media['id'] as int;
-        return _LibraryMediaCard(
-          media: media,
-          mode: widget.mode,
-          isSelectionMode: _isSelectionMode,
-          isSelected: _selectedItemIds.contains(id),
-          onTap: () {
-            if (_isSelectionMode) {
-              setState(() {
-                if (_selectedItemIds.contains(id)) {
-                  _selectedItemIds.remove(id);
-                } else {
-                  _selectedItemIds.add(id);
-                }
-              });
-            } else {
-              if (widget.mode == AppMode.anime) {
-                widget.navigationState.selectAnime(id);
-              } else if (widget.mode == AppMode.manga) {
-                widget.navigationState.selectManga(id.toString());
+    return SmoothScrollArea(
+      builder: (controller, physics) => GridView.builder(
+        controller: controller,
+        physics: physics,
+        gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+          maxCrossAxisExtent: 150.0,
+          mainAxisExtent: 248.0,
+          crossAxisSpacing: 14.0,
+          mainAxisSpacing: 14.0,
+        ),
+        itemCount: items.length,
+        itemBuilder: (context, index) {
+          final media = items[index];
+          final int id = media['id'] as int;
+          return _LibraryMediaCard(
+            media: media,
+            mode: widget.mode,
+            isSelectionMode: _isSelectionMode,
+            isSelected: _selectedItemIds.contains(id),
+            onTap: () {
+              if (_isSelectionMode) {
+                setState(() {
+                  if (_selectedItemIds.contains(id)) {
+                    _selectedItemIds.remove(id);
+                  } else {
+                    _selectedItemIds.add(id);
+                  }
+                });
               } else {
-                final type = media['format'] == 'MOVIE' ? 'movie' : 'series';
-                final rawIdStr = id.toString();
-                final isNumericOnly = RegExp(r'^\d+$').hasMatch(rawIdStr);
-                final realId = isNumericOnly ? 'tt${rawIdStr.padLeft(7, '0')}' : rawIdStr;
-                widget.navigationState.selectMovie('$type:$realId');
+                if (widget.mode == AppMode.anime) {
+                  widget.navigationState.selectAnime(id);
+                } else if (widget.mode == AppMode.manga) {
+                  widget.navigationState.selectManga(id.toString());
+                } else {
+                  final type = media['format'] == 'MOVIE' ? 'movie' : 'series';
+                  final rawIdStr = id.toString();
+                  final isNumericOnly = RegExp(r'^\d+$').hasMatch(rawIdStr);
+                  final realId = isNumericOnly ? 'tt${rawIdStr.padLeft(7, '0')}' : rawIdStr;
+                  widget.navigationState.selectMovie('$type:$realId');
+                }
               }
-            }
-          },
-        );
-      },
+            },
+          );
+        },
+      ),
     );
   }
 
@@ -849,58 +865,144 @@ class _LibraryPageState extends State<LibraryPage> {
                         ),
                       ),
                     ),
-                    const SizedBox(width: 8.0),
-                    Builder(
-                      builder: (context) {
-                        return PopupMenuButton<String>(
-                          icon: const Icon(Icons.refresh, color: Colors.white70),
-                          tooltip: 'Update Options',
-                          onSelected: (String value) {
-                            final controller = DefaultTabController.of(context);
-                            final activeIndex = controller.index;
-                            final activeId = tabIds[activeIndex];
-                            final activeName = tabNames[activeIndex];
-                            if (value == 'full') {
-                              _runMangaUpdate(onlyCategory: false);
-                            } else if (value == 'category') {
-                              _runMangaUpdate(onlyCategory: true, categoryId: activeId, categoryName: activeName);
-                            }
-                          },
-                          itemBuilder: (BuildContext context) {
-                            return <PopupMenuEntry<String>>[
-                              const PopupMenuItem<String>(
-                                value: 'full',
-                                child: Text('Update Full Library', style: TextStyle(fontFamily: 'Outfit')),
-                              ),
-                              PopupMenuItem<String>(
-                                value: 'category',
-                                child: Text('Update Current Category', style: TextStyle(fontFamily: 'Outfit')),
-                              ),
-                            ];
-                          },
-                        );
-                      }
-                    ),
-                    const SizedBox(width: 4.0),
-                    IconButton(
-                      icon: const Icon(Icons.category_outlined, color: Colors.white70),
-                      tooltip: 'Manage Categories',
-                      onPressed: _showManageCategoriesDialog,
-                    ),
-                    const SizedBox(width: 4.0),
-                    IconButton(
-                      icon: Icon(
-                        _isSelectionMode ? Icons.check_box : Icons.check_box_outlined,
-                        color: _isSelectionMode ? Colors.blueAccent : Colors.white70,
+                    if (isMobile) ...[
+                      const SizedBox(width: 8.0),
+                      Builder(
+                        builder: (context) {
+                          final controller = DefaultTabController.of(context);
+                          final activeIndex = controller.index;
+                          final activeId = tabIds.isNotEmpty && activeIndex < tabIds.length ? tabIds[activeIndex] : '';
+                          final activeName = tabNames.isNotEmpty && activeIndex < tabNames.length ? tabNames[activeIndex] : '';
+
+                          return PopupMenuButton<String>(
+                            icon: const Icon(Icons.more_vert, color: Colors.white70),
+                            tooltip: 'Library Options',
+                            onSelected: (String value) {
+                              if (value == 'full') {
+                                _runMangaUpdate(onlyCategory: false);
+                              } else if (value == 'category') {
+                                if (activeId.isNotEmpty) {
+                                  _runMangaUpdate(onlyCategory: true, categoryId: activeId, categoryName: activeName);
+                                }
+                              } else if (value == 'manage') {
+                                _showManageCategoriesDialog();
+                              } else if (value == 'select') {
+                                setState(() {
+                                  _isSelectionMode = !_isSelectionMode;
+                                  _selectedItemIds.clear();
+                                });
+                              }
+                            },
+                            itemBuilder: (BuildContext context) {
+                              return <PopupMenuEntry<String>>[
+                                const PopupMenuItem<String>(
+                                  value: 'full',
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.refresh, size: 18, color: Colors.white70),
+                                      SizedBox(width: 8.0),
+                                      Text('Update Full Library', style: TextStyle(fontFamily: 'Outfit')),
+                                    ],
+                                  ),
+                                ),
+                                if (activeId.isNotEmpty && activeId != 'UNCATEGORIZED')
+                                  PopupMenuItem<String>(
+                                    value: 'category',
+                                    child: Row(
+                                      children: [
+                                        const Icon(Icons.sync, size: 18, color: Colors.white70),
+                                        const SizedBox(width: 8.0),
+                                        Text('Update Current Category', style: const TextStyle(fontFamily: 'Outfit')),
+                                      ],
+                                    ),
+                                  ),
+                                const PopupMenuDivider(),
+                                const PopupMenuItem<String>(
+                                  value: 'manage',
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.category_outlined, size: 18, color: Colors.white70),
+                                      SizedBox(width: 8.0),
+                                      Text('Manage Categories', style: TextStyle(fontFamily: 'Outfit')),
+                                    ],
+                                  ),
+                                ),
+                                PopupMenuItem<String>(
+                                  value: 'select',
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        _isSelectionMode ? Icons.check_box : Icons.check_box_outlined,
+                                        size: 18,
+                                        color: _isSelectionMode ? Colors.blueAccent : Colors.white70,
+                                      ),
+                                      const SizedBox(width: 8.0),
+                                      Text(
+                                        _isSelectionMode ? 'Cancel Selection' : 'Select Items',
+                                        style: const TextStyle(fontFamily: 'Outfit'),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ];
+                            },
+                          );
+                        }
                       ),
-                      tooltip: 'Select Items',
-                      onPressed: () {
-                        setState(() {
-                          _isSelectionMode = !_isSelectionMode;
-                          _selectedItemIds.clear();
-                        });
-                      },
-                    ),
+                    ] else ...[
+                      const SizedBox(width: 8.0),
+                      Builder(
+                        builder: (context) {
+                          return PopupMenuButton<String>(
+                            icon: const Icon(Icons.refresh, color: Colors.white70),
+                            tooltip: 'Update Options',
+                            onSelected: (String value) {
+                              final controller = DefaultTabController.of(context);
+                              final activeIndex = controller.index;
+                              final activeId = tabIds[activeIndex];
+                              final activeName = tabNames[activeIndex];
+                              if (value == 'full') {
+                                _runMangaUpdate(onlyCategory: false);
+                              } else if (value == 'category') {
+                                _runMangaUpdate(onlyCategory: true, categoryId: activeId, categoryName: activeName);
+                              }
+                            },
+                            itemBuilder: (BuildContext context) {
+                              return <PopupMenuEntry<String>>[
+                                const PopupMenuItem<String>(
+                                  value: 'full',
+                                  child: Text('Update Full Library', style: TextStyle(fontFamily: 'Outfit')),
+                                ),
+                                PopupMenuItem<String>(
+                                  value: 'category',
+                                  child: Text('Update Current Category', style: TextStyle(fontFamily: 'Outfit')),
+                                ),
+                              ];
+                            },
+                          );
+                        }
+                      ),
+                      const SizedBox(width: 4.0),
+                      IconButton(
+                        icon: const Icon(Icons.category_outlined, color: Colors.white70),
+                        tooltip: 'Manage Categories',
+                        onPressed: _showManageCategoriesDialog,
+                      ),
+                      const SizedBox(width: 4.0),
+                      IconButton(
+                        icon: Icon(
+                          _isSelectionMode ? Icons.check_box : Icons.check_box_outlined,
+                          color: _isSelectionMode ? Colors.blueAccent : Colors.white70,
+                        ),
+                        tooltip: 'Select Items',
+                        onPressed: () {
+                          setState(() {
+                            _isSelectionMode = !_isSelectionMode;
+                            _selectedItemIds.clear();
+                          });
+                        },
+                      ),
+                    ],
                   ],
                 ),
                 const SizedBox(height: 16.0),
@@ -1074,45 +1176,49 @@ class _LibraryPageState extends State<LibraryPage> {
               Expanded(
                 child: displayItems.isEmpty
                     ? _buildEmptyState()
-                    : GridView.builder(
-                        gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                          maxCrossAxisExtent: 150.0,
-                          mainAxisExtent: 248.0,
-                          crossAxisSpacing: 14.0,
-                          mainAxisSpacing: 14.0,
-                        ),
-                        itemCount: displayItems.length,
-                        itemBuilder: (context, index) {
-                          final media = displayItems[index];
-                          final int id = media['id'] as int;
-                          return _LibraryMediaCard(
-                            media: media,
-                            mode: widget.mode,
-                            isSelectionMode: _isSelectionMode,
-                            isSelected: _selectedItemIds.contains(id),
-                            onTap: () {
-                              if (_isSelectionMode) {
-                                setState(() {
-                                  if (_selectedItemIds.contains(id)) {
-                                    _selectedItemIds.remove(id);
-                                  } else {
-                                    _selectedItemIds.add(id);
-                                  }
-                                });
-                              } else {
-                                if (widget.mode == AppMode.anime) {
-                                  widget.navigationState.selectAnime(id);
+                    : SmoothScrollArea(
+                        builder: (controller, physics) => GridView.builder(
+                          controller: controller,
+                          physics: physics,
+                          gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                            maxCrossAxisExtent: 150.0,
+                            mainAxisExtent: 248.0,
+                            crossAxisSpacing: 14.0,
+                            mainAxisSpacing: 14.0,
+                          ),
+                          itemCount: displayItems.length,
+                          itemBuilder: (context, index) {
+                            final media = displayItems[index];
+                            final int id = media['id'] as int;
+                            return _LibraryMediaCard(
+                              media: media,
+                              mode: widget.mode,
+                              isSelectionMode: _isSelectionMode,
+                              isSelected: _selectedItemIds.contains(id),
+                              onTap: () {
+                                if (_isSelectionMode) {
+                                  setState(() {
+                                    if (_selectedItemIds.contains(id)) {
+                                      _selectedItemIds.remove(id);
+                                    } else {
+                                      _selectedItemIds.add(id);
+                                    }
+                                  });
                                 } else {
-                                  final type = media['format'] == 'MOVIE' ? 'movie' : 'series';
-                                  final rawIdStr = id.toString();
-                                  final isNumericOnly = RegExp(r'^\d+$').hasMatch(rawIdStr);
-                                  final realId = isNumericOnly ? 'tt${rawIdStr.padLeft(7, '0')}' : rawIdStr;
-                                  widget.navigationState.selectMovie('$type:$realId');
+                                  if (widget.mode == AppMode.anime) {
+                                    widget.navigationState.selectAnime(id);
+                                  } else {
+                                    final type = media['format'] == 'MOVIE' ? 'movie' : 'series';
+                                    final rawIdStr = id.toString();
+                                    final isNumericOnly = RegExp(r'^\d+$').hasMatch(rawIdStr);
+                                    final realId = isNumericOnly ? 'tt${rawIdStr.padLeft(7, '0')}' : rawIdStr;
+                                    widget.navigationState.selectMovie('$type:$realId');
+                                  }
                                 }
-                              }
-                            },
-                          );
-                        },
+                              },
+                            );
+                          },
+                        ),
                       ),
               ),
             ],
@@ -1974,20 +2080,54 @@ class _LibraryMediaCardState extends State<_LibraryMediaCard> {
 
   @override
   Widget build(BuildContext context) {
-    final String coverUrl = widget.mode == AppMode.manga
-        ? (widget.media['thumbnailUrl'] ?? '')
-        : (widget.media['coverImage']?['large'] ?? '');
-    final String title = widget.mode == AppMode.manga
-        ? (widget.media['title'] ?? 'Untitled')
-        : (widget.media['title']?['english'] ?? widget.media['title']?['romaji'] ?? 'Untitled');
-    final double? rating = widget.mode == AppMode.manga
-        ? null
-        : (widget.media['averageScore'] != null
-            ? (widget.media['averageScore'] as num).toDouble()
-            : null);
-    final String format = widget.mode == AppMode.manga
-        ? 'MANGA'
-        : (widget.media['format'] ?? '');
+    String coverUrl = '';
+    String title = 'Untitled';
+    double? rating;
+    String format = '';
+
+    if (widget.mode == AppMode.manga) {
+      coverUrl = widget.media['thumbnailUrl'] ?? '';
+      title = widget.media['title'] ?? 'Untitled';
+      format = 'MANGA';
+    } else if (widget.mode == AppMode.movies) {
+      if (widget.media['title'] is Map) {
+        title = widget.media['title']?['english'] ?? widget.media['title']?['romaji'] ?? 'Untitled';
+      } else if (widget.media['title'] is String) {
+        title = widget.media['title'] as String;
+      } else if (widget.media['name'] is String) {
+        title = widget.media['name'] as String;
+      }
+
+      if (widget.media['coverImage'] is Map) {
+        coverUrl = widget.media['coverImage']?['large'] ?? '';
+      } else if (widget.media['coverImage'] is String) {
+        coverUrl = widget.media['coverImage'] as String;
+      } else if (widget.media['poster'] is String) {
+        coverUrl = widget.media['poster'] as String;
+      } else if (widget.media['poster_path'] is String) {
+        coverUrl = 'https://image.tmdb.org/t/p/w300${widget.media['poster_path']}';
+      }
+
+      if (widget.media['averageScore'] != null) {
+        rating = (widget.media['averageScore'] as num).toDouble();
+      } else if (widget.media['imdbRating'] != null) {
+        final score = double.tryParse(widget.media['imdbRating'].toString()) ?? 0.0;
+        rating = score * 10;
+      }
+
+      if (widget.media['format'] is String) {
+        format = widget.media['format'] as String;
+      } else if (widget.media['type']?.toString() == 'series') {
+        format = 'TV';
+      } else if (widget.media['type']?.toString() == 'movie') {
+        format = 'MOVIE';
+      }
+    } else {
+      coverUrl = widget.media['coverImage']?['large'] ?? '';
+      title = widget.media['title']?['english'] ?? widget.media['title']?['romaji'] ?? 'Untitled';
+      rating = widget.media['averageScore'] != null ? (widget.media['averageScore'] as num).toDouble() : null;
+      format = widget.media['format'] ?? '';
+    }
     final bool isMovie = format == 'MOVIE';
 
     // Retrieve user progress details from LibraryState

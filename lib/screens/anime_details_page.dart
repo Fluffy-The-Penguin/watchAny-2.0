@@ -17,6 +17,7 @@ import '../state/player_state.dart';
 import '../widgets/torrent_selector_panel.dart';
 import '../services/hstream_service.dart';
 import '../models/torrent.dart';
+import '../widgets/smooth_scroll_area.dart';
 import '../state/library_state.dart';
 
 class AnimeDetailsPage extends StatefulWidget {
@@ -201,6 +202,12 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
           _isLoading = false;
         });
 
+        // Cache details and merged episodes list if in library
+        if (LibraryState().isSaved(widget.animeId, 'anime')) {
+          data['cachedEpisodes'] = merged;
+          LibraryState().updateAnimeCache(widget.animeId, data);
+        }
+
         // Trigger TMDB mapping
         _initTmdbMapping();
         _loadPlaybackProgress();
@@ -208,18 +215,20 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
     } catch (e) {
       final cached = LibraryState().animeCache[widget.animeId];
       if (cached != null) {
-        final int episodesCount = cached['episodes'] ?? 0;
-        final List<dynamic> merged = [];
-        for (var i = 1; i <= episodesCount; i++) {
-          merged.add({
-            'title': 'Episode $i',
-            'thumbnail': '',
-            'url': '',
-            'site': '',
-            'overview': 'Offline mode: details loaded from cache.',
-            'airDate': '',
-            'isPlaceholder': true,
-          });
+        final List<dynamic> merged = cached['cachedEpisodes'] as List<dynamic>? ?? [];
+        if (merged.isEmpty) {
+          final int episodesCount = cached['episodes'] ?? 0;
+          for (var i = 1; i <= episodesCount; i++) {
+            merged.add({
+              'title': 'Episode $i',
+              'thumbnail': '',
+              'url': '',
+              'site': '',
+              'overview': 'Offline mode: details loaded from cache.',
+              'airDate': '',
+              'isPlaceholder': true,
+            });
+          }
         }
         if (mounted) {
           setState(() {
@@ -1318,12 +1327,15 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
             ),
           // 2. Main Page Layout (Unified scroll view, scrolling columns side-by-side below)
           Positioned.fill(
-            child: SingleChildScrollView(
-              child: Padding(
-                padding: const EdgeInsets.only(top: 40.0, bottom: 40.0), // Give room for transparent drag handle
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
+            child: SmoothScrollArea(
+              builder: (controller, physics) => SingleChildScrollView(
+                controller: controller,
+                physics: physics,
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 40.0, bottom: 40.0), // Give room for transparent drag handle
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
                     // Back Button Row (placed at the top-left of the entire details page, overlaying the banner)
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 24.0),
@@ -1702,6 +1714,7 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
                 ),
               ),
             ),
+          ),
           ),
         ],
       ),

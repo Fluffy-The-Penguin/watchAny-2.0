@@ -12,6 +12,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../services/extension_service.dart';
 import '../widgets/torrent_selector_panel.dart';
 import '../widgets/movie_stream_selector_panel.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import '../widgets/smooth_scroll_area.dart';
 
 // ─── Lightweight metadata cache (populated on home page card tap) ─────────────
 class MovieMetadataCache {
@@ -150,7 +152,16 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
         }
       }
 
-      // 3. Fall back to placeholder cache
+      // 3. Fall back to SQLite movieCache first if bookmarked
+      if (metaData == null) {
+        final libId = _imdbToLibraryId(_realId);
+        final cachedMovie = LibraryState().movieCache[libId];
+        if (cachedMovie != null) {
+          metaData = Map<String, dynamic>.from(cachedMovie);
+        }
+      }
+
+      // 4. Fall back to placeholder cache
       if (metaData == null && _meta.isNotEmpty) {
         metaData = Map<String, dynamic>.from(_meta);
       }
@@ -250,6 +261,13 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
           _meta = metaData!;
           _isLoading = false;
         });
+
+        // Save metadata to library sqlite cache if bookmarked
+        final libId = _imdbToLibraryId(_realId);
+        if (LibraryState().isSaved(libId, 'movies')) {
+          LibraryState().updateMovieCache(libId, metaData!);
+        }
+
         await _loadPlaybackProgress();
       }
     } catch (e, stack) {
@@ -317,8 +335,27 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
 
   // ── Stream Fetching ───────────────────────────────────────────────────────
 
+  String _getFormattedEpisodeId({String? episodeId, int? episode}) {
+    if (_type == 'movie') {
+      return _realId;
+    }
+    if (episodeId != null && episodeId.contains(':') && episodeId.startsWith('tt')) {
+      return episodeId;
+    }
+    final baseId = _realId.replaceAll('series:', '').replaceAll('movie:', '');
+    if (baseId.startsWith('tt')) {
+      final seasonNum = _selectedSeason;
+      final epNum = episode ?? 1;
+      return '$baseId:$seasonNum:$epNum';
+    }
+    if (episodeId != null && episodeId.isNotEmpty) {
+      return episodeId;
+    }
+    return '$baseId:${episode ?? 1}';
+  }
+
   Future<void> _fetchStreamsAndPlay({int? episode, String? episodeId}) async {
-    final targetId = episodeId?.isNotEmpty == true ? episodeId! : _realId;
+    final targetId = _getFormattedEpisodeId(episodeId: episodeId, episode: episode);
 
     // Show loading
     if (!mounted) return;
@@ -418,9 +455,9 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
               child: MovieStreamSelectorPanel(
                 streams: streams,
                 title: panelTitle,
-                onStreamSelected: (stream) {
+                onStreamSelected: (stream, {isDownload = false}) {
                   Navigator.pop(context); // close bottom sheet
-                  _playStream(stream, episode);
+                  _playStream(stream, episode, isDownload: isDownload);
                 },
               ),
             ),
@@ -432,7 +469,7 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
 
   // ── Playback ──────────────────────────────────────────────────────────────
 
-  void _playStream(dynamic stream, int? episode) {
+  void _playStream(dynamic stream, int? episode, {bool isDownload = false}) {
     final mediaTitle =
         _meta['name']?.toString() ?? _meta['title']?.toString() ?? 'Media';
     final poster = _meta['poster']?.toString() ?? _meta['coverImage']?.toString() ?? '';
@@ -514,6 +551,7 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
           isMovie: !_hasVideos,
           media: media,
           episodes: _hasVideos ? _meta['videos'] : null,
+          isDownload: isDownload,
         ),
       );
       return;
@@ -545,7 +583,7 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
       return int.tryParse(stream['seeders'].toString()) ?? 0;
     }
     final t = stream['title']?.toString() ?? stream['description']?.toString() ?? '';
-    final m = RegExp(r'(?:👤|seeders?:?\s*)(\d+)', caseSensitive: false).firstMatch(t);
+    final m = RegExp(r'(?:👤|seeders?:?)\s*(\d+)', caseSensitive: false).firstMatch(t);
     return m != null ? (int.tryParse(m.group(1)!) ?? 0) : 0;
   }
 
@@ -633,10 +671,13 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
           final isBookmarked =
               LibraryState().items.any((i) => i.id == libId && i.mode == 'movies');
 
-          return SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
+          return SmoothScrollArea(
+            builder: (controller, physics) => SingleChildScrollView(
+              controller: controller,
+              physics: physics,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
                 // 1. Header Banner
                 _buildBanner(
                   background: background,
@@ -665,6 +706,7 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
                         hasSeasons: _hasVideos && _seasons.isNotEmpty,
                         seasons: _seasons,
                         episodesBySeason: _episodesBySeason,
+                        metaData: _meta,
                       ),
                     );
                   },
@@ -706,6 +748,7 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
                 const SizedBox(height: 64.0),
               ],
             ),
+          ),
           );
         },
       ),
@@ -732,7 +775,7 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
           decoration: BoxDecoration(
             image: background.isNotEmpty
                 ? DecorationImage(
-                    image: NetworkImage(background), fit: BoxFit.cover)
+                    image: CachedNetworkImageProvider(background), fit: BoxFit.cover)
                 : null,
             color: Colors.white10,
           ),
@@ -804,7 +847,7 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
                   border: Border.all(color: Colors.white24),
                   image: poster.isNotEmpty
                       ? DecorationImage(
-                          image: NetworkImage(poster), fit: BoxFit.cover)
+                          image: CachedNetworkImageProvider(poster), fit: BoxFit.cover)
                       : null,
                   color: Colors.white10,
                 ),
@@ -1186,11 +1229,12 @@ class _MovieEpisodeCardState extends State<_MovieEpisodeCard> {
                                   scale: _isHovered ? 1.05 : 1.0,
                                   duration: const Duration(milliseconds: 150),
                                   child: widget.thumbnail.isNotEmpty
-                                      ? Image.network(
-                                          widget.thumbnail,
+                                      ? CachedNetworkImage(
+                                          imageUrl: widget.thumbnail,
                                           fit: BoxFit.cover,
-                                          cacheWidth: 320,
-                                          errorBuilder: (_, __, ___) => _placeholder(),
+                                          memCacheWidth: 320,
+                                          placeholder: (_, __) => const SizedBox(),
+                                          errorWidget: (_, __, ___) => _placeholder(),
                                         )
                                       : _placeholder(),
                                 ),
@@ -1302,6 +1346,7 @@ class _MovieLibraryEditPanel extends StatefulWidget {
   final bool hasSeasons;
   final List<int> seasons;
   final Map<int, List<dynamic>> episodesBySeason;
+  final Map<String, dynamic> metaData;
 
   const _MovieLibraryEditPanel({
     required this.libId,
@@ -1312,6 +1357,7 @@ class _MovieLibraryEditPanel extends StatefulWidget {
     required this.hasSeasons,
     required this.seasons,
     required this.episodesBySeason,
+    required this.metaData,
   });
 
   @override
@@ -1868,16 +1914,19 @@ class _MovieLibraryEditPanelState extends State<_MovieLibraryEditPanel> {
                                   ? _totalWatchedFromSeasons
                                   : (int.tryParse(_episodesController.text)?.clamp(0, widget.totalEpisodes) ?? _watchedEps);
                               final double finalRating = double.tryParse(_scoreController.text)?.clamp(0.0, 10.0) ?? _activeRating;
-                              await LibraryState().saveItem(
-                                id: widget.libId,
-                                mode: 'movies',
-                                format: widget.format,
-                                libraryStatus: _activeStatus,
-                                rating: finalRating,
-                                watchedEpisodes: finalWatchedEps,
-                                totalEpisodes: widget.totalEpisodes,
-                              );
-                              if (context.mounted) Navigator.pop(context);
+                                await LibraryState().saveItem(
+                                  id: widget.libId,
+                                  mode: 'movies',
+                                  format: widget.format,
+                                  libraryStatus: _activeStatus,
+                                  rating: finalRating,
+                                  watchedEpisodes: finalWatchedEps,
+                                  totalEpisodes: widget.totalEpisodes,
+                                );
+                                 if (widget.metaData.isNotEmpty) {
+                                   await LibraryState().updateMovieCache(widget.libId, widget.metaData);
+                                 }
+                                if (context.mounted) Navigator.pop(context);
                             },
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Colors.white,
