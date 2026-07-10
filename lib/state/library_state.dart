@@ -725,6 +725,32 @@ class LibraryState extends ChangeNotifier {
     notifyListeners();
   }
 
+  String _resolveMovieTitle(Map<String, dynamic> data) {
+    if (data['title'] is Map) {
+      return (data['title']['english'] ?? data['title']['romaji'] ?? 'Untitled').toString();
+    } else if (data['title'] is String) {
+      return data['title'] as String;
+    } else if (data['name'] is String) {
+      return data['name'] as String;
+    }
+    return 'Untitled';
+  }
+
+  String _resolveMovieCover(Map<String, dynamic> data) {
+    if (data['coverImage'] is Map) {
+      return (data['coverImage']['large'] ?? '').toString();
+    } else if (data['coverImage'] is String) {
+      return data['coverImage'] as String;
+    } else if (data['poster'] is String) {
+      return data['poster'] as String;
+    } else if (data['poster_path'] is String) {
+      return 'https://image.tmdb.org/t/p/w300${data['poster_path']}';
+    } else if (data['thumbnailUrl'] is String) {
+      return data['thumbnailUrl'] as String;
+    }
+    return '';
+  }
+
   Future<void> updateMovieCache(int id, Map<String, dynamic> data) async {
     _movieCache[id] = data;
     try {
@@ -732,8 +758,8 @@ class LibraryState extends ChangeNotifier {
         db.MediaCachesCompanion.insert(
           id: id,
           mode: 'movies',
-          title: data['title'] ?? 'Untitled',
-          coverImage: data['coverImage'] ?? '',
+          title: _resolveMovieTitle(data),
+          coverImage: _resolveMovieCover(data),
           extraData: drift.Value(jsonEncode(data)),
         ),
       );
@@ -754,8 +780,8 @@ class LibraryState extends ChangeNotifier {
             db.MediaCachesCompanion.insert(
               id: id,
               mode: 'movies',
-              title: data['title'] ?? 'Untitled',
-              coverImage: data['coverImage'] ?? '',
+              title: _resolveMovieTitle(data),
+              coverImage: _resolveMovieCover(data),
               extraData: drift.Value(jsonEncode(data)),
             ),
           );

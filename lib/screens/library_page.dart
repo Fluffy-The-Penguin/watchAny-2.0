@@ -492,6 +492,36 @@ class _LibraryPageState extends State<LibraryPage> {
 
 
 
+  String _getMediaTitle(dynamic media) {
+    if (widget.mode == AppMode.manga) {
+      return (media['title'] ?? '').toString();
+    }
+    if (widget.mode == AppMode.movies) {
+      if (media['title'] is Map) {
+        return (media['title']?['english'] ?? media['title']?['romaji'] ?? 'Untitled').toString();
+      } else if (media['title'] is String) {
+        return media['title'] as String;
+      } else if (media['name'] is String) {
+        return media['name'] as String;
+      }
+      return 'Untitled';
+    }
+    return (media['title']?['english'] ?? media['title']?['romaji'] ?? 'Untitled').toString();
+  }
+
+  double _getMediaRating(dynamic media) {
+    if (widget.mode == AppMode.movies) {
+      if (media['averageScore'] != null) {
+        return (media['averageScore'] as num).toDouble();
+      } else if (media['imdbRating'] != null) {
+        final score = double.tryParse(media['imdbRating'].toString()) ?? 0.0;
+        return score * 10.0;
+      }
+      return 0.0;
+    }
+    return media['averageScore'] != null ? (media['averageScore'] as num).toDouble() : 0.0;
+  }
+
   List<dynamic> _sortItems(List<dynamic> items) {
     items.sort((a, b) {
       switch (_selectedSort) {
@@ -500,17 +530,13 @@ class _LibraryPageState extends State<LibraryPage> {
         case 'DATE_ADDED_ASC':
           return _getAddedDate(a['id']).compareTo(_getAddedDate(b['id']));
         case 'RATING_DESC':
-          final rA = a['averageScore'] != null ? (a['averageScore'] as num).toDouble() : 0.0;
-          final rB = b['averageScore'] != null ? (b['averageScore'] as num).toDouble() : 0.0;
+          final rA = _getMediaRating(a);
+          final rB = _getMediaRating(b);
           return rB.compareTo(rA);
         case 'TITLE_ASC':
-          final tA = (a['title']?['english'] ?? a['title']?['romaji'] ?? '').toString().toLowerCase();
-          final tB = (b['title']?['english'] ?? b['title']?['romaji'] ?? '').toString().toLowerCase();
-          return tA.compareTo(tB);
+          return _getMediaTitle(a).toLowerCase().compareTo(_getMediaTitle(b).toLowerCase());
         case 'TITLE_DESC':
-          final tA = (a['title']?['english'] ?? a['title']?['romaji'] ?? '').toString().toLowerCase();
-          final tB = (b['title']?['english'] ?? b['title']?['romaji'] ?? '').toString().toLowerCase();
-          return tB.compareTo(tA);
+          return _getMediaTitle(b).toLowerCase().compareTo(_getMediaTitle(a).toLowerCase());
         default:
           return 0;
       }
@@ -582,7 +608,7 @@ class _LibraryPageState extends State<LibraryPage> {
           return true;
         }
 
-        final fmt = (media['format'] ?? '').toString().toUpperCase();
+        final fmt = (media['format'] ?? media['type'] ?? '').toString().toUpperCase();
         final sel = _selectedFormat.toUpperCase();
         if (sel == 'TV') {
           return fmt == 'TV' || fmt == 'SERIES';
@@ -591,11 +617,16 @@ class _LibraryPageState extends State<LibraryPage> {
       }).toList();
     }
 
-    // 3. Status Filter (API)
+    // 3. Status Filter
     if (_selectedStatus != 'ALL') {
       items = items.where((media) {
-        final stat = (media['status'] ?? '').toString().replaceAll('_', ' ').toUpperCase();
-        return stat == _selectedStatus.toUpperCase();
+        if (widget.mode == AppMode.movies) {
+          final userStatus = _getLibraryStatus(media['id']);
+          return userStatus.toLowerCase() == _selectedStatus.toLowerCase();
+        } else {
+          final stat = (media['status'] ?? '').toString().replaceAll('_', ' ').toUpperCase();
+          return stat == _selectedStatus.toUpperCase();
+        }
       }).toList();
     }
 
@@ -682,7 +713,7 @@ class _LibraryPageState extends State<LibraryPage> {
   // Options for Status dropdown
   List<String> get _statusOptions {
     if (widget.mode == AppMode.movies) {
-      return ['ALL', 'Released', 'In Production', 'Post Production'];
+      return ['ALL', 'watching', 'planning', 'completed', 'paused_dropped'];
     }
     return ['ALL', 'FINISHED', 'RELEASING', 'NOT YET RELEASED', 'CANCELLED', 'HIATUS'];
   }
@@ -1054,8 +1085,120 @@ class _LibraryPageState extends State<LibraryPage> {
           ),
         ),
       );
+    } else if (widget.mode == AppMode.movies) {
+      final displayItems = _applyFilters(List.from(_fetchedMedia));
+
+      return Scaffold(
+        backgroundColor: Colors.transparent,
+        bottomNavigationBar: _buildSelectionActionBar(),
+        body: Padding(
+          padding: EdgeInsets.only(
+            top: isMobile ? 16.0 : 48.0,
+            left: isMobile ? 12.0 : 24.0,
+            right: isMobile ? 12.0 : 24.0,
+            bottom: 16.0,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Movies & TV Shows',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 20.0,
+                  fontFamily: 'Outfit',
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 16.0),
+
+              isMobile
+                  ? Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        _buildSearchBar(),
+                        const SizedBox(height: 12.0),
+                        SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          physics: const BouncingScrollPhysics(),
+                          child: Row(
+                            children: [
+                              _buildFormatFilter(),
+                              const SizedBox(width: 8.0),
+                              _buildStatusFilter(),
+                              const SizedBox(width: 8.0),
+                              _buildSortFilter(),
+                              const SizedBox(width: 8.0),
+                              _buildSelectionModeToggle(),
+                            ],
+                          ),
+                        ),
+                      ],
+                    )
+                  : Row(
+                      children: [
+                        Expanded(flex: 3, child: _buildSearchBar()),
+                        const SizedBox(width: 16.0),
+                        _buildFormatFilter(),
+                        const SizedBox(width: 12.0),
+                        _buildStatusFilter(),
+                        const SizedBox(width: 12.0),
+                        _buildSortFilter(),
+                        const SizedBox(width: 12.0),
+                        _buildSelectionModeToggle(),
+                      ],
+                    ),
+              const SizedBox(height: 20.0),
+
+              Expanded(
+                child: displayItems.isEmpty
+                    ? _buildEmptyState()
+                    : SmoothScrollArea(
+                        builder: (controller, physics) => GridView.builder(
+                          controller: controller,
+                          physics: physics,
+                          gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                            maxCrossAxisExtent: 150.0,
+                            mainAxisExtent: 248.0,
+                            crossAxisSpacing: 14.0,
+                            mainAxisSpacing: 14.0,
+                          ),
+                          itemCount: displayItems.length,
+                          itemBuilder: (context, index) {
+                            final media = displayItems[index];
+                            final int id = media['id'] as int;
+                            return _LibraryMediaCard(
+                              media: media,
+                              mode: widget.mode,
+                              isSelectionMode: _isSelectionMode,
+                              isSelected: _selectedItemIds.contains(id),
+                              onTap: () {
+                                if (_isSelectionMode) {
+                                  setState(() {
+                                    if (_selectedItemIds.contains(id)) {
+                                      _selectedItemIds.remove(id);
+                                    } else {
+                                      _selectedItemIds.add(id);
+                                    }
+                                  });
+                                } else {
+                                  final type = media['format'] == 'MOVIE' ? 'movie' : 'series';
+                                  final rawIdStr = id.toString();
+                                  final isNumericOnly = RegExp(r'^\d+$').hasMatch(rawIdStr);
+                                  final realId = isNumericOnly ? 'tt${rawIdStr.padLeft(7, '0')}' : rawIdStr;
+                                  widget.navigationState.selectMovie('$type:$realId');
+                                }
+                              },
+                            );
+                          },
+                        ),
+                      ),
+              ),
+            ],
+          ),
+        ),
+      );
     } else {
-      // Anime & Movies Mode: Original status tabs layout with status button row filters
       final displayItems = _getStatusFilteredItems();
 
       return Scaffold(
@@ -1071,11 +1214,9 @@ class _LibraryPageState extends State<LibraryPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // 1. Status Category Tabs (All, Watching, Planning, Completed, Dropped/Paused, Downloaded)
               _buildStatusTabs(isMobile),
               const SizedBox(height: 16.0),
 
-              // 2. Search & Filter Section (Below Tabs)
               isMobile
                   ? Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1172,7 +1313,6 @@ class _LibraryPageState extends State<LibraryPage> {
                     ),
               const SizedBox(height: 20.0),
 
-              // 3. Main Library Grid or Empty State
               Expanded(
                 child: displayItems.isEmpty
                     ? _buildEmptyState()
@@ -1500,10 +1640,20 @@ class _LibraryPageState extends State<LibraryPage> {
   }
 
   Widget _buildFormatFilter() {
+    Map<String, String>? displayMap;
+    if (widget.mode == AppMode.movies) {
+      displayMap = {
+        'ALL': 'All Types',
+        'MOVIE': 'Movies',
+        'TV': 'TV Series',
+      };
+    }
+
     return _buildDropdownFilter(
-      label: 'Format',
+      label: widget.mode == AppMode.movies ? 'Type' : 'Format',
       value: _selectedFormat,
       options: _formatOptions,
+      displayValues: displayMap,
       onChanged: (val) {
         if (val != null) setState(() => _selectedFormat = val);
       },
@@ -1511,10 +1661,22 @@ class _LibraryPageState extends State<LibraryPage> {
   }
 
   Widget _buildStatusFilter() {
+    Map<String, String>? displayMap;
+    if (widget.mode == AppMode.movies) {
+      displayMap = {
+        'ALL': 'All Statuses',
+        'watching': 'Watching',
+        'planning': 'Planning',
+        'completed': 'Completed',
+        'paused_dropped': 'Dropped / Paused',
+      };
+    }
+
     return _buildDropdownFilter(
       label: 'Status',
       value: _selectedStatus,
       options: _statusOptions,
+      displayValues: displayMap,
       onChanged: (val) {
         if (val != null) setState(() => _selectedStatus = val);
       },
@@ -1538,6 +1700,28 @@ class _LibraryPageState extends State<LibraryPage> {
       onChanged: (val) {
         if (val != null) setState(() => _selectedSort = val);
       },
+    );
+  }
+
+  Widget _buildSelectionModeToggle() {
+    return IconButton(
+      icon: Icon(
+        _isSelectionMode ? Icons.check_box : Icons.check_box_outlined,
+        color: _isSelectionMode ? Colors.blueAccent : Colors.white70,
+        size: 18.0,
+      ),
+      tooltip: 'Select Items',
+      onPressed: () {
+        setState(() {
+          _isSelectionMode = !_isSelectionMode;
+          _selectedItemIds.clear();
+        });
+      },
+      style: IconButton.styleFrom(
+        backgroundColor: Colors.white.withValues(alpha: 0.03),
+        padding: const EdgeInsets.all(12.0),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.0)),
+      ),
     );
   }
 

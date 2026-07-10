@@ -1157,8 +1157,10 @@ class _StartupUpdateCheckerState extends State<StartupUpdateChecker> {
               fontWeight: FontWeight.bold,
             ),
           ),
-          content: SingleChildScrollView(
-            child: Column(
+          content: Container(
+            width: MediaQuery.of(context).size.width.clamp(0.0, 480.0),
+            child: SingleChildScrollView(
+              child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -1186,7 +1188,7 @@ class _StartupUpdateCheckerState extends State<StartupUpdateChecker> {
                 ),
               ],
             ),
-          ),
+          ),),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
@@ -1234,33 +1236,36 @@ class _StartupUpdateCheckerState extends State<StartupUpdateChecker> {
                   fontWeight: FontWeight.bold,
                 ),
               ),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (error != null) ...[
-                    Text(
-                      error,
-                      style: const TextStyle(color: Colors.redAccent, fontFamily: 'Outfit', fontSize: 13.5),
-                    ),
-                    const SizedBox(height: 16),
-                  ] else ...[
-                    LinearProgressIndicator(
-                      value: progress,
-                      backgroundColor: Colors.white12,
-                      color: const Color(0xFFFF9F1C),
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      '${(progress * 100).toStringAsFixed(1)}%',
-                      style: const TextStyle(
-                        color: Colors.white70,
-                        fontFamily: 'Outfit',
-                        fontSize: 14.0,
-                        fontWeight: FontWeight.bold,
+              content: Container(
+                width: MediaQuery.of(context).size.width.clamp(0.0, 480.0),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (error != null) ...[
+                      Text(
+                        error,
+                        style: const TextStyle(color: Colors.redAccent, fontFamily: 'Outfit', fontSize: 13.5),
                       ),
-                    ),
+                      const SizedBox(height: 16),
+                    ] else ...[
+                      LinearProgressIndicator(
+                        value: progress,
+                        backgroundColor: Colors.white12,
+                        color: const Color(0xFFFF9F1C),
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        '${(progress * 100).toStringAsFixed(1)}%',
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontFamily: 'Outfit',
+                          fontSize: 14.0,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
                   ],
-                ],
+                ),
               ),
               actions: [
                 if (error != null || !isDownloading)

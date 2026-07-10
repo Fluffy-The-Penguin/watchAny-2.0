@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
@@ -369,6 +370,8 @@ class PlayerState extends ChangeNotifier {
 
       if (isAnimeMode) {
         _checkCompletion(_anilistId!, ep, pos, dur);
+      } else {
+        _checkMovieCompletion(id, ep, pos, dur);
       }
     }
   }
@@ -558,6 +561,111 @@ class PlayerState extends ChangeNotifier {
           watchedEpisodes: ep,
           totalEpisodes: _episodeCount,
         );
+      }
+    }
+  }
+
+  int _imdbToLibraryId(String id) {
+    if (id.isEmpty) return 0;
+    final digits = RegExp(r'\d+').allMatches(id).map((m) => m.group(0)!).join();
+    final parsed = int.tryParse(digits);
+    if (parsed != null && parsed > 0) return parsed;
+    return id.hashCode.abs();
+  }
+
+  void _checkMovieCompletion(String movieId, int ep, int pos, int dur) {
+    final ratio = pos / dur;
+    final int libId = _imdbToLibraryId(movieId);
+    final library = LibraryState();
+    final item = library.getItem(libId, 'movies');
+
+    if (item == null) {
+      if (ratio >= 0.01) {
+        final formatVal = (_isMovie == true) ? 'MOVIE' : 'TV';
+        library.saveItem(
+          id: libId,
+          mode: 'movies',
+          format: formatVal,
+          libraryStatus: ratio >= 0.90 ? 'completed' : 'watching',
+          rating: 0.0,
+          watchedEpisodes: _isMovie == true ? 1 : ep,
+          totalEpisodes: _episodeCount,
+        );
+
+        final Map<String, dynamic> metadata = {};
+        if (_media != null && _media is Map) {
+          metadata.addAll(Map<String, dynamic>.from(_media as Map));
+        }
+        if (!metadata.containsKey('id')) metadata['id'] = libId;
+        if (!metadata.containsKey('title')) metadata['title'] = _title ?? 'Media #$libId';
+        if (!metadata.containsKey('format')) metadata['format'] = formatVal;
+        
+        library.updateMovieCache(libId, metadata);
+      }
+    } else {
+      if (ratio >= 0.90) {
+        if (_isMovie == true) {
+          if (item.libraryStatus != 'completed') {
+            library.saveItem(
+              id: libId,
+              mode: 'movies',
+              format: item.format,
+              libraryStatus: 'completed',
+              rating: item.rating,
+              watchedEpisodes: 1,
+              totalEpisodes: item.totalEpisodes,
+            );
+          }
+        } else {
+          final nextWatched = max(item.watchedEpisodes, ep);
+          final bool isLastEpisode = ep == (item.totalEpisodes ?? _episodeCount ?? ep);
+          library.saveItem(
+            id: libId,
+            mode: 'movies',
+            format: item.format,
+            libraryStatus: isLastEpisode ? 'completed' : item.libraryStatus,
+            rating: item.rating,
+            watchedEpisodes: nextWatched,
+            totalEpisodes: item.totalEpisodes ?? _episodeCount,
+          );
+        }
+      } else if (ratio >= 0.01) {
+        if (_isMovie != true) {
+          final nextWatched = max(item.watchedEpisodes, ep);
+          if (item.libraryStatus == 'planning') {
+            library.saveItem(
+              id: libId,
+              mode: 'movies',
+              format: item.format,
+              libraryStatus: 'watching',
+              rating: item.rating,
+              watchedEpisodes: nextWatched,
+              totalEpisodes: item.totalEpisodes ?? _episodeCount,
+            );
+          } else {
+            library.saveItem(
+              id: libId,
+              mode: 'movies',
+              format: item.format,
+              libraryStatus: item.libraryStatus,
+              rating: item.rating,
+              watchedEpisodes: nextWatched,
+              totalEpisodes: item.totalEpisodes ?? _episodeCount,
+            );
+          }
+        } else {
+          if (item.libraryStatus == 'planning') {
+            library.saveItem(
+              id: libId,
+              mode: 'movies',
+              format: item.format,
+              libraryStatus: 'watching',
+              rating: item.rating,
+              watchedEpisodes: item.watchedEpisodes,
+              totalEpisodes: item.totalEpisodes,
+            );
+          }
+        }
       }
     }
   }

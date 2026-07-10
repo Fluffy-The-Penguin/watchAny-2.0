@@ -67,7 +67,7 @@ class UpdateService extends ChangeNotifier {
   factory UpdateService() => _instance;
   UpdateService._internal();
 
-  static const String currentVersion = '2.0.38';
+  static const String currentVersion = '2.0.39';
   
   // GitHub Releases API Endpoint
   static const String gitHubReleasesUrl = 'https://api.github.com/repos/Fluffy-The-Penguin/watchAny-2.0/releases/latest';
@@ -167,15 +167,15 @@ class UpdateService extends ChangeNotifier {
       // Fallback mock update in case of failure
       _error = 'Live check failed ($e). Showing fallback updates.';
       _latestUpdate = UpdateInfo(
-        version: 'v2.0.38',
-        changelog: '• Restored transparent floating logo startup animation\n'
+        version: 'v2.0.39',
+        changelog: '• Fixed startup update dialog stretched layout width on desktop\n'
+            '• Restored transparent floating logo startup animation\n'
             '• Fixed Hentai episode counts (e.g. Natsuzuma)\n'
             '• Vertically centered search bar layouts\n'
-            '• Added global bouncy scroll physics (BouncingScrollPhysics)\n'
-            '• Grouped Library settings/actions into a 3-dots popup overflow menu on mobile',
+            '• Added global bouncy scroll physics (BouncingScrollPhysics)',
         downloadUrl: Platform.isAndroid 
-            ? 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.38/app-arm64-v8a-release.apk'
-            : 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.38/watchany_setup.exe',
+            ? 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.39/app-arm64-v8a-release.apk'
+            : 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.39/watchany_setup.exe',
       );
     } finally {
       _isChecking = false;
