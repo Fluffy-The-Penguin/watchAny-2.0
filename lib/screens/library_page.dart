@@ -522,13 +522,28 @@ class _LibraryPageState extends State<LibraryPage> {
     return media['averageScore'] != null ? (media['averageScore'] as num).toDouble() : 0.0;
   }
 
+  int _getMediaId(dynamic media) {
+    if (media == null) return 0;
+    final rawId = media['id'];
+    if (rawId is int) return rawId;
+    if (rawId is String) {
+      if (widget.mode == AppMode.movies) {
+        final digits = RegExp(r'\d+').allMatches(rawId).map((m) => m.group(0)!).join();
+        final parsed = int.tryParse(digits);
+        if (parsed != null && parsed > 0) return parsed;
+      }
+      return int.tryParse(rawId) ?? rawId.hashCode.abs();
+    }
+    return 0;
+  }
+
   List<dynamic> _sortItems(List<dynamic> items) {
     items.sort((a, b) {
       switch (_selectedSort) {
         case 'DATE_ADDED_DESC':
-          return _getAddedDate(b['id']).compareTo(_getAddedDate(a['id']));
+          return _getAddedDate(_getMediaId(b)).compareTo(_getAddedDate(_getMediaId(a)));
         case 'DATE_ADDED_ASC':
-          return _getAddedDate(a['id']).compareTo(_getAddedDate(b['id']));
+          return _getAddedDate(_getMediaId(a)).compareTo(_getAddedDate(_getMediaId(b)));
         case 'RATING_DESC':
           final rA = _getMediaRating(a);
           final rB = _getMediaRating(b);
@@ -621,7 +636,7 @@ class _LibraryPageState extends State<LibraryPage> {
     if (_selectedStatus != 'ALL') {
       items = items.where((media) {
         if (widget.mode == AppMode.movies) {
-          final userStatus = _getLibraryStatus(media['id']);
+          final userStatus = _getLibraryStatus(_getMediaId(media));
           return userStatus.toLowerCase() == _selectedStatus.toLowerCase();
         } else {
           final stat = (media['status'] ?? '').toString().replaceAll('_', ' ').toUpperCase();
@@ -637,7 +652,7 @@ class _LibraryPageState extends State<LibraryPage> {
   Widget _buildCategoryGrid(String categoryId, bool isMobile) {
     final modeStr = widget.mode.name;
     var items = _fetchedMedia.where((media) {
-      final savedItem = LibraryState().getItem(media['id'], modeStr);
+      final savedItem = LibraryState().getItem(_getMediaId(media), modeStr);
       if (categoryId == 'UNCATEGORIZED') {
         return savedItem == null || savedItem.categoryIds.isEmpty;
       } else {
@@ -664,7 +679,7 @@ class _LibraryPageState extends State<LibraryPage> {
         itemCount: items.length,
         itemBuilder: (context, index) {
           final media = items[index];
-          final int id = media['id'] as int;
+          final int id = _getMediaId(media);
           return _LibraryMediaCard(
             media: media,
             mode: widget.mode,
@@ -1166,7 +1181,7 @@ class _LibraryPageState extends State<LibraryPage> {
                           itemCount: displayItems.length,
                           itemBuilder: (context, index) {
                             final media = displayItems[index];
-                            final int id = media['id'] as int;
+                            final int id = _getMediaId(media);
                             return _LibraryMediaCard(
                               media: media,
                               mode: widget.mode,
@@ -1329,7 +1344,7 @@ class _LibraryPageState extends State<LibraryPage> {
                           itemCount: displayItems.length,
                           itemBuilder: (context, index) {
                             final media = displayItems[index];
-                            final int id = media['id'] as int;
+                            final int id = _getMediaId(media);
                             return _LibraryMediaCard(
                               media: media,
                               mode: widget.mode,
@@ -1824,11 +1839,11 @@ class _LibraryPageState extends State<LibraryPage> {
       if (_activeStatusTab == 'downloaded') {
         items = items.where((media) {
           return DownloadService().tasks.any((task) =>
-              task.anilistId == media['id'] &&
+              task.anilistId == _getMediaId(media) &&
               task.status == DownloadStatus.completed);
         }).toList();
       } else {
-        items = items.where((media) => _getLibraryStatus(media['id']) == _activeStatusTab).toList();
+        items = items.where((media) => _getLibraryStatus(_getMediaId(media)) == _activeStatusTab).toList();
       }
     }
     return _applyFilters(items);
@@ -2262,6 +2277,20 @@ class _LibraryMediaCard extends StatefulWidget {
 class _LibraryMediaCardState extends State<_LibraryMediaCard> {
   bool _isHovered = false;
 
+  int _getMediaId() {
+    final rawId = widget.media['id'];
+    if (rawId is int) return rawId;
+    if (rawId is String) {
+      if (widget.mode == AppMode.movies) {
+        final digits = RegExp(r'\d+').allMatches(rawId).map((m) => m.group(0)!).join();
+        final parsed = int.tryParse(digits);
+        if (parsed != null && parsed > 0) return parsed;
+      }
+      return int.tryParse(rawId) ?? rawId.hashCode.abs();
+    }
+    return 0;
+  }
+
   @override
   Widget build(BuildContext context) {
     String coverUrl = '';
@@ -2316,7 +2345,8 @@ class _LibraryMediaCardState extends State<_LibraryMediaCard> {
 
     // Retrieve user progress details from LibraryState
     final modeStr = widget.mode.name;
-    final savedItem = LibraryState().getItem(widget.media['id'], modeStr);
+    final int libId = _getMediaId();
+    final savedItem = LibraryState().getItem(libId, modeStr);
     
     final int progress = savedItem?.watchedEpisodes ?? 0;
     final int? total = savedItem?.totalEpisodes;
