@@ -776,7 +776,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
                 title: widget.title,
                 onStreamSelected: (stream, {isDownload = false}) {
                   Navigator.pop(context);
-                  if (isDownload && stream['infoHash'] != null) {
+                  if (stream['infoHash'] != null) {
                     final String hash = stream['infoHash'].toString();
                     final String streamTitle = stream['title']?.toString() ?? stream['name']?.toString() ?? '';
                     final int seeders = _getStreamSeeders(stream);
@@ -839,7 +839,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
                         isMovie: PlayerState().isMovie == true,
                         media: widget.media ?? {},
                         episodes: widget.episodes,
-                        isDownload: true,
+                        isDownload: isDownload,
                       ),
                     );
                   } else {
@@ -2126,7 +2126,20 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
     );
   }
 
-  void _playStremioStream(dynamic stream, int epNum) {
+  void _playStremioStream(dynamic rawStream, int epNum) {
+    var stream = rawStream;
+    if (stream is Map) {
+      final map = Map<String, dynamic>.from(stream);
+      final String? url = map['url']?.toString();
+      if (map['infoHash'] == null && url != null && url.startsWith('magnet:')) {
+        final match = RegExp(r'urn:btih:([a-zA-Z0-9]+)', caseSensitive: false).firstMatch(url);
+        if (match != null) {
+          map['infoHash'] = match.group(1);
+        }
+      }
+      stream = map;
+    }
+
     final mediaTitle = PlayerState().media?['title'] ?? 'Media';
 
     if (stream['infoHash'] != null) {
@@ -2180,10 +2193,24 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
 
     String streamUrl = stream['url'] ?? '';
     if (streamUrl.isNotEmpty) {
+      Map<String, String>? headers;
+      if (stream['behaviorHints'] is Map) {
+        final bh = stream['behaviorHints'] as Map;
+        if (bh['proxyHeaders'] is Map && bh['proxyHeaders']['request'] is Map) {
+          headers = (bh['proxyHeaders']['request'] as Map).map((k, v) => MapEntry(k.toString(), v.toString()));
+        } else if (bh['headers'] is Map) {
+          headers = (bh['headers'] as Map).map((k, v) => MapEntry(k.toString(), v.toString()));
+        }
+      }
+      if (headers == null && stream['headers'] is Map) {
+        headers = (stream['headers'] as Map).map((k, v) => MapEntry(k.toString(), v.toString()));
+      }
+
       PlayerState().updateActiveEpisode(
         streamUrl: streamUrl,
         title: '$mediaTitle - Episode $epNum',
         episodeNumber: epNum,
+        headers: headers,
       );
     }
   }

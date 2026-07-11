@@ -102,7 +102,20 @@ class _MovieStreamSelectorPanelState extends State<MovieStreamSelectorPanel> {
   // ── Filter logic ────────────────────────────────────────────────────────────
 
   List<dynamic> get _processedStreams {
-    List<dynamic> list = List.from(widget.streams);
+    List<dynamic> list = widget.streams.map((s) {
+      if (s is Map) {
+        final map = Map<String, dynamic>.from(s);
+        final String? url = map['url']?.toString();
+        if (map['infoHash'] == null && url != null && url.startsWith('magnet:')) {
+          final match = RegExp(r'urn:btih:([a-zA-Z0-9]+)', caseSensitive: false).firstMatch(url);
+          if (match != null) {
+            map['infoHash'] = match.group(1);
+          }
+        }
+        return map;
+      }
+      return s;
+    }).toList();
 
     // 1. Text Search filter (matching stream name or description)
     final search = _searchController.text.trim().toLowerCase();

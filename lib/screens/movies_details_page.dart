@@ -469,7 +469,20 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
 
   // ── Playback ──────────────────────────────────────────────────────────────
 
-  void _playStream(dynamic stream, int? episode, {bool isDownload = false}) {
+  void _playStream(dynamic rawStream, int? episode, {bool isDownload = false}) {
+    var stream = rawStream;
+    if (stream is Map) {
+      final map = Map<String, dynamic>.from(stream);
+      final String? url = map['url']?.toString();
+      if (map['infoHash'] == null && url != null && url.startsWith('magnet:')) {
+        final match = RegExp(r'urn:btih:([a-zA-Z0-9]+)', caseSensitive: false).firstMatch(url);
+        if (match != null) {
+          map['infoHash'] = match.group(1);
+        }
+      }
+      stream = map;
+    }
+
     final mediaTitle =
         _meta['name']?.toString() ?? _meta['title']?.toString() ?? 'Media';
     final poster = _meta['poster']?.toString() ?? _meta['coverImage']?.toString() ?? '';
