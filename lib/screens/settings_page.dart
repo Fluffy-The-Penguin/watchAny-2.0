@@ -14,6 +14,7 @@ import '../services/notification_service.dart';
 import '../services/cache_service.dart';
 import '../services/download_service.dart';
 import '../services/backup_service.dart';
+import '../services/log_service.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../state/anilist_auth_state.dart';
@@ -4609,8 +4610,235 @@ class _SettingsPageState extends State<SettingsPage> {
                   ],
                 ),
               ),
+              const SizedBox(height: 24.0),
+              
+              // Diagnostics & Logs Section
+              const Text(
+                'Diagnostics & Logs',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 14.0,
+                  fontWeight: FontWeight.bold,
+                  fontFamily: 'Outfit',
+                ),
+              ),
+              const SizedBox(height: 12.0),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(20.0),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.02),
+                  borderRadius: BorderRadius.circular(10.0),
+                  border: Border.all(color: Colors.white10),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'If you encounter playback or synchronization issues, you can inspect or export the system logs to share with developers.',
+                      style: TextStyle(color: Colors.white70, fontSize: 13.0),
+                    ),
+                    const SizedBox(height: 16.0),
+                    Row(
+                      children: [
+                        ElevatedButton.icon(
+                          icon: const Icon(Icons.description_outlined, color: Colors.black, size: 16.0),
+                          label: const Text('View Logs', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                          onPressed: () => _showLogViewerDialog(context),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 12.0),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6.0)),
+                          ),
+                        ),
+                        const SizedBox(width: 12.0),
+                        OutlinedButton.icon(
+                          icon: const Icon(Icons.copy, color: Colors.white70, size: 16.0),
+                          label: const Text('Copy Logs', style: TextStyle(color: Colors.white70)),
+                          onPressed: () async {
+                            try {
+                              final file = await LogService().getLogFile();
+                              String content = '';
+                              if (file != null && await file.exists()) {
+                                content = await file.readAsString();
+                              }
+                              if (content.isEmpty) {
+                                content = LogService().getInMemoryLogs().join('\n');
+                              }
+                              await Clipboard.setData(ClipboardData(text: content));
+                              if (context.mounted) {
+                                NotificationService().show(context, 'Logs copied to clipboard!');
+                              }
+                            } catch (e) {
+                              if (context.mounted) {
+                                NotificationService().show(context, 'Failed to copy logs: $e');
+                              }
+                            }
+                          },
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.white70,
+                            side: const BorderSide(color: Colors.white24),
+                            padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 12.0),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6.0)),
+                          ),
+                        ),
+                        const SizedBox(width: 12.0),
+                        OutlinedButton.icon(
+                          icon: const Icon(Icons.share, color: Colors.white70, size: 16.0),
+                          label: const Text('Export Logs', style: TextStyle(color: Colors.white70)),
+                          onPressed: () async {
+                            try {
+                              final file = await LogService().getLogFile();
+                              if (file == null || !await file.exists()) {
+                                if (context.mounted) {
+                                  NotificationService().show(context, 'No log file found.');
+                                }
+                                return;
+                              }
+                              String? targetPath;
+                              if (Platform.isAndroid) {
+                                final downloadDir = Directory('/storage/emulated/0/Download/watchAny');
+                                if (!await downloadDir.exists()) {
+                                  await downloadDir.create(recursive: true);
+                                }
+                                targetPath = '${downloadDir.path}/watch_any.log';
+                              } else {
+                                final homeDir = Platform.environment['USERPROFILE'] ?? Platform.environment['HOME'] ?? Directory.current.path;
+                                final downloadDir = Directory('$homeDir/Downloads/watchAny');
+                                if (!await downloadDir.exists()) {
+                                  await downloadDir.create(recursive: true);
+                                }
+                                targetPath = '${downloadDir.path}/watch_any.log';
+                              }
+                              
+                              final targetFile = File(targetPath);
+                              await file.copy(targetFile.path);
+                              
+                              if (context.mounted) {
+                                NotificationService().show(context, 'Logs exported to: $targetPath');
+                              }
+                            } catch (e) {
+                              if (context.mounted) {
+                                NotificationService().show(context, 'Export failed: $e');
+                              }
+                            }
+                          },
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.white70,
+                            side: const BorderSide(color: Colors.white24),
+                            padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 12.0),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6.0)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
             ],
           ),
+        );
+      },
+    );
+  }
+
+  void _showLogViewerDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return FutureBuilder<String>(
+          future: () async {
+            final file = await LogService().getLogFile();
+            if (file != null && await file.exists()) {
+              return await file.readAsString();
+            }
+            return LogService().getInMemoryLogs().join('\n');
+          }(),
+          builder: (context, snapshot) {
+            final logs = snapshot.data ?? 'Loading logs...';
+            return Dialog(
+              backgroundColor: const Color(0xFF0F0F0F),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
+              child: Container(
+                width: MediaQuery.of(context).size.width * 0.8,
+                height: MediaQuery.of(context).size.height * 0.8,
+                padding: const EdgeInsets.all(20.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'System Logs',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 18.0,
+                            fontWeight: FontWeight.bold,
+                            fontFamily: 'Outfit',
+                          ),
+                        ),
+                        Row(
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.copy, color: Colors.white70),
+                              tooltip: 'Copy to Clipboard',
+                              onPressed: () async {
+                                await Clipboard.setData(ClipboardData(text: logs));
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(content: Text('Logs copied to clipboard')),
+                                  );
+                                }
+                              },
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                              tooltip: 'Clear Logs',
+                              onPressed: () async {
+                                await LogService().clearLogs();
+                                if (context.mounted) {
+                                  Navigator.pop(context);
+                                  NotificationService().show(context, 'Logs cleared.');
+                                }
+                              },
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.close, color: Colors.white70),
+                              onPressed: () => Navigator.pop(context),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16.0),
+                    Expanded(
+                      child: Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12.0),
+                        decoration: BoxDecoration(
+                          color: Colors.black,
+                          borderRadius: BorderRadius.circular(8.0),
+                          border: Border.all(color: Colors.white12),
+                        ),
+                        child: SingleChildScrollView(
+                          child: SelectableText(
+                            logs.isEmpty ? 'No logs captured yet.' : logs,
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontFamily: 'monospace',
+                              fontSize: 12.0,
+                              height: 1.4,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
         );
       },
     );

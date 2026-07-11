@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import '../state/app_settings.dart';
+import 'log_service.dart';
 
 class TorrServerManager {
   static Process? _process;
@@ -36,7 +37,7 @@ class TorrServerManager {
       } catch (_) {
         // Port is occupied, check if TorrServer is already running on it
         if (await _isTorrServerRunning(port)) {
-          developer.log('TorrServer is already running on port $port. Will reuse.', name: 'TorrServerManager');
+          _log('TorrServer is already running on port $port. Will reuse.');
           return port;
         }
         port++;
@@ -67,9 +68,9 @@ class TorrServerManager {
             }
           }),
         ).timeout(const Duration(seconds: 3));
-        developer.log('Optimal streaming settings applied successfully.', name: 'TorrServerManager');
+        _log('Optimal streaming settings applied successfully.');
       } catch (e, stack) {
-        developer.log('Failed to apply streaming settings', name: 'TorrServerManager', error: e, stackTrace: stack);
+        _log('Failed to apply streaming settings', level: 'ERROR', error: e, stackTrace: stack);
       }
     });
   }
@@ -95,7 +96,7 @@ class TorrServerManager {
       AppSettings().updateLocalTorrServerPort(_port);
 
       if (await _isTorrServerRunning(_port)) {
-        developer.log('Reusing existing TorrServer instance on port $_port.', name: 'TorrServerManager');
+        _log('Reusing existing TorrServer instance on port $_port.');
         _applySettings(_port);
         _isStarting = false;
         return;
@@ -107,7 +108,7 @@ class TorrServerManager {
         await _startDesktop();
       }
     } catch (e, stack) {
-      developer.log('Error starting TorrServer', name: 'TorrServerManager', error: e, stackTrace: stack);
+      _log('Error starting TorrServer', level: 'ERROR', error: e, stackTrace: stack);
     } finally {
       _isStarting = false;
     }
@@ -124,7 +125,7 @@ class TorrServerManager {
       final file = File(nativeLibPath);
       if (!await file.exists()) {
         lastStartupError = "Native binary not found at $nativeLibPath. Verify extractNativeLibs is true in manifest.";
-        developer.log(lastStartupError!, name: 'TorrServerManager', error: lastStartupError);
+        _log(lastStartupError!, level: 'ERROR', error: lastStartupError);
         return;
       }
 
@@ -157,16 +158,16 @@ class TorrServerManager {
       _process!.exitCode.then((exitCode) {
         if (exitCode != 0) {
           final errStr = errorBuffer.toString();
-          lastStartupError = "Process exited with code $exitCode. Stderr: ${errStr.isEmpty ? 'No stderr' : errStr}";
-          developer.log(lastStartupError!, name: 'TorrServerManager', error: lastStartupError);
+          lastStartupError = "TorrServer failed to bind to port $_port. Exit code: $exitCode. Stderr: ${errStr.isEmpty ? 'No stderr' : errStr}";
+          _log(lastStartupError!, level: 'ERROR');
         }
       });
 
-      developer.log('TorrServer process started on Android!', name: 'TorrServerManager');
+      _log('TorrServer process started on Android!');
       _applySettings(_port);
     } catch (e, stack) {
-      lastStartupError = "Exception starting process: $e";
-      developer.log(lastStartupError!, name: 'TorrServerManager', error: e, stackTrace: stack);
+      lastStartupError = 'Failed to start TorrServer: $e';
+      _log(lastStartupError!, level: 'ERROR', error: e, stackTrace: stack);
     }
   }
 
@@ -181,15 +182,15 @@ class TorrServerManager {
 
     // Copy from assets to local file if not exists or if size is 0
     if (!await file.exists() || await file.length() == 0) {
-      developer.log('Extracting TorrServer binary to AppData...', name: 'TorrServerManager');
+      _log('Extracting TorrServer binary to AppData...');
       final byteData = await rootBundle.load('assets/bin/torrserver.exe');
       final bytes = byteData.buffer.asUint8List(byteData.offsetInBytes, byteData.lengthInBytes);
       await file.writeAsBytes(bytes);
-      developer.log('Extraction complete.', name: 'TorrServerManager');
+      _log('Extraction complete.');
     }
 
     // Start the process
-    developer.log('Launching TorrServer process on port $_port with DB path: ${appDir.path}...', name: 'TorrServerManager');
+    _log('Launching TorrServer process on port $_port with DB path: ${appDir.path}...');
     _process = await Process.start(exePath, ['-p', '$_port', '-d', appDir.path]);
     
     // Log stdout and stderr
@@ -200,15 +201,24 @@ class TorrServerManager {
       developer.log(data.trim(), name: 'TorrServer-STDERR');
     });
 
-    developer.log('TorrServer started successfully!', name: 'TorrServerManager');
+    _log('TorrServer started successfully!');
     _applySettings(_port);
   }
 
   static Future<void> stop() async {
     if (_process != null) {
-      developer.log('Terminating TorrServer process...', name: 'TorrServerManager');
+      _log('Terminating TorrServer process...');
       _process!.kill();
       _process = null;
+    }
+  }
+
+  static void _log(String message, {String level = 'INFO', dynamic error, StackTrace? stackTrace}) {
+    developer.log(message, name: 'TorrServerManager', error: error, stackTrace: stackTrace);
+    if (level == 'ERROR') {
+      LogService().error('[TorrServerManager] $message', error, stackTrace);
+    } else {
+      LogService().info('[TorrServerManager] $message');
     }
   }
 }

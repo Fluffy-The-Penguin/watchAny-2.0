@@ -14,6 +14,7 @@ import 'state/app_settings.dart';
 import 'state/library_state.dart';
 import 'state/anilist_auth_state.dart';
 import 'state/player_state.dart' as ps;
+import 'services/log_service.dart';
 import 'services/video_proxy_service.dart';
 import 'screens/shell_layout.dart';
 import 'screens/setup_screen.dart';
@@ -48,6 +49,19 @@ class MyHttpOverrides extends HttpOverrides {
 void main() async {
   HttpOverrides.global = MyHttpOverrides();
   WidgetsFlutterBinding.ensureInitialized();
+  
+  // Initialize LogService
+  await LogService().init();
+  
+  // Catch unhandled errors
+  FlutterError.onError = (FlutterErrorDetails details) {
+    FlutterError.presentError(details);
+    LogService().error('Unhandled Flutter Error: ${details.exceptionAsString()}', details.exception, details.stack);
+  };
+  PlatformDispatcher.instance.onError = (error, stack) {
+    LogService().error('Unhandled Platform Error: $error', error, stack);
+    return true;
+  };
   
   // Initialize MediaKit
   MediaKit.ensureInitialized();
@@ -149,6 +163,9 @@ class _MyAppState extends State<MyApp> with WindowListener, WidgetsBindingObserv
       LibraryState().init(),
       DownloadService().init(),
     ]);
+
+    // Initialize NavigationState with the loaded AppSettings
+    NavigationState().init();
 
     // 3. Register change listeners for debounced background exports
     AppSettings().addListener(() {

@@ -1338,174 +1338,384 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
           final videoWidth = player.state.width;
           final videoHeight = player.state.height;
 
-          // Scale subtitles font size dynamically based on the current layout width
-          final settings = AppSettings();
-          final double scale = (playerWidth / 720.0).clamp(0.85, 3.0);
-          final double subtitleFontSize = (scale * settings.subtitlesFontSize).clamp(14.0, 72.0);
+          return ListenableBuilder(
+            listenable: AppSettings(),
+            builder: (context, _) {
+              final settings = AppSettings();
+              final bool isMobile = !kIsWeb && (Platform.isAndroid || Platform.isIOS);
+              final double baseWidth = isMobile ? 380.0 : 720.0;
+              final double scale = (playerWidth / baseWidth).clamp(isMobile ? 1.0 : 0.85, 3.0);
+              final double subtitleFontSize = (scale * settings.subtitlesFontSize).clamp(14.0, 72.0);
 
-          final subtitleConfig = !settings.subtitlesCustomStylesEnabled
-              ? const SubtitleViewConfiguration()
-              : SubtitleViewConfiguration(
-            style: TextStyle(
-              height: 1.4,
-              fontSize: subtitleFontSize,
-              letterSpacing: 0.0,
-              wordSpacing: 0.0,
-              color: Color(settings.subtitlesTextColor),
-              backgroundColor: settings.subtitlesBgEnabled
-                  ? Color(settings.subtitlesBgColor).withValues(alpha: settings.subtitlesBgOpacity)
-                  : null,
-              fontWeight: settings.subtitlesBold ? FontWeight.bold : FontWeight.normal,
-              fontStyle: settings.subtitlesItalic ? FontStyle.italic : FontStyle.normal,
-              fontFamily: settings.subtitlesFontFamily,
-              shadows: settings.subtitlesShadowEnabled
-                  ? [
-                      Shadow(
-                        offset: Offset(-settings.subtitlesShadowOffset, -settings.subtitlesShadowOffset),
-                        color: Color(settings.subtitlesShadowColor).withValues(alpha: settings.subtitlesShadowOpacity),
-                        blurRadius: settings.subtitlesShadowBlurRadius,
-                      ),
-                      Shadow(
-                        offset: Offset(settings.subtitlesShadowOffset, -settings.subtitlesShadowOffset),
-                        color: Color(settings.subtitlesShadowColor).withValues(alpha: settings.subtitlesShadowOpacity),
-                        blurRadius: settings.subtitlesShadowBlurRadius,
-                      ),
-                      Shadow(
-                        offset: Offset(settings.subtitlesShadowOffset, settings.subtitlesShadowOffset),
-                        color: Color(settings.subtitlesShadowColor).withValues(alpha: settings.subtitlesShadowOpacity),
-                        blurRadius: settings.subtitlesShadowBlurRadius,
-                      ),
-                      Shadow(
-                        offset: Offset(-settings.subtitlesShadowOffset, settings.subtitlesShadowOffset),
-                        color: Color(settings.subtitlesShadowColor).withValues(alpha: settings.subtitlesShadowOpacity),
-                        blurRadius: settings.subtitlesShadowBlurRadius,
-                      ),
-                    ]
-                  : null,
-            ),
-            textAlign: TextAlign.center,
-            padding: DynamicSubtitlePadding(
-              baseOffset: settings.subtitlesPositionOffset,
-              subtitlesXOffset: settings.subtitlesXOffset,
-              videoWidth: (videoWidth ?? 0).toDouble(),
-              videoHeight: (videoHeight ?? 0).toDouble(),
-            ),
-          );
-
-          Widget videoWidget = Video(
-            controller: controller,
-            subtitleViewConfiguration: subtitleConfig,
-            onEnterFullscreen: () async {
-              PlayerState().enterFullscreen();
-              if (isDesktop) {
-                try {
-                  await windowManager.setFullScreen(true);
-                } catch (_) {}
-                await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-              } else {
-                await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-                await SystemChrome.setPreferredOrientations([
-                  DeviceOrientation.landscapeLeft,
-                  DeviceOrientation.landscapeRight,
-                ]); // force landscape in fullscreen
-              }
-            },
-            onExitFullscreen: () async {
-              PlayerState().exitFullscreen();
-              if (isDesktop) {
-                try {
-                  await windowManager.setFullScreen(false);
-                } catch (_) {}
-                await SystemChrome.setEnabledSystemUIMode(
-                  SystemUiMode.manual,
-                  overlays: SystemUiOverlay.values,
-                );
-              } else {
-                await SystemChrome.setEnabledSystemUIMode(
-                  SystemUiMode.manual,
-                  overlays: SystemUiOverlay.values,
-                );
-                await SystemChrome.setPreferredOrientations([
-                  DeviceOrientation.portraitUp,
-                  DeviceOrientation.portraitDown,
-                  DeviceOrientation.landscapeLeft,
-                  DeviceOrientation.landscapeRight,
-                ]); // allow both vertical/horizontal on exit
-              }
-            },
-            controls: (state) {
-              final bool isDesktopPlatform = [
-                TargetPlatform.windows,
-                TargetPlatform.linux,
-                TargetPlatform.macOS,
-              ].contains(Theme.of(state.context).platform);
-              
-              final double width = MediaQuery.of(state.context).size.width;
-              final bool useMobileControls = !isDesktopPlatform || width < 600;
-
-              final Widget controlsWidget = KeyedSubtree(
-                key: ValueKey(_overlayEntry != null),
-                child: useMobileControls
-                    ? MaterialVideoControls(state)
-                    : MaterialDesktopVideoControls(state),
+              final subtitleConfig = !settings.subtitlesCustomStylesEnabled
+                  ? const SubtitleViewConfiguration()
+                  : SubtitleViewConfiguration(
+                style: TextStyle(
+                  height: 1.4,
+                  fontSize: subtitleFontSize,
+                  letterSpacing: 0.0,
+                  wordSpacing: 0.0,
+                  color: Color(settings.subtitlesTextColor),
+                  backgroundColor: settings.subtitlesBgEnabled
+                      ? Color(settings.subtitlesBgColor).withValues(alpha: settings.subtitlesBgOpacity)
+                      : null,
+                  fontWeight: settings.subtitlesBold ? FontWeight.bold : FontWeight.normal,
+                  fontStyle: settings.subtitlesItalic ? FontStyle.italic : FontStyle.normal,
+                  fontFamily: settings.subtitlesFontFamily,
+                  shadows: settings.subtitlesShadowEnabled
+                      ? [
+                          Shadow(
+                            offset: Offset(-settings.subtitlesShadowOffset, -settings.subtitlesShadowOffset),
+                            color: Color(settings.subtitlesShadowColor).withValues(alpha: settings.subtitlesShadowOpacity),
+                            blurRadius: settings.subtitlesShadowBlurRadius,
+                          ),
+                          Shadow(
+                            offset: Offset(settings.subtitlesShadowOffset, -settings.subtitlesShadowOffset),
+                            color: Color(settings.subtitlesShadowColor).withValues(alpha: settings.subtitlesShadowOpacity),
+                            blurRadius: settings.subtitlesShadowBlurRadius,
+                          ),
+                          Shadow(
+                            offset: Offset(settings.subtitlesShadowOffset, settings.subtitlesShadowOffset),
+                            color: Color(settings.subtitlesShadowColor).withValues(alpha: settings.subtitlesShadowOpacity),
+                            blurRadius: settings.subtitlesShadowBlurRadius,
+                          ),
+                          Shadow(
+                            offset: Offset(-settings.subtitlesShadowOffset, settings.subtitlesShadowOffset),
+                            color: Color(settings.subtitlesShadowColor).withValues(alpha: settings.subtitlesShadowOpacity),
+                            blurRadius: settings.subtitlesShadowBlurRadius,
+                          ),
+                        ]
+                      : null,
+                ),
+                textAlign: TextAlign.center,
+                padding: DynamicSubtitlePadding(
+                  baseOffset: settings.subtitlesPositionOffset,
+                  subtitlesXOffset: settings.subtitlesXOffset,
+                  videoWidth: (videoWidth ?? 0).toDouble(),
+                  videoHeight: (videoHeight ?? 0).toDouble(),
+                ),
               );
 
-              return Stack(
+              Widget videoWidget = Video(
+                controller: controller,
+                subtitleViewConfiguration: subtitleConfig,
+                onEnterFullscreen: () async {
+                  PlayerState().enterFullscreen();
+                  if (isDesktop) {
+                    try {
+                      await windowManager.setFullScreen(true);
+                    } catch (_) {}
+                    await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+                  } else {
+                    await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+                    await SystemChrome.setPreferredOrientations([
+                      DeviceOrientation.landscapeLeft,
+                      DeviceOrientation.landscapeRight,
+                    ]); // force landscape in fullscreen
+                  }
+                },
+                onExitFullscreen: () async {
+                  PlayerState().exitFullscreen();
+                  if (isDesktop) {
+                    try {
+                      await windowManager.setFullScreen(false);
+                    } catch (_) {}
+                    await SystemChrome.setEnabledSystemUIMode(
+                      SystemUiMode.manual,
+                      overlays: SystemUiOverlay.values,
+                    );
+                  } else {
+                    await SystemChrome.setEnabledSystemUIMode(
+                      SystemUiMode.manual,
+                      overlays: SystemUiOverlay.values,
+                    );
+                    await SystemChrome.setPreferredOrientations([
+                      DeviceOrientation.portraitUp,
+                      DeviceOrientation.portraitDown,
+                      DeviceOrientation.landscapeLeft,
+                      DeviceOrientation.landscapeRight,
+                    ]); // allow both vertical/horizontal on exit
+                  }
+                },
+                controls: (state) {
+                  final bool isDesktopPlatform = [
+                    TargetPlatform.windows,
+                    TargetPlatform.linux,
+                    TargetPlatform.macOS,
+                  ].contains(Theme.of(state.context).platform);
+                  
+                  final double width = MediaQuery.of(state.context).size.width;
+                  final bool useMobileControls = !isDesktopPlatform || width < 600;
+
+                  final Widget controlsWidget = KeyedSubtree(
+                    key: ValueKey(_overlayEntry != null),
+                    child: useMobileControls
+                        ? MaterialVideoControls(state)
+                        : MaterialDesktopVideoControls(state),
+                  );
+
+                  return Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      controlsWidget,
+                      if (_showSkipButton && _activeSkipInterval != null)
+                        Positioned(
+                          bottom: 96.0,
+                          right: 24.0,
+                          child: AnimatedOpacity(
+                            opacity: _showSkipButton ? 1.0 : 0.0,
+                            duration: const Duration(milliseconds: 300),
+                            child: Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                onTap: _performSkip,
+                                borderRadius: BorderRadius.circular(8.0),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 18.0, vertical: 10.0),
+                                  decoration: BoxDecoration(
+                                    color: Colors.black.withOpacity(0.75),
+                                    borderRadius: BorderRadius.circular(8.0),
+                                    border: Border.all(color: Colors.amber.withOpacity(0.5), width: 1.5),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.amber.withOpacity(0.15),
+                                        blurRadius: 10,
+                                        spreadRadius: 1,
+                                      )
+                                    ],
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        _activeSkipInterval!.skipType == 'ed'
+                                            ? Icons.skip_next
+                                            : Icons.fast_forward,
+                                        color: Colors.amber,
+                                        size: 20,
+                                      ),
+                                      const SizedBox(width: 8.0),
+                                      Text(
+                                        _activeSkipInterval!.skipType == 'ed'
+                                            ? 'Skip Ending'
+                                            : _activeSkipInterval!.skipType == 'op'
+                                                ? 'Skip Opening'
+                                                : 'Skip Recap',
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontFamily: 'Outfit',
+                                          fontSize: 14.0,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  );
+                },
+              );
+
+              final double loadedPercent = _duration.inMilliseconds > 0 
+                  ? (_buffer.inMilliseconds / _duration.inMilliseconds * 100).clamp(0.0, 100.0) 
+                  : 0.0;
+              final Duration bufferAhead = _buffer > _position ? _buffer - _position : Duration.zero;
+              final bool hasTorrent = _getTorrentHash(_currentStreamUrl) != null;
+
+              Widget finalWidget = Stack(
                 fit: StackFit.expand,
                 children: [
-                  controlsWidget,
-                  if (_showSkipButton && _activeSkipInterval != null)
-                    Positioned(
-                      bottom: 96.0,
-                      right: 24.0,
+                  videoWidget,
+                  // Top-center Stats Overlay (Speed & Loaded progress)
+                  Positioned(
+                    top: isDesktop ? 60.0 : 64.0,
+                    left: 0,
+                    right: 0,
+                    child: Center(
                       child: AnimatedOpacity(
-                        opacity: _showSkipButton ? 1.0 : 0.0,
-                        duration: const Duration(milliseconds: 300),
-                        child: Material(
-                          color: Colors.transparent,
-                          child: InkWell(
-                            onTap: _performSkip,
-                            borderRadius: BorderRadius.circular(8.0),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 18.0, vertical: 10.0),
-                              decoration: BoxDecoration(
-                                color: Colors.black.withOpacity(0.75),
-                                borderRadius: BorderRadius.circular(8.0),
-                                border: Border.all(color: Colors.amber.withOpacity(0.5), width: 1.5),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.amber.withOpacity(0.15),
-                                    blurRadius: 10,
-                                    spreadRadius: 1,
-                                  )
-                                ],
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    _activeSkipInterval!.skipType == 'ed'
-                                        ? Icons.skip_next
-                                        : Icons.fast_forward,
-                                    color: Colors.amber,
-                                    size: 20,
-                                  ),
-                                  const SizedBox(width: 8.0),
+                        opacity: _showAppBar ? 1.0 : 0.0,
+                        duration: const Duration(milliseconds: 250),
+                        child: IgnorePointer(
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 6.0),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withOpacity(0.75),
+                              borderRadius: BorderRadius.circular(20.0),
+                              border: Border.all(color: Colors.white12, width: 1.0),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.4),
+                                  blurRadius: 10,
+                                  offset: const Offset(0, 4),
+                                ),
+                              ],
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (hasTorrent) ...[
+                                  const Icon(Icons.download, color: Colors.greenAccent, size: 14.0),
+                                  const SizedBox(width: 4.0),
                                   Text(
-                                    _activeSkipInterval!.skipType == 'ed'
-                                        ? 'Skip Ending'
-                                        : _activeSkipInterval!.skipType == 'op'
-                                            ? 'Skip Opening'
-                                            : 'Skip Recap',
+                                    _formatSpeed(_torrentSpeedBytes),
                                     style: const TextStyle(
-                                      color: Colors.white,
-                                      fontFamily: 'Outfit',
-                                      fontSize: 14.0,
+                                      color: Colors.greenAccent,
+                                      fontSize: 11.5,
                                       fontWeight: FontWeight.bold,
+                                      fontFamily: 'Outfit',
                                     ),
                                   ),
+                                  const SizedBox(width: 8.0),
+                                  const Text('|', style: TextStyle(color: Colors.white24, fontSize: 11.5)),
+                                  const SizedBox(width: 8.0),
+                                  const Icon(Icons.people_outline, color: Colors.amber, size: 14.0),
+                                  const SizedBox(width: 4.0),
+                                  Text(
+                                    '$_torrentActivePeers/$_torrentTotalPeers',
+                                    style: const TextStyle(
+                                      color: Colors.amber,
+                                      fontSize: 11.5,
+                                      fontWeight: FontWeight.bold,
+                                      fontFamily: 'Outfit',
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8.0),
+                                  const Text('|', style: TextStyle(color: Colors.white24, fontSize: 11.5)),
+                                  const SizedBox(width: 8.0),
+                                ],
+                                const Icon(Icons.cloud_download_outlined, color: Colors.blueAccent, size: 14.0),
+                                const SizedBox(width: 4.0),
+                                Text(
+                                  'Loaded: ${loadedPercent.toStringAsFixed(1)}% (+${_formatDuration(bufferAhead)})',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 11.5,
+                                    fontWeight: FontWeight.w600,
+                                    fontFamily: 'Outfit',
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  if (isDesktop)
+                    Positioned(
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      child: AnimatedSlide(
+                        offset: _showAppBar ? Offset.zero : const Offset(0, -1),
+                        duration: const Duration(milliseconds: 250),
+                        curve: Curves.easeInOut,
+                        child: AnimatedOpacity(
+                          opacity: _showAppBar ? 1.0 : 0.0,
+                          duration: const Duration(milliseconds: 250),
+                          child: Container(
+                            height: 40.0,
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: [
+                                  Colors.black.withValues(alpha: 0.8),
+                                  Colors.black.withValues(alpha: 0.0),
                                 ],
                               ),
+                            ),
+                            child: Row(
+                              children: [
+                                const SizedBox(width: 8.0),
+                                SizedBox(
+                                  width: 32.0,
+                                  height: 32.0,
+                                  child: IconButton(
+                                    padding: EdgeInsets.zero,
+                                    icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 16.0),
+                                    onPressed: () async {
+                                      try {
+                                        final isFullScreen = await windowManager.isFullScreen();
+                                        if (isFullScreen) {
+                                          await windowManager.setFullScreen(false);
+                                        }
+                                      } catch (_) {}
+                                      PlayerState().minimize();
+                                    },
+                                  ),
+                                ),
+                                const SizedBox(width: 8.0),
+                                Expanded(
+                                  child: GestureDetector(
+                                    behavior: HitTestBehavior.translucent,
+                                    onPanStart: (details) {
+                                      windowManager.startDragging();
+                                    },
+                                    onDoubleTap: () async {
+                                      final isMax = await windowManager.isMaximized();
+                                      if (isMax) {
+                                        await windowManager.unmaximize();
+                                      } else {
+                                        await windowManager.maximize();
+                                      }
+                                      _checkMaximizedState();
+                                    },
+                                    child: Container(
+                                      alignment: Alignment.centerLeft,
+                                      child: Text(
+                                        currentTitle,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 14.0,
+                                          fontFamily: 'Outfit',
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                // Minimize
+                                _PlayerTitleBarButton(
+                                  icon: Icons.remove,
+                                  onPressed: () async {
+                                    await windowManager.minimize();
+                                  },
+                                  hoverColor: Colors.white10,
+                                  iconSize: 16.0,
+                                ),
+                                // Maximize / Restore
+                                _PlayerTitleBarButton(
+                                  icon: _isMaximized ? Icons.filter_none : Icons.crop_square,
+                                  onPressed: () async {
+                                    final isMax = await windowManager.isMaximized();
+                                    if (isMax) {
+                                      await windowManager.unmaximize();
+                                    } else {
+                                      await windowManager.maximize();
+                                    }
+                                    _checkMaximizedState();
+                                  },
+                                  hoverColor: Colors.white10,
+                                  iconSize: 12.0,
+                                ),
+                                // Close
+                                _PlayerTitleBarButton(
+                                  icon: Icons.close,
+                                  onPressed: () async {
+                                    await windowManager.close();
+                                  },
+                                  hoverColor: Colors.red.withValues(alpha: 0.8),
+                                  hoverIconColor: Colors.white,
+                                  iconSize: 16.0,
+                                ),
+                              ],
                             ),
                           ),
                         ),
@@ -1513,214 +1723,10 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
                     ),
                 ],
               );
+
+              return finalWidget;
             },
           );
-
-          final double loadedPercent = _duration.inMilliseconds > 0 
-              ? (_buffer.inMilliseconds / _duration.inMilliseconds * 100).clamp(0.0, 100.0) 
-              : 0.0;
-          final Duration bufferAhead = _buffer > _position ? _buffer - _position : Duration.zero;
-          final bool hasTorrent = _getTorrentHash(_currentStreamUrl) != null;
-
-          Widget finalWidget = Stack(
-            fit: StackFit.expand,
-            children: [
-              videoWidget,
-              // Top-center Stats Overlay (Speed & Loaded progress)
-              Positioned(
-                top: isDesktop ? 60.0 : 64.0,
-                left: 0,
-                right: 0,
-                child: Center(
-                  child: AnimatedOpacity(
-                    opacity: _showAppBar ? 1.0 : 0.0,
-                    duration: const Duration(milliseconds: 250),
-                    child: IgnorePointer(
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 6.0),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.75),
-                          borderRadius: BorderRadius.circular(20.0),
-                          border: Border.all(color: Colors.white12, width: 1.0),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.4),
-                              blurRadius: 10,
-                              offset: const Offset(0, 4),
-                            ),
-                          ],
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            if (hasTorrent) ...[
-                              const Icon(Icons.download, color: Colors.greenAccent, size: 14.0),
-                              const SizedBox(width: 4.0),
-                              Text(
-                                _formatSpeed(_torrentSpeedBytes),
-                                style: const TextStyle(
-                                  color: Colors.greenAccent,
-                                  fontSize: 11.5,
-                                  fontWeight: FontWeight.bold,
-                                  fontFamily: 'Outfit',
-                                ),
-                              ),
-                              const SizedBox(width: 8.0),
-                              const Text('|', style: TextStyle(color: Colors.white24, fontSize: 11.5)),
-                              const SizedBox(width: 8.0),
-                              const Icon(Icons.people_outline, color: Colors.amber, size: 14.0),
-                              const SizedBox(width: 4.0),
-                              Text(
-                                '$_torrentActivePeers/$_torrentTotalPeers',
-                                style: const TextStyle(
-                                  color: Colors.amber,
-                                  fontSize: 11.5,
-                                  fontWeight: FontWeight.bold,
-                                  fontFamily: 'Outfit',
-                                ),
-                              ),
-                              const SizedBox(width: 8.0),
-                              const Text('|', style: TextStyle(color: Colors.white24, fontSize: 11.5)),
-                              const SizedBox(width: 8.0),
-                            ],
-                            const Icon(Icons.cloud_download_outlined, color: Colors.blueAccent, size: 14.0),
-                            const SizedBox(width: 4.0),
-                            Text(
-                              'Loaded: ${loadedPercent.toStringAsFixed(1)}% (+${_formatDuration(bufferAhead)})',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 11.5,
-                                fontWeight: FontWeight.w600,
-                                fontFamily: 'Outfit',
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              if (isDesktop)
-                Positioned(
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  child: AnimatedSlide(
-                    offset: _showAppBar ? Offset.zero : const Offset(0, -1),
-                    duration: const Duration(milliseconds: 250),
-                    curve: Curves.easeInOut,
-                    child: AnimatedOpacity(
-                      opacity: _showAppBar ? 1.0 : 0.0,
-                      duration: const Duration(milliseconds: 250),
-                      child: Container(
-                        height: 40.0,
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: [
-                              Colors.black.withValues(alpha: 0.8),
-                              Colors.black.withValues(alpha: 0.0),
-                            ],
-                          ),
-                        ),
-                        child: Row(
-                          children: [
-                            const SizedBox(width: 8.0),
-                            SizedBox(
-                              width: 32.0,
-                              height: 32.0,
-                              child: IconButton(
-                                padding: EdgeInsets.zero,
-                                icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 16.0),
-                                onPressed: () async {
-                                  try {
-                                    final isFullScreen = await windowManager.isFullScreen();
-                                    if (isFullScreen) {
-                                      await windowManager.setFullScreen(false);
-                                    }
-                                  } catch (_) {}
-                                  PlayerState().minimize();
-                                },
-                              ),
-                            ),
-                            const SizedBox(width: 8.0),
-                            Expanded(
-                              child: GestureDetector(
-                                behavior: HitTestBehavior.translucent,
-                                onPanStart: (details) {
-                                  windowManager.startDragging();
-                                },
-                                onDoubleTap: () async {
-                                  final isMax = await windowManager.isMaximized();
-                                  if (isMax) {
-                                    await windowManager.unmaximize();
-                                  } else {
-                                    await windowManager.maximize();
-                                  }
-                                  _checkMaximizedState();
-                                },
-                                child: Container(
-                                  alignment: Alignment.centerLeft,
-                                  child: Text(
-                                    currentTitle,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 14.0,
-                                      fontFamily: 'Outfit',
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                            // Minimize
-                            _PlayerTitleBarButton(
-                              icon: Icons.remove,
-                              onPressed: () async {
-                                await windowManager.minimize();
-                              },
-                              hoverColor: Colors.white10,
-                              iconSize: 16.0,
-                            ),
-                            // Maximize / Restore
-                            _PlayerTitleBarButton(
-                              icon: _isMaximized ? Icons.filter_none : Icons.crop_square,
-                              onPressed: () async {
-                                final isMax = await windowManager.isMaximized();
-                                if (isMax) {
-                                  await windowManager.unmaximize();
-                                } else {
-                                  await windowManager.maximize();
-                                }
-                                _checkMaximizedState();
-                              },
-                              hoverColor: Colors.white10,
-                              iconSize: 12.0,
-                            ),
-                            // Close
-                            _PlayerTitleBarButton(
-                              icon: Icons.close,
-                              onPressed: () async {
-                                await windowManager.close();
-                              },
-                              hoverColor: Colors.red.withValues(alpha: 0.8),
-                              hoverIconColor: Colors.white,
-                              iconSize: 16.0,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-            ],
-          );
-
-          return finalWidget;
         },
       ),
     );

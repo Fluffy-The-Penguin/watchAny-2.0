@@ -8,10 +8,10 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/video_proxy_service.dart';
-import '../services/torrserver_manager.dart';
 import 'library_state.dart';
 import 'app_settings.dart';
 import '../services/hstream_service.dart';
+import '../services/log_service.dart';
 
 class PlaybackProgress {
   final int position; // in milliseconds
@@ -126,10 +126,16 @@ class PlayerState extends ChangeNotifier {
     _hstreamSources = hstreamSources;
     _headers = headers;
 
+    LogService().info('Initializing player for stream: $streamUrl, title: $title');
     _player = Player();
 
     try {
       final nativePlayer = _player!.platform as NativePlayer;
+      final settings = AppSettings();
+      
+      // Explicitly set hardware decoding property for the mpv instance
+      nativePlayer.setProperty('hwdec', settings.hardwareAccelerationEnabled ? 'auto-safe' : 'no');
+      
       nativePlayer.setProperty('hr-seek', 'no');
       nativePlayer.setProperty('cache', 'yes');
       nativePlayer.setProperty('demuxer-seekable-cache', 'yes');
@@ -141,7 +147,6 @@ class PlayerState extends ChangeNotifier {
       nativePlayer.setProperty('demuxer-lavf-timeout', '60');     // Wait up to 60s for initial metadata/opening
       
       // Auto-apply persisted Video Enhancement if enabled
-      final settings = AppSettings();
       if (settings.videoEnhancementEnabled) {
         nativePlayer.setProperty('deband', 'yes');
         
@@ -174,14 +179,14 @@ class PlayerState extends ChangeNotifier {
         nativePlayer.setProperty('scale', 'spline36');
         nativePlayer.setProperty('cscale', 'spline36');
       }
-    } catch (e) {
-      debugPrint('[PlayerState] Error setting player performance options: $e');
+    } catch (e, stack) {
+      LogService().error('Error setting player performance options', e, stack);
     }
 
     _controller = VideoController(
       _player!,
-      configuration: VideoControllerConfiguration(
-        enableHardwareAcceleration: AppSettings().hardwareAccelerationEnabled,
+      configuration: const VideoControllerConfiguration(
+        enableHardwareAcceleration: true,
       ),
     );
 
@@ -209,6 +214,10 @@ class PlayerState extends ChangeNotifier {
       }
     });
 
+    _player!.stream.error.listen((err) {
+      LogService().error('MediaKit Player Core Error: $err');
+    });
+
     // Start playing via proxy if applicable (only on Desktop to avoid libmpv deadlock)
     final bool isDesktop = !kIsWeb && (Platform.isWindows || Platform.isMacOS || Platform.isLinux);
     final bool useProxy = isDesktop;
@@ -219,6 +228,7 @@ class PlayerState extends ChangeNotifier {
         : streamUrl;
     
     final headersToPass = useProxy ? null : _headers;
+    LogService().info('Opening media stream. useProxy: $useProxy, proxyUrl: $proxyUrl, isDash: $isDash');
     _player!.open(Media(proxyUrl, httpHeaders: headersToPass));
 
     final id = anilistId?.toString() ?? movieId;

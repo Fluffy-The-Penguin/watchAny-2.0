@@ -34,6 +34,10 @@ class NavigationState extends ChangeNotifier {
   factory NavigationState() => _instance;
 
   NavigationState._internal() {
+    init();
+  }
+
+  void init() {
     final settings = AppSettings();
     var savedMode = settings.startupMode;
     final savedPage = settings.startupPage;
@@ -48,6 +52,7 @@ class NavigationState extends ChangeNotifier {
     } else {
       _modePages[savedMode] = savedPage;
     }
+    notifyListeners();
   }
 
   // Sidebar expanded/collapsed state (collapsed by default)

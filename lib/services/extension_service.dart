@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_js/flutter_js.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
+import 'log_service.dart';
 
 class ExtensionRepo {
   final String url;
@@ -194,6 +195,7 @@ class ExtensionService extends ChangeNotifier {
       if (_logFile != null) {
         _logFile!.writeAsStringSync('${DateTime.now().toIso8601String()}: $message\n', mode: FileMode.append);
       }
+      LogService().error('[ExtensionService] $message');
     } catch (_) {}
   }
 
@@ -680,6 +682,7 @@ class ExtensionService extends ChangeNotifier {
     bool isMovie = false,
   }) async {
     try {
+      LogService().info('Starting extension search for: titles: $titles, episode: $episodeNumber');
       await init();
       
       final enabledExtensions = extensions.where((e) => e.isEnabled && e.cachedCode != null).toList();
