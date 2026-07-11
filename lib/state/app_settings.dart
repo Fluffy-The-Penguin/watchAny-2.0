@@ -15,7 +15,7 @@ class AppSettings extends ChangeNotifier {
   bool _smoothScrollEnabled = true;
   String _torrServerUrl = 'http://127.0.0.1:8090';
   String _downloadPath = '';
-  bool _hardwareAccelerationEnabled = true;
+  bool _hardwareAccelerationEnabled = kIsWeb ? true : !Platform.isAndroid;
   String _startupModeStr = 'anime';
   String _startupPageStr = 'home';
   bool _autoPlay = true;
@@ -98,6 +98,7 @@ class AppSettings extends ChangeNotifier {
   double get subtitlesShadowOpacity => _subtitlesShadowOpacity;
   double get subtitlesShadowBlurRadius => _subtitlesShadowBlurRadius;
   double get subtitlesShadowOffset => _subtitlesShadowOffset;
+  List<String> get customSubtitlePresets => _customSubtitlePresets;
 
   // Section management getters
   bool get setupCompleted => _setupCompleted;
@@ -134,7 +135,7 @@ class AppSettings extends ChangeNotifier {
     _smoothScrollEnabled = prefs.getBool('smooth_scroll') ?? true;
     _torrServerUrl = prefs.getString('torrserver_url') ?? 'http://127.0.0.1:8090';
     _downloadPath = prefs.getString('download_path') ?? '';
-    _hardwareAccelerationEnabled = prefs.getBool('hardware_acceleration') ?? true;
+    _hardwareAccelerationEnabled = prefs.getBool('hardware_acceleration') ?? (kIsWeb ? true : !Platform.isAndroid);
     _startupModeStr = prefs.getString('startup_mode') ?? 'anime';
     _startupPageStr = prefs.getString('startup_page') ?? 'home';
     _autoPlay = prefs.getBool('auto_play') ?? true;
@@ -571,8 +572,6 @@ class AppSettings extends ChangeNotifier {
     await prefs.setDouble('subtitles_shadow_blur_radius', 2.0);
     await prefs.setDouble('subtitles_shadow_offset', 1.5);
   }
-
-  List<String> get customSubtitlePresets => _customSubtitlePresets;
 
   Future<void> saveCustomSubtitlePreset(String name) async {
     final prefs = await SharedPreferences.getInstance();

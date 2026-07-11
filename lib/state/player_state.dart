@@ -685,6 +685,53 @@ class PlayerState extends ChangeNotifier {
     _headers = null;
   }
 
+  void toggleHardwareAcceleration(bool enabled) {
+    if (_player == null || !_isActive) return;
+
+    // Save current playback position
+    final currentPos = _player!.state.position;
+
+    // Toggle the setting
+    AppSettings().setHardwareAccelerationEnabled(enabled);
+
+    // Save details to restart
+    final url = _streamUrl;
+    final t = _title;
+    final aId = _anilistId;
+    final mId = _movieId;
+    final ts = _titles;
+    final epCount = _episodeCount;
+    final epNum = _episodeNumber;
+    final movie = _isMovie;
+    final med = _media;
+    final eps = _episodes;
+    final tmdbMap = _tmdbEpisodesMap;
+    final hSources = _hstreamSources;
+    final hdrs = _headers;
+
+    // Restart playback at the saved position
+    startPlayback(
+      streamUrl: url!,
+      title: t!,
+      anilistId: aId,
+      movieId: mId,
+      titles: ts,
+      episodeCount: epCount,
+      episodeNumber: epNum,
+      isMovie: movie,
+      media: med,
+      episodes: eps,
+      tmdbEpisodesMap: tmdbMap,
+      hstreamSources: hSources,
+      headers: hdrs,
+    );
+
+    // Seek to the saved position once loaded
+    _player!.stream.duration.first.then((_) {
+      _player!.seek(currentPos);
+    });
+  }
+
   void _addToHistory(String id, int episodeNumber) async {
     final prefs = await SharedPreferences.getInstance();
     

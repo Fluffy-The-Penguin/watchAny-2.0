@@ -108,6 +108,76 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
   String? _currentStreamUrl;
   final Set<SkipInterval> _autoSkippedIntervals = {};
 
+  // Playback statistics HUD state variables
+  Duration _position = Duration.zero;
+  Duration _duration = Duration.zero;
+  Duration _buffer = Duration.zero;
+
+  Timer? _torrentStatsTimer;
+  double _torrentSpeedBytes = 0.0;
+  int _torrentActivePeers = 0;
+  int _torrentTotalPeers = 0;
+
+  String? _getTorrentHash(String? url) {
+    if (url == null) return null;
+    final match = RegExp(r'link=([a-fA-F0-9]+)').firstMatch(url);
+    if (match != null) return match.group(1);
+    if (url.startsWith('magnet:?xt=urn:btih:')) {
+      final matchHex = RegExp(r'urn:btih:([a-fA-F0-9]+)', caseSensitive: false).firstMatch(url);
+      if (matchHex != null) return matchHex.group(1);
+    }
+    return null;
+  }
+
+  void _updateTorrentTimer() {
+    final hash = _getTorrentHash(_currentStreamUrl);
+    if (hash != null) {
+      _torrentStatsTimer?.cancel();
+      _torrentStatsTimer = Timer.periodic(const Duration(seconds: 1), (timer) async {
+        if (!mounted) {
+          timer.cancel();
+          return;
+        }
+        try {
+          final info = await _torrServerService.getTorrent(hash);
+          if (mounted) {
+            setState(() {
+              _torrentSpeedBytes = info.downloadSpeed;
+              _torrentActivePeers = info.activePeers;
+              _torrentTotalPeers = info.totalPeers;
+            });
+          }
+        } catch (_) {}
+      });
+    } else {
+      _torrentStatsTimer?.cancel();
+      _torrentStatsTimer = null;
+      if (mounted) {
+        setState(() {
+          _torrentSpeedBytes = 0.0;
+          _torrentActivePeers = 0;
+          _torrentTotalPeers = 0;
+        });
+      }
+    }
+  }
+
+  String _formatSpeed(double bytesPerSec) {
+    if (bytesPerSec <= 0) return "0 B/s";
+    if (bytesPerSec < 1024) return "${bytesPerSec.toStringAsFixed(0)} B/s";
+    if (bytesPerSec < 1024 * 1024) return "${(bytesPerSec / 1024).toStringAsFixed(1)} KB/s";
+    return "${(bytesPerSec / (1024 * 1024)).toStringAsFixed(1)} MB/s";
+  }
+
+  String _formatDuration(Duration d) {
+    if (d.inSeconds < 60) {
+      return "${d.inSeconds}s";
+    }
+    final minutes = d.inMinutes;
+    final seconds = d.inSeconds % 60;
+    return "${minutes}m ${seconds}s";
+  }
+
   void _handlePlayerStateChange() {
     final playerState = PlayerState();
     final bool isDesktop = !kIsWeb && (Platform.isWindows || Platform.isMacOS || Platform.isLinux);
@@ -148,6 +218,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
           _autoSkippedIntervals.clear();
           _hasFetchedSkipTimes = false;
         });
+        _updateTorrentTimer();
       }
     }
   }
@@ -164,6 +235,12 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
     _resetHideControlsTimer();
     windowManager.addListener(this);
     _checkMaximizedState();
+    
+    // Set initial values from player state
+    _position = player.state.position;
+    _duration = player.state.duration;
+    _buffer = player.state.buffer;
+
     _subscriptions.add(player.stream.completed.listen((completed) {
       if (completed && AppSettings().autoNext) {
         _playNextEpisode();
@@ -175,6 +252,15 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
     _subscriptions.add(player.stream.height.listen((_) {
       if (mounted) setState(() {});
     }));
+    _subscriptions.add(player.stream.position.listen((p) {
+      if (mounted) setState(() => _position = p);
+    }));
+    _subscriptions.add(player.stream.duration.listen((d) {
+      if (mounted) setState(() => _duration = d);
+    }));
+    _subscriptions.add(player.stream.buffer.listen((b) {
+      if (mounted) setState(() => _buffer = b);
+    }));
 
     _currentEpNum = PlayerState().episodeNumber ?? widget.episodeNumber;
     _currentStreamUrl = PlayerState().streamUrl ?? widget.streamUrl;
@@ -182,6 +268,8 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
     PlayerState().addListener(_handlePlayerStateChange);
     _handlePlayerStateChange();
     AppSettings().addListener(_onSettingsChanged);
+
+    _updateTorrentTimer();
 
     // Fetch skip times once duration is loaded
     if (widget.anilistId != null) {
@@ -200,6 +288,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
 
   @override
   void dispose() {
+    _torrentStatsTimer?.cancel();
     _hideControlsTimer?.cancel();
     AppSettings().removeListener(_onSettingsChanged);
     PlayerState().removeListener(_handlePlayerStateChange);
@@ -1427,10 +1516,91 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
             },
           );
 
+          final double loadedPercent = _duration.inMilliseconds > 0 
+              ? (_buffer.inMilliseconds / _duration.inMilliseconds * 100).clamp(0.0, 100.0) 
+              : 0.0;
+          final Duration bufferAhead = _buffer > _position ? _buffer - _position : Duration.zero;
+          final bool hasTorrent = _getTorrentHash(_currentStreamUrl) != null;
+
           Widget finalWidget = Stack(
             fit: StackFit.expand,
             children: [
               videoWidget,
+              // Top-center Stats Overlay (Speed & Loaded progress)
+              Positioned(
+                top: isDesktop ? 60.0 : 64.0,
+                left: 0,
+                right: 0,
+                child: Center(
+                  child: AnimatedOpacity(
+                    opacity: _showAppBar ? 1.0 : 0.0,
+                    duration: const Duration(milliseconds: 250),
+                    child: IgnorePointer(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 6.0),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.75),
+                          borderRadius: BorderRadius.circular(20.0),
+                          border: Border.all(color: Colors.white12, width: 1.0),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.4),
+                              blurRadius: 10,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (hasTorrent) ...[
+                              const Icon(Icons.download, color: Colors.greenAccent, size: 14.0),
+                              const SizedBox(width: 4.0),
+                              Text(
+                                _formatSpeed(_torrentSpeedBytes),
+                                style: const TextStyle(
+                                  color: Colors.greenAccent,
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.bold,
+                                  fontFamily: 'Outfit',
+                                ),
+                              ),
+                              const SizedBox(width: 8.0),
+                              const Text('|', style: TextStyle(color: Colors.white24, fontSize: 11.5)),
+                              const SizedBox(width: 8.0),
+                              const Icon(Icons.people_outline, color: Colors.amber, size: 14.0),
+                              const SizedBox(width: 4.0),
+                              Text(
+                                '$_torrentActivePeers/$_torrentTotalPeers',
+                                style: const TextStyle(
+                                  color: Colors.amber,
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.bold,
+                                  fontFamily: 'Outfit',
+                                ),
+                              ),
+                              const SizedBox(width: 8.0),
+                              const Text('|', style: TextStyle(color: Colors.white24, fontSize: 11.5)),
+                              const SizedBox(width: 8.0),
+                            ],
+                            const Icon(Icons.cloud_download_outlined, color: Colors.blueAccent, size: 14.0),
+                            const SizedBox(width: 4.0),
+                            Text(
+                              'Loaded: ${loadedPercent.toStringAsFixed(1)}% (+${_formatDuration(bufferAhead)})',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w600,
+                                fontFamily: 'Outfit',
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
               if (isDesktop)
                 Positioned(
                   top: 0,
@@ -1786,80 +1956,85 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
     return MouseRegion(
       cursor: _hideCursor ? SystemMouseCursors.none : MouseCursor.defer,
       onHover: (_) => _resetHideControlsTimer(),
-      child: Focus(
-        focusNode: _playerFocusNode,
-        autofocus: true,
-        onKeyEvent: (FocusNode node, KeyEvent event) {
-          _resetHideControlsTimer();
-          if (event is KeyDownEvent) {
-            final primaryFocus = FocusManager.instance.primaryFocus;
-            if (primaryFocus != null && primaryFocus.context != null) {
-              final w = primaryFocus.context!.widget;
-              if (w is EditableText) {
-                return KeyEventResult.ignored;
-              }
-            }
-  
-            final key = event.logicalKey;
-            if (key == LogicalKeyboardKey.arrowLeft) {
-              final current = player.state.position;
-              final target = (current.inSeconds - 10).clamp(0, player.state.duration.inSeconds);
-              player.seek(Duration(seconds: target));
-              return KeyEventResult.handled;
-            } else if (key == LogicalKeyboardKey.arrowRight) {
-              final current = player.state.position;
-              final target = (current.inSeconds + 10).clamp(0, player.state.duration.inSeconds);
-              player.seek(Duration(seconds: target));
-              return KeyEventResult.handled;
-            } else if (key == LogicalKeyboardKey.space) {
-              player.playOrPause();
-              return KeyEventResult.handled;
-            } else if (key == LogicalKeyboardKey.arrowUp) {
-              final vol = (player.state.volume + 5.0).clamp(0.0, 100.0);
-              player.setVolume(vol);
-              return KeyEventResult.handled;
-            } else if (key == LogicalKeyboardKey.arrowDown) {
-              final vol = (player.state.volume - 5.0).clamp(0.0, 100.0);
-              player.setVolume(vol);
-              return KeyEventResult.handled;
-            } else if (key == LogicalKeyboardKey.keyF) {
-              final isFull = PlayerState().isFullscreen;
-              if (isFull) {
-                PlayerState().exitFullscreen();
-                if (isDesktop) {
-                  windowManager.setFullScreen(false);
-                  SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: SystemUiOverlay.values);
-                } else {
-                  SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: SystemUiOverlay.values);
-                  SystemChrome.setPreferredOrientations([
-                    DeviceOrientation.portraitUp,
-                    DeviceOrientation.portraitDown,
-                    DeviceOrientation.landscapeLeft,
-                    DeviceOrientation.landscapeRight
-                  ]);
-                }
-              } else {
-                PlayerState().enterFullscreen();
-                if (isDesktop) {
-                  windowManager.setFullScreen(true);
-                  SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-                } else {
-                  SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-                  SystemChrome.setPreferredOrientations([
-                    DeviceOrientation.landscapeLeft,
-                    DeviceOrientation.landscapeRight
-                  ]);
+      child: Listener(
+        behavior: HitTestBehavior.translucent,
+        onPointerDown: (_) => _resetHideControlsTimer(),
+        onPointerMove: (_) => _resetHideControlsTimer(),
+        child: Focus(
+          focusNode: _playerFocusNode,
+          autofocus: true,
+          onKeyEvent: (FocusNode node, KeyEvent event) {
+            _resetHideControlsTimer();
+            if (event is KeyDownEvent) {
+              final primaryFocus = FocusManager.instance.primaryFocus;
+              if (primaryFocus != null && primaryFocus.context != null) {
+                final w = primaryFocus.context!.widget;
+                if (w is EditableText) {
+                  return KeyEventResult.ignored;
                 }
               }
-              return KeyEventResult.handled;
+    
+              final key = event.logicalKey;
+              if (key == LogicalKeyboardKey.arrowLeft) {
+                final current = player.state.position;
+                final target = (current.inSeconds - 10).clamp(0, player.state.duration.inSeconds);
+                player.seek(Duration(seconds: target));
+                return KeyEventResult.handled;
+              } else if (key == LogicalKeyboardKey.arrowRight) {
+                final current = player.state.position;
+                final target = (current.inSeconds + 10).clamp(0, player.state.duration.inSeconds);
+                player.seek(Duration(seconds: target));
+                return KeyEventResult.handled;
+              } else if (key == LogicalKeyboardKey.space) {
+                player.playOrPause();
+                return KeyEventResult.handled;
+              } else if (key == LogicalKeyboardKey.arrowUp) {
+                final vol = (player.state.volume + 5.0).clamp(0.0, 100.0);
+                player.setVolume(vol);
+                return KeyEventResult.handled;
+              } else if (key == LogicalKeyboardKey.arrowDown) {
+                final vol = (player.state.volume - 5.0).clamp(0.0, 100.0);
+                player.setVolume(vol);
+                return KeyEventResult.handled;
+              } else if (key == LogicalKeyboardKey.keyF) {
+                final isFull = PlayerState().isFullscreen;
+                if (isFull) {
+                  PlayerState().exitFullscreen();
+                  if (isDesktop) {
+                    windowManager.setFullScreen(false);
+                    SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: SystemUiOverlay.values);
+                  } else {
+                    SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: SystemUiOverlay.values);
+                    SystemChrome.setPreferredOrientations([
+                      DeviceOrientation.portraitUp,
+                      DeviceOrientation.portraitDown,
+                      DeviceOrientation.landscapeLeft,
+                      DeviceOrientation.landscapeRight
+                    ]);
+                  }
+                } else {
+                  PlayerState().enterFullscreen();
+                  if (isDesktop) {
+                    windowManager.setFullScreen(true);
+                    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+                  } else {
+                    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+                    SystemChrome.setPreferredOrientations([
+                      DeviceOrientation.landscapeLeft,
+                      DeviceOrientation.landscapeRight
+                    ]);
+                  }
+                }
+                return KeyEventResult.handled;
+              }
             }
-          }
-          return KeyEventResult.ignored;
-        },
-        child: Scaffold(
-          backgroundColor: Colors.black,
-          appBar: null,
-          body: mobileTheme,
+            return KeyEventResult.ignored;
+          },
+          child: Scaffold(
+            backgroundColor: Colors.black,
+            appBar: null,
+            body: mobileTheme,
+          ),
         ),
       ),
     );
@@ -2565,6 +2740,28 @@ class _SettingsOverlayCardState extends State<_SettingsOverlayCard> {
             onTap: widget.onOpenTorrentPanel,
           ),
         ],
+        const Divider(color: Colors.white10, height: 1),
+        ListTile(
+          dense: true,
+          leading: const Icon(Icons.speed, color: Colors.white70, size: 18),
+          title: const Text("Hardware Acceleration", style: TextStyle(color: Colors.white, fontSize: 13.0, fontFamily: 'Outfit')),
+          trailing: SizedBox(
+            height: 24,
+            child: ListenableBuilder(
+              listenable: AppSettings(),
+              builder: (context, _) {
+                return Switch(
+                  value: AppSettings().hardwareAccelerationEnabled,
+                  activeColor: Colors.amber,
+                  onChanged: (val) {
+                    widget.onClose();
+                    PlayerState().toggleHardwareAcceleration(val);
+                  },
+                );
+              },
+            ),
+          ),
+        ),
         const SizedBox(height: 6),
       ],
     );

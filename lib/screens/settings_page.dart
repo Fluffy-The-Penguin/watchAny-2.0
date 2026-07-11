@@ -1030,7 +1030,7 @@ class _SettingsPageState extends State<SettingsPage> {
             _SettingsTile(
               icon: Icons.speed,
               title: 'Hardware Acceleration',
-              subtitle: 'Use GPU for video decoding and rendering to improve performance and reduce CPU usage.',
+              subtitle: 'Use GPU for video decoding and rendering. Disable this if you experience a black screen (audio only) on some devices.',
               trailing: Transform.scale(
                 scale: 0.9,
                 child: Switch(
