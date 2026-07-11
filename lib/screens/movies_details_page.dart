@@ -75,12 +75,15 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
   void _parseId() {
     final firstColon = widget.movieId.indexOf(':');
     if (firstColon > 0) {
-      _type = widget.movieId.substring(0, firstColon);
-      _realId = widget.movieId.substring(firstColon + 1);
-    } else {
-      _type = 'movie';
-      _realId = widget.movieId;
+      final possibleType = widget.movieId.substring(0, firstColon);
+      if (possibleType == 'movie' || possibleType == 'series' || possibleType == 'anime' || possibleType == 'tv' || possibleType == 'channel') {
+        _type = possibleType;
+        _realId = widget.movieId.substring(firstColon + 1);
+        return;
+      }
     }
+    _type = 'movie';
+    _realId = widget.movieId;
   }
 
   bool get _hasVideos => _meta['videos'] is List && (_meta['videos'] as List).isNotEmpty;
