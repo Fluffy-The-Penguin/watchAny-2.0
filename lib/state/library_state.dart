@@ -296,7 +296,13 @@ class LibraryState extends ChangeNotifier {
     }
 
     try {
-      final allCaches = await _db.select(_db.mediaCaches).get();
+      final List<db.MediaCache> allCaches;
+      final libraryIds = _items.map((item) => item.id).toList();
+      if (libraryIds.isNotEmpty) {
+        allCaches = await (_db.select(_db.mediaCaches)..where((t) => t.id.isIn(libraryIds))).get();
+      } else {
+        allCaches = [];
+      }
       for (var cache in allCaches) {
         if (cache.mode == 'manga') {
           (_mangaCache as LazyJsonMap).setRaw(cache.id, cache.extraData);

@@ -51,12 +51,21 @@ class _MangaTrendingHomePageState extends State<MangaTrendingHomePage> {
     super.initState();
     _initDashboard();
     widget.navigationState.addListener(_onNavigationChanged);
+    SuwayomiService.changeNotifier.addListener(_onSuwayomiChanged);
   }
 
   @override
   void dispose() {
     widget.navigationState.removeListener(_onNavigationChanged);
+    SuwayomiService.changeNotifier.removeListener(_onSuwayomiChanged);
     super.dispose();
+  }
+
+  void _onSuwayomiChanged() {
+    if (mounted) {
+      _loadPins();
+      _loadSources();
+    }
   }
 
   AppMode? _lastMode;

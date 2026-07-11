@@ -87,6 +87,7 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
   }
 
   bool get _hasVideos => _meta['videos'] is List && (_meta['videos'] as List).isNotEmpty;
+  bool get _isSeries => _type == 'series' || _type == 'tv' || (_meta.isNotEmpty && _meta['type']?.toString().toLowerCase() == 'series');
 
   // ── Metadata Loading ──────────────────────────────────────────────────────
 
@@ -250,8 +251,8 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
         'title': mediaTitle,
         'coverImage': metaData['poster']?.toString() ?? metaData['coverImage']?.toString() ?? '',
         'averageScore': double.tryParse(metaData['imdbRating']?.toString() ?? '') ?? 0.0,
-        'format': videosList.isNotEmpty ? 'SERIES' : 'MOVIE',
-        'episodes': videosList.isNotEmpty ? videosList.length : 1,
+        'format': _isSeries ? 'SERIES' : 'MOVIE',
+        'episodes': _isSeries && videosList.isNotEmpty ? videosList.length : 1,
         'type': _type,
       };
 
@@ -490,7 +491,7 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
         _meta['name']?.toString() ?? _meta['title']?.toString() ?? 'Media';
     final poster = _meta['poster']?.toString() ?? _meta['coverImage']?.toString() ?? '';
     final rating = double.tryParse(_meta['imdbRating']?.toString() ?? '') ?? 0.0;
-    final epCount = _hasVideos ? (_meta['videos'] as List).length : 1;
+    final epCount = _isSeries && _hasVideos ? (_meta['videos'] as List).length : 1;
 
     final media = {
       'id': _realId,
@@ -498,7 +499,7 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
       'title': mediaTitle,
       'coverImage': poster,
       'averageScore': rating,
-      'format': _hasVideos ? 'SERIES' : 'MOVIE',
+      'format': _isSeries ? 'SERIES' : 'MOVIE',
       'episodes': epCount,
       'type': _type,
     };
@@ -564,9 +565,9 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
           episodeNumber: episode ?? 1,
           titles: [mediaTitle],
           episodeCount: epCount,
-          isMovie: !_hasVideos,
+          isMovie: !_isSeries,
           media: media,
-          episodes: _hasVideos ? _meta['videos'] : null,
+          episodes: _isSeries && _hasVideos ? _meta['videos'] : null,
           isDownload: isDownload,
         ),
       );
@@ -598,9 +599,9 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
       title: episode != null ? '$mediaTitle — Episode $episode' : mediaTitle,
       movieId: '$_type:$_realId',
       episodeNumber: episode ?? 1,
-      isMovie: !_hasVideos,
+      isMovie: !_isSeries,
       media: media,
-      episodes: _hasVideos ? _meta['videos'] : null,
+      episodes: _isSeries && _hasVideos ? _meta['videos'] : null,
       titles: [mediaTitle],
       headers: headers,
     );
@@ -720,7 +721,7 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
                   isBookmarked: isBookmarked,
                   onBookmarkToggle: () {
                     final savedItem = LibraryState().getItem(libId, 'movies');
-                    final totalEps = _hasVideos
+                    final totalEps = _isSeries && _hasVideos
                         ? (_meta['videos'] is List ? (_meta['videos'] as List).length : 0)
                         : 1;
                     showModalBottomSheet(
@@ -730,10 +731,10 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
                       builder: (_) => _MovieLibraryEditPanel(
                         libId: libId,
                         mediaTitle: title,
-                        format: _hasVideos ? 'SERIES' : 'MOVIE',
+                        format: _isSeries ? 'SERIES' : 'MOVIE',
                         savedItem: savedItem,
                         totalEpisodes: totalEps,
-                        hasSeasons: _hasVideos && _seasons.isNotEmpty,
+                        hasSeasons: _isSeries && _hasVideos && _seasons.isNotEmpty,
                         seasons: _seasons,
                         episodesBySeason: _episodesBySeason,
                         metaData: _meta,
@@ -773,7 +774,7 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
                 ),
 
                 // 3. Episodes Section (TV only)
-                if (_hasVideos) _buildEpisodesSection(),
+                if (_isSeries) _buildEpisodesSection(),
 
                 const SizedBox(height: 64.0),
               ],
@@ -986,7 +987,7 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
     required String poster,
     required String? rating,
   }) {
-    if (!_hasVideos) {
+    if (!_isSeries) {
       // Movie — single play button
       if (_hasCheckedContinue && _continueStreamUrl != null) {
         return ElevatedButton.icon(
@@ -1061,7 +1062,7 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
               orElse: () => null,
             );
             final epId = epObj?['id']?.toString() ??
-                '$_realId:${_selectedSeason}:$_continueEpisode';
+                '$_realId:$_selectedSeason:$_continueEpisode';
             _fetchStreamsAndPlay(episode: _continueEpisode, episodeId: epId);
           }
         },

@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:developer' as developer;
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -7,6 +8,8 @@ class SuwayomiService {
   static final SuwayomiService _instance = SuwayomiService._internal();
   factory SuwayomiService() => _instance;
   SuwayomiService._internal();
+
+  static final ChangeNotifier changeNotifier = ChangeNotifier();
 
   static String host = '127.0.0.1';
   static int port = 4567;
@@ -130,7 +133,11 @@ class SuwayomiService {
 
       if (response.statusCode == 200) {
         final decoded = jsonDecode(response.body);
-        return decoded['ok'] == true;
+        final success = decoded['ok'] == true;
+        if (success) {
+          changeNotifier.notifyListeners();
+        }
+        return success;
       }
       return false;
     } catch (e, stack) {
@@ -148,7 +155,11 @@ class SuwayomiService {
 
       if (response.statusCode == 200) {
         final decoded = jsonDecode(response.body);
-        return decoded['ok'] == true;
+        final success = decoded['ok'] == true;
+        if (success) {
+          changeNotifier.notifyListeners();
+        }
+        return success;
       }
       return false;
     } catch (e, stack) {

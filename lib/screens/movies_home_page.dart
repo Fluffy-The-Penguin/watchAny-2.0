@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:developer' as developer;
 import 'package:flutter/material.dart';
@@ -28,19 +29,60 @@ class _MoviesHomePageState extends State<MoviesHomePage> {
   Map<String, dynamic>? _featuredItem;
   bool _hasEnabledAddons = false;
 
+  // Carousel variables
+  List<Map<String, dynamic>> _featuredItems = [];
+  PageController? _pageController;
+  Timer? _carouselTimer;
+  int _currentCarouselIndex = 0;
+
   @override
   void initState() {
     super.initState();
+    _pageController = PageController();
     _loadCatalogs();
+    StremioAddonService().addListener(_onAddonsChanged);
+  }
+
+  @override
+  void dispose() {
+    StremioAddonService().removeListener(_onAddonsChanged);
+    _pageController?.dispose();
+    _carouselTimer?.cancel();
+    super.dispose();
+  }
+
+  void _onAddonsChanged() {
+    if (mounted) {
+      _loadCatalogs();
+    }
+  }
+
+  void _startCarouselTimer() {
+    _carouselTimer?.cancel();
+    if (_featuredItems.isEmpty) return;
+    _carouselTimer = Timer.periodic(const Duration(seconds: 6), (timer) {
+      if (!mounted) return;
+      if (_featuredItems.length <= 1) return;
+      final nextIndex = (_currentCarouselIndex + 1) % _featuredItems.length;
+      _currentCarouselIndex = nextIndex;
+      _pageController?.animateToPage(
+        nextIndex,
+        duration: const Duration(milliseconds: 800),
+        curve: Curves.easeInOut,
+      );
+    });
   }
 
   Future<void> _loadCatalogs() async {
     if (!mounted) return;
+    _carouselTimer?.cancel();
     setState(() {
       _isLoading = true;
       _isFetching = true;
       _catalogRows = [];
       _featuredItem = null;
+      _featuredItems = [];
+      _currentCarouselIndex = 0;
       _hasEnabledAddons = false;
     });
 
@@ -117,18 +159,25 @@ class _MoviesHomePageState extends State<MoviesHomePage> {
                       'items': metas,
                     });
 
-                  // Feature the first item that has a background image
-                  if (_featuredItem == null) {
-                    for (final item in metas) {
-                      final bg = item['background']?.toString() ?? '';
-                      final poster = item['poster']?.toString() ?? '';
-                      if (bg.isNotEmpty || poster.isNotEmpty) {
-                        _featuredItem = Map<String, dynamic>.from(item);
-                        break;
+                  // Add items to featured carousel (up to 6 items total)
+                  for (final item in metas) {
+                    final bg = item['background']?.toString() ?? '';
+                    final poster = item['poster']?.toString() ?? '';
+                    final itemId = item['id']?.toString() ?? '';
+                    if ((bg.isNotEmpty || poster.isNotEmpty) && itemId.isNotEmpty) {
+                      if (!_featuredItems.any((x) => x['id'] == itemId)) {
+                        _featuredItems.add(Map<String, dynamic>.from(item));
                       }
                     }
+                    if (_featuredItems.length >= 6) break;
+                  }
+
+                  // Setup initial featuredItem just in case anything else queries it
+                  if (_featuredItem == null && _featuredItems.isNotEmpty) {
+                    _featuredItem = _featuredItems.first;
                   }
                 });
+                _startCarouselTimer();
               }
             }
           } catch (e, stack) {
@@ -145,6 +194,7 @@ class _MoviesHomePageState extends State<MoviesHomePage> {
 
     if (mounted) {
       setState(() => _isFetching = false);
+      _startCarouselTimer();
     }
   }
 
@@ -218,7 +268,7 @@ class _MoviesHomePageState extends State<MoviesHomePage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // 1. Featured Hero Banner
-              if (_featuredItem != null) _buildHeroBanner(_featuredItem!),
+              if (_featuredItems.isNotEmpty) _buildHeroBanner(),
 
               // 2. Continue Watching (Stremio items only)
               _ContinueWatchingRail(navigationState: widget.navigationState),
@@ -284,125 +334,167 @@ class _MoviesHomePageState extends State<MoviesHomePage> {
     );
   }
 
-  Widget _buildHeroBanner(Map<String, dynamic> item) {
-    final background =
-        item['background']?.toString() ?? item['poster']?.toString() ?? '';
-    final title = item['name']?.toString() ?? item['title']?.toString() ?? 'Featured Content';
-    final description = item['description']?.toString() ?? '';
-    final double? rating = item['imdbRating'] != null
-        ? double.tryParse(item['imdbRating'].toString())
-        : null;
-    final String type = item['type']?.toString() ?? 'movie';
-    final String id = item['id']?.toString() ?? '';
+  Widget _buildHeroBanner() {
+    if (_featuredItems.isEmpty) return const SizedBox.shrink();
 
-    return Stack(
-      children: [
-        // Backdrop
-        Container(
-          height: 480.0,
-          width: double.infinity,
-          decoration: BoxDecoration(
-            image: background.isNotEmpty
-                ? DecorationImage(
-                    image: NetworkImage(background),
-                    fit: BoxFit.cover,
-                  )
-                : null,
-            color: Colors.white10,
+    return SizedBox(
+      height: 480.0,
+      child: Stack(
+        children: [
+          PageView.builder(
+            controller: _pageController,
+            itemCount: _featuredItems.length,
+            onPageChanged: (index) {
+              setState(() {
+                _currentCarouselIndex = index;
+              });
+              _startCarouselTimer();
+            },
+            itemBuilder: (context, index) {
+              final item = _featuredItems[index];
+              final background = item['background']?.toString() ?? item['poster']?.toString() ?? '';
+              final title = item['name']?.toString() ?? item['title']?.toString() ?? 'Featured Content';
+              final description = item['description']?.toString() ?? '';
+              final double? rating = item['imdbRating'] != null
+                  ? double.tryParse(item['imdbRating'].toString())
+                  : null;
+              final String type = item['type']?.toString() ?? 'movie';
+              final String id = item['id']?.toString() ?? '';
+
+              return Stack(
+                children: [
+                  // Backdrop
+                  Container(
+                    width: double.infinity,
+                    height: 480.0,
+                    decoration: BoxDecoration(
+                      image: background.isNotEmpty
+                          ? DecorationImage(
+                              image: NetworkImage(background),
+                              fit: BoxFit.cover,
+                            )
+                          : null,
+                      color: Colors.white10,
+                    ),
+                  ),
+                  // Gradient overlay
+                  Container(
+                    height: 480.0,
+                    decoration: const BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [Colors.black38, Colors.black87, Colors.black],
+                        stops: [0.0, 0.65, 1.0],
+                      ),
+                    ),
+                  ),
+                  // Content
+                  Positioned(
+                    left: 24.0,
+                    right: 24.0,
+                    bottom: 40.0,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (rating != null)
+                          Container(
+                            margin: const EdgeInsets.only(bottom: 8.0),
+                            padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
+                            decoration: BoxDecoration(
+                              color: Colors.amber,
+                              borderRadius: BorderRadius.circular(4.0),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.star, color: Colors.black, size: 12.0),
+                                const SizedBox(width: 4.0),
+                                Text(
+                                  rating.toStringAsFixed(1),
+                                  style: const TextStyle(
+                                    color: Colors.black,
+                                    fontSize: 11.0,
+                                    fontWeight: FontWeight.bold,
+                                    fontFamily: 'Outfit',
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        Text(
+                          title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 32.0,
+                            fontWeight: FontWeight.bold,
+                            fontFamily: 'Outfit',
+                          ),
+                        ),
+                        if (description.isNotEmpty) ...[
+                          const SizedBox(height: 6.0),
+                          ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 600.0),
+                            child: Text(
+                              description,
+                              maxLines: 3,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(color: Colors.white70, fontSize: 14.0),
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 16.0),
+                        ElevatedButton.icon(
+                          onPressed: id.isNotEmpty
+                              ? () {
+                                  MovieMetadataCache.placeholders[id] =
+                                      Map<String, dynamic>.from(item);
+                                  MovieMetadataCache.placeholders['$type:$id'] =
+                                      Map<String, dynamic>.from(item);
+                                  widget.navigationState.selectMovie('$type:$id');
+                                }
+                              : null,
+                          icon: const Icon(Icons.info_outline, color: Colors.black, size: 18.0),
+                          label: const Text('View Details',
+                              style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 14.0),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              );
+            },
           ),
-        ),
-        // Gradient overlay
-        Container(
-          height: 480.0,
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [Colors.black26, Colors.black87, Colors.black],
-              stops: [0.0, 0.65, 1.0],
+          // Indicator dots
+          Positioned(
+            bottom: 16.0,
+            right: 24.0,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: List.generate(_featuredItems.length, (index) {
+                final isSelected = index == _currentCarouselIndex;
+                return AnimatedContainer(
+                  duration: const Duration(milliseconds: 300),
+                  margin: const EdgeInsets.only(right: 6.0),
+                  width: isSelected ? 20.0 : 6.0,
+                  height: 6.0,
+                  decoration: BoxDecoration(
+                    color: isSelected ? Colors.white : Colors.white30,
+                    borderRadius: BorderRadius.circular(3.0),
+                  ),
+                );
+              }),
             ),
           ),
-        ),
-        // Content
-        Positioned(
-          left: 24.0,
-          right: 24.0,
-          bottom: 24.0,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (rating != null)
-                Container(
-                  margin: const EdgeInsets.only(bottom: 8.0),
-                  padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
-                  decoration: BoxDecoration(
-                    color: Colors.amber,
-                    borderRadius: BorderRadius.circular(4.0),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.star, color: Colors.black, size: 12.0),
-                      const SizedBox(width: 4.0),
-                      Text(
-                        rating.toStringAsFixed(1),
-                        style: const TextStyle(
-                          color: Colors.black,
-                          fontSize: 11.0,
-                          fontWeight: FontWeight.bold,
-                          fontFamily: 'Outfit',
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              Text(
-                title,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 32.0,
-                  fontWeight: FontWeight.bold,
-                  fontFamily: 'Outfit',
-                ),
-              ),
-              if (description.isNotEmpty) ...[
-                const SizedBox(height: 6.0),
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 600.0),
-                  child: Text(
-                    description,
-                    maxLines: 3,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.white70, fontSize: 14.0),
-                  ),
-                ),
-              ],
-              const SizedBox(height: 16.0),
-              ElevatedButton.icon(
-                onPressed: id.isNotEmpty
-                    ? () {
-                        MovieMetadataCache.placeholders[id] =
-                            Map<String, dynamic>.from(item);
-                        MovieMetadataCache.placeholders['$type:$id'] =
-                            Map<String, dynamic>.from(item);
-                        widget.navigationState.selectMovie('$type:$id');
-                      }
-                    : null,
-                icon: const Icon(Icons.info_outline, color: Colors.black, size: 18.0),
-                label: const Text('View Details',
-                    style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 14.0),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

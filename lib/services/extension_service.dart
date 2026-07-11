@@ -201,6 +201,135 @@ class ExtensionService extends ChangeNotifier {
 
   List<ExtensionRepo> repos = [];
   List<Extension> extensions = [];
+  Map<String, String> availableUpdates = {};
+  bool isCheckingForUpdates = false;
+
+  // Check for updates across all extensions in registered repositories
+  Future<void> checkForUpdates() async {
+    isCheckingForUpdates = true;
+    notifyListeners();
+
+    final newUpdates = <String, String>{};
+
+    for (final repo in repos) {
+      try {
+        final response = await http.get(Uri.parse(repo.url)).timeout(const Duration(seconds: 10));
+        if (response.statusCode == 200) {
+          final List<dynamic> indexList = jsonDecode(response.body);
+          for (final item in indexList) {
+            final id = item['id']?.toString() ?? '';
+            final newVersion = item['version']?.toString() ?? '';
+            if (id.isEmpty || newVersion.isEmpty) continue;
+
+            // Find installed extension matching id and repo
+            final installed = extensions.firstWhere(
+              (e) => e.id == id && e.repoUrl == repo.url,
+              orElse: () => Extension(id: '', name: '', version: '', type: '', accuracy: '', languages: [], icon: '', codeUrl: '', repoUrl: ''),
+            );
+
+            if (installed.id.isNotEmpty) {
+              if (_isVersionNewer(installed.version, newVersion)) {
+                newUpdates[id] = newVersion;
+              }
+            }
+          }
+        }
+      } catch (e) {
+        debugPrint('[ExtensionService] Error checking updates for repo ${repo.url}: $e');
+      }
+    }
+
+    availableUpdates = newUpdates;
+    isCheckingForUpdates = false;
+    notifyListeners();
+  }
+
+  // Compare versions semver-style
+  bool _isVersionNewer(String current, String remote) {
+    try {
+      final currentParts = current.split('.').map((e) => int.tryParse(e) ?? 0).toList();
+      final remoteParts = remote.split('.').map((e) => int.tryParse(e) ?? 0).toList();
+
+      final maxLen = currentParts.length > remoteParts.length ? currentParts.length : remoteParts.length;
+      for (int i = 0; i < maxLen; i++) {
+        final currentVal = i < currentParts.length ? currentParts[i] : 0;
+        final remoteVal = i < remoteParts.length ? remoteParts[i] : 0;
+        if (remoteVal > currentVal) return true;
+        if (remoteVal < currentVal) return false;
+      }
+    } catch (_) {}
+    return current != remote;
+  }
+
+  // Update a single extension by ID
+  Future<void> updateExtension(String id) async {
+    final ext = extensions.firstWhere(
+      (e) => e.id == id,
+      orElse: () => throw Exception('Extension not found.'),
+    );
+    final repoUrl = ext.repoUrl;
+    if (repoUrl.isEmpty) throw Exception('No repository associated with this extension.');
+
+    final response = await http.get(Uri.parse(repoUrl)).timeout(const Duration(seconds: 10));
+    if (response.statusCode != 200) {
+      throw Exception('Failed to fetch repository index: HTTP ${response.statusCode}');
+    }
+
+    final List<dynamic> indexList = jsonDecode(response.body);
+    final item = indexList.firstWhere(
+      (i) => i['id'] == id,
+      orElse: () => null,
+    );
+    if (item == null) {
+      throw Exception('Extension not found in repository index.');
+    }
+
+    final newManifest = Extension.fromJson(item);
+    String codeUrl = newManifest.codeUrl;
+    if (!codeUrl.startsWith('http')) {
+      final uri = Uri.parse(repoUrl);
+      codeUrl = uri.resolve(codeUrl).toString();
+    }
+
+    final codeResponse = await http.get(Uri.parse(codeUrl)).timeout(const Duration(seconds: 12));
+    if (codeResponse.statusCode != 200) {
+      throw Exception('Failed to fetch extension code: HTTP ${codeResponse.statusCode}');
+    }
+
+    final jsCode = codeResponse.body;
+    final idx = extensions.indexWhere((e) => e.id == id);
+    if (idx != -1) {
+      final existing = extensions[idx];
+      extensions[idx] = Extension(
+        id: newManifest.id,
+        name: newManifest.name,
+        version: newManifest.version,
+        type: newManifest.type,
+        accuracy: newManifest.accuracy,
+        languages: newManifest.languages,
+        icon: newManifest.icon,
+        codeUrl: codeUrl,
+        repoUrl: repoUrl,
+        isEnabled: existing.isEnabled,
+        cachedCode: jsCode,
+      );
+    }
+    availableUpdates.remove(id);
+    await save();
+  }
+
+  // Update all available extensions
+  Future<void> updateAllExtensions() async {
+    final idsToUpdate = availableUpdates.keys.toList();
+    for (final id in idsToUpdate) {
+      try {
+        await updateExtension(id);
+      } catch (e) {
+        debugPrint('[ExtensionService] Failed to update extension $id: $e');
+      }
+    }
+  }
+
   bool _isInitialized = false;
   Future<void>? _initFuture;
 

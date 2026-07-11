@@ -91,6 +91,9 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
     return matches;
   }
 
+  AppMode? _lastMode;
+  TabPage? _lastPage;
+
   @override
   void initState() {
     super.initState();
@@ -99,34 +102,54 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
     _tabController.addListener(_handleTabChange);
     
     widget.navigationState.addListener(_checkAndStartEngine);
+    SuwayomiService.changeNotifier.addListener(_onSuwayomiChanged);
     _checkAndStartEngine();
   }
 
   @override
   void dispose() {
     widget.navigationState.removeListener(_checkAndStartEngine);
+    SuwayomiService.changeNotifier.removeListener(_onSuwayomiChanged);
     _tabController.removeListener(_handleTabChange);
     _tabController.dispose();
     _searchController.dispose();
     super.dispose();
   }
 
-  void _checkAndStartEngine() {
-    if (widget.navigationState.currentMode == AppMode.manga && !_engineStarted) {
-      _engineStarted = true;
-      SuwayomiManager.start().then((_) {
-        if (mounted) {
-          _loadExtensions();
-          _loadSources();
-        }
-      }).catchError((e) {
-        if (mounted) {
-          setState(() {
-            SuwayomiManager.statusNotifier.value = "Error: Failed to start Manga engine: $e";
-          });
-        }
-      });
+  void _onSuwayomiChanged() {
+    if (mounted) {
+      _loadExtensions();
+      _loadSources();
     }
+  }
+
+  void _checkAndStartEngine() {
+    final curMode = widget.navigationState.currentMode;
+    final curPage = widget.navigationState.currentPage;
+
+    if (curMode == AppMode.manga) {
+      if (!_engineStarted) {
+        _engineStarted = true;
+        SuwayomiManager.start().then((_) {
+          if (mounted) {
+            _loadExtensions();
+            _loadSources();
+          }
+        }).catchError((e) {
+          if (mounted) {
+            setState(() {
+              SuwayomiManager.statusNotifier.value = "Error: Failed to start Manga engine: $e";
+            });
+          }
+        });
+      } else if (curPage == TabPage.search && (_lastMode != curMode || _lastPage != curPage)) {
+        _loadExtensions();
+        _loadSources();
+      }
+    }
+
+    _lastMode = curMode;
+    _lastPage = curPage;
   }
 
   void _handleTabChange() {

@@ -237,6 +237,53 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
+  Future<void> _updateExtension(String id) async {
+    try {
+      NotificationService().show(context, 'Updating extension...');
+      await _extensionService.updateExtension(id);
+      if (mounted) {
+        NotificationService().show(context, 'Extension updated successfully!');
+      }
+    } catch (e) {
+      if (mounted) {
+        NotificationService().show(context, 'Failed to update extension: $e');
+      }
+    }
+  }
+
+  Future<void> _updateAllExtensions() async {
+    try {
+      NotificationService().show(context, 'Updating all extensions...');
+      await _extensionService.updateAllExtensions();
+      if (mounted) {
+        NotificationService().show(context, 'All extensions updated successfully!');
+      }
+    } catch (e) {
+      if (mounted) {
+        NotificationService().show(context, 'Failed to update extensions: $e');
+      }
+    }
+  }
+
+  Future<void> _checkForExtensionUpdates() async {
+    try {
+      NotificationService().show(context, 'Checking for extension updates...');
+      await _extensionService.checkForUpdates();
+      if (mounted) {
+        final count = _extensionService.availableUpdates.length;
+        if (count > 0) {
+          NotificationService().show(context, '$count update(s) available!');
+        } else {
+          NotificationService().show(context, 'All extensions are up to date.');
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        NotificationService().show(context, 'Check for updates failed: $e');
+      }
+    }
+  }
+
   Widget _buildSidebar() {
     final available = _getAvailableCategories();
     final categoryData = {
@@ -540,6 +587,7 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Widget _buildActionButtons(Extension ext, String status, String? error, {bool isMobile = false}) {
+    final hasUpdate = _extensionService.availableUpdates.containsKey(ext.id);
     final testWidget = Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -557,6 +605,22 @@ class _SettingsPageState extends State<SettingsPage> {
             child: const Icon(Icons.error, color: Colors.redAccent, size: 18),
           ),
         const SizedBox(width: 8.0),
+        if (hasUpdate) ...[
+          OutlinedButton.icon(
+            icon: const Icon(Icons.upgrade, size: 13.0, color: Colors.amberAccent),
+            label: const Text('Update', style: TextStyle(fontSize: 11.0, color: Colors.amberAccent)),
+            onPressed: () => _updateExtension(ext.id),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: Colors.amberAccent,
+              side: const BorderSide(color: Colors.amberAccent),
+              padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 6.0),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6.0)),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+          ),
+          const SizedBox(width: 8.0),
+        ],
         OutlinedButton.icon(
           icon: const Icon(Icons.play_circle_outline, size: 13.0),
           label: const Text('Test', style: TextStyle(fontSize: 11.0)),
@@ -632,14 +696,77 @@ class _SettingsPageState extends State<SettingsPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'Installed Extensions',
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: 18.0,
-            fontWeight: FontWeight.bold,
-            fontFamily: 'Outfit',
-          ),
+        ListenableBuilder(
+          listenable: _extensionService,
+          builder: (context, _) {
+            final hasUpdates = _extensionService.availableUpdates.isNotEmpty;
+            final isChecking = _extensionService.isCheckingForUpdates;
+
+            return Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Installed Extensions',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18.0,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: 'Outfit',
+                  ),
+                ),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (hasUpdates) ...[
+                      ElevatedButton.icon(
+                        icon: const Icon(Icons.update, size: 14.0, color: Colors.black),
+                        label: Text(
+                          isMobile ? 'Update All' : 'Update All Extensions',
+                          style: const TextStyle(
+                            color: Colors.black,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 11.5,
+                          ),
+                        ),
+                        onPressed: _updateAllExtensions,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.amber[400],
+                          padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6.0)),
+                        ),
+                      ),
+                      const SizedBox(width: 8.0),
+                    ],
+                    OutlinedButton.icon(
+                      icon: isChecking
+                          ? const SizedBox(
+                              width: 12.0,
+                              height: 12.0,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 1.5,
+                                color: Colors.white60,
+                              ),
+                            )
+                          : const Icon(Icons.refresh, size: 14.0),
+                      label: Text(
+                        isChecking
+                            ? 'Checking...'
+                            : (isMobile ? 'Check' : 'Check for Updates'),
+                        style: const TextStyle(fontSize: 11.5),
+                      ),
+                      onPressed: isChecking ? null : _checkForExtensionUpdates,
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.white,
+                        side: const BorderSide(color: Colors.white24),
+                        padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6.0)),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            );
+          },
         ),
         const SizedBox(height: 16.0),
         
@@ -737,17 +864,36 @@ class _SettingsPageState extends State<SettingsPage> {
                                       ),
                                     ),
                                     const SizedBox(width: 8.0),
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 6.0, vertical: 2.0),
-                                      decoration: BoxDecoration(
-                                        color: Colors.white10,
-                                        borderRadius: BorderRadius.circular(4.0),
+                                    if (_extensionService.availableUpdates.containsKey(ext.id)) ...[
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 6.0, vertical: 2.0),
+                                        decoration: BoxDecoration(
+                                          color: Colors.amber.withValues(alpha: 0.15),
+                                          borderRadius: BorderRadius.circular(4.0),
+                                          border: Border.all(color: Colors.amber.withValues(alpha: 0.3)),
+                                        ),
+                                        child: Text(
+                                          'Update Available: v${_extensionService.availableUpdates[ext.id]}',
+                                          style: TextStyle(
+                                            color: Colors.amber[400],
+                                            fontSize: 10.0,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
                                       ),
-                                      child: Text(
-                                        'v${ext.version}',
-                                        style: const TextStyle(color: Colors.white60, fontSize: 10.0),
+                                    ] else ...[
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 6.0, vertical: 2.0),
+                                        decoration: BoxDecoration(
+                                          color: Colors.white10,
+                                          borderRadius: BorderRadius.circular(4.0),
+                                        ),
+                                        child: Text(
+                                          'v${ext.version}',
+                                          style: const TextStyle(color: Colors.white60, fontSize: 10.0),
+                                        ),
                                       ),
-                                    ),
+                                    ],
                                   ],
                                 ),
                                 const SizedBox(height: 4.0),
