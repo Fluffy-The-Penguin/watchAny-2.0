@@ -4639,7 +4639,9 @@ class _SettingsPageState extends State<SettingsPage> {
                       style: TextStyle(color: Colors.white70, fontSize: 13.0),
                     ),
                     const SizedBox(height: 16.0),
-                    Row(
+                    Wrap(
+                      spacing: 12.0,
+                      runSpacing: 12.0,
                       children: [
                         ElevatedButton.icon(
                           icon: const Icon(Icons.description_outlined, color: Colors.black, size: 16.0),
@@ -4651,7 +4653,6 @@ class _SettingsPageState extends State<SettingsPage> {
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6.0)),
                           ),
                         ),
-                        const SizedBox(width: 12.0),
                         OutlinedButton.icon(
                           icon: const Icon(Icons.copy, color: Colors.white70, size: 16.0),
                           label: const Text('Copy Logs', style: TextStyle(color: Colors.white70)),
@@ -4682,7 +4683,6 @@ class _SettingsPageState extends State<SettingsPage> {
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6.0)),
                           ),
                         ),
-                        const SizedBox(width: 12.0),
                         OutlinedButton.icon(
                           icon: const Icon(Icons.share, color: Colors.white70, size: 16.0),
                           label: const Text('Export Logs', style: TextStyle(color: Colors.white70)),
