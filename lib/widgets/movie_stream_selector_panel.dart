@@ -1,5 +1,6 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
+import '../services/torrserver_service.dart';
 
 class MovieStreamSelectorPanel extends StatefulWidget {
   final List<dynamic> streams;
@@ -29,11 +30,77 @@ class _MovieStreamSelectorPanelState extends State<MovieStreamSelectorPanel> {
   int? _selectedMaxSize; // null means 'All'
   String _selectedSortOrder = 'default'; // 'default', 'seeders', 'size_desc', 'size_asc'
 
+  final Map<String, Map<String, int>> _scrapedStats = {};
+  final Set<String> _scrapingHashes = {};
+  final Set<String> _addedHashes = {};
+
   @override
   void dispose() {
     _searchController.dispose();
     _excludeController.dispose();
+    if (_addedHashes.isNotEmpty) {
+      final service = TorrServerService();
+      for (final hash in _addedHashes) {
+        service.removeTorrent(hash);
+      }
+    }
     super.dispose();
+  }
+
+  Future<void> _scrapeTorrentStats(String hash, String link) async {
+    if (_scrapingHashes.contains(hash)) return;
+    _scrapingHashes.add(hash);
+    
+    try {
+      final service = TorrServerService();
+      
+      String torrentLink = link;
+      if (!torrentLink.contains('&tr=')) {
+        final List<String> defaultTrackers = [
+          'udp://tracker.coppersurfer.tk:6969/announce',
+          'udp://tracker.openittracker.com:80/announce',
+          'udp://tracker.opentrackr.org:1337/announce',
+          'udp://explodie.org:6969/announce',
+          'udp://9.rarbg.to:2710/announce',
+          'udp://9.rarbg.me:2780/announce',
+          'udp://open.stealth.si:80/announce',
+          'udp://tracker.torrent.eu.org:451/announce',
+          'udp://opentracker.i2p.rocks:6969/announce',
+        ];
+        for (final tr in defaultTrackers) {
+          torrentLink += '&tr=${Uri.encodeComponent(tr)}';
+        }
+      }
+
+      _addedHashes.add(hash);
+      await service.addTorrent(torrentLink, title: 'Scrape Task');
+      
+      for (int i = 0; i < 5; i++) {
+        await Future.delayed(const Duration(milliseconds: 1000));
+        if (!mounted) {
+          await service.removeTorrent(hash);
+          return;
+        }
+        
+        final info = await service.getTorrent(hash);
+        final seed = info.activePeers;
+        final peers = info.totalPeers;
+        
+        if (seed > 0 || peers > 0 || i == 4) {
+          setState(() {
+            _scrapedStats[hash] = {'seeders': seed, 'peers': peers};
+          });
+          break;
+        }
+      }
+      
+      await service.removeTorrent(hash);
+      _addedHashes.remove(hash);
+    } catch (e) {
+      debugPrint('Background scrape error for $hash: $e');
+    } finally {
+      _scrapingHashes.remove(hash);
+    }
   }
 
   // ── Helper parsing methods ──────────────────────────────────────────────────
@@ -53,13 +120,21 @@ class _MovieStreamSelectorPanelState extends State<MovieStreamSelectorPanel> {
   }
 
   int _extractSeeders(dynamic s) {
+    final String? hash = s['infoHash']?.toString();
+    if (hash != null && _scrapedStats.containsKey(hash)) {
+      return _scrapedStats[hash]!['seeders'] ?? 0;
+    }
     if (s['seeders'] != null) return int.tryParse(s['seeders'].toString()) ?? 0;
     final t = s['title']?.toString() ?? s['description']?.toString() ?? '';
     final m = RegExp(r'(?:👤|seeders?:?)\s*(\d+)', caseSensitive: false).firstMatch(t);
-    return m != null ? (int.tryParse(m.group(1)!) ?? 0) : 0;
+    return m != null ? (int.tryParse(m.group(1)!) ?? 0) : -1;
   }
 
   int _extractPeers(dynamic s) {
+    final String? hash = s['infoHash']?.toString();
+    if (hash != null && _scrapedStats.containsKey(hash)) {
+      return _scrapedStats[hash]!['peers'] ?? 0;
+    }
     if (s['peers'] != null) return int.tryParse(s['peers'].toString()) ?? 0;
     if (s['leechers'] != null) return int.tryParse(s['leechers'].toString()) ?? 0;
     final t = s['title']?.toString() ?? s['description']?.toString() ?? '';
@@ -71,7 +146,7 @@ class _MovieStreamSelectorPanelState extends State<MovieStreamSelectorPanel> {
     if (m2 != null) {
       return int.tryParse(m2.group(2)!) ?? 0;
     }
-    return 0;
+    return -1;
   }
 
   int _extractSize(dynamic s) {
@@ -148,7 +223,7 @@ class _MovieStreamSelectorPanelState extends State<MovieStreamSelectorPanel> {
     if (_selectedTypeFilter == 'torrent') {
       list = list.where((s) => s['infoHash'] != null).toList();
     } else if (_selectedTypeFilter == 'direct') {
-      list = list.where((s) => s['url'] != null).toList();
+      list = list.where((s) => s['url'] != null && s['infoHash'] == null).toList();
     }
 
     // 5. Size Filter
@@ -512,6 +587,14 @@ class _MovieStreamSelectorPanelState extends State<MovieStreamSelectorPanel> {
     final size = _formatBytes(sizeBytes);
     final bool isTorrent = stream['infoHash'] != null;
 
+    if (isTorrent && seeders == -1) {
+      final String? hash = stream['infoHash']?.toString();
+      if (hash != null) {
+        final link = stream['url']?.toString() ?? 'magnet:?xt=urn:btih:$hash';
+        _scrapeTorrentStats(hash, link);
+      }
+    }
+
     return Container(
       margin: const EdgeInsets.only(bottom: 10.0),
       decoration: BoxDecoration(
@@ -575,7 +658,7 @@ class _MovieStreamSelectorPanelState extends State<MovieStreamSelectorPanel> {
                     borderRadius: BorderRadius.circular(4.0),
                   ),
                   child: const Text(
-                    'TORRENT',
+                     'TORRENT',
                     style: TextStyle(color: Colors.green, fontSize: 9.0, fontWeight: FontWeight.bold),
                   ),
                 ),
@@ -586,27 +669,27 @@ class _MovieStreamSelectorPanelState extends State<MovieStreamSelectorPanel> {
                   style: const TextStyle(color: Colors.white54, fontSize: 11.5),
                 ),
               // Seeders
-              if (isTorrent && seeders >= 0)
+              if (isTorrent)
                 Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     const Icon(Icons.arrow_upward, color: Colors.green, size: 14.0),
                     const SizedBox(width: 2.0),
                     Text(
-                      '$seeders',
+                      seeders >= 0 ? '$seeders' : '~',
                       style: const TextStyle(color: Colors.green, fontSize: 11.5, fontWeight: FontWeight.bold),
                     ),
                   ],
                 ),
               // Leechers (Peers)
-              if (isTorrent && peers >= 0)
+              if (isTorrent)
                 Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     const Icon(Icons.arrow_downward, color: Colors.redAccent, size: 14.0),
                     const SizedBox(width: 2.0),
                     Text(
-                      '$peers',
+                      peers >= 0 ? '$peers' : '~',
                       style: const TextStyle(color: Colors.redAccent, fontSize: 11.5),
                     ),
                   ],
