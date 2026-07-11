@@ -773,6 +773,8 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
                   ),
                 ),
 
+                _buildDetailsSection(),
+
                 // 3. Episodes Section (TV only)
                 if (_isSeries) _buildEpisodesSection(),
 
@@ -979,6 +981,152 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildDetailsSection() {
+    final directorList = _meta['director'] is List 
+        ? (_meta['director'] as List) 
+        : (_meta['director'] != null ? [_meta['director']] : []);
+    final writerList = _meta['writers'] is List
+        ? (_meta['writers'] as List)
+        : (_meta['writer'] is List 
+            ? (_meta['writer'] as List) 
+            : (_meta['writers'] != null ? [_meta['writers']] : (_meta['writer'] != null ? [_meta['writer']] : [])));
+    final castList = _meta['cast'] is List ? (_meta['cast'] as List) : [];
+
+    final hasDirector = directorList.isNotEmpty;
+    final hasWriters = writerList.isNotEmpty;
+    final hasCast = castList.isNotEmpty;
+
+    if (!hasDirector && !hasWriters && !hasCast) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 24.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Divider(color: Colors.white10, height: 40.0),
+          
+          if (hasCast) ...[
+            const Text(
+              'Cast',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 16.0,
+                fontWeight: FontWeight.bold,
+                fontFamily: 'Outfit',
+              ),
+            ),
+            const SizedBox(height: 12.0),
+            SizedBox(
+              height: 48.0,
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                itemCount: castList.length,
+                itemBuilder: (context, index) {
+                  final actorName = castList[index].toString();
+                  final initial = actorName.isNotEmpty ? actorName[0].toUpperCase() : '?';
+                  return Container(
+                    margin: const EdgeInsets.only(right: 12.0),
+                    padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 6.0),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.05),
+                      borderRadius: BorderRadius.circular(24.0),
+                      border: Border.all(color: Colors.white10),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        CircleAvatar(
+                          radius: 14.0,
+                          backgroundColor: Colors.white10,
+                          child: Text(
+                            initial,
+                            style: const TextStyle(
+                              color: Colors.amber,
+                              fontSize: 12.0,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8.0),
+                        Text(
+                          actorName,
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.9),
+                            fontSize: 13.0,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 24.0),
+          ],
+
+          if (hasDirector || hasWriters) ...[
+            const Text(
+              'Production',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 16.0,
+                fontWeight: FontWeight.bold,
+                fontFamily: 'Outfit',
+              ),
+            ),
+            const SizedBox(height: 12.0),
+            Wrap(
+              spacing: 16.0,
+              runSpacing: 16.0,
+              children: [
+                if (hasDirector)
+                  _buildProductionItem('Director', directorList.join(', ')),
+                if (hasWriters)
+                  _buildProductionItem('Writer', writerList.join(', ')),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildProductionItem(String label, String value) {
+    return Container(
+      constraints: const BoxConstraints(minWidth: 200.0),
+      padding: const EdgeInsets.all(12.0),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.03),
+        borderRadius: BorderRadius.circular(8.0),
+        border: Border.all(color: Colors.white10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label.toUpperCase(),
+            style: const TextStyle(
+              color: Colors.white38,
+              fontSize: 10.0,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 1.0,
+            ),
+          ),
+          const SizedBox(height: 4.0),
+          Text(
+            value,
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.9),
+              fontSize: 14.0,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
     );
   }
 

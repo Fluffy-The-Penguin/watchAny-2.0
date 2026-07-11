@@ -34,12 +34,12 @@ class _BrandSplashScreenState extends State<BrandSplashScreen> with SingleTicker
 
     _shineController.repeat();
 
-    // Run initialization future and hold for a minimum of 2.2 seconds to show the animation
+    // Run initialization future and hold for a minimum of 1.0 seconds to show the animation
     Future.wait([
       widget.initFuture.catchError((e, stack) {
         debugPrint("Error during app initialization: $e\n$stack");
       }),
-      Future.delayed(const Duration(milliseconds: 2200)),
+      Future.delayed(const Duration(milliseconds: 1000)),
     ]).then((_) {
       if (mounted) {
         widget.onComplete();
