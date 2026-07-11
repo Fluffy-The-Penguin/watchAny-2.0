@@ -309,7 +309,7 @@ class PlayerState extends ChangeNotifier {
     _title = title;
     _episodeNumber = episodeNumber;
     if (hstreamSources != null) _hstreamSources = hstreamSources;
-    if (headers != null) _headers = headers;
+    _headers = headers;
 
     // Reset current position trackers
     _currentPosition = Duration.zero;

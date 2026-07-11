@@ -564,6 +564,19 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
       return;
     }
 
+    Map<String, String>? headers;
+    if (stream['behaviorHints'] is Map) {
+      final bh = stream['behaviorHints'] as Map;
+      if (bh['proxyHeaders'] is Map && bh['proxyHeaders']['request'] is Map) {
+        headers = (bh['proxyHeaders']['request'] as Map).map((k, v) => MapEntry(k.toString(), v.toString()));
+      } else if (bh['headers'] is Map) {
+        headers = (bh['headers'] as Map).map((k, v) => MapEntry(k.toString(), v.toString()));
+      }
+    }
+    if (headers == null && stream['headers'] is Map) {
+      headers = (stream['headers'] as Map).map((k, v) => MapEntry(k.toString(), v.toString()));
+    }
+
     PlayerState().startPlayback(
       streamUrl: streamUrl,
       title: episode != null ? '$mediaTitle — Episode $episode' : mediaTitle,
@@ -573,6 +586,7 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
       media: media,
       episodes: _hasVideos ? _meta['videos'] : null,
       titles: [mediaTitle],
+      headers: headers,
     );
   }
 

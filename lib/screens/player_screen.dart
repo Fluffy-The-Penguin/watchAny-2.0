@@ -845,10 +845,25 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
                   } else {
                     final String streamUrl = stream['url']?.toString() ?? '';
                     final String streamTitle = stream['title']?.toString() ?? 'Stream';
+                    
+                    Map<String, String>? headers;
+                    if (stream['behaviorHints'] is Map) {
+                      final bh = stream['behaviorHints'] as Map;
+                      if (bh['proxyHeaders'] is Map && bh['proxyHeaders']['request'] is Map) {
+                        headers = (bh['proxyHeaders']['request'] as Map).map((k, v) => MapEntry(k.toString(), v.toString()));
+                      } else if (bh['headers'] is Map) {
+                        headers = (bh['headers'] as Map).map((k, v) => MapEntry(k.toString(), v.toString()));
+                      }
+                    }
+                    if (headers == null && stream['headers'] is Map) {
+                      headers = (stream['headers'] as Map).map((k, v) => MapEntry(k.toString(), v.toString()));
+                    }
+
                     PlayerState().updateActiveEpisode(
                       streamUrl: streamUrl,
                       title: streamTitle,
                       episodeNumber: targetEpNum,
+                      headers: headers,
                     );
                   }
                 },
