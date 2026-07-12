@@ -57,14 +57,18 @@ class TorrServerManager {
           body: jsonEncode({
             'action': 'set',
             'sets': {
-              'CacheSize': 209715200,          // 200MB Cache for smooth buffering
-              'Preload': 10,                   // 10% of CacheSize = 20MB Preload (super fast start!)
-              'ReaderReadAhead': 90,           // 90% Read ahead
+              'CacheSize': 0,                  // Disable RAM cache (pure disk caching)
+              'PreloadCache': 10,              // 10% PreloadCache
+              'ReaderReadAHead': 95,           // 95% Read ahead (correct key capitalization)
               'TorrentDisconnectTimeout': 30,  // Recycle stale connections quickly
-              'PeersLifeTime': 30,
-              'MaxPeers': 200,
-              'PendingPeers': 20,
-              'Aportlimit': true
+              'UseDisk': true,                 // Use disk storage as well as RAM cache
+              'ConnectionsLimit': 100,         // Connect to up to 100 peers (balanced network load)
+              'DisableUpload': false,          // Keep upload enabled to contribute to the torrent swarm
+              'UploadRateLimit': 0,            // Disable upload rate limit (unlimited upload speed)
+              'DisableDHT': false,
+              'DisablePEX': false,
+              'DisableUTP': false,
+              'DisableUPNP': false,
             }
           }),
         ).timeout(const Duration(seconds: 3));

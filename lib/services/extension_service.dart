@@ -247,8 +247,18 @@ class ExtensionService extends ChangeNotifier {
   // Compare versions semver-style
   bool _isVersionNewer(String current, String remote) {
     try {
-      final currentParts = current.split('.').map((e) => int.tryParse(e) ?? 0).toList();
-      final remoteParts = remote.split('.').map((e) => int.tryParse(e) ?? 0).toList();
+      final cleanCurrent = current.trim().replaceFirst(RegExp(r'^[vV]'), '');
+      final cleanRemote = remote.trim().replaceFirst(RegExp(r'^[vV]'), '');
+
+      final currentParts = cleanCurrent.split('.').map((e) {
+        final match = RegExp(r'^\d+').firstMatch(e);
+        return match != null ? (int.tryParse(match.group(0)!) ?? 0) : 0;
+      }).toList();
+
+      final remoteParts = cleanRemote.split('.').map((e) {
+        final match = RegExp(r'^\d+').firstMatch(e);
+        return match != null ? (int.tryParse(match.group(0)!) ?? 0) : 0;
+      }).toList();
 
       final maxLen = currentParts.length > remoteParts.length ? currentParts.length : remoteParts.length;
       for (int i = 0; i < maxLen; i++) {
@@ -258,7 +268,7 @@ class ExtensionService extends ChangeNotifier {
         if (remoteVal < currentVal) return false;
       }
     } catch (_) {}
-    return current != remote;
+    return false;
   }
 
   // Update a single extension by ID
@@ -583,7 +593,7 @@ class ExtensionService extends ChangeNotifier {
           delete globalThis.fetchResolvers[id];
         }
       };
-      globalThis.fetch = function(url, options) {
+      globalThis.customFetch = function(url, options) {
         return new Promise(function(resolve, reject) {
           var id = ++globalThis.fetchCount;
           globalThis.fetchResolvers[id] = { resolve: resolve, reject: reject };
@@ -597,6 +607,9 @@ class ExtensionService extends ChangeNotifier {
           sendMessage('fetchChannel', JSON.stringify(req));
         });
       };
+      try {
+        globalThis.fetch = globalThis.customFetch;
+      } catch(e) {}
     """;
     
     // Replace export default new class <Name> with globalThis.extension = new class <Name>
@@ -613,16 +626,32 @@ class ExtensionService extends ChangeNotifier {
         .replaceAll('=== episode', '== episode')
         .replaceAll('=== anilistId', '== anilistId');
     
-    return polyfills + "\n" + transformedCode;
+    // Wrap transformedCode in an IIFE to localise `fetch` so it overrides globalThis.fetch
+    final wrappedCode = """
+      (function() {
+        const fetch = globalThis.customFetch;
+        $transformedCode
+      })();
+    """;
+    
+    return polyfills + "\n" + wrappedCode;
   }
 
   void _setupRuntime(JavascriptRuntime runtime) {
     runtime.onMessage('fetchChannel', (dynamic message) async {
       int? id;
+      String? url;
       try {
-        final Map<String, dynamic> req = jsonDecode(message);
+        final Map<String, dynamic> req;
+        if (message is Map) {
+          req = Map<String, dynamic>.from(message);
+        } else if (message is String) {
+          req = jsonDecode(message);
+        } else {
+          throw 'Invalid message type: ${message.runtimeType}';
+        }
         id = req['id'];
-        final String url = req['url'];
+        url = req['url'];
         final String method = req['method'];
         final Map<String, dynamic> headers = req['headers'] ?? {};
         final String? body = req['body'];
@@ -636,9 +665,14 @@ class ExtensionService extends ChangeNotifier {
         
         http.Response response;
         if (method == 'POST') {
-          response = await _httpClient.post(Uri.parse(url), headers: stringHeaders, body: body);
+          response = await _httpClient.post(Uri.parse(url!), headers: stringHeaders, body: body);
         } else {
-          response = await _httpClient.get(Uri.parse(url), headers: stringHeaders);
+          response = await _httpClient.get(Uri.parse(url!), headers: stringHeaders);
+        }
+        
+        LogService().info('[Extension Fetch] URL: $url -> Status: ${response.statusCode}, Body Length: ${response.body.length}');
+        if (response.statusCode != 200) {
+          LogService().warning('[Extension Fetch] Non-200 response body: ${response.body.length > 500 ? response.body.substring(0, 500) : response.body}');
         }
         
         final responseData = {
@@ -650,6 +684,7 @@ class ExtensionService extends ChangeNotifier {
         runtime.evaluate("globalThis.resolveFetch($id, ${jsonEncode(responseData)});");
         runtime.executePendingJob(); // Run microtasks immediately!
       } catch (e) {
+        LogService().error('[Extension Fetch] Error requesting $url: $e');
         if (id != null) {
           try {
             runtime.evaluate("globalThis.rejectFetch($id, ${jsonEncode(e.toString())});");
@@ -811,7 +846,7 @@ class ExtensionService extends ChangeNotifier {
     bool isMovie = false,
   }) async {
     try {
-      LogService().info('Starting extension search for: titles: $titles, episode: $episodeNumber');
+      LogService().info('Starting extension search (VERIFY NEW CODE v2) for: titles: $titles, episode: $episodeNumber');
       await init();
       
       final enabledExtensions = extensions.where((e) => e.isEnabled && e.cachedCode != null).toList();
@@ -821,6 +856,9 @@ class ExtensionService extends ChangeNotifier {
         return;
       }
       
+      // Expand and normalize titles list (removing season suffix variations to search absolute indexers)
+      final uniqueTitles = _normalizeSearchTitles(titles);
+
       // Fetch mappings first to get alternative IDs (AniDB, TVDB, TMDB)
       final mappings = await _fetchMappings(anilistId);
       
@@ -831,25 +869,49 @@ class ExtensionService extends ChangeNotifier {
       
       int? anidbEid;
       int? tvdbEId;
+      int? targetSeason;
+      int? targetAbsoluteEpisode;
       
       if (mappings != null && mappings['episodes'] != null) {
-        final epKey = episodeNumber.toString();
-        final epData = mappings['episodes'][epKey];
-        if (epData != null) {
-          anidbEid = _toInt(epData['anidbEid']);
-          tvdbEId = _toInt(epData['tvdbId']);
+        final rawEpisodes = mappings['episodes'] as Map<String, dynamic>;
+        Map<String, dynamic>? targetEpData;
+        
+        // Scan episodes to find the one matching local episodeNumber
+        for (final value in rawEpisodes.values) {
+          if (value is Map<String, dynamic>) {
+            final localEp = _toInt(value['episodeNumber']) ?? _toInt(value['episode']);
+            if (localEp == episodeNumber) {
+              targetEpData = value;
+              break;
+            }
+          }
+        }
+        
+        // Fallback to key lookup if scan fails
+        if (targetEpData == null) {
+          final epKey = episodeNumber.toString();
+          if (rawEpisodes[epKey] != null) {
+            targetEpData = rawEpisodes[epKey] as Map<String, dynamic>?;
+          }
+        }
+        
+        if (targetEpData != null) {
+          anidbEid = _toInt(targetEpData['anidbEid']);
+          tvdbEId = _toInt(targetEpData['tvdbId']);
+          targetSeason = _toInt(targetEpData['seasonNumber']);
+          targetAbsoluteEpisode = _toInt(targetEpData['absoluteEpisodeNumber']);
         }
       }
       
       int activeCount = enabledExtensions.length;
-      
       for (final ext in enabledExtensions) {
         _runSingleExtension(
           ext: ext,
           anilistId: anilistId,
-          titles: titles,
+          titles: uniqueTitles,
           episodeCount: episodeCount,
           episodeNumber: episodeNumber,
+          targetAbsoluteEpisode: targetAbsoluteEpisode,
           anidbAid: anidbAid,
           anidbEid: anidbEid,
           tvdbId: tvdbId,
@@ -859,11 +921,19 @@ class ExtensionService extends ChangeNotifier {
           resolution: resolution,
           exclusions: exclusions,
           isMovie: isMovie,
-        ).then((streams) {
+        ).timeout(const Duration(seconds: 8)).then((streams) {
           if (streams.isNotEmpty) {
-            allStreams.addAll(streams);
-            allStreams.sort((a, b) => b.seeders.compareTo(a.seeders));
-            controller.add(List.from(allStreams));
+            final filtered = _filterStreams(
+              streams: streams,
+              targetSeason: targetSeason,
+              targetAbsolute: targetAbsoluteEpisode,
+              episodeNumber: episodeNumber,
+            );
+            if (filtered.isNotEmpty) {
+              allStreams.addAll(filtered);
+              allStreams.sort((a, b) => b.seeders.compareTo(a.seeders));
+              controller.add(List.from(allStreams));
+            }
           }
           activeCount--;
           if (activeCount == 0) {
@@ -890,6 +960,7 @@ class ExtensionService extends ChangeNotifier {
     required List<String> titles,
     required int episodeCount,
     required int episodeNumber,
+    int? targetAbsoluteEpisode,
     int? anidbAid,
     int? anidbEid,
     int? tvdbId,
@@ -900,6 +971,7 @@ class ExtensionService extends ChangeNotifier {
     List<String>? exclusions,
     bool isMovie = false,
   }) async {
+    final cleanResolution = (resolution == 'All' || resolution == 'all') ? '' : (resolution ?? '');
     final JavascriptRuntime runtime = await _createRuntime();
     _setupRuntime(runtime);
     Timer? timer;
@@ -926,14 +998,16 @@ class ExtensionService extends ChangeNotifier {
               episodeCount: $episodeCount,
               anidbEid: ${anidbEid ?? 'null'},
               anidbAid: ${anidbAid ?? 'null'},
-              episode: $episodeNumber,
-              resolution: ${jsonEncode(resolution ?? '')},
+              episode: ${targetAbsoluteEpisode ?? episodeNumber},
+              localEpisode: $episodeNumber,
+              absoluteEpisode: ${targetAbsoluteEpisode ?? 'null'},
+              resolution: ${jsonEncode(cleanResolution)},
               exclusions: ${jsonEncode(exclusions ?? [])},
               tvdbId: ${tvdbId ?? 'null'},
               tvdbEId: ${tvdbEId ?? 'null'},
               tmdbId: ${tmdbId ?? 'null'},
               media: ${jsonEncode(media ?? {})},
-              fetch: globalThis.fetch
+              fetch: globalThis.customFetch
             };
             var options = ${jsonEncode(ext.toJson()['options'] ?? {})};
             var result = await globalThis.extension.$method(args, options);
@@ -968,5 +1042,175 @@ class ExtensionService extends ChangeNotifier {
       runtime.dispose();
     }
     return <TorrentStream>[];
+  }
+
+  List<String> _normalizeSearchTitles(List<String> titles) {
+    final List<String> variations = [];
+    final seasonRegex = RegExp(
+      r'\b(?:s(?:eason)?|part|cour)\s*0*[1-9]\d*\b|\b\d+(?:st|nd|rd|th)\s*(?:season|cour)\b',
+      caseSensitive: false,
+    );
+
+    for (final rawTitle in titles) {
+      // 1. Normalize typographic quotes and characters
+      var t = rawTitle
+          .replaceAll('’', "'")
+          .replaceAll('‘', "'")
+          .replaceAll('“', '"')
+          .replaceAll('”', '"')
+          .trim();
+          
+      variations.add(t);
+
+      // 2. Normalize Roman numerals
+      variations.addAll(_normalizeTitleRomanNumerals(t));
+
+      // 3. Strip season/part/cour suffixes
+      if (seasonRegex.hasMatch(t)) {
+        final stripped = t.replaceAll(seasonRegex, '').replaceAll(RegExp(r'\s+-\s*$|\s*:\s*$|\s+$'), '').trim();
+        if (stripped.isNotEmpty && stripped.length > 2) {
+          variations.add(stripped);
+          variations.addAll(_normalizeTitleRomanNumerals(stripped));
+        }
+      }
+    }
+
+    // 4. Split by colon / dash to extract main franchise name/base title
+    final List<String> currentVariations = List.from(variations);
+    for (final v in currentVariations) {
+      if (v.contains(':') || v.contains(' -')) {
+        final parts = v.split(RegExp(r':| -'));
+        final mainTitle = parts[0].trim();
+        if (mainTitle.isNotEmpty && mainTitle.length > 2) {
+          variations.add(mainTitle);
+          variations.addAll(_normalizeTitleRomanNumerals(mainTitle));
+        }
+      }
+    }
+
+    // 5. Clean up punctuation (colons, dashes, apostrophes, commas) to create clean search variants
+    final List<String> cleanedVariations = [];
+    for (final v in variations) {
+      cleanedVariations.add(v);
+      
+      final clean = v
+          .replaceAll(RegExp(r"[:\-\–\—,!?,_]"), ' ')
+          .replaceAll(RegExp(r"\s+"), ' ')
+          .trim();
+      if (clean != v && clean.isNotEmpty) {
+        cleanedVariations.add(clean);
+      }
+
+      if (v.contains("'")) {
+        final noApostrophe = v.replaceAll("'", "");
+        cleanedVariations.add(noApostrophe);
+        
+        final apostropheToSpace = v.replaceAll("'", " ");
+        cleanedVariations.add(apostropheToSpace);
+      }
+    }
+
+    return cleanedVariations
+        .map((e) => e.trim())
+        .where((e) => e.length > 2)
+        .toSet()
+        .toList();
+  }
+
+  List<String> _normalizeTitleRomanNumerals(String title) {
+    final List<String> variations = [title];
+    final romanMap = {
+      r'\bii\b': '2',
+      r'\biii\b': '3',
+      r'\biv\b': '4',
+      r'\bv\b': '5',
+      r'\bvi\b': '6',
+      r'\bvii\b': '7',
+      r'\bviii\b': '8',
+      r'\bix\b': '9',
+      r'\bx\b': '10',
+    };
+    for (final entry in romanMap.entries) {
+      final regex = RegExp(entry.key, caseSensitive: false);
+      if (regex.hasMatch(title)) {
+        final withArabic = title.replaceAllMapped(regex, (m) => entry.value);
+        variations.add(withArabic);
+        
+        final endRegex = RegExp(entry.key + r'\s*$', caseSensitive: false);
+        if (endRegex.hasMatch(title)) {
+          variations.add(title.replaceAllMapped(endRegex, (m) => 'Season ${entry.value}'));
+          variations.add(title.replaceAllMapped(endRegex, (m) => 'S${entry.value}'));
+        }
+      }
+    }
+    return variations;
+  }
+
+  List<TorrentStream> _filterStreams({
+    required List<TorrentStream> streams,
+    int? targetSeason,
+    int? targetAbsolute,
+    required int episodeNumber,
+  }) {
+    if (targetSeason == null) return streams;
+
+    final List<TorrentStream> result = [];
+    final String epLocalStr = episodeNumber.toString().padLeft(2, '0');
+    final String? epAbsStr = targetAbsolute?.toString();
+
+    for (final s in streams) {
+      final name = s.title.toLowerCase();
+
+      // 1. Season Mismatch Check (e.g. S03 vs S01)
+      final seasonMatches = RegExp(r'\bs(?:eason)?\s*0*([1-9]\d*)\b|\b0*([1-9]\d*)st\s*season\b|\b0*([1-9]\d*)nd\s*season\b|\b0*([1-9]\d*)rd\s*season\b|\b0*([1-9]\d*)th\s*season\b').allMatches(name);
+      
+      bool seasonMismatch = false;
+      if (seasonMatches.isNotEmpty) {
+        bool hasMatchingSeason = false;
+        for (final m in seasonMatches) {
+          final matchedSeasonStr = m.group(1) ?? m.group(2);
+          if (matchedSeasonStr != null) {
+            final matchedSeason = int.tryParse(matchedSeasonStr);
+            if (matchedSeason == targetSeason) {
+              hasMatchingSeason = true;
+              break;
+            }
+          }
+        }
+        if (!hasMatchingSeason) {
+          seasonMismatch = true;
+        }
+      }
+
+      if (seasonMismatch) {
+        continue;
+      }
+
+      // 2. Exclude other seasons' explicit indicators if we are looking for Season 1
+      if (targetSeason == 1) {
+        final hasOtherSeason = RegExp(r'\bs(?:eason)?\s*0*([2-9]\d*)\b').hasMatch(name);
+        if (hasOtherSeason) continue;
+      }
+
+      // 3. Absolute vs Local Episode Alignment
+      if (targetSeason > 1 && targetAbsolute != null && targetAbsolute != episodeNumber) {
+        final bool containsAbsolute = name.contains(RegExp(r'\b0*' + epAbsStr! + r'\b'));
+        final bool containsLocalSeason = RegExp(r'\bs(?:eason)?\s*0*' + targetSeason.toString() + r'\b').hasMatch(name) ||
+                                         name.contains('s' + targetSeason.toString()) ||
+                                         name.contains('s' + targetSeason.toString().padLeft(2, '0'));
+        
+        if (!containsAbsolute && !containsLocalSeason) {
+          final bool containsLocalEp = RegExp(r'\b0*' + episodeNumber.toString() + r'\b').hasMatch(name) ||
+                                       name.contains('e' + epLocalStr) ||
+                                       name.contains('ep' + epLocalStr);
+          if (containsLocalEp) {
+            continue; // Exclude Season 1 Episode 4
+          }
+        }
+      }
+
+      result.add(s);
+    }
+    return result;
   }
 }

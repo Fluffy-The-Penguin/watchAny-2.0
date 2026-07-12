@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/foundation.dart';
 import '../services/notification_service.dart';
 import '../services/suwayomi_service.dart';
@@ -37,7 +38,7 @@ class MangaReaderPage extends StatefulWidget {
   State<MangaReaderPage> createState() => _MangaReaderPageState();
 }
 
-class _MangaReaderPageState extends State<MangaReaderPage> {
+class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProviderStateMixin {
   final SuwayomiService _suwayomiService = SuwayomiService();
   bool _isLoading = true;
   String? _errorMessage;
@@ -54,6 +55,21 @@ class _MangaReaderPageState extends State<MangaReaderPage> {
 
   late String _currentChapterId;
   late int _currentChapterNumber;
+  
+  late AnimationController _webtoonScaleController;
+  late ScrollController _webtoonHorizontalScrollController;
+  double _webtoonScale = 1.0;
+  double _startScale = 1.0;
+  TapDownDetails? _webtoonDoubleTapDetails;
+  bool _isPageZoomed = false;
+
+  double? _doubleTapTargetY;
+  double? _doubleTapTargetX;
+  double? _doubleTapStartY;
+  double? _doubleTapStartX;
+  double? _doubleTapStartScale;
+  double? _doubleTapTargetScale;
+  int _pointerCount = 0;
 
   @override
   void initState() {
@@ -66,6 +82,54 @@ class _MangaReaderPageState extends State<MangaReaderPage> {
     _pageController = PageController();
     _scrollController = ScrollController();
     _scrollController.addListener(_onScroll);
+    
+    _webtoonHorizontalScrollController = ScrollController();
+    _webtoonScaleController = AnimationController(
+      vsync: this,
+      lowerBound: 1.0,
+      upperBound: 4.0,
+      value: 1.0,
+      duration: const Duration(milliseconds: 200),
+    )..addListener(() {
+        if (mounted) {
+          final double newScale = _webtoonScaleController.value;
+          final double oldScale = _webtoonScale;
+          if (newScale != oldScale) {
+            setState(() {
+              _webtoonScale = newScale;
+            });
+            
+            if (_doubleTapTargetScale != null && _doubleTapStartScale != null && (_doubleTapTargetScale! - _doubleTapStartScale!).abs() > 0.01) {
+              final double t = ((newScale - _doubleTapStartScale!) / (_doubleTapTargetScale! - _doubleTapStartScale!)).clamp(0.0, 1.0);
+              if (_scrollController.hasClients && _doubleTapTargetY != null && _doubleTapStartY != null) {
+                final double y = _doubleTapStartY! + t * (_doubleTapTargetY! - _doubleTapStartY!);
+                _scrollController.jumpTo(y.clamp(0.0, _scrollController.position.maxScrollExtent));
+              }
+              if (_webtoonHorizontalScrollController.hasClients && _doubleTapTargetX != null && _doubleTapStartX != null) {
+                final double x = _doubleTapStartX! + t * (_doubleTapTargetX! - _doubleTapStartX!);
+                final double screenWidth = MediaQuery.of(context).size.width;
+                final double maxScroll = (newScale - 1) * screenWidth;
+                _webtoonHorizontalScrollController.jumpTo(x.clamp(0.0, maxScroll));
+              }
+            } else {
+              // Proportional scaling for pinch-to-zoom
+              if (_scrollController.hasClients && oldScale > 0.0) {
+                final double currentY = _scrollController.offset;
+                final double newY = currentY * (newScale / oldScale);
+                _scrollController.jumpTo(newY.clamp(0.0, _scrollController.position.maxScrollExtent));
+              }
+              if (_webtoonHorizontalScrollController.hasClients && oldScale > 0.0) {
+                final double currentX = _webtoonHorizontalScrollController.offset;
+                final double newX = currentX * (newScale / oldScale);
+                final double screenWidth = MediaQuery.of(context).size.width;
+                final double maxScroll = (newScale - 1) * screenWidth;
+                _webtoonHorizontalScrollController.jumpTo(newX.clamp(0.0, maxScroll));
+              }
+            }
+          }
+        }
+      });
+
     _loadSettings().then((_) {
       _loadPages();
       _updateLibraryProgress();
@@ -88,16 +152,46 @@ class _MangaReaderPageState extends State<MangaReaderPage> {
     _pageLoader?.dispose();
     _pageController.dispose();
     _scrollController.dispose();
+    _webtoonHorizontalScrollController.dispose();
+    _webtoonScaleController.dispose();
     super.dispose();
   }
 
   void _onScroll() {
     if (_readingFormat != 'webtoon') return;
     if (_scrollController.hasClients && _pageUrls.isNotEmpty) {
-      final maxScroll = _scrollController.position.maxScrollExtent;
-      if (maxScroll <= 0) return;
-      final percent = _scrollController.offset / maxScroll;
-      final estimatedIndex = (percent * (_pageUrls.length - 1)).round().clamp(0, _pageUrls.length - 1);
+      // Only track progress when the scroll is actively driven by user dragging, flinging, or pointer scrolls
+      if (_scrollController.position.hasPixels) {
+        final String activityType = _scrollController.position.activity.runtimeType.toString();
+        if (activityType == 'IdleScrollActivity' || activityType == 'DrivenScrollActivity') {
+          return;
+        }
+      }
+
+      // Normalize scroll offset by dividing by current zoom scale
+      final double offset = _scrollController.offset / _webtoonScale;
+      final double width = MediaQuery.of(context).size.width.clamp(0.0, 800.0);
+      
+      double cumulativeHeight = 40.0; // matching top padding
+      int estimatedIndex = 0;
+      
+      for (int i = 0; i < _pageUrls.length; i++) {
+        final dims = _pageLoader?.pageDimensions[i];
+        final double aspectRatio = dims != null ? (dims.width / dims.height) : (2 / 3);
+        final double pageHeight = width / aspectRatio;
+        
+        if (offset < cumulativeHeight + pageHeight / 2) {
+          estimatedIndex = i;
+          break;
+        }
+        cumulativeHeight += pageHeight;
+        estimatedIndex = i;
+      }
+      
+      if (offset >= cumulativeHeight - 50.0) {
+        estimatedIndex = _pageUrls.length - 1;
+      }
+      
       if (estimatedIndex != _currentPageIndex) {
         _updatePageIndex(estimatedIndex);
       }
@@ -110,27 +204,30 @@ class _MangaReaderPageState extends State<MangaReaderPage> {
   }
 
   void _updatePageIndex(int index, {bool jump = false}) {
-    if (index < 0 || index >= _pageUrls.length) return;
+    if (index < 0 || index > _pageUrls.length) return;
     setState(() {
       _currentPageIndex = index;
     });
-    _pageLoader?.setPriorityIndex(index);
-    _saveCurrentPage(index);
+    
+    if (index < _pageUrls.length) {
+      _pageLoader?.setPriorityIndex(index);
+      _saveCurrentPage(index);
 
-    // Precache next and previous pages for butter smooth swiping
-    if (mounted) {
-      final nextIdx = index + 1;
-      if (nextIdx < _pageUrls.length) {
-        final nextPath = _pageLoader?.localPaths[nextIdx];
-        if (nextPath != null) {
-          precacheImage(FileImage(File(nextPath)), context);
+      // Precache next and previous pages for butter smooth swiping
+      if (mounted) {
+        final nextIdx = index + 1;
+        if (nextIdx < _pageUrls.length) {
+          final nextPath = _pageLoader?.localPaths[nextIdx];
+          if (nextPath != null) {
+            precacheImage(FileImage(File(nextPath)), context);
+          }
         }
-      }
-      final prevIdx = index - 1;
-      if (prevIdx >= 0) {
-        final prevPath = _pageLoader?.localPaths[prevIdx];
-        if (prevPath != null) {
-          precacheImage(FileImage(File(prevPath)), context);
+        final prevIdx = index - 1;
+        if (prevIdx >= 0) {
+          final prevPath = _pageLoader?.localPaths[prevIdx];
+          if (prevPath != null) {
+            precacheImage(FileImage(File(prevPath)), context);
+          }
         }
       }
     }
@@ -198,7 +295,9 @@ class _MangaReaderPageState extends State<MangaReaderPage> {
             chapterId: parsedId,
             urls: urls,
             onPageDownloaded: () {
-              if (mounted) setState(() {});
+              if (mounted) {
+                setState(() {});
+              }
             },
           );
         });
@@ -208,7 +307,7 @@ class _MangaReaderPageState extends State<MangaReaderPage> {
           if (!mounted) return;
           if (_readingFormat == 'webtoon') {
             if (_scrollController.hasClients && _currentPageIndex > 0) {
-              _scrollController.jumpTo(_currentPageIndex * 1000.0);
+              _scrollToSavedPageWebtoon();
             }
           } else {
             if (_pageController.hasClients && _currentPageIndex > 0) {
@@ -233,6 +332,22 @@ class _MangaReaderPageState extends State<MangaReaderPage> {
         });
       }
     }
+  }
+
+  double _getWebtoonScrollOffsetForIndex(int index) {
+    final double width = MediaQuery.of(context).size.width.clamp(0.0, 800.0);
+    double cumulativeHeight = 40.0; // matching top padding
+    for (int i = 0; i < index; i++) {
+      final dims = _pageLoader?.pageDimensions[i];
+      final double aspectRatio = dims != null ? (dims.width / dims.height) : (2 / 3);
+      cumulativeHeight += width / aspectRatio;
+    }
+    return cumulativeHeight;
+  }
+
+  void _scrollToSavedPageWebtoon() {
+    if (!_scrollController.hasClients) return;
+    _scrollController.jumpTo(_getWebtoonScrollOffsetForIndex(_currentPageIndex));
   }
 
 
@@ -451,9 +566,7 @@ class _MangaReaderPageState extends State<MangaReaderPage> {
                   WidgetsBinding.instance.addPostFrameCallback((_) {
                     if (!mounted) return;
                     if (_readingFormat == 'webtoon') {
-                      if (_scrollController.hasClients) {
-                        _scrollController.jumpTo(_currentPageIndex * 1000.0);
-                      }
+                      _scrollToSavedPageWebtoon();
                     } else {
                       if (_pageController.hasClients) {
                         if (_readingFormat == 'paging_double') {
@@ -647,14 +760,36 @@ class _MangaReaderPageState extends State<MangaReaderPage> {
                     borderRadius: BorderRadius.circular(12.0),
                     border: Border.all(color: Colors.white10, width: 0.5),
                   ),
-                  child: Text(
-                    '${_currentPageIndex + 1}/${_pageUrls.length}',
-                    style: const TextStyle(
-                      color: Colors.white70,
-                      fontSize: 11.0,
-                      fontFamily: 'Outfit',
-                      fontWeight: FontWeight.bold,
-                    ),
+                  child: Builder(
+                    builder: (context) {
+                      final bool isDouble = _readingFormat == 'paging_double';
+                      String pageText;
+                      if (isDouble) {
+                        final groups = _getDoublePageIndices();
+                        final groupIdx = groups.indexWhere((g) => g.contains(_currentPageIndex));
+                        if (groupIdx != -1) {
+                          final group = groups[groupIdx];
+                          if (group.length == 2) {
+                            pageText = '${group[0] + 1}-${group[1] + 1}/${_pageUrls.length}';
+                          } else {
+                            pageText = '${group[0] + 1}/${_pageUrls.length}';
+                          }
+                        } else {
+                          pageText = '${_currentPageIndex + 1}/${_pageUrls.length}';
+                        }
+                      } else {
+                        pageText = '${_currentPageIndex + 1}/${_pageUrls.length}';
+                      }
+                      return Text(
+                        pageText,
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 11.0,
+                          fontFamily: 'Outfit',
+                          fontWeight: FontWeight.bold,
+                        ),
+                      );
+                    }
                   ),
                 ),
               ),
@@ -699,13 +834,16 @@ class _MangaReaderPageState extends State<MangaReaderPage> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final w = constraints.maxWidth.isFinite ? constraints.maxWidth : MediaQuery.of(context).size.width;
-        final h = w * (3 / 2); // manga page aspect ratio
+        final dims = _pageLoader?.pageDimensions[index];
+        final double aspectRatio = dims != null ? (dims.width / dims.height) : (2 / 3);
+        final double h = w / aspectRatio;
 
+        Widget content;
         if (localPath != null) {
           final pixelRatio = MediaQuery.of(context).devicePixelRatio;
           final int targetWidth = (w * pixelRatio).toInt().clamp(800, 2000);
 
-          return TweenAnimationBuilder<double>(
+          content = TweenAnimationBuilder<double>(
             tween: Tween(begin: 0.0, end: 1.0),
             duration: const Duration(milliseconds: 250),
             curve: Curves.easeIn,
@@ -731,15 +869,21 @@ class _MangaReaderPageState extends State<MangaReaderPage> {
               errorBuilder: (context, error, stackTrace) => _buildPageError(index),
             ),
           );
+        } else {
+          // Shimmer placeholder
+          content = _MihonPagePlaceholder(
+            width: w,
+            height: h,
+            pageNumber: index + 1,
+            isDownloading: isDownloading,
+            progress: progress,
+          );
         }
 
-        // Shimmer placeholder
-        return _MihonPagePlaceholder(
+        return SizedBox(
           width: w,
           height: h,
-          pageNumber: index + 1,
-          isDownloading: isDownloading,
-          progress: progress,
+          child: content,
         );
       },
     );
@@ -779,27 +923,172 @@ class _MangaReaderPageState extends State<MangaReaderPage> {
   }
 
 
+  void _handleWebtoonDoubleTapDown(TapDownDetails details) {
+    _webtoonDoubleTapDetails = details;
+  }
+
+  void _handleWebtoonDoubleTap() {
+    final double screenWidth = MediaQuery.of(context).size.width;
+    final double screenHeight = MediaQuery.of(context).size.height;
+    
+    if (_scrollController.hasClients && _webtoonHorizontalScrollController.hasClients) {
+      _doubleTapStartY = _scrollController.offset;
+      _doubleTapStartX = _webtoonHorizontalScrollController.offset;
+      _doubleTapStartScale = _webtoonScale;
+      
+      if (_webtoonScale > 1.05) {
+        // Zooming out to 1.0
+        _doubleTapTargetScale = 1.0;
+        _doubleTapTargetY = _scrollController.offset / _webtoonScale;
+        _doubleTapTargetX = 0.0;
+        
+        _webtoonScaleController.animateTo(1.0, curve: Curves.easeOut).then((_) {
+          _resetDoubleTapTargets();
+        });
+      } else {
+        // Zooming in to 2.5
+        const double targetScale = 2.5;
+        _doubleTapTargetScale = targetScale;
+        
+        // Calculate target X to center the tap coordinate
+        double targetX = 0.0;
+        if (_webtoonDoubleTapDetails != null) {
+          final double localX = _webtoonDoubleTapDetails!.localPosition.dx;
+          targetX = (localX * targetScale) - (screenWidth / 2);
+          final double maxScroll = (targetScale - 1) * screenWidth;
+          targetX = targetX.clamp(0.0, maxScroll);
+        }
+        _doubleTapTargetX = targetX;
+        
+        // Calculate target Y to center the tap coordinate
+        double targetY = _scrollController.offset;
+        if (_webtoonDoubleTapDetails != null) {
+          final double localY = _webtoonDoubleTapDetails!.localPosition.dy;
+          final double absoluteY = _scrollController.offset + localY;
+          targetY = (absoluteY * targetScale) - (screenHeight / 2);
+          targetY = targetY.clamp(0.0, _scrollController.position.maxScrollExtent * targetScale);
+        }
+        _doubleTapTargetY = targetY;
+        
+        _webtoonScaleController.animateTo(2.5, curve: Curves.easeOut).then((_) {
+          _resetDoubleTapTargets();
+        });
+      }
+    }
+  }
+
+  void _resetDoubleTapTargets() {
+    _doubleTapTargetY = null;
+    _doubleTapTargetX = null;
+    _doubleTapStartY = null;
+    _doubleTapStartX = null;
+    _doubleTapStartScale = null;
+    _doubleTapTargetScale = null;
+  }
+
+  void _handleWebtoonScaleStart(ScaleStartDetails details) {
+    _startScale = _webtoonScale;
+    _webtoonScaleController.stop();
+  }
+
+  void _handleWebtoonScaleUpdate(ScaleUpdateDetails details) {
+    final double newScale = (_startScale * details.scale).clamp(1.0, 4.0);
+    
+    // Setting value triggers the scale controller's listener,
+    // which automatically scales the scroll offsets proportionally.
+    _webtoonScaleController.value = newScale;
+
+    // Apply translation deltas (focalPointDelta)
+    if (_scrollController.hasClients && details.focalPointDelta.dy != 0) {
+      final double currentYOffset = _scrollController.offset;
+      final double newYOffset = currentYOffset - details.focalPointDelta.dy;
+      _scrollController.jumpTo(newYOffset.clamp(0.0, _scrollController.position.maxScrollExtent));
+    }
+
+    if (_webtoonHorizontalScrollController.hasClients && details.focalPointDelta.dx != 0) {
+      final double currentOffset = _webtoonHorizontalScrollController.offset;
+      final double newOffset = currentOffset - details.focalPointDelta.dx;
+      final double screenWidth = MediaQuery.of(context).size.width;
+      final double maxScroll = (newScale - 1) * screenWidth;
+      _webtoonHorizontalScrollController.jumpTo(newOffset.clamp(0.0, maxScroll));
+    }
+  }
+
+  void _handleWebtoonScaleEnd(ScaleEndDetails details) {
+    if (_webtoonScale < 1.05) {
+      _webtoonScaleController.animateTo(1.0, curve: Curves.easeOut);
+    }
+  }
+
+
   Widget _buildWebtoonViewer() {
-    return InteractiveViewer(
-      minScale: 1.0,
-      maxScale: 4.0,
-      child: ScrollConfiguration(
-        behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
-        child: ListView.builder(
-          controller: _scrollController,
-          padding: const EdgeInsets.symmetric(vertical: 40.0),
-          itemCount: _pageUrls.length,
-          itemBuilder: (context, index) {
-            _pageLoader?.setPriorityIndex(index);
-            return Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 800.0),
-                child: _buildColorFilteredWidget(
-                  _buildPageImage(index, isWebtoon: true),
+    final double screenWidth = MediaQuery.of(context).size.width;
+    
+    return Listener(
+      onPointerDown: (event) {
+        if (mounted) {
+          setState(() {
+            _pointerCount++;
+          });
+        }
+      },
+      onPointerUp: (event) {
+        if (mounted) {
+          setState(() {
+            _pointerCount = (_pointerCount - 1).clamp(0, 10);
+          });
+        }
+      },
+      onPointerCancel: (event) {
+        if (mounted) {
+          setState(() {
+            _pointerCount = (_pointerCount - 1).clamp(0, 10);
+          });
+        }
+      },
+      child: GestureDetector(
+        onTap: () {
+          setState(() => _showOverlay = !_showOverlay);
+        },
+        onDoubleTapDown: _handleWebtoonDoubleTapDown,
+        onDoubleTap: _handleWebtoonDoubleTap,
+        onScaleStart: _pointerCount >= 2 ? _handleWebtoonScaleStart : null,
+        onScaleUpdate: _pointerCount >= 2 ? _handleWebtoonScaleUpdate : null,
+        onScaleEnd: _pointerCount >= 2 ? _handleWebtoonScaleEnd : null,
+        child: NotificationListener<ScrollNotification>(
+          onNotification: (ScrollNotification notification) {
+            return false;
+          },
+          child: SingleChildScrollView(
+            controller: _webtoonHorizontalScrollController,
+            scrollDirection: Axis.horizontal,
+            physics: _webtoonScale > 1.05
+                ? const ClampingScrollPhysics()
+                : const NeverScrollableScrollPhysics(),
+            child: SizedBox(
+              width: screenWidth * _webtoonScale,
+              child: ScrollConfiguration(
+                behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
+                child: ListView.builder(
+                  controller: _scrollController,
+                  physics: const ClampingScrollPhysics(),
+                  padding: const EdgeInsets.symmetric(vertical: 40.0),
+                  itemCount: _pageUrls.length,
+                  itemBuilder: (context, index) {
+                    _pageLoader?.setPriorityIndex(index);
+                    return Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 800.0),
+                        child: _buildColorFilteredWidget(
+                          _buildPageImage(index, isWebtoon: true),
+                        ),
+                      ),
+                    );
+                  },
                 ),
               ),
-            );
-          },
+            ),
+          ),
         ),
       ),
     );
@@ -813,9 +1102,13 @@ class _MangaReaderPageState extends State<MangaReaderPage> {
       final groups = _getDoublePageIndices();
       return PageView.builder(
         controller: _pageController,
+        physics: _isPageZoomed ? const NeverScrollableScrollPhysics() : const ClampingScrollPhysics(),
         itemCount: groups.length,
         reverse: isRtl,
         onPageChanged: (index) {
+          setState(() {
+            _isPageZoomed = false;
+          });
           if (index < groups.length) {
             _updatePageIndex(groups[index][0]);
           }
@@ -831,6 +1124,11 @@ class _MangaReaderPageState extends State<MangaReaderPage> {
             children.addAll([
               Expanded(
                 child: _ZoomablePageImage(
+                  onZoomChanged: (zoomed) {
+                    setState(() {
+                      _isPageZoomed = zoomed;
+                    });
+                  },
                   child: Center(
                     child: _buildColorFilteredWidget(
                       _buildPageImage(leftIdx),
@@ -841,6 +1139,11 @@ class _MangaReaderPageState extends State<MangaReaderPage> {
               const SizedBox(width: 8.0),
               Expanded(
                 child: _ZoomablePageImage(
+                  onZoomChanged: (zoomed) {
+                    setState(() {
+                      _isPageZoomed = zoomed;
+                    });
+                  },
                   child: Center(
                     child: _buildColorFilteredWidget(
                       _buildPageImage(rightIdx),
@@ -853,6 +1156,11 @@ class _MangaReaderPageState extends State<MangaReaderPage> {
             children.add(
               Expanded(
                 child: _ZoomablePageImage(
+                  onZoomChanged: (zoomed) {
+                    setState(() {
+                      _isPageZoomed = zoomed;
+                    });
+                  },
                   child: Center(
                     child: _buildColorFilteredWidget(
                       _buildPageImage(group[0]),
@@ -872,13 +1180,22 @@ class _MangaReaderPageState extends State<MangaReaderPage> {
     } else {
       return PageView.builder(
         controller: _pageController,
+        physics: _isPageZoomed ? const NeverScrollableScrollPhysics() : const ClampingScrollPhysics(),
         itemCount: _pageUrls.length,
         reverse: isRtl,
         onPageChanged: (index) {
+          setState(() {
+            _isPageZoomed = false;
+          });
           _updatePageIndex(index);
         },
         itemBuilder: (context, index) {
           return _ZoomablePageImage(
+            onZoomChanged: (zoomed) {
+              setState(() {
+                _isPageZoomed = zoomed;
+              });
+            },
             child: Center(
               child: _buildColorFilteredWidget(
                 _buildPageImage(index),
@@ -995,7 +1312,7 @@ class _MangaReaderPageState extends State<MangaReaderPage> {
                       _updatePageIndex(targetPageIdx);
                       if (_readingFormat == 'webtoon') {
                         if (_scrollController.hasClients) {
-                          _scrollController.jumpTo(targetPageIdx * 1000.0);
+                          _scrollController.jumpTo(_getWebtoonScrollOffsetForIndex(targetPageIdx));
                         }
                       } else {
                         if (_pageController.hasClients) {
@@ -1064,6 +1381,7 @@ class MangaPageLoader {
   final VoidCallback onPageDownloaded;
   
   final List<String?> localPaths;
+  final List<ImageDimension?> pageDimensions;
   final List<bool> _downloading;   // which indices are currently in-flight
   final List<double?> _progress;   // 0.0–1.0 or null if not started
   int _priorityIndex = 0;
@@ -1077,6 +1395,7 @@ class MangaPageLoader {
     required this.urls,
     required this.onPageDownloaded,
   })  : localPaths = List<String?>.filled(urls.length, null),
+        pageDimensions = List<ImageDimension?>.filled(urls.length, null),
         _downloading = List<bool>.filled(urls.length, false),
         _progress = List<double?>.filled(urls.length, null) {
     _startDownloadLoop();
@@ -1088,6 +1407,7 @@ class MangaPageLoader {
   void retryPage(int index) {
     if (index < 0 || index >= urls.length) return;
     localPaths[index] = null;
+    pageDimensions[index] = null;
     _downloading[index] = false;
     _progress[index] = null;
     _priorityIndex = index;
@@ -1104,8 +1424,6 @@ class MangaPageLoader {
     if (_priorityIndex == idx) return;
     
     _priorityIndex = idx;
-    // Cancel current download to prioritize the new one!
-    _cancelCurrent();
   }
 
   void _cancelCurrent() {
@@ -1141,26 +1459,17 @@ class MangaPageLoader {
       return _priorityIndex;
     }
     
-    // 2. Check adjacent indices (forward first, up to 3 pages)
-    for (int i = 1; i <= 3; i++) {
-      final idx = _priorityIndex + i;
-      if (idx < urls.length && localPaths[idx] == null) {
+    // 2. Prioritize downloading all subsequent pages forward from the current page in sequence
+    for (int idx = _priorityIndex + 1; idx < urls.length; idx++) {
+      if (localPaths[idx] == null) {
         return idx;
       }
     }
     
-    // 3. Check adjacent indices (backward, up to 2 pages)
-    for (int i = 1; i <= 2; i++) {
-      final idx = _priorityIndex - i;
-      if (idx >= 0 && localPaths[idx] == null) {
+    // 3. Fallback to downloading previous pages backward from the current page (in case of scroll back)
+    for (int idx = _priorityIndex - 1; idx >= 0; idx--) {
+      if (localPaths[idx] == null) {
         return idx;
-      }
-    }
-
-    // 4. Fallback to first undownloaded page from start
-    for (int i = 0; i < urls.length; i++) {
-      if (localPaths[i] == null) {
-        return i;
       }
     }
     
@@ -1182,6 +1491,17 @@ class MangaPageLoader {
       localPaths[index] = file.path;
       _downloading[index] = false;
       _progress[index] = 1.0;
+      
+      try {
+        final bytes = await file.readAsBytes();
+        ImageDimension? dims = _parseImageDimensions(bytes);
+        if (dims == null) {
+          final image = await decodeImageFromList(bytes);
+          dims = ImageDimension(image.width.toDouble(), image.height.toDouble());
+        }
+        pageDimensions[index] = dims;
+      } catch (_) {}
+      
       onPageDownloaded();
       return;
     }
@@ -1207,6 +1527,17 @@ class MangaPageLoader {
           if (bytes.isNotEmpty) {
             await file.writeAsBytes(bytes);
             localPaths[index] = file.path;
+            
+            try {
+              final uint8bytes = Uint8List.fromList(bytes);
+              ImageDimension? dims = _parseImageDimensions(uint8bytes);
+              if (dims == null) {
+                final image = await decodeImageFromList(uint8bytes);
+                dims = ImageDimension(image.width.toDouble(), image.height.toDouble());
+              }
+              pageDimensions[index] = dims;
+            } catch (_) {}
+            
             _progress[index] = 1.0;
             onPageDownloaded();
           }
@@ -1229,11 +1560,53 @@ class MangaPageLoader {
 
     await completer.future;
   }
+
+  ImageDimension? _parseImageDimensions(Uint8List bytes) {
+    if (bytes.length < 8) return null;
+
+    // PNG Check: signature 89 50 4E 47 0D 0A 1A 0A
+    if (bytes[0] == 0x89 &&
+        bytes[1] == 0x50 &&
+        bytes[2] == 0x4E &&
+        bytes[3] == 0x47 &&
+        bytes[4] == 0x0D &&
+        bytes[5] == 0x0A &&
+        bytes[6] == 0x1A &&
+        bytes[7] == 0x0A) {
+      if (bytes.length >= 24) {
+        final int width = (bytes[16] << 24) | (bytes[17] << 16) | (bytes[18] << 8) | bytes[19];
+        final int height = (bytes[20] << 24) | (bytes[21] << 16) | (bytes[22] << 8) | bytes[23];
+        return ImageDimension(width.toDouble(), height.toDouble());
+      }
+    }
+
+    // JPEG Check: signature FF D8
+    if (bytes[0] == 0xFF && bytes[1] == 0xD8) {
+      int offset = 2;
+      while (offset < bytes.length - 8) {
+        if (bytes[offset] == 0xFF) {
+          final int marker = bytes[offset + 1];
+          if ((marker >= 0xC0 && marker <= 0xCF) && marker != 0xC4 && marker != 0xC8 && marker != 0xCC) {
+            final int height = (bytes[offset + 5] << 8) | bytes[offset + 6];
+            final int width = (bytes[offset + 7] << 8) | bytes[offset + 8];
+            return ImageDimension(width.toDouble(), height.toDouble());
+          }
+          final int length = (bytes[offset + 2] << 8) | bytes[offset + 3];
+          offset += length + 2;
+        } else {
+          offset++;
+        }
+      }
+    }
+
+    return null;
+  }
 }
 
 class _ZoomablePageImage extends StatefulWidget {
   final Widget child;
-  const _ZoomablePageImage({required this.child});
+  final ValueChanged<bool>? onZoomChanged;
+  const _ZoomablePageImage({required this.child, this.onZoomChanged});
 
   @override
   State<_ZoomablePageImage> createState() => _ZoomablePageImageState();
@@ -1242,13 +1615,31 @@ class _ZoomablePageImage extends StatefulWidget {
 class _ZoomablePageImageState extends State<_ZoomablePageImage> {
   final TransformationController _controller = TransformationController();
   TapDownDetails? _doubleTapDetails;
+  bool _lastZoomState = false;
 
   bool get _isZoomed => _controller.value.getMaxScaleOnAxis() > 1.05;
 
   @override
+  void initState() {
+    super.initState();
+    _controller.addListener(_handleZoomChange);
+  }
+
+  @override
   void dispose() {
+    _controller.removeListener(_handleZoomChange);
     _controller.dispose();
     super.dispose();
+  }
+
+  void _handleZoomChange() {
+    final zoomed = _isZoomed;
+    if (zoomed != _lastZoomState) {
+      _lastZoomState = zoomed;
+      if (widget.onZoomChanged != null) {
+        widget.onZoomChanged!(zoomed);
+      }
+    }
   }
 
   void _onDoubleTapDown(TapDownDetails details) {
@@ -1326,8 +1717,7 @@ class _ZoomablePageImageState extends State<_ZoomablePageImage> {
   }
 }
 
-// ─── Mihon-style shimmer placeholder ────────────────────────────────────────
-class _MihonPagePlaceholder extends StatefulWidget {
+class _MihonPagePlaceholder extends StatelessWidget {
   final double width;
   final double height;
   final int pageNumber;
@@ -1343,61 +1733,13 @@ class _MihonPagePlaceholder extends StatefulWidget {
   });
 
   @override
-  State<_MihonPagePlaceholder> createState() => _MihonPagePlaceholderState();
-}
-
-class _MihonPagePlaceholderState extends State<_MihonPagePlaceholder>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _shimmer;
-
-  @override
-  void initState() {
-    super.initState();
-    _shimmer = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1400),
-    )..repeat();
-  }
-
-  @override
-  void dispose() {
-    _shimmer.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: widget.width,
-      height: widget.height,
+    return Container(
+      width: width,
+      height: height,
+      color: const Color(0xFF0F0F11),
       child: Stack(
         children: [
-          // Shimmer base
-          AnimatedBuilder(
-            animation: _shimmer,
-            builder: (context, _) {
-              final t = _shimmer.value;
-              return Container(
-                width: widget.width,
-                height: widget.height,
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment(-1.5 + t * 3.5, 0),
-                    end: Alignment(-0.5 + t * 3.5, 0),
-                    colors: const [
-                      Color(0xFF111114),
-                      Color(0xFF1A1A1F),
-                      Color(0xFF222228),
-                      Color(0xFF1A1A1F),
-                      Color(0xFF111114),
-                    ],
-                    stops: const [0.0, 0.3, 0.5, 0.7, 1.0],
-                  ),
-                ),
-              );
-            },
-          ),
-
           // Center: page number + spinner/progress
           Center(
             child: Column(
@@ -1407,9 +1749,9 @@ class _MihonPagePlaceholderState extends State<_MihonPagePlaceholder>
                 SizedBox(
                   width: 36,
                   height: 36,
-                  child: widget.progress != null && widget.progress! < 1.0
+                  child: progress != null && progress! < 1.0
                       ? CircularProgressIndicator(
-                          value: widget.progress,
+                          value: progress,
                           strokeWidth: 2.5,
                           color: const Color(0xFFFF9F1C),
                           backgroundColor: Colors.white10,
@@ -1422,9 +1764,9 @@ class _MihonPagePlaceholderState extends State<_MihonPagePlaceholder>
                 ),
                 const SizedBox(height: 12),
                 // Percentage text
-                if (widget.progress != null && widget.progress! > 0)
+                if (progress != null && progress! > 0)
                   Text(
-                    '${(widget.progress! * 100).toInt()}%',
+                    '${(progress! * 100).toInt()}%',
                     style: const TextStyle(
                       color: Colors.white38,
                       fontSize: 11,
@@ -1434,7 +1776,7 @@ class _MihonPagePlaceholderState extends State<_MihonPagePlaceholder>
                   )
                 else
                   Text(
-                    'Page ${widget.pageNumber}',
+                    'Page $pageNumber',
                     style: const TextStyle(
                       color: Colors.white24,
                       fontSize: 11,
@@ -1445,7 +1787,7 @@ class _MihonPagePlaceholderState extends State<_MihonPagePlaceholder>
             ),
           ),
 
-          // Bottom page number badge (like Mihon's corner indicator)
+          // Bottom page number badge
           Positioned(
             bottom: 12,
             right: 12,
@@ -1456,7 +1798,7 @@ class _MihonPagePlaceholderState extends State<_MihonPagePlaceholder>
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Text(
-                '${widget.pageNumber}',
+                '$pageNumber',
                 style: const TextStyle(
                   color: Colors.white54,
                   fontSize: 10,
@@ -1470,4 +1812,10 @@ class _MihonPagePlaceholderState extends State<_MihonPagePlaceholder>
       ),
     );
   }
+}
+
+class ImageDimension {
+  final double width;
+  final double height;
+  ImageDimension(this.width, this.height);
 }

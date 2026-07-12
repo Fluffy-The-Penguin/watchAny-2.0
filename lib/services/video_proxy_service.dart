@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:io';
-import 'package:http/http.dart' as http;
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 
 class VideoProxyService {
@@ -9,6 +9,7 @@ class VideoProxyService {
   VideoProxyService._internal();
 
   HttpServer? _server;
+  HttpClient? _client;
   int get port => _server?.port ?? 0;
   bool get isRunning => _server != null;
   
@@ -19,6 +20,10 @@ class VideoProxyService {
     if (_server != null) return;
     try {
       _server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      _client = HttpClient()
+        ..autoUncompress = false
+        ..connectionTimeout = const Duration(seconds: 15)
+        ..idleTimeout = const Duration(seconds: 30);
       debugPrint('[VideoProxyService] Started on port $port');
       _server!.listen(_handleRequest);
     } catch (e) {
@@ -27,6 +32,8 @@ class VideoProxyService {
   }
 
   void stop() {
+    _client?.close(force: true);
+    _client = null;
     _server?.close(force: true);
     _server = null;
   }
@@ -76,9 +83,8 @@ class VideoProxyService {
       }
 
       final targetUri = Uri.parse(targetUrl);
-      // Use dart:io HttpClient with autoUncompress = false for standard proxying too
-      final ioClient = HttpClient()..autoUncompress = false;
-      final ioRequest = await ioClient.openUrl(request.method, targetUri);
+      final client = _client ?? (HttpClient()..autoUncompress = false);
+      final ioRequest = await client.openUrl(request.method, targetUri);
 
       // Copy relevant headers from the client (media_kit) to the target request
       request.headers.forEach((name, values) {
@@ -110,10 +116,9 @@ class VideoProxyService {
       await ioResponse.pipe(request.response);
     } catch (e) {
       debugPrint('[VideoProxyService] Error handling request: $e');
-      if (request.response.connectionInfo != null) {
-        request.response.statusCode = HttpStatus.internalServerError;
+      try {
         request.response.close();
-      }
+      } catch (_) {}
     }
   }
 
@@ -131,15 +136,15 @@ class VideoProxyService {
     }
 
     final baseUrl = targetUrl.substring(0, targetUrl.lastIndexOf('/'));
+    final client = _client ?? (HttpClient()..autoUncompress = false);
 
     // Handle fetching segment binary data
     if (segment != null) {
       final segmentUrl = '$baseUrl/$segment';
-      final ioClient = HttpClient()..autoUncompress = false;
       HttpClientRequest? ioRequest;
       HttpClientResponse? ioResponse;
       try {
-        ioRequest = await ioClient.getUrl(Uri.parse(segmentUrl));
+        ioRequest = await client.getUrl(Uri.parse(segmentUrl));
         
         // Inject standard headers required by CDN
         request.uri.queryParameters.forEach((key, value) {
@@ -169,9 +174,9 @@ class VideoProxyService {
         await ioResponse.pipe(request.response);
       } catch (_) {
         // Client disconnected (e.g. seek cancelled) — close gracefully
-        request.response.close().catchError((_) {});
-      } finally {
-        ioClient.close(force: true);
+        try {
+          request.response.close();
+        } catch (_) {}
       }
       return;
     }
@@ -181,21 +186,29 @@ class VideoProxyService {
     if (_mpdCache.containsKey(targetUrl)) {
       mpdText = _mpdCache[targetUrl]!;
     } else {
-      final manifestReq = http.Request('GET', Uri.parse(targetUrl));
-      request.uri.queryParameters.forEach((key, value) {
-        if (key != 'url' && key != 'type' && key != 'segment') {
-          manifestReq.headers[key] = value;
+      try {
+        final manifestUri = Uri.parse(targetUrl);
+        final ioReq = await client.getUrl(manifestUri);
+        request.uri.queryParameters.forEach((key, value) {
+          if (key != 'url' && key != 'type' && key != 'segment') {
+            ioReq.headers.set(key, value);
+          }
+        });
+        final ioRes = await ioReq.close();
+        if (ioRes.statusCode != 200) {
+          request.response
+            ..statusCode = ioRes.statusCode
+            ..close();
+          return;
         }
-      });
-      final res = await http.Client().send(manifestReq);
-      if (res.statusCode != 200) {
+        mpdText = await ioRes.transform(utf8.decoder).join();
+        _mpdCache[targetUrl] = mpdText;
+      } catch (e) {
         request.response
-          ..statusCode = res.statusCode
+          ..statusCode = HttpStatus.internalServerError
           ..close();
         return;
       }
-      mpdText = await res.stream.bytesToString();
-      _mpdCache[targetUrl] = mpdText;
     }
 
     final adaptationSets = mpdText.split('<AdaptationSet');

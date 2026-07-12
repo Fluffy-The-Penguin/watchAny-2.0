@@ -132,23 +132,29 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
           }
         }
 
-        Map<String, dynamic> aniZipEpisodes = {};
+        final Map<int, Map<String, dynamic>> localAniZipMap = {};
         if (mappings != null && mappings['episodes'] != null) {
-          aniZipEpisodes = mappings['episodes'] as Map<String, dynamic>;
-          final List<int> epKeys = aniZipEpisodes.keys
-              .map((k) => int.tryParse(k) ?? 0)
-              .where((k) => k > 0)
-              .toList();
-          if (epKeys.isNotEmpty) {
-            final maxEp = epKeys.reduce(max);
-            if (maxEp > totalCount) {
-              totalCount = maxEp;
+          final rawEpisodes = mappings['episodes'] as Map<String, dynamic>;
+          rawEpisodes.forEach((key, value) {
+            if (value is Map<String, dynamic>) {
+              final epNumStr = value['episode']?.toString() ?? value['episodeNumber']?.toString() ?? key;
+              final epNum = int.tryParse(epNumStr);
+              if (epNum != null) {
+                localAniZipMap[epNum] = value;
+              }
             }
-          }
+          });
         }
-        
-        if (totalCount < streaming.length) {
+
+        totalCount = data['episodes'] ?? 0;
+        if (totalCount == 0 && streaming.isNotEmpty) {
           totalCount = streaming.length;
+        }
+        if (totalCount == 0 && localAniZipMap.isNotEmpty) {
+          totalCount = localAniZipMap.keys.reduce(max);
+        }
+        if (totalCount == 0) {
+          totalCount = 1;
         }
 
         // Map streaming episodes by their parsed episode number
@@ -162,8 +168,7 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
 
         final List<dynamic> merged = [];
         for (var i = 1; i <= totalCount; i++) {
-          final epKey = i.toString();
-          final zipEp = aniZipEpisodes[epKey] as Map<String, dynamic>?;
+          final zipEp = localAniZipMap[i];
 
           final String zipTitle = zipEp?['title']?['en'] ?? zipEp?['title']?['x-jat'] ?? zipEp?['title']?['ja'] ?? '';
           final String zipThumb = zipEp?['image'] ?? '';
