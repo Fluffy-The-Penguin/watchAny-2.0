@@ -4893,83 +4893,195 @@ class _SettingsPageState extends State<SettingsPage> {
       context: context,
       builder: (context) {
         return FutureBuilder<String>(
-          future: () async {
-            final file = await LogService().getLogFile();
-            if (file != null && await file.exists()) {
-              return await file.readAsString();
-            }
-            return LogService().getInMemoryLogs().join('\n');
-          }(),
+          future: _loadLogsContent(),
           builder: (context, snapshot) {
             final logs = snapshot.data ?? 'Loading logs...';
-            return Dialog(
-              backgroundColor: const Color(0xFF0F0F0F),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
-              child: Container(
-                width: MediaQuery.of(context).size.width * 0.8,
-                height: MediaQuery.of(context).size.height * 0.8,
-                padding: const EdgeInsets.all(20.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+            return _LogViewerDialog(
+              logs: logs,
+              onRefresh: _loadLogsContent,
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<String> _loadLogsContent() async {
+    final file = await LogService().getLogFile();
+    if (file != null && await file.exists()) {
+      return await file.readAsString();
+    }
+    return LogService().getInMemoryLogs().join('\n');
+  }
+}
+
+class _LogViewerDialog extends StatefulWidget {
+  final String logs;
+  final Future<String> Function() onRefresh;
+
+  const _LogViewerDialog({
+    required this.logs,
+    required this.onRefresh,
+  });
+
+  @override
+  State<_LogViewerDialog> createState() => _LogViewerDialogState();
+}
+
+class _LogViewerDialogState extends State<_LogViewerDialog> {
+  late String _logs;
+  final ScrollController _scrollController = ScrollController();
+  bool _isAutoScrollEnabled = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _logs = widget.logs;
+    _scrollController.addListener(_scrollListener);
+    
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _scrollToBottom(animate: false);
+    });
+  }
+
+  @override
+  void dispose() {
+    _scrollController.removeListener(_scrollListener);
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _scrollListener() {
+    if (_scrollController.hasClients) {
+      final maxScroll = _scrollController.position.maxScrollExtent;
+      final currentScroll = _scrollController.position.pixels;
+      
+      // If we are close to the bottom (within 50 pixels), auto-scroll is enabled
+      if (maxScroll - currentScroll <= 50.0) {
+        if (!_isAutoScrollEnabled) {
+          setState(() {
+            _isAutoScrollEnabled = true;
+          });
+        }
+      } else {
+        if (_isAutoScrollEnabled) {
+          setState(() {
+            _isAutoScrollEnabled = false;
+          });
+        }
+      }
+    }
+  }
+
+  void _scrollToBottom({bool animate = true}) {
+    if (_scrollController.hasClients) {
+      final target = _scrollController.position.maxScrollExtent;
+      if (animate) {
+        _scrollController.animateTo(
+          target,
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+        );
+      } else {
+        _scrollController.jumpTo(target);
+      }
+    }
+  }
+
+  Future<void> _refresh() async {
+    final fresh = await widget.onRefresh();
+    if (mounted) {
+      setState(() {
+        _logs = fresh;
+      });
+      if (_isAutoScrollEnabled) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _scrollToBottom();
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: const Color(0xFF0F0F0F),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
+      child: Container(
+        width: MediaQuery.of(context).size.width * 0.8,
+        height: MediaQuery.of(context).size.height * 0.8,
+        padding: const EdgeInsets.all(20.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'System Logs',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18.0,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: 'Outfit',
+                  ),
+                ),
+                Row(
                   children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text(
-                          'System Logs',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 18.0,
-                            fontWeight: FontWeight.bold,
-                            fontFamily: 'Outfit',
-                          ),
-                        ),
-                        Row(
-                          children: [
-                            IconButton(
-                              icon: const Icon(Icons.copy, color: Colors.white70),
-                              tooltip: 'Copy to Clipboard',
-                              onPressed: () async {
-                                await Clipboard.setData(ClipboardData(text: logs));
-                                if (context.mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(content: Text('Logs copied to clipboard')),
-                                  );
-                                }
-                              },
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
-                              tooltip: 'Clear Logs',
-                              onPressed: () async {
-                                await LogService().clearLogs();
-                                if (context.mounted) {
-                                  Navigator.pop(context);
-                                  NotificationService().show(context, 'Logs cleared.');
-                                }
-                              },
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.close, color: Colors.white70),
-                              onPressed: () => Navigator.pop(context),
-                            ),
-                          ],
-                        ),
-                      ],
+                    IconButton(
+                      icon: const Icon(Icons.refresh, color: Colors.white70),
+                      tooltip: 'Refresh Logs',
+                      onPressed: _refresh,
                     ),
-                    const SizedBox(height: 16.0),
-                    Expanded(
-                      child: Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(12.0),
-                        decoration: BoxDecoration(
-                          color: Colors.black,
-                          borderRadius: BorderRadius.circular(8.0),
-                          border: Border.all(color: Colors.white12),
-                        ),
-                        child: SingleChildScrollView(
-                          child: SelectableText(
-                            logs.isEmpty ? 'No logs captured yet.' : logs,
+                    IconButton(
+                      icon: const Icon(Icons.copy, color: Colors.white70),
+                      tooltip: 'Copy to Clipboard',
+                      onPressed: () async {
+                        await Clipboard.setData(ClipboardData(text: _logs));
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Logs copied to clipboard')),
+                          );
+                        }
+                      },
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                      tooltip: 'Clear Logs',
+                      onPressed: () async {
+                        await LogService().clearLogs();
+                        if (context.mounted) {
+                          Navigator.pop(context);
+                          NotificationService().show(context, 'Logs cleared.');
+                        }
+                      },
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close, color: Colors.white70),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            const SizedBox(height: 16.0),
+            Expanded(
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12.0),
+                decoration: BoxDecoration(
+                  color: Colors.black,
+                  borderRadius: BorderRadius.circular(8.0),
+                  border: Border.all(color: Colors.white12),
+                ),
+                child: Stack(
+                  children: [
+                    Positioned.fill(
+                      child: SingleChildScrollView(
+                        controller: _scrollController,
+                        child: SelectionArea(
+                          child: Text(
+                            _logs.isEmpty ? 'No logs captured yet.' : _logs,
                             style: const TextStyle(
                               color: Colors.white70,
                               fontFamily: 'monospace',
@@ -4980,16 +5092,31 @@ class _SettingsPageState extends State<SettingsPage> {
                         ),
                       ),
                     ),
+                    if (!_isAutoScrollEnabled)
+                      Positioned(
+                        right: 8.0,
+                        bottom: 8.0,
+                        child: FloatingActionButton.small(
+                          backgroundColor: Colors.amber,
+                          foregroundColor: Colors.black,
+                          onPressed: () {
+                            _scrollToBottom();
+                            setState(() {
+                              _isAutoScrollEnabled = true;
+                            });
+                          },
+                          child: const Icon(Icons.arrow_downward),
+                        ),
+                      ),
                   ],
                 ),
               ),
-            );
-          },
-        );
-      },
+            ),
+          ],
+        ),
+      ),
     );
   }
-}
 
 class StremioHomepageConfigPanel extends StatefulWidget {
   const StremioHomepageConfigPanel({super.key});
