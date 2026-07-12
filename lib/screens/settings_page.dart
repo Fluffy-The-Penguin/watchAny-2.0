@@ -5117,6 +5117,7 @@ class _LogViewerDialogState extends State<_LogViewerDialog> {
       ),
     );
   }
+}
 
 class StremioHomepageConfigPanel extends StatefulWidget {
   const StremioHomepageConfigPanel({super.key});
