@@ -408,12 +408,43 @@ class SuwayomiService {
       try {
         final decoded = jsonDecode(response.body);
         if (decoded['ok'] == false && decoded['error'] != null) {
-          throw Exception(decoded['error']);
+          final errorMsg = decoded['error'].toString();
+          _triggerSelfHealingIfNecessary(errorMsg);
+          throw Exception(errorMsg);
         }
       } catch (e) {
         if (e is Exception) rethrow;
       }
       throw Exception('Server error: HTTP ${response.statusCode}');
+    }
+  }
+
+  void _triggerSelfHealingIfNecessary(String errorMsg) {
+    final regex = RegExp(r'\b(eu\.kanade\.\w+\.extension\.\w+\.\w+|eu\.kanade\.custom\.extension\.\w+\.\w+|eu\.kanade\.tachiyomi\.extension\.\w+\.\w+)\b');
+    final match = regex.firstMatch(errorMsg);
+    if (match != null) {
+      final pkgName = match.group(1)!;
+      developer.log('Self-healing triggered for extension: $pkgName', name: 'SuwayomiService');
+      
+      Future(() async {
+        try {
+          // 1. Force refresh Keiyoushi repository index to get the latest APK lists
+          final repoUrl = "https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.min.json";
+          final addUrl = Uri.parse('$_baseUrl/api/repos/add?url=${Uri.encodeComponent(repoUrl)}');
+          await http.get(addUrl).timeout(const Duration(seconds: 15));
+          developer.log('Self-healing: repository index refreshed.', name: 'SuwayomiService');
+          
+          // 2. Trigger install/update of the extension package to get the latest fixed version
+          final installUrl = Uri.parse('$_baseUrl/api/install?pkg=$pkgName');
+          final response = await http.get(installUrl).timeout(const Duration(seconds: 45));
+          if (response.statusCode == 200) {
+            developer.log('Self-healing: successfully updated $pkgName', name: 'SuwayomiService');
+            changeNotifier.notifyListeners();
+          }
+        } catch (e) {
+          developer.log('Self-healing failed for $pkgName: $e', name: 'SuwayomiService');
+        }
+      });
     }
   }
 }

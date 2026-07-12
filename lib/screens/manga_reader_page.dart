@@ -284,36 +284,38 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
           _pageUrls = urls;
           _isLoading = false;
           _currentPageIndex = savedPage < urls.length ? savedPage : 0;
+          
+          try {
+            _pageController.dispose();
+          } catch (_) {}
+
+          int initPage = _currentPageIndex;
+          if (_readingFormat == 'paging_double') {
+            final groups = _getDoublePageIndices();
+            final groupIdx = groups.indexWhere((g) => g.contains(_currentPageIndex));
+            initPage = groupIdx != -1 ? groupIdx : 0;
+          }
+          _pageController = PageController(initialPage: initPage);
+
           _pageLoader?.dispose();
           _pageLoader = MangaPageLoader(
             chapterId: parsedId,
             urls: urls,
-            onPageDownloaded: () {
+            onPageDownloaded: (index) {
               if (mounted) {
+                _adjustWebtoonScrollForLoadedPage(index);
                 setState(() {});
               }
             },
           );
         });
 
-        // Jump or scroll to the saved page on startup
+        // Jump or scroll to the saved page on startup (only for webtoon)
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (!mounted) return;
           if (_readingFormat == 'webtoon') {
             if (_scrollController.hasClients && _currentPageIndex > 0) {
               _scrollToSavedPageWebtoon();
-            }
-          } else {
-            if (_pageController.hasClients && _currentPageIndex > 0) {
-              if (_readingFormat == 'paging_double') {
-                final groups = _getDoublePageIndices();
-                final groupIdx = groups.indexWhere((g) => g.contains(_currentPageIndex));
-                if (groupIdx != -1) {
-                  _pageController.jumpToPage(groupIdx);
-                }
-              } else {
-                _pageController.jumpToPage(_currentPageIndex);
-              }
             }
           }
         });
@@ -342,6 +344,28 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
   void _scrollToSavedPageWebtoon() {
     if (!_scrollController.hasClients) return;
     _scrollController.jumpTo(_getWebtoonScrollOffsetForIndex(_currentPageIndex));
+  }
+
+  void _adjustWebtoonScrollForLoadedPage(int loadedIndex) {
+    if (_readingFormat != 'webtoon') return;
+    if (!_scrollController.hasClients) return;
+    if (loadedIndex >= _currentPageIndex) return; // Only care about resizing pages above viewport
+
+    final double width = MediaQuery.of(context).size.width.clamp(0.0, 800.0);
+    final double oldHeight = width / (2 / 3);
+    
+    final dims = _pageLoader?.pageDimensions[loadedIndex];
+    if (dims == null) return;
+    final double aspectRatio = dims.width / dims.height;
+    final double newHeight = width / aspectRatio;
+    
+    final double delta = newHeight - oldHeight;
+    if (delta != 0.0) {
+      final double newOffset = _scrollController.offset + (delta * _webtoonScale);
+      _scrollController.removeListener(_onScroll);
+      _scrollController.jumpTo(newOffset.clamp(0.0, _scrollController.position.maxScrollExtent + delta));
+      _scrollController.addListener(_onScroll);
+    }
   }
 
 
@@ -1362,12 +1386,13 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
 class MangaPageLoader {
   final int chapterId;
   final List<String> urls;
-  final VoidCallback onPageDownloaded;
+  final void Function(int index) onPageDownloaded;
   
   final List<String?> localPaths;
   final List<ImageDimension?> pageDimensions;
   final List<bool> _downloading;   // which indices are currently in-flight
   final List<double?> _progress;   // 0.0–1.0 or null if not started
+  final List<int> _failedCounts;   // track failed download attempts
   int _priorityIndex = 0;
   bool _isDisposed = false;
   
@@ -1381,7 +1406,8 @@ class MangaPageLoader {
   })  : localPaths = List<String?>.filled(urls.length, null),
         pageDimensions = List<ImageDimension?>.filled(urls.length, null),
         _downloading = List<bool>.filled(urls.length, false),
-        _progress = List<double?>.filled(urls.length, null) {
+        _progress = List<double?>.filled(urls.length, null),
+        _failedCounts = List<int>.filled(urls.length, 0) {
     _startDownloadLoop();
   }
 
@@ -1394,6 +1420,7 @@ class MangaPageLoader {
     pageDimensions[index] = null;
     _downloading[index] = false;
     _progress[index] = null;
+    _failedCounts[index] = 0; // reset failures on manual retry
     _priorityIndex = index;
     _cancelCurrent();
   }
@@ -1426,7 +1453,7 @@ class MangaPageLoader {
       // Find the next index to download based on priority
       int nextIdx = _getNextIndexToDownload();
       if (nextIdx == -1) {
-        // All downloaded! We can rest.
+        // All downloaded or failed! We can rest.
         await Future.delayed(const Duration(milliseconds: 500));
         continue;
       }
@@ -1438,26 +1465,26 @@ class MangaPageLoader {
   }
 
   int _getNextIndexToDownload() {
-    // 1. Check if the priority index itself needs download
-    if (localPaths[_priorityIndex] == null) {
+    // 1. Check if the priority index itself needs download (and has not failed too many times)
+    if (localPaths[_priorityIndex] == null && _failedCounts[_priorityIndex] < 3) {
       return _priorityIndex;
     }
     
     // 2. Prioritize downloading all subsequent pages forward from the current page in sequence
     for (int idx = _priorityIndex + 1; idx < urls.length; idx++) {
-      if (localPaths[idx] == null) {
+      if (localPaths[idx] == null && _failedCounts[idx] < 3) {
         return idx;
       }
     }
     
     // 3. Fallback to downloading previous pages backward from the current page (in case of scroll back)
     for (int idx = _priorityIndex - 1; idx >= 0; idx--) {
-      if (localPaths[idx] == null) {
+      if (localPaths[idx] == null && _failedCounts[idx] < 3) {
         return idx;
       }
     }
     
-    return -1; // Everything downloaded
+    return -1; // Everything downloaded or failed
   }
 
   Future<void> _downloadPage(int index) async {
@@ -1475,6 +1502,7 @@ class MangaPageLoader {
       localPaths[index] = file.path;
       _downloading[index] = false;
       _progress[index] = 1.0;
+      _failedCounts[index] = 0; // reset
       
       try {
         final bytes = await file.readAsBytes();
@@ -1486,7 +1514,7 @@ class MangaPageLoader {
         pageDimensions[index] = dims;
       } catch (_) {}
       
-      onPageDownloaded();
+      onPageDownloaded(index);
       return;
     }
 
@@ -1511,6 +1539,7 @@ class MangaPageLoader {
           if (bytes.isNotEmpty) {
             await file.writeAsBytes(bytes);
             localPaths[index] = file.path;
+            _failedCounts[index] = 0; // reset
             
             try {
               final uint8bytes = Uint8List.fromList(bytes);
@@ -1523,11 +1552,15 @@ class MangaPageLoader {
             } catch (_) {}
             
             _progress[index] = 1.0;
-            onPageDownloaded();
+            onPageDownloaded(index);
+          } else {
+            _failedCounts[index]++;
           }
+        } else {
+          _failedCounts[index]++;
         }
       } catch (_) {
-        // Fail silently so it can retry later
+        _failedCounts[index]++;
       } finally {
         _downloading[index] = false;
         completer.complete();

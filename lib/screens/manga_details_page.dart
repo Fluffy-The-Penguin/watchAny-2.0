@@ -573,16 +573,32 @@ class _MangaDetailsPageState extends State<MangaDetailsPage> {
               style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontFamily: 'Outfit', fontSize: 13.5),
             ),
             onPressed: () {
-              final int chId = int.tryParse(chapter['id']?.toString() ?? '') ?? 0;
-              final int chNum = int.tryParse(chapter['chapterNumber']?.toString() ?? '') ?? 0;
-              if (chId != 0) {
+              final String chId = chapter['id']?.toString() ?? '';
+              final int chNum = _parseMangaChapterNumber(chapter);
+              if (chId.isNotEmpty) {
+                // Keep navigationState updated
                 widget.navigationState.startReading(
-                  chapterId: chId.toString(),
+                  chapterId: chId,
                   chapterNumber: chNum,
-                  mangaId: widget.mangaId,
+                  mangaId: widget.mangaId.toString(),
                   mangaTitle: _details!['title']?.toString() ?? 'Unknown Manga',
                   chapters: _chapters,
                 );
+                // Push reader page directly so navigation actually happens
+                Navigator.of(context, rootNavigator: true).push(
+                  MaterialPageRoute(
+                    builder: (context) => MangaReaderPage(
+                      chapterId: chId,
+                      chapterNumber: chNum,
+                      mangaId: widget.mangaId.toString(),
+                      mangaTitle: _details!['title']?.toString() ?? 'Unknown Manga',
+                      chapters: _chapters,
+                      navigationState: widget.navigationState,
+                    ),
+                  ),
+                ).then((_) {
+                  setState(() {});
+                });
               }
             },
             style: ElevatedButton.styleFrom(
@@ -1366,7 +1382,7 @@ class _MangaChaptersSectionState extends State<_MangaChaptersSection> {
             final double? chNum = double.tryParse(chapter['chapterNumber']?.toString() ?? '');
             final bool isRead = readChapterIds.contains(chId);
 
-            final int currentChapterIdx = (chNum?.toInt() ?? 1);
+            final int currentChapterIdx = _parseMangaChapterNumber(chapter);
 
             return Container(
               margin: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 4.0),
@@ -1522,4 +1538,32 @@ class _MangaChaptersSectionState extends State<_MangaChaptersSection> {
       ],
     );
   }
+}
+
+int _parseMangaChapterNumber(dynamic chapter) {
+  final rawNum = chapter['chapterNumber'];
+  if (rawNum != null) {
+    if (rawNum is num) return rawNum.toInt();
+    final double? parsed = double.tryParse(rawNum.toString());
+    if (parsed != null) return parsed.toInt();
+  }
+  
+  final name = chapter['name']?.toString() ?? '';
+  final regex = RegExp(r'(?:chapter|ch\.?|episode|ep\.?)\s*([0-9]+(?:\.[0-9]+)?)', caseSensitive: false);
+  final match = regex.firstMatch(name);
+  if (match != null) {
+    final numStr = match.group(1)!;
+    final double? parsed = double.tryParse(numStr);
+    if (parsed != null) return parsed.toInt();
+  }
+  
+  final numberRegex = RegExp(r'([0-9]+(?:\.[0-9]+)?)');
+  final numMatch = numberRegex.firstMatch(name);
+  if (numMatch != null) {
+    final numStr = numMatch.group(1)!;
+    final double? parsed = double.tryParse(numStr);
+    if (parsed != null) return parsed.toInt();
+  }
+  
+  return 1;
 }
