@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
 import '../state/navigation_state.dart';
 import '../state/library_state.dart';
 import '../services/anilist_service.dart';
@@ -56,7 +55,8 @@ class _NotificationsPageState extends State<NotificationsPage> {
       return;
     }
 
-    final prefs = await SharedPreferences.getInstance();
+    final startMap = await LibraryState().getNotificationStartMap();
+    final ackMap = await LibraryState().getNotificationAckMap();
 
     if (widget.mode == AppMode.movies) {
       final List<Map<String, dynamic>> generated = [];
@@ -72,7 +72,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
               if (meta != null) {
                 final videos = meta['videos'] as List? ?? [];
                 final int latestReleased = videos.length;
-                final int startBaseline = prefs.getInt('notif_start_episode_movies_${localItem.id}') ?? latestReleased;
+                final int startBaseline = ackMap['movies_${localItem.id}'] ?? startMap['movies_${localItem.id}'] ?? latestReleased;
                 final localDownloads = DownloadService().tasks.where(
                   (t) => t.anilistId == localItem.id && t.status == DownloadStatus.completed
                 );
@@ -150,7 +150,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
             releaseTime = media['updatedAt'] ?? 0;
           }
 
-          final int startBaseline = prefs.getInt('notif_start_episode_anime_$id') ?? latestReleased;
+          final int startBaseline = ackMap['anime_$id'] ?? startMap['anime_$id'] ?? latestReleased;
           final localDownloads = DownloadService().tasks.where(
             (t) => t.anilistId == id && t.status == DownloadStatus.completed
           );
@@ -183,7 +183,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
         final cache = LibraryState().mangaCache;
         for (var item in libraryItems) {
           final int totalChapters = item.totalEpisodes ?? 0;
-          final int startBaseline = prefs.getInt('notif_start_chapter_manga_${item.id}') ?? totalChapters;
+          final int startBaseline = ackMap['manga_${item.id}'] ?? startMap['manga_${item.id}'] ?? totalChapters;
           final int startNew = max(item.watchedEpisodes, startBaseline) + 1;
           if (totalChapters >= startNew) {
             final cached = cache[item.id];

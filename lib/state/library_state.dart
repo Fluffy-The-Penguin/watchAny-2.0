@@ -158,6 +158,16 @@ class LibraryState extends ChangeNotifier {
     acknowledgeNotifications(mode); // fire-and-forget, never block UI
   }
 
+  Future<Map<String, int>> getNotificationStartMap() async {
+    final prefs = _prefs ?? await SharedPreferences.getInstance();
+    return _loadNotifMap(prefs, _notifStartKey);
+  }
+
+  Future<Map<String, int>> getNotificationAckMap() async {
+    final prefs = _prefs ?? await SharedPreferences.getInstance();
+    return _loadNotifMap(prefs, _notifAckKey);
+  }
+
   // --- Notification state helpers ---
   static const String _notifAckKey = 'notif_ack_all';    // Map<"mode_id", int>
   static const String _notifStartKey = 'notif_start_all'; // Map<"mode_id", int>
