@@ -160,14 +160,6 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
   void _onScroll() {
     if (_readingFormat != 'webtoon') return;
     if (_scrollController.hasClients && _pageUrls.isNotEmpty) {
-      // Only track progress when the scroll is actively driven by user dragging, flinging, or pointer scrolls
-      if (_scrollController.position.hasPixels) {
-        final String activityType = _scrollController.position.activity.runtimeType.toString();
-        if (activityType == 'IdleScrollActivity' || activityType == 'DrivenScrollActivity') {
-          return;
-        }
-      }
-
       // Normalize scroll offset by dividing by current zoom scale
       final double offset = _scrollController.offset / _webtoonScale;
       final double width = MediaQuery.of(context).size.width.clamp(0.0, 800.0);
@@ -188,7 +180,9 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
         estimatedIndex = i;
       }
       
-      if (offset >= cumulativeHeight - 50.0) {
+      // Use maxScrollExtent to determine if the user has reached the actual end of the chapter
+      if (_scrollController.position.hasContentDimensions && 
+          _scrollController.offset >= _scrollController.position.maxScrollExtent - 100.0) {
         estimatedIndex = _pageUrls.length - 1;
       }
       
@@ -840,34 +834,24 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
 
         Widget content;
         if (localPath != null) {
-          final pixelRatio = MediaQuery.of(context).devicePixelRatio;
-          final int targetWidth = (w * pixelRatio).toInt().clamp(800, 2000);
-
-          content = TweenAnimationBuilder<double>(
-            tween: Tween(begin: 0.0, end: 1.0),
-            duration: const Duration(milliseconds: 250),
-            curve: Curves.easeIn,
-            builder: (context, opacity, child) => Opacity(opacity: opacity, child: child),
-            child: Image.file(
-              File(localPath),
-              fit: isWebtoon ? BoxFit.fitWidth : BoxFit.contain,
-              width: isWebtoon ? double.infinity : null,
-              cacheWidth: targetWidth,
-              frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
-                if (wasSynchronouslyLoaded || frame != null) {
-                  return child;
-                }
-                // Still decoding/rendering first frame: return placeholder to prevent size jump to 0x0
-                return _MihonPagePlaceholder(
-                  width: w,
-                  height: h,
-                  pageNumber: index + 1,
-                  isDownloading: false,
-                  progress: 1.0,
-                );
-              },
-              errorBuilder: (context, error, stackTrace) => _buildPageError(index),
-            ),
+          content = Image.file(
+            File(localPath),
+            key: ValueKey(localPath),
+            fit: isWebtoon ? BoxFit.fitWidth : BoxFit.contain,
+            width: isWebtoon ? double.infinity : null,
+            frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+              if (wasSynchronouslyLoaded || frame != null) {
+                return child;
+              }
+              return _MihonPagePlaceholder(
+                width: w,
+                height: h,
+                pageNumber: index + 1,
+                isDownloading: false,
+                progress: 1.0,
+              );
+            },
+            errorBuilder: (context, error, stackTrace) => _buildPageError(index),
           );
         } else {
           // Shimmer placeholder
