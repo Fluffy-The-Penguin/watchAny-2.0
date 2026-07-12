@@ -566,19 +566,33 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
   Future<void> _toggleExtensionInstall(Map<String, dynamic> ext) async {
     final String pkgName = ext['pkgName'];
     final bool isInstalled = ext['isInstalled'] ?? false;
+    final String name = ext['name']?.toString().replaceFirst('Tachiyomi: ', '') ?? 'Extension';
     
     if (mounted) setState(() => _loadingExtensions = true);
     
     try {
+      bool success;
       if (isInstalled) {
-        await _suwayomiService.uninstallExtension(pkgName);
+        success = await _suwayomiService.uninstallExtension(pkgName);
       } else {
-        await _suwayomiService.installExtension(pkgName);
+        success = await _suwayomiService.installExtension(pkgName);
       }
+      
+      if (mounted) {
+        if (success) {
+          NotificationService().show(context, 'Successfully ${isInstalled ? 'uninstalled' : 'installed'} $name');
+        } else {
+          NotificationService().show(context, 'Failed to ${isInstalled ? 'uninstall' : 'install'} $name. Please try again.');
+        }
+      }
+      
       await _loadExtensions();
       await _loadSources();
-    } catch (_) {
-      if (mounted) setState(() => _loadingExtensions = false);
+    } catch (e) {
+      if (mounted) {
+        NotificationService().show(context, 'Error toggling extension: $e');
+        setState(() => _loadingExtensions = false);
+      }
     }
   }
 

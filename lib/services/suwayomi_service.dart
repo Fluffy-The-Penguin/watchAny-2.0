@@ -176,14 +176,35 @@ class SuwayomiService {
       if (reposResponse.statusCode == 200) {
         final data = jsonDecode(reposResponse.body);
         final list = data['data'] as List?;
+        final repoUrl = "https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.min.json";
+        
         if (list == null || list.isEmpty) {
           developer.log('Seeding Keiyoushi repository on server...', name: 'SuwayomiService');
-          final repoUrl = "https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.min.json";
           final addUrl = Uri.parse('$_baseUrl/api/repos/add?url=${Uri.encodeComponent(repoUrl)}');
           await http.get(addUrl).timeout(const Duration(seconds: 15));
           developer.log('Seeding complete.', name: 'SuwayomiService');
           // Give the server 1.5 seconds to pull/sync the index in the background
           await Future.delayed(const Duration(milliseconds: 1500));
+        } else {
+          // If the repo exists, check when it was last fetched.
+          // If it was fetched more than 12 hours ago, trigger a background refresh to keep index URLs fresh.
+          for (final repo in list) {
+            final indexUrl = repo['indexUrl']?.toString() ?? '';
+            if (indexUrl == repoUrl) {
+              final lastFetched = repo['lastFetchedAt'] as int? ?? 0;
+              final now = DateTime.now().millisecondsSinceEpoch;
+              if (now - lastFetched > 12 * 60 * 60 * 1000) {
+                developer.log('Keiyoushi repository index is stale (>12h). Triggering background refresh...', name: 'SuwayomiService');
+                final addUrl = Uri.parse('$_baseUrl/api/repos/add?url=${Uri.encodeComponent(repoUrl)}');
+                http.get(addUrl).timeout(const Duration(seconds: 15)).then((_) {
+                  developer.log('Background repository refresh complete.', name: 'SuwayomiService');
+                }).catchError((e) {
+                  developer.log('Failed to refresh repository: $e', name: 'SuwayomiService');
+                });
+              }
+              break;
+            }
+          }
         }
       }
     } catch (e, stack) {
