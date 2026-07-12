@@ -49,8 +49,37 @@ class _MangaDetailsPageState extends State<MangaDetailsPage> {
     }
 
     try {
-      final info = await _suwayomiService.getMangaDetails(_parsedMangaId);
-      
+      Map<String, dynamic>? info;
+      try {
+        info = await _suwayomiService.getMangaDetails(_parsedMangaId);
+      } catch (detailsError) {
+        // Fallback: If details endpoint crashed (e.g. Kotlin serialization error), try to fetch chapters anyway.
+        try {
+          final chaps = await _suwayomiService.getChapters(_parsedMangaId);
+          final fallbackDetails = {
+            'title': 'Manga Reader',
+            'thumbnailUrl': '',
+            'author': 'Unknown',
+            'artist': 'Unknown',
+            'description': 'Details could not be loaded from source because of API serialization changes: ${detailsError.toString().replaceFirst('Exception: ', '')}.\n\nYou can still access and read all chapters below.',
+            'genres': <String>[],
+            'status': 0,
+          };
+          if (mounted) {
+            setState(() {
+              _details = fallbackDetails;
+              _chapters = chaps;
+              _isLoading = false;
+              _errorMessage = null;
+            });
+          }
+          return;
+        } catch (_) {
+          // If chapters also fail, rethrow the original details error to be handled by the outer catch.
+          rethrow;
+        }
+      }
+
       if (info == null) {
         final pathInfo = await _suwayomiService.getMangaPath(_parsedMangaId);
         String msg = "Error loading manga details. Please verify your extension is installed.";
@@ -67,7 +96,7 @@ class _MangaDetailsPageState extends State<MangaDetailsPage> {
             '6608552103444641979': 'ReadMng',
             '4934091395535313936': 'Mangakakalot',
             '4397756184514589920': 'Asura Scans',
-            '8029013098315263640': 'Flame Comics',
+            '8531542650987673943': 'Flame Comics',
             '8934524458823724892': 'MangaReader',
             '6188448937664687595': 'Bato.to',
             '7080517865249514686': 'NHentai',
@@ -120,7 +149,7 @@ class _MangaDetailsPageState extends State<MangaDetailsPage> {
       } else {
         if (mounted) {
           setState(() {
-            _errorMessage = e.toString();
+            _errorMessage = e.toString().replaceFirst('Exception: ', '');
             _isLoading = false;
           });
         }
