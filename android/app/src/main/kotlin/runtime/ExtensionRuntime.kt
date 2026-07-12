@@ -94,6 +94,17 @@ class ExtensionRuntime(private val context: Context, private val root: Path) {
     }
 
     fun install(pkgName: String, repoId: String? = null): InstalledExtension {
+        val repos = readRepos().filter { it.enabled }
+        val now = System.currentTimeMillis()
+        repos.forEach { repo ->
+            if (now - (repo.lastFetchedAt ?: 0L) > 12 * 60 * 60 * 1000 || repo.cachedExtensions.isEmpty()) {
+                try {
+                    refreshRepo(repo.id)
+                } catch (e: Throwable) {
+                    android.util.Log.e("watchAny-ExtensionRuntime", "Failed to force refresh repo before install: ${e.message}", e)
+                }
+            }
+        }
         val extension = indexedExtensions(useDefaultFallback = true)
             .filter { repoId.isNullOrBlank() || it.repo.id == repoId }
             .firstOrNull { it.extension.pkg == pkgName }
@@ -501,11 +512,25 @@ class ExtensionRuntime(private val context: Context, private val root: Path) {
             }
             return listOf(default)
         }
-        return try {
-            json.decodeFromString(reposFile.readText())
+        val repos = try {
+            json.decodeFromString<List<ExtensionRepo>>(reposFile.readText())
         } catch (e: Throwable) {
             emptyList()
         }
+        val now = System.currentTimeMillis()
+        val staleRepos = repos.filter { it.enabled && (now - (it.lastFetchedAt ?: 0L) > 12 * 60 * 60 * 1000) }
+        if (staleRepos.isNotEmpty()) {
+            java.util.concurrent.Executors.newSingleThreadExecutor().execute {
+                staleRepos.forEach { repo ->
+                    try {
+                        refreshRepo(repo.id)
+                    } catch (e: Throwable) {
+                        android.util.Log.e("watchAny-ExtensionRuntime", "Failed to auto-refresh stale repo ${repo.name}: ${e.message}", e)
+                    }
+                }
+            }
+        }
+        return repos
     }
 
     private fun writeRepos(repos: List<ExtensionRepo>) {

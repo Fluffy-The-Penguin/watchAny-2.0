@@ -120,9 +120,6 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
     if (mounted) {
       _loadExtensions();
       _loadSources();
-      if (_catalogError != null) {
-        _loadCatalog();
-      }
     }
   }
 

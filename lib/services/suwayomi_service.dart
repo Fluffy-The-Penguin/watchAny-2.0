@@ -419,11 +419,18 @@ class SuwayomiService {
     }
   }
 
+  static final Set<String> _healedPackages = {};
+
   void _triggerSelfHealingIfNecessary(String errorMsg) {
     final regex = RegExp(r'\b(eu\.kanade\.\w+\.extension\.\w+\.\w+|eu\.kanade\.custom\.extension\.\w+\.\w+|eu\.kanade\.tachiyomi\.extension\.\w+\.\w+)\b');
     final match = regex.firstMatch(errorMsg);
     if (match != null) {
       final pkgName = match.group(1)!;
+      if (_healedPackages.contains(pkgName)) {
+        developer.log('Self-healing already triggered for extension $pkgName in this session. Skipping.', name: 'SuwayomiService');
+        return;
+      }
+      _healedPackages.add(pkgName);
       developer.log('Self-healing triggered for extension: $pkgName', name: 'SuwayomiService');
       
       Future(() async {
