@@ -49,7 +49,69 @@ class NetworkHelper {
                 .followRedirects(true)
                 .followSslRedirects(true)
                 .callTimeout(45, TimeUnit.SECONDS)
+                .addInterceptor { chain ->
+                    val request = chain.request()
+                    val response = chain.proceed(request)
+                    val host = request.url.host.lowercase(java.util.Locale.US)
+                    if (host.contains("flamecomics") && response.isSuccessful) {
+                        val body = response.body
+                        if (body != null) {
+                            var bodyString: String? = null
+                            try {
+                                bodyString = body.string()
+                                val root = org.json.JSONTokener(bodyString).nextValue()
+                                sanitizeJson(root)
+                                val modifiedBodyString = root.toString()
+                                val newBody = okhttp3.ResponseBody.create(body.contentType(), modifiedBodyString)
+                                return@addInterceptor response.newBuilder().body(newBody).build()
+                            } catch (e: Throwable) {
+                                if (bodyString != null) {
+                                    val newBody = okhttp3.ResponseBody.create(body.contentType(), bodyString)
+                                    return@addInterceptor response.newBuilder().body(newBody).build()
+                                }
+                            }
+                        }
+                    }
+                    response
+                }
                 .build()
+        }
+
+        private fun sanitizeJson(json: Any) {
+            when (json) {
+                is org.json.JSONObject -> {
+                    val keys = json.keys()
+                    val keyList = ArrayList<String>()
+                    while (keys.hasNext()) {
+                        keyList.add(keys.next())
+                    }
+                    if (json.has("title") || json.has("name") || json.has("chapters") || json.has("series")) {
+                        if (!json.has("altTitles")) {
+                            json.put("altTitles", org.json.JSONArray())
+                        }
+                        if (!json.has("tags")) {
+                            json.put("tags", org.json.JSONArray())
+                        }
+                        if (!json.has("views")) {
+                            json.put("views", 0)
+                        }
+                    }
+                    for (key in keyList) {
+                        val value = json.opt(key)
+                        if (value != null) {
+                            sanitizeJson(value)
+                        }
+                    }
+                }
+                is org.json.JSONArray -> {
+                    for (i in 0 until json.length()) {
+                        val value = json.opt(i)
+                        if (value != null) {
+                            sanitizeJson(value)
+                        }
+                    }
+                }
+            }
         }
     }
 }
