@@ -90,7 +90,7 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
       lowerBound: 1.0,
       upperBound: 4.0,
       value: 1.0,
-      duration: const Duration(milliseconds: 200),
+      duration: const Duration(milliseconds: 280),
     )..addListener(() {
         if (mounted) {
           final double newScale = _webtoonScaleController.value;
@@ -1024,32 +1024,42 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
   void _handleWebtoonScaleUpdate(ScaleUpdateDetails details) {
     _pinchFocalPoint = details.localFocalPoint;
     final double newScale = (_startScale * details.scale).clamp(1.0, 4.0);
-    
-    // Setting value triggers the scale controller's listener,
-    // which automatically scales the scroll offsets proportionally.
+
+    // Setting value triggers the AnimationController listener which applies
+    // focal-point-anchored scroll offsets. Do NOT also apply focalPointDelta
+    // here — that causes double-scroll drift while pinching.
     _webtoonScaleController.value = newScale;
-
-    // Apply translation deltas (focalPointDelta)
-    if (_scrollController.hasClients && details.focalPointDelta.dy != 0) {
-      final double currentYOffset = _scrollController.offset;
-      final double newYOffset = currentYOffset - details.focalPointDelta.dy;
-      _scrollController.jumpTo(newYOffset.clamp(0.0, _scrollController.position.maxScrollExtent));
-    }
-
-    if (_webtoonHorizontalScrollController.hasClients && details.focalPointDelta.dx != 0) {
-      final double currentOffset = _webtoonHorizontalScrollController.offset;
-      final double newOffset = currentOffset - details.focalPointDelta.dx;
-      final double screenWidth = MediaQuery.of(context).size.width;
-      final double maxScroll = (newScale - 1) * screenWidth;
-      _webtoonHorizontalScrollController.jumpTo(newOffset.clamp(0.0, maxScroll));
-    }
   }
 
   void _handleWebtoonScaleEnd(ScaleEndDetails details) {
     _pinchFocalPoint = null;
-    if (_webtoonScale < 1.05) {
-      _webtoonScaleController.animateTo(1.0, curve: Curves.easeOut);
+    final double velocity = details.velocity.pixelsPerSecond.distance;
+
+    // If pinch-closing quickly, snap back to 1× with a spring
+    if (_webtoonScale < 1.1 || (velocity > 800 && _webtoonScale < 1.5)) {
+      _webtoonScaleController.animateTo(
+        1.0,
+        duration: const Duration(milliseconds: 320),
+        curve: Curves.elasticOut,
+      );
+      return;
     }
+
+    // Snap to the nearest clean scale stop for a satisfying "click" feel
+    const List<double> snapPoints = [1.0, 1.5, 2.0, 2.5, 3.0, 4.0];
+    double nearest = snapPoints.reduce((a, b) =>
+        (a - _webtoonScale).abs() < (b - _webtoonScale).abs() ? a : b);
+
+    // If within 0.15 of the current scale, don't snap — let it sit
+    if ((nearest - _webtoonScale).abs() > 0.15) {
+      _webtoonScaleController.animateTo(
+        nearest,
+        duration: const Duration(milliseconds: 260),
+        curve: Curves.easeOutCubic,
+      );
+    }
+    // Mark zoomed state
+    _isPageZoomed = _webtoonScale > 1.05;
   }
 
 
@@ -1103,7 +1113,11 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
                 behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
                 child: ListView.builder(
                   controller: _scrollController,
-                  physics: const ClampingScrollPhysics(),
+                  // Disable scroll physics while pinching — the gesture handler
+                  // drives the scroll offset directly via focal-point anchoring.
+                  physics: _pointerCount >= 2
+                      ? const NeverScrollableScrollPhysics()
+                      : const ClampingScrollPhysics(),
                   padding: const EdgeInsets.symmetric(vertical: 40.0),
                   itemCount: _pageUrls.length,
                   itemBuilder: (context, index) {
@@ -1420,8 +1434,9 @@ class MangaPageLoader {
   int _priorityIndex = 0;
   bool _isDisposed = false;
   
-  CancelableOperation<void>? _currentOp;
-  http.Client? _client;
+  // Track active clients and operations by index to allow concurrent downloads
+  final Map<int, CancelableOperation<void>> _activeOps = {};
+  final Map<int, http.Client> _activeClients = {};
   
   MangaPageLoader({
     required this.chapterId,
@@ -1432,6 +1447,9 @@ class MangaPageLoader {
         _downloading = List<bool>.filled(urls.length, false),
         _progress = List<double?>.filled(urls.length, null),
         _failedCounts = List<int>.filled(urls.length, 0) {
+    // Start 3 concurrent download loops for parallel pre-fetching
+    _startDownloadLoop();
+    _startDownloadLoop();
     _startDownloadLoop();
   }
 
@@ -1446,7 +1464,7 @@ class MangaPageLoader {
     _progress[index] = null;
     _failedCounts[index] = 0; // reset failures on manual retry
     _priorityIndex = index;
-    _cancelCurrent();
+    _cancelPage(index);
   }
 
   void setPriorityIndex(int idx) {
@@ -1461,15 +1479,25 @@ class MangaPageLoader {
     _priorityIndex = idx;
   }
 
-  void _cancelCurrent() {
-    _currentOp?.cancel();
-    _client?.close();
-    _client = null;
+  void _cancelPage(int index) {
+    _activeOps.remove(index)?.cancel();
+    _activeClients.remove(index)?.close();
+  }
+
+  void _cancelAll() {
+    for (final op in _activeOps.values) {
+      op.cancel();
+    }
+    _activeOps.clear();
+    for (final client in _activeClients.values) {
+      client.close();
+    }
+    _activeClients.clear();
   }
 
   void dispose() {
     _isDisposed = true;
-    _cancelCurrent();
+    _cancelAll();
   }
 
   Future<void> _startDownloadLoop() async {
@@ -1478,7 +1506,7 @@ class MangaPageLoader {
       int nextIdx = _getNextIndexToDownload();
       if (nextIdx == -1) {
         // All downloaded or failed! We can rest.
-        await Future.delayed(const Duration(milliseconds: 500));
+        await Future.delayed(const Duration(milliseconds: 250));
         continue;
       }
 
@@ -1489,21 +1517,21 @@ class MangaPageLoader {
   }
 
   int _getNextIndexToDownload() {
-    // 1. Check if the priority index itself needs download (and has not failed too many times)
-    if (localPaths[_priorityIndex] == null && _failedCounts[_priorityIndex] < 3) {
+    // 1. Check if the priority index itself needs download, is not already in-flight
+    if (localPaths[_priorityIndex] == null && _failedCounts[_priorityIndex] < 3 && !_downloading[_priorityIndex]) {
       return _priorityIndex;
     }
     
     // 2. Prioritize downloading all subsequent pages forward from the current page in sequence
     for (int idx = _priorityIndex + 1; idx < urls.length; idx++) {
-      if (localPaths[idx] == null && _failedCounts[idx] < 3) {
+      if (localPaths[idx] == null && _failedCounts[idx] < 3 && !_downloading[idx]) {
         return idx;
       }
     }
     
     // 3. Fallback to downloading previous pages backward from the current page (in case of scroll back)
     for (int idx = _priorityIndex - 1; idx >= 0; idx--) {
-      if (localPaths[idx] == null && _failedCounts[idx] < 3) {
+      if (localPaths[idx] == null && _failedCounts[idx] < 3 && !_downloading[idx]) {
         return idx;
       }
     }
@@ -1570,8 +1598,8 @@ class MangaPageLoader {
       return;
     }
 
-    _client = http.Client();
-    final client = _client!;
+    final client = http.Client();
+    _activeClients[index] = client;
     
     final completer = Completer<void>();
     
@@ -1615,17 +1643,22 @@ class MangaPageLoader {
         _failedCounts[index]++;
       } finally {
         _downloading[index] = false;
+        _activeClients.remove(index);
+        _activeOps.remove(index);
         completer.complete();
       }
     });
 
-    _currentOp = CancelableOperation.fromFuture(
+    final op = CancelableOperation.fromFuture(
       requestFuture,
       onCancel: () {
         _downloading[index] = false;
+        _activeClients.remove(index)?.close();
+        _activeOps.remove(index);
         completer.complete();
       },
     );
+    _activeOps[index] = op;
 
     await completer.future;
   }

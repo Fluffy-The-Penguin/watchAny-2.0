@@ -582,6 +582,12 @@ class HstreamService {
   /// Clean, normalize, and generate prefix/shortened search term variants from titles
   List<String> generateSearchTerms(List<String> titles) {
     final terms = <String>[];
+    final commonSubstrings = [
+      'natsu', 'tsuma', 'zuma', 'imouto', 'bitch', 'bichi', 'mankitsu', 
+      'kansen', 'ane', 'chichi', 'haha', 'kanojo', 'yosuga', 'sora', 
+      'kiss', 'love', 'hentai', 'anime', 'ova', 'kouhai', 'senpai', 'sensei'
+    ];
+
     for (final t in titles) {
       if (t.trim().isEmpty) continue;
       
@@ -610,17 +616,34 @@ class HstreamService {
           
       if (normalized.isNotEmpty && normalized != clean) {
         terms.add(normalized);
-        if (normalized.contains(' ')) {
-          final words = normalized.split(' ');
-          if (words.length > 2) {
-            terms.add(words.sublist(0, 2).join(' '));
+      }
+
+      // Generate space-split variants for single compound words (e.g., natsuzuma -> natsu zuma)
+      final termForSplitting = normalized.isNotEmpty ? normalized : clean;
+      if (!termForSplitting.contains(' ')) {
+        final lower = termForSplitting.toLowerCase();
+        for (final sub in commonSubstrings) {
+          if (lower.startsWith(sub) && lower.length > sub.length) {
+            final splitTerm = termForSplitting.substring(0, sub.length) + ' ' + termForSplitting.substring(sub.length);
+            terms.add(splitTerm);
           }
-          if (words.length > 3) {
-            terms.add(words.sublist(0, 3).join(' '));
+          if (lower.endsWith(sub) && lower.length > sub.length) {
+            final splitTerm = termForSplitting.substring(0, termForSplitting.length - sub.length) + ' ' + termForSplitting.substring(termForSplitting.length - sub.length);
+            terms.add(splitTerm);
           }
-          if (words.length > 4) {
-            terms.add(words.sublist(0, 4).join(' '));
-          }
+        }
+      }
+
+      if (normalized.isNotEmpty && normalized.contains(' ')) {
+        final words = normalized.split(' ');
+        if (words.length > 2) {
+          terms.add(words.sublist(0, 2).join(' '));
+        }
+        if (words.length > 3) {
+          terms.add(words.sublist(0, 3).join(' '));
+        }
+        if (words.length > 4) {
+          terms.add(words.sublist(0, 4).join(' '));
         }
       }
     }

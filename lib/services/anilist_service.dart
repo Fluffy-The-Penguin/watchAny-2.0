@@ -278,6 +278,7 @@ class AnilistService {
           }
           description
           genres
+          synonyms
           averageScore
           episodes
           format

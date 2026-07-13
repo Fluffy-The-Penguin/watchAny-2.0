@@ -109,6 +109,9 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
           if (data['title']['english'] != null) titlesList.add(data['title']['english']);
           if (data['title']['romaji'] != null) titlesList.add(data['title']['romaji']);
           if (data['title']['native'] != null) titlesList.add(data['title']['native']);
+          if (data['synonyms'] != null) {
+            titlesList.addAll((data['synonyms'] as List<dynamic>).map((s) => s.toString()));
+          }
           
           final service = HstreamService();
           final searchTerms = service.generateSearchTerms(titlesList);
@@ -351,6 +354,9 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
       _details!['title']?['romaji'] ?? '',
       _details!['title']?['native'] ?? '',
     ].where((t) => t.isNotEmpty).map((t) => t.toString()).toList();
+    if (_details!['synonyms'] != null) {
+      titles.addAll((_details!['synonyms'] as List<dynamic>).map((s) => s.toString()));
+    }
     
     if (_continueStreamUrl != null && _continueStreamUrl!.isNotEmpty) {
       PlayerState().startPlayback(
@@ -704,6 +710,9 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
                                   _details!['title']?['romaji'] ?? '',
                                   _details!['title']?['native'] ?? '',
                                 ].where((t) => t.isNotEmpty).map((t) => t.toString()).toList();
+                                if (_details!['synonyms'] != null) {
+                                  titles.addAll((_details!['synonyms'] as List<dynamic>).map((s) => s.toString()));
+                                }
 
                                 _onPlayPressed(epNum, titles);
                               },
@@ -736,6 +745,9 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
                                     _details!['title']?['romaji'] ?? '',
                                     _details!['title']?['native'] ?? '',
                                   ].where((t) => t.isNotEmpty).map((t) => t.toString()).toList();
+                                  if (_details!['synonyms'] != null) {
+                                    titles.addAll((_details!['synonyms'] as List<dynamic>).map((s) => s.toString()));
+                                  }
 
                                   _downloadHstreamEpisode(epNum, titles);
                                 },

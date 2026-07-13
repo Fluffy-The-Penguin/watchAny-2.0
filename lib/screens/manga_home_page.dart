@@ -864,126 +864,152 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Sources dropdown & Search Input Row
-                Row(
-                  children: [
-                    if (_sources.isNotEmpty) ...[
-                      // 1. Extension Dropdown
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12.0),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF0F0F11),
-                          borderRadius: BorderRadius.circular(8.0),
-                          border: Border.all(color: Colors.white10),
-                        ),
-                        child: DropdownButton<String>(
-                          value: _selectedExtensionName,
-                          dropdownColor: const Color(0xFF0F0F11),
-                          underline: const SizedBox.shrink(),
-                          style: const TextStyle(color: Colors.white, fontFamily: 'Outfit', fontWeight: FontWeight.bold),
-                          icon: const Icon(Icons.arrow_drop_down, color: Colors.white54),
-                          items: distinctExtensionNames.map<DropdownMenuItem<String>>((extName) {
-                            return DropdownMenuItem<String>(
-                              value: extName,
-                              child: Text(extName),
-                            );
-                          }).toList(),
-                          onChanged: (value) {
-                            if (value != null) {
-                              setState(() {
-                                _selectedExtensionName = value;
-                                if (value == "Global") {
-                                  _selectedSourceId = null;
-                                  _currentPage = 1;
-                                  _catalogManga = [];
-                                  _globalSearchResults = {};
-                                } else {
-                                  final extSources = _sources.where((s) => _getCleanName(s['name']?.toString() ?? '') == value).toList();
-                                  final enabled = extSources.where((s) => _isLanguageEnabled(value, s['lang']?.toString() ?? 'en')).toList();
-                                  final target = enabled.isNotEmpty ? enabled : extSources;
-                                  if (target.isNotEmpty) {
-                                    _selectedSourceId = target.first['id']?.toString();
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final bool isMobile = MediaQuery.of(context).size.width < 600;
+                    
+                    final Widget extensionDropdown = _sources.isNotEmpty
+                        ? Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12.0),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF0F0F11),
+                              borderRadius: BorderRadius.circular(8.0),
+                              border: Border.all(color: Colors.white10),
+                            ),
+                            child: DropdownButtonHideUnderline(
+                              child: DropdownButton<String>(
+                                isExpanded: isMobile,
+                                value: _selectedExtensionName,
+                                dropdownColor: const Color(0xFF0F0F11),
+                                style: const TextStyle(color: Colors.white, fontFamily: 'Outfit', fontWeight: FontWeight.bold),
+                                icon: const Icon(Icons.arrow_drop_down, color: Colors.white54),
+                                items: distinctExtensionNames.map<DropdownMenuItem<String>>((extName) {
+                                  return DropdownMenuItem<String>(
+                                    value: extName,
+                                    child: Text(extName),
+                                  );
+                                }).toList(),
+                                onChanged: (value) {
+                                  if (value != null) {
+                                    setState(() {
+                                      _selectedExtensionName = value;
+                                      if (value == "Global") {
+                                        _selectedSourceId = null;
+                                        _currentPage = 1;
+                                        _catalogManga = [];
+                                        _globalSearchResults = {};
+                                      } else {
+                                        final extSources = _sources.where((s) => _getCleanName(s['name']?.toString() ?? '') == value).toList();
+                                        final enabled = extSources.where((s) => _isLanguageEnabled(value, s['lang']?.toString() ?? 'en')).toList();
+                                        final target = enabled.isNotEmpty ? enabled : extSources;
+                                        if (target.isNotEmpty) {
+                                          _selectedSourceId = target.first['id']?.toString();
+                                        }
+                                        _currentPage = 1;
+                                        _catalogManga = [];
+                                      }
+                                    });
+                                    _loadCatalog();
                                   }
-                                  _currentPage = 1;
-                                  _catalogManga = [];
-                                }
-                              });
-                              _loadCatalog();
-                            }
-                          },
-                        ),
+                                },
+                              ),
+                            ),
+                          )
+                        : const Text('No sources installed', style: TextStyle(color: Colors.white38, fontFamily: 'Outfit'));
+
+                    final Widget? languageDropdown = _sources.isNotEmpty && _selectedExtensionName != "Global"
+                        ? Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12.0),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF0F0F11),
+                              borderRadius: BorderRadius.circular(8.0),
+                              border: Border.all(color: Colors.white10),
+                            ),
+                            child: DropdownButtonHideUnderline(
+                              child: DropdownButton<String>(
+                                value: _selectedSourceId,
+                                dropdownColor: const Color(0xFF0F0F11),
+                                style: const TextStyle(color: Colors.white, fontFamily: 'Outfit', fontWeight: FontWeight.bold),
+                                icon: const Icon(Icons.arrow_drop_down, color: Colors.white54),
+                                items: displayedSources.map<DropdownMenuItem<String>>((source) {
+                                  return DropdownMenuItem<String>(
+                                    value: source['id']?.toString(),
+                                    child: Text((source['lang']?.toString() ?? 'en').toUpperCase()),
+                                  );
+                                }).toList(),
+                                onChanged: (value) {
+                                  if (value != null) {
+                                    setState(() {
+                                      _selectedSourceId = value;
+                                      _currentPage = 1;
+                                      _catalogManga = [];
+                                    });
+                                    _loadCatalog();
+                                  }
+                                },
+                              ),
+                            ),
+                          )
+                        : null;
+
+                    final Widget searchInput = Container(
+                      height: 42.0,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF0F0F11),
+                        borderRadius: BorderRadius.circular(8.0),
+                        border: Border.all(color: Colors.white10),
                       ),
-
-                      if (_selectedExtensionName != "Global") ...[
-                        const SizedBox(width: 8.0),
-
-                        // 2. Language Dropdown
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12.0),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF0F0F11),
-                            borderRadius: BorderRadius.circular(8.0),
-                            border: Border.all(color: Colors.white10),
-                          ),
-                          child: DropdownButton<String>(
-                            value: _selectedSourceId,
-                            dropdownColor: const Color(0xFF0F0F11),
-                            underline: const SizedBox.shrink(),
-                            style: const TextStyle(color: Colors.white, fontFamily: 'Outfit', fontWeight: FontWeight.bold),
-                            icon: const Icon(Icons.arrow_drop_down, color: Colors.white54),
-                            items: displayedSources.map<DropdownMenuItem<String>>((source) {
-                              return DropdownMenuItem<String>(
-                                value: source['id']?.toString(),
-                                child: Text((source['lang']?.toString() ?? 'en').toUpperCase()),
-                              );
-                            }).toList(),
-                            onChanged: (value) {
-                              if (value != null) {
-                                setState(() {
-                                  _selectedSourceId = value;
-                                  _currentPage = 1;
-                                  _catalogManga = [];
-                                });
-                                _loadCatalog();
-                              }
-                            },
-                          ),
+                      child: TextField(
+                        controller: _searchController,
+                        style: const TextStyle(color: Colors.white, fontFamily: 'Outfit', fontSize: 14.0),
+                        decoration: const InputDecoration(
+                          hintText: 'Search manga...',
+                          hintStyle: TextStyle(color: Colors.white30),
+                          prefixIcon: Icon(Icons.search, color: Colors.white30, size: 18),
+                          border: InputBorder.none,
+                          contentPadding: EdgeInsets.symmetric(vertical: 10.0),
                         ),
+                        onSubmitted: (value) {
+                          setState(() {
+                            _catalogSearchQuery = value.trim();
+                            _currentPage = 1;
+                          });
+                          _loadCatalog();
+                        },
+                      ),
+                    );
+
+                    if (isMobile) {
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(child: extensionDropdown),
+                              if (languageDropdown != null) ...[
+                                const SizedBox(width: 8.0),
+                                languageDropdown,
+                              ],
+                            ],
+                          ),
+                          const SizedBox(height: 12.0),
+                          searchInput,
+                        ],
+                      );
+                    }
+
+                    return Row(
+                      children: [
+                        extensionDropdown,
+                        if (languageDropdown != null) ...[
+                          const SizedBox(width: 8.0),
+                          languageDropdown,
+                        ],
+                        const SizedBox(width: 12.0),
+                        Expanded(child: searchInput),
                       ],
-                    ] else
-                      const Text('No sources installed', style: TextStyle(color: Colors.white38, fontFamily: 'Outfit')),
-
-                    const SizedBox(width: 12.0),
-
-                    Expanded(
-                      child: Container(
-                        height: 42.0,
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF0F0F11),
-                          borderRadius: BorderRadius.circular(8.0),
-                          border: Border.all(color: Colors.white10),
-                        ),
-                        child: TextField(
-                          controller: _searchController,
-                          style: const TextStyle(color: Colors.white, fontFamily: 'Outfit', fontSize: 14.0),
-                          decoration: const InputDecoration(
-                            hintText: 'Search manga...',
-                            hintStyle: TextStyle(color: Colors.white30),
-                            prefixIcon: Icon(Icons.search, color: Colors.white30, size: 18),
-                            border: InputBorder.none,
-                            contentPadding: EdgeInsets.symmetric(vertical: 10.0),
-                          ),
-                          onSubmitted: (value) {
-                            setState(() {
-                              _catalogSearchQuery = value.trim();
-                              _currentPage = 1;
-                            });
-                            _loadCatalog();
-                          },
-                        ),
-                      ),
-                    ),
-                  ],
+                    );
+                  },
                 ),
 
                 const SizedBox(height: 24.0),
