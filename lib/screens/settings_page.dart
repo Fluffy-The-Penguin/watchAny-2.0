@@ -1987,7 +1987,7 @@ class _SettingsPageState extends State<SettingsPage> {
       settings.setSubtitlesShadowEnabled(true);
       settings.setSubtitlesShadowColor(0xFF000000);
       settings.setSubtitlesShadowOpacity(0.8);
-      settings.setSubtitlesShadowBlurRadius(2.0);
+      settings.setSubtitlesShadowBlurRadius(0.0);
       settings.setSubtitlesShadowOffset(1.5);
     } else if (name == 'Netflix') {
       settings.setSubtitlesTextColor(0xFFFFFFFF);
@@ -2007,7 +2007,7 @@ class _SettingsPageState extends State<SettingsPage> {
       settings.setSubtitlesShadowEnabled(true);
       settings.setSubtitlesShadowColor(0xFF000000);
       settings.setSubtitlesShadowOpacity(0.95);
-      settings.setSubtitlesShadowBlurRadius(3.0);
+      settings.setSubtitlesShadowBlurRadius(0.0);
       settings.setSubtitlesShadowOffset(2.0);
     } else if (name == 'Captions') {
       settings.setSubtitlesTextColor(0xFF000000); // Black

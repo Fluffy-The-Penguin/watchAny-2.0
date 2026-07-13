@@ -51,7 +51,7 @@ class AppSettings extends ChangeNotifier {
   bool _subtitlesShadowEnabled = true;
   int _subtitlesShadowColor = 0xFF000000; // Default black shadow
   double _subtitlesShadowOpacity = 0.8;
-  double _subtitlesShadowBlurRadius = 2.0;
+  double _subtitlesShadowBlurRadius = 0.0;
   double _subtitlesShadowOffset = 1.5;
   List<String> _customSubtitlePresets = [];
 
@@ -187,7 +187,7 @@ class AppSettings extends ChangeNotifier {
     _subtitlesShadowEnabled = prefs.getBool('subtitles_shadow_enabled') ?? true;
     _subtitlesShadowColor = prefs.getInt('subtitles_shadow_color') ?? 0xFF000000;
     _subtitlesShadowOpacity = prefs.getDouble('subtitles_shadow_opacity') ?? 0.8;
-    _subtitlesShadowBlurRadius = prefs.getDouble('subtitles_shadow_blur_radius') ?? 2.0;
+    _subtitlesShadowBlurRadius = prefs.getDouble('subtitles_shadow_blur_radius') ?? 0.0;
     _subtitlesShadowOffset = prefs.getDouble('subtitles_shadow_offset') ?? 1.5;
     _customSubtitlePresets = prefs.getStringList('custom_subtitle_presets') ?? [];
 

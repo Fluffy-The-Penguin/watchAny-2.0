@@ -1385,6 +1385,26 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
                             color: Color(settings.subtitlesShadowColor).withValues(alpha: settings.subtitlesShadowOpacity),
                             blurRadius: settings.subtitlesShadowBlurRadius,
                           ),
+                          Shadow(
+                            offset: Offset(-settings.subtitlesShadowOffset, 0),
+                            color: Color(settings.subtitlesShadowColor).withValues(alpha: settings.subtitlesShadowOpacity),
+                            blurRadius: settings.subtitlesShadowBlurRadius,
+                          ),
+                          Shadow(
+                            offset: Offset(settings.subtitlesShadowOffset, 0),
+                            color: Color(settings.subtitlesShadowColor).withValues(alpha: settings.subtitlesShadowOpacity),
+                            blurRadius: settings.subtitlesShadowBlurRadius,
+                          ),
+                          Shadow(
+                            offset: Offset(0, -settings.subtitlesShadowOffset),
+                            color: Color(settings.subtitlesShadowColor).withValues(alpha: settings.subtitlesShadowOpacity),
+                            blurRadius: settings.subtitlesShadowBlurRadius,
+                          ),
+                          Shadow(
+                            offset: Offset(0, settings.subtitlesShadowOffset),
+                            color: Color(settings.subtitlesShadowColor).withValues(alpha: settings.subtitlesShadowOpacity),
+                            blurRadius: settings.subtitlesShadowBlurRadius,
+                          ),
                         ]
                       : null,
                 ),

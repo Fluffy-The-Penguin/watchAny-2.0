@@ -215,6 +215,10 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
   }
 
   Future<void> _loadPages() async {
+    // Immediately cancel and dispose the old downloader to free sockets and prevent background interference
+    _pageLoader?.dispose();
+    _pageLoader = null;
+
     final int parsedId = int.tryParse(_currentChapterId) ?? 0;
     if (parsedId == 0) {
       if (mounted) {
@@ -252,6 +256,10 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
       }
 
       final urls = localUrls ?? await _suwayomiService.getChapterPages(parsedId);
+      if (urls.isEmpty) {
+        throw Exception("Failed to retrieve pages for this chapter. The source may be down or rate-limiting.");
+      }
+
       final prefs = await SharedPreferences.getInstance();
       final savedPage = prefs.getInt('manga_chapter_page_$_currentChapterId') ?? 0;
 
@@ -409,18 +417,59 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
     }
   }
 
+  int _parseChapterNumber(dynamic chapter) {
+    final rawNum = chapter['chapterNumber'];
+    if (rawNum != null) {
+      if (rawNum is num && rawNum >= 0) return rawNum.toInt();
+      final double? parsed = double.tryParse(rawNum.toString());
+      if (parsed != null && parsed >= 0) return parsed.toInt();
+    }
+    
+    final name = chapter['name']?.toString() ?? '';
+    final regex = RegExp(r'(?:chapter|ch\.?|episode|ep\.?)\s*([0-9]+(?:\.[0-9]+)?)', caseSensitive: false);
+    final match = regex.firstMatch(name);
+    if (match != null) {
+      final numStr = match.group(1)!;
+      final double? parsed = double.tryParse(numStr);
+      if (parsed != null) return parsed.toInt();
+    }
+    
+    final numberRegex = RegExp(r'([0-9]+(?:\.[0-9]+)?)');
+    final numMatch = numberRegex.firstMatch(name);
+    if (numMatch != null) {
+      final numStr = numMatch.group(1)!;
+      final double? parsed = double.tryParse(numStr);
+      if (parsed != null) return parsed.toInt();
+    }
+    
+    return 1;
+  }
+
   void _navigateToNextChapter() {
     final chapters = widget.chapters;
     final currentIdx = chapters.indexWhere((c) => c['id']?.toString() == _currentChapterId);
-    if (currentIdx != -1 && currentIdx > 0) {
-      final nextChapter = chapters[currentIdx - 1];
-      final String? nextId = nextChapter['id']?.toString();
-      final double? nextNum = double.tryParse(nextChapter['chapterNumber']?.toString() ?? '');
+    if (currentIdx == -1) return;
+
+    if (chapters.isEmpty) {
+      NotificationService().show(context, 'No chapters available.');
+      return;
+    }
+
+    final firstNum = _parseChapterNumber(chapters.first);
+    final lastNum = _parseChapterNumber(chapters.last);
+    final bool isDescending = firstNum >= lastNum;
+
+    final int targetIdx = isDescending ? currentIdx - 1 : currentIdx + 1;
+
+    if (targetIdx >= 0 && targetIdx < chapters.length) {
+      final targetChapter = chapters[targetIdx];
+      final String? targetId = targetChapter['id']?.toString();
+      final int targetNum = _parseChapterNumber(targetChapter);
       
-      if (nextId != null) {
+      if (targetId != null) {
         setState(() {
-          _currentChapterId = nextId;
-          _currentChapterNumber = nextNum?.toInt() ?? (_currentChapterNumber + 1);
+          _currentChapterId = targetId;
+          _currentChapterNumber = targetNum;
           _isLoading = true;
           _pageUrls = [];
           _currentPageIndex = 0;
@@ -436,15 +485,28 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
   void _navigateToPrevChapter() {
     final chapters = widget.chapters;
     final currentIdx = chapters.indexWhere((c) => c['id']?.toString() == _currentChapterId);
-    if (currentIdx != -1 && currentIdx < chapters.length - 1) {
-      final prevChapter = chapters[currentIdx + 1];
-      final String? prevId = prevChapter['id']?.toString();
-      final double? prevNum = double.tryParse(prevChapter['chapterNumber']?.toString() ?? '');
+    if (currentIdx == -1) return;
+
+    if (chapters.isEmpty) {
+      NotificationService().show(context, 'No chapters available.');
+      return;
+    }
+
+    final firstNum = _parseChapterNumber(chapters.first);
+    final lastNum = _parseChapterNumber(chapters.last);
+    final bool isDescending = firstNum >= lastNum;
+
+    final int targetIdx = isDescending ? currentIdx + 1 : currentIdx - 1;
+
+    if (targetIdx >= 0 && targetIdx < chapters.length) {
+      final targetChapter = chapters[targetIdx];
+      final String? targetId = targetChapter['id']?.toString();
+      final int targetNum = _parseChapterNumber(targetChapter);
       
-      if (prevId != null) {
+      if (targetId != null) {
         setState(() {
-          _currentChapterId = prevId;
-          _currentChapterNumber = prevNum?.toInt() ?? (_currentChapterNumber - 1);
+          _currentChapterId = targetId;
+          _currentChapterNumber = targetNum;
           _isLoading = true;
           _pageUrls = [];
           _currentPageIndex = 0;
@@ -1377,20 +1439,23 @@ class MangaPageLoader {
   }
 
   int _getNextIndexToDownload() {
+    if (urls.isEmpty) return -1;
+    final int safePriority = _priorityIndex.clamp(0, urls.length - 1);
+    
     // 1. Check if the priority index itself needs download, is not already in-flight
-    if (localPaths[_priorityIndex] == null && _failedCounts[_priorityIndex] < 3 && !_downloading[_priorityIndex]) {
-      return _priorityIndex;
+    if (localPaths[safePriority] == null && _failedCounts[safePriority] < 3 && !_downloading[safePriority]) {
+      return safePriority;
     }
     
     // 2. Prioritize downloading all subsequent pages forward from the current page in sequence
-    for (int idx = _priorityIndex + 1; idx < urls.length; idx++) {
+    for (int idx = safePriority + 1; idx < urls.length; idx++) {
       if (localPaths[idx] == null && _failedCounts[idx] < 3 && !_downloading[idx]) {
         return idx;
       }
     }
     
     // 3. Fallback to downloading previous pages backward from the current page (in case of scroll back)
-    for (int idx = _priorityIndex - 1; idx >= 0; idx--) {
+    for (int idx = safePriority - 1; idx >= 0; idx--) {
       if (localPaths[idx] == null && _failedCounts[idx] < 3 && !_downloading[idx]) {
         return idx;
       }
