@@ -59,9 +59,29 @@ class NetworkHelper {
                             var bodyString: String? = null
                             try {
                                 bodyString = body.string()
-                                val root = org.json.JSONTokener(bodyString).nextValue()
-                                sanitizeJson(root)
-                                val modifiedBodyString = root.toString()
+                                var modifiedBodyString = bodyString
+                                val trimmed = bodyString.trim()
+                                if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+                                    val root = org.json.JSONTokener(bodyString).nextValue()
+                                    sanitizeJson(root)
+                                    modifiedBodyString = root.toString()
+                                } else if (bodyString.contains("__NEXT_DATA__")) {
+                                    val regex = Regex("""(<script\s+[^>]*id=["']__NEXT_DATA__['"][^>]*>)(.*?)(</script>)""", RegexOption.DOT_MATCHES_ALL)
+                                    val match = regex.find(bodyString)
+                                    if (match != null) {
+                                        val prefix = match.groupValues[1]
+                                        val jsonStr = match.groupValues[2]
+                                        val suffix = match.groupValues[3]
+                                        try {
+                                            val root = org.json.JSONTokener(jsonStr).nextValue()
+                                            sanitizeJson(root)
+                                            val sanitizedJsonStr = root.toString()
+                                            modifiedBodyString = bodyString.replace(match.value, prefix + sanitizedJsonStr + suffix)
+                                        } catch (e: Throwable) {
+                                            android.util.Log.e("watchAny-Network", "Failed to sanitize script json: ${e.message}")
+                                        }
+                                    }
+                                }
                                 val newBody = okhttp3.ResponseBody.create(body.contentType(), modifiedBodyString)
                                 return@addInterceptor response.newBuilder().body(newBody).build()
                             } catch (e: Throwable) {
