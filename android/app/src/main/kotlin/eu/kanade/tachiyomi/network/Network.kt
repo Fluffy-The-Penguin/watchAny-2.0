@@ -105,7 +105,7 @@ class NetworkHelper {
                     while (keys.hasNext()) {
                         keyList.add(keys.next())
                     }
-                    if (json.has("title") || json.has("name") || json.has("chapters") || json.has("series")) {
+                    if (json.has("title") || json.has("name") || json.has("id") || json.has("series_id") || json.has("seriesId") || json.has("chapters") || json.has("series")) {
                         if (!json.has("altTitles")) {
                             json.put("altTitles", org.json.JSONArray())
                         }
@@ -114,6 +114,24 @@ class NetworkHelper {
                         }
                         if (!json.has("views")) {
                             json.put("views", 0)
+                        }
+                        if (!json.has("series_id")) {
+                            val idVal = json.opt("id") ?: json.opt("seriesId") ?: 0
+                            val parsedId = when (idVal) {
+                                is Number -> idVal
+                                is String -> idVal.toIntOrNull() ?: idVal.toLongOrNull() ?: idVal
+                                else -> idVal
+                            }
+                            json.put("series_id", parsedId)
+                        }
+                        if (!json.has("id")) {
+                            val sidVal = json.opt("series_id") ?: json.opt("seriesId") ?: 0
+                            val parsedId = when (sidVal) {
+                                is Number -> sidVal
+                                is String -> sidVal.toIntOrNull() ?: sidVal.toLongOrNull() ?: sidVal
+                                else -> sidVal
+                            }
+                            json.put("id", parsedId)
                         }
                     }
                     for (key in keyList) {
