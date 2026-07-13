@@ -5,6 +5,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../services/suwayomi_service.dart';
 import '../state/navigation_state.dart';
 import '../state/library_state.dart';
+import '../services/manga_download_service.dart';
 import 'manga_reader_page.dart';
 import '../widgets/smooth_scroll_area.dart';
 
@@ -1237,6 +1238,8 @@ class _MangaChaptersSectionState extends State<_MangaChaptersSection> {
   Widget build(BuildContext context) {
     final libraryState = LibraryState();
     final List<String> readChapterIds = libraryState.getReadChapterIds(widget.mangaId);
+    final List<String> downloadedChapterIds = libraryState.getDownloadedChapterIds(widget.mangaId);
+    final downloadService = MangaDownloadService();
 
     // Auto-migration check: If they have sequential progress but empty read chapter list
     if (widget.inLibrary && widget.libraryItem != null && widget.libraryItem!.watchedEpisodes > 0 && readChapterIds.isEmpty) {
@@ -1405,6 +1408,15 @@ class _MangaChaptersSectionState extends State<_MangaChaptersSection> {
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    // Download button / progress / delete
+                    _buildDownloadTrailing(
+                      chId: chId,
+                      chName: chName,
+                      chNum: chNum ?? 1.0,
+                      downloadedChapterIds: downloadedChapterIds,
+                      downloadService: downloadService,
+                      libraryState: libraryState,
+                    ),
                     IconButton(
                       icon: Icon(
                         isRead ? Icons.check_circle : Icons.check_circle_outline,
@@ -1455,6 +1467,8 @@ class _MangaChaptersSectionState extends State<_MangaChaptersSection> {
                               await libraryState.setChapterReadStatus(widget.mangaId, id, false);
                             }
                           }
+                        } else if (action == 'download') {
+                          _handleDownloadAction(chId, chName, chNum ?? 1.0, downloadedChapterIds, downloadService, libraryState);
                         }
                         setState(() {});
                         widget.onUpdated();
@@ -1479,6 +1493,13 @@ class _MangaChaptersSectionState extends State<_MangaChaptersSection> {
                         const PopupMenuItem(
                           value: 'next_unread',
                           child: Text('Mark Next as Unread', style: TextStyle(color: Colors.white, fontFamily: 'Outfit')),
+                        ),
+                        PopupMenuItem(
+                          value: 'download',
+                          child: Text(
+                            downloadedChapterIds.contains(chId) ? 'Delete Download' : 'Download Chapter',
+                            style: const TextStyle(color: Colors.white, fontFamily: 'Outfit'),
+                          ),
                         ),
                       ],
                     ),
@@ -1537,6 +1558,108 @@ class _MangaChaptersSectionState extends State<_MangaChaptersSection> {
         ],
       ],
     );
+  }
+  // ── Download helpers ────────────────────────────────────────────────────────
+
+  Widget _buildDownloadTrailing({
+    required String chId,
+    required String chName,
+    required double chNum,
+    required List<String> downloadedChapterIds,
+    required MangaDownloadService downloadService,
+    required LibraryState libraryState,
+  }) {
+    if (chId.isEmpty) return const SizedBox.shrink();
+
+    // Check if actively downloading
+    final activeTask = downloadService.tasks.firstWhere(
+      (t) => t.id == '${widget.mangaId}_${int.tryParse(chId) ?? chId.hashCode}',
+      orElse: () => MangaDownloadTask(
+        mangaId: -1, mangaTitle: '', chapterId: -1, chapterName: '', chapterNumber: 0,
+      ),
+    );
+    final isQueued = activeTask.mangaId != -1 &&
+        (activeTask.status == MangaDownloadStatus.queued || activeTask.status == MangaDownloadStatus.paused);
+    final isDownloading = activeTask.mangaId != -1 && activeTask.status == MangaDownloadStatus.downloading;
+    final isDownloaded = downloadedChapterIds.contains(chId);
+
+    if (isDownloading) {
+      return SizedBox(
+        width: 36,
+        height: 36,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            CircularProgressIndicator(
+              value: activeTask.progress > 0 ? activeTask.progress : null,
+              strokeWidth: 2.0,
+              color: const Color(0xFFFF9F1C),
+            ),
+            GestureDetector(
+              onTap: () {
+                downloadService.cancel(activeTask.id);
+                setState(() {});
+              },
+              child: const Icon(Icons.close, color: Colors.white54, size: 14),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (isQueued) {
+      return IconButton(
+        icon: const Icon(Icons.hourglass_top, color: Colors.white38, size: 18),
+        tooltip: 'Queued — tap to cancel',
+        onPressed: () {
+          downloadService.cancel(activeTask.id);
+          setState(() {});
+        },
+      );
+    }
+
+    if (isDownloaded) {
+      return IconButton(
+        icon: const Icon(Icons.download_done, color: Color(0xFF4CAF50), size: 18),
+        tooltip: 'Downloaded — tap to delete',
+        onPressed: () => _handleDownloadAction(chId, chName, chNum, downloadedChapterIds, downloadService, libraryState),
+      );
+    }
+
+    return IconButton(
+      icon: const Icon(Icons.download_outlined, color: Colors.white38, size: 18),
+      tooltip: 'Download chapter',
+      onPressed: () => _handleDownloadAction(chId, chName, chNum, downloadedChapterIds, downloadService, libraryState),
+    );
+  }
+
+  void _handleDownloadAction(
+    String chId,
+    String chName,
+    double chNum,
+    List<String> downloadedChapterIds,
+    MangaDownloadService downloadService,
+    LibraryState libraryState,
+  ) {
+    final numericChId = int.tryParse(chId) ?? chId.hashCode;
+    if (downloadedChapterIds.contains(chId)) {
+      // Delete download
+      final localDir = libraryState.getChapterLocalDir(widget.mangaId, chId);
+      if (localDir != null) {
+        try { Directory(localDir).deleteSync(recursive: true); } catch (_) {}
+      }
+      libraryState.markChapterNotDownloaded(widget.mangaId, numericChId);
+    } else {
+      // Enqueue download
+      downloadService.enqueue(MangaDownloadTask(
+        mangaId: widget.mangaId,
+        mangaTitle: widget.title,
+        chapterId: numericChId,
+        chapterName: chName,
+        chapterNumber: chNum,
+      ));
+    }
+    setState(() {});
   }
 }
 

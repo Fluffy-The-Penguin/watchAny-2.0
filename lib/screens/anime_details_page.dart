@@ -103,6 +103,7 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
                 : streaming.length);
 
         final bool isHentai = (data['genres'] as List<dynamic>? ?? []).contains('Hentai');
+        int hstreamMaxEp = 0;
         if (isHentai) {
           final titlesList = <String>[];
           if (data['title']['english'] != null) titlesList.add(data['title']['english']);
@@ -130,6 +131,7 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
           if (maxEp > totalCount) {
             totalCount = maxEp;
           }
+          hstreamMaxEp = maxEp;
         }
 
         final Map<int, Map<String, dynamic>> localAniZipMap = {};
@@ -155,6 +157,11 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
         }
         if (totalCount == 0) {
           totalCount = 1;
+        }
+
+        // Re-apply hentai episode count — must come AFTER the step C reassignment
+        if (isHentai && hstreamMaxEp > totalCount) {
+          totalCount = hstreamMaxEp;
         }
 
         // Map streaming episodes by their parsed episode number
@@ -924,9 +931,15 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
       // Pick best result matching the episode number
       HstreamResult? best;
       for (final r in results) {
-        final path = Uri.tryParse(r.url)?.pathSegments.lastOrNull ?? '';
-        final lastPart = path.split('-').lastOrNull;
-        if (lastPart != null && int.tryParse(lastPart) == epNum) {
+        final lastSeg = Uri.tryParse(r.url)?.pathSegments.lastOrNull ?? '';
+        // Try: trailing number after last dash
+        if (int.tryParse(lastSeg.split('-').lastOrNull ?? '') == epNum) {
+          best = r;
+          break;
+        }
+        // Try: any trailing digit sequence (e.g. 'natsuzuma-ep2' -> '2')
+        final trailingNum = RegExp(r'(\d+)$').firstMatch(lastSeg)?.group(1);
+        if (trailingNum != null && int.tryParse(trailingNum) == epNum) {
           best = r;
           break;
         }
@@ -943,7 +956,21 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
         }
       }
 
-      best ??= results.first;
+      if (best == null) {
+        // Only use first result as fallback if it has a strong enough title match
+        final topResult = results.first;
+        if (topResult.score >= 0.6) {
+          best = topResult;
+        } else {
+          if (mounted) Navigator.pop(context);
+          NotificationService().show(
+            context,
+            'Could not find a confident match on HStream for this title.',
+            isError: true,
+          );
+          return;
+        }
+      }
       final streams = await service.getStreams(best.url);
 
       if (!mounted) return;
@@ -980,6 +1007,7 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
         episodes: _mergedEpisodes,
         tmdbEpisodesMap: _tmdbEpisodesMap,
         hstreamSources: streams.sources,
+        hstreamSubtitleTracks: streams.tracks,
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
           'Referer': 'https://hstream.moe/',

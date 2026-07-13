@@ -70,6 +70,7 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
   double? _doubleTapStartScale;
   double? _doubleTapTargetScale;
   int _pointerCount = 0;
+  Offset? _pinchFocalPoint; // viewport-space focal point during active pinch
 
   @override
   void initState() {
@@ -112,17 +113,18 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
                 _webtoonHorizontalScrollController.jumpTo(x.clamp(0.0, maxScroll));
               }
             } else {
-              // Proportional scaling for pinch-to-zoom
+              // Focal-point anchored scaling — keeps content under pinch fingers fixed
+              final double fx = _pinchFocalPoint?.dx ?? (MediaQuery.of(context).size.width / 2);
+              final double fy = _pinchFocalPoint?.dy ?? (MediaQuery.of(context).size.height / 2);
+              final double ratio = newScale / oldScale;
               if (_scrollController.hasClients && oldScale > 0.0) {
-                final double currentY = _scrollController.offset;
-                final double newY = currentY * (newScale / oldScale);
+                final double newY = (_scrollController.offset + fy) * ratio - fy;
                 _scrollController.jumpTo(newY.clamp(0.0, _scrollController.position.maxScrollExtent));
               }
               if (_webtoonHorizontalScrollController.hasClients && oldScale > 0.0) {
-                final double currentX = _webtoonHorizontalScrollController.offset;
-                final double newX = currentX * (newScale / oldScale);
                 final double screenWidth = MediaQuery.of(context).size.width;
                 final double maxScroll = (newScale - 1) * screenWidth;
+                final double newX = (_webtoonHorizontalScrollController.offset + fx) * ratio - fx;
                 _webtoonHorizontalScrollController.jumpTo(newX.clamp(0.0, maxScroll));
               }
             }
@@ -275,7 +277,24 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
     }
 
     try {
-      final urls = await _suwayomiService.getChapterPages(parsedId);
+      // Check if this chapter is available offline (downloaded)
+      final int? parsedMangaId = int.tryParse(widget.mangaId);
+      List<String>? localUrls;
+      if (parsedMangaId != null) {
+        final localDir = LibraryState().getChapterLocalDir(parsedMangaId, _currentChapterId);
+        if (localDir != null) {
+          final dir = Directory(localDir);
+          if (await dir.exists()) {
+            final files = await dir.list().where((e) => e is File && (e.path.endsWith('.jpg') || e.path.endsWith('.png') || e.path.endsWith('.webp'))).toList();
+            files.sort((a, b) => a.path.compareTo(b.path));
+            if (files.isNotEmpty) {
+              localUrls = files.map((f) => Uri.file(f.path).toString()).toList();
+            }
+          }
+        }
+      }
+
+      final urls = localUrls ?? await _suwayomiService.getChapterPages(parsedId);
       final prefs = await SharedPreferences.getInstance();
       final savedPage = prefs.getInt('manga_chapter_page_$_currentChapterId') ?? 0;
 
@@ -950,6 +969,7 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
         _doubleTapTargetY = _scrollController.offset / _webtoonScale;
         _doubleTapTargetX = 0.0;
         
+        _pinchFocalPoint = null;
         _webtoonScaleController.animateTo(1.0, curve: Curves.easeOut).then((_) {
           _resetDoubleTapTargets();
         });
@@ -978,6 +998,7 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
         }
         _doubleTapTargetY = targetY;
         
+        _pinchFocalPoint = null;
         _webtoonScaleController.animateTo(2.5, curve: Curves.easeOut).then((_) {
           _resetDoubleTapTargets();
         });
@@ -996,10 +1017,12 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
 
   void _handleWebtoonScaleStart(ScaleStartDetails details) {
     _startScale = _webtoonScale;
+    _pinchFocalPoint = details.localFocalPoint;
     _webtoonScaleController.stop();
   }
 
   void _handleWebtoonScaleUpdate(ScaleUpdateDetails details) {
+    _pinchFocalPoint = details.localFocalPoint;
     final double newScale = (_startScale * details.scale).clamp(1.0, 4.0);
     
     // Setting value triggers the scale controller's listener,
@@ -1023,6 +1046,7 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
   }
 
   void _handleWebtoonScaleEnd(ScaleEndDetails details) {
+    _pinchFocalPoint = null;
     if (_webtoonScale < 1.05) {
       _webtoonScaleController.animateTo(1.0, curve: Curves.easeOut);
     }
@@ -1492,7 +1516,35 @@ class MangaPageLoader {
     _downloading[index] = true;
     _progress[index] = 0.0;
     final url = urls[index];
-    
+
+    // ── Offline shortcut: file:// URLs come from downloaded chapters ──────────
+    final uri = Uri.tryParse(url);
+    if (uri != null && uri.isScheme('file')) {
+      final localFile = File.fromUri(uri);
+      if (await localFile.exists()) {
+        localPaths[index] = localFile.path;
+        _downloading[index] = false;
+        _progress[index] = 1.0;
+        _failedCounts[index] = 0;
+        try {
+          final bytes = await localFile.readAsBytes();
+          ImageDimension? dims = _parseImageDimensions(bytes);
+          if (dims == null) {
+            final image = await decodeImageFromList(bytes);
+            dims = ImageDimension(image.width.toDouble(), image.height.toDouble());
+          }
+          pageDimensions[index] = dims;
+        } catch (_) {}
+        onPageDownloaded(index);
+        return;
+      } else {
+        _failedCounts[index]++;
+        _downloading[index] = false;
+        return;
+      }
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
     // Create local path
     final tempDir = await getTemporaryDirectory();
     final file = File('${tempDir.path}${Platform.pathSeparator}manga_ch_${chapterId}_p_$index.jpg');

@@ -44,6 +44,8 @@ class PlayerState extends ChangeNotifier {
   List<dynamic>? _episodes;
   Map<int, dynamic>? _tmdbEpisodesMap;
   List<HstreamSource>? _hstreamSources;
+  List<Map<String, String>>? _hstreamSubtitleTracks; // VTT subtitle tracks from HStream
+  StreamSubscription? _tracksSubscription;            // fires once after media opens to load subtitle
   Map<String, String>? _headers;
 
   // Progress Tracking Subscriptions and variables
@@ -75,6 +77,7 @@ class PlayerState extends ChangeNotifier {
   List<dynamic>? get episodes => _episodes;
   Map<int, dynamic>? get tmdbEpisodesMap => _tmdbEpisodesMap;
   List<HstreamSource>? get hstreamSources => _hstreamSources;
+  List<Map<String, String>>? get hstreamSubtitleTracks => _hstreamSubtitleTracks;
 
   // Progress helpers
   PlaybackProgress? getProgress(dynamic id, int episodeNumber) {
@@ -107,6 +110,7 @@ class PlayerState extends ChangeNotifier {
     List<dynamic>? episodes,
     Map<int, dynamic>? tmdbEpisodesMap,
     List<HstreamSource>? hstreamSources,
+    List<Map<String, String>>? hstreamSubtitleTracks,
     Map<String, String>? headers,
   }) {
     FocusManager.instance.primaryFocus?.unfocus();
@@ -124,6 +128,7 @@ class PlayerState extends ChangeNotifier {
     _episodes = episodes;
     _tmdbEpisodesMap = tmdbEpisodesMap;
     _hstreamSources = hstreamSources;
+    _hstreamSubtitleTracks = hstreamSubtitleTracks;
     _headers = headers;
 
     LogService().info('Initializing player for stream: $streamUrl, title: $title');
@@ -231,6 +236,23 @@ class PlayerState extends ChangeNotifier {
     LogService().info('Opening media stream. useProxy: $useProxy, proxyUrl: $proxyUrl, isDash: $isDash');
     _player!.open(Media(proxyUrl, httpHeaders: headersToPass));
 
+    // Auto-load HStream subtitle track — works for both MP4 and DASH streams.
+    // We listen for the first tracks event (meaning media opened), then inject the VTT.
+    _tracksSubscription?.cancel();
+    _tracksSubscription = null;
+    final pendingVttUrl = _hstreamSubtitleTracks?.isNotEmpty == true
+        ? _hstreamSubtitleTracks!.first['url']
+        : null;
+    if (pendingVttUrl != null && pendingVttUrl.isNotEmpty) {
+      _tracksSubscription = _player!.stream.tracks.listen((_) {
+        _tracksSubscription?.cancel();
+        _tracksSubscription = null;
+        _player?.setSubtitleTrack(
+          SubtitleTrack.uri(pendingVttUrl, title: 'English', language: 'en'),
+        );
+      });
+    }
+
     final id = anilistId?.toString() ?? movieId;
     if (id != null && episodeNumber != null) {
       _resumePlayback(id, episodeNumber);
@@ -310,6 +332,7 @@ class PlayerState extends ChangeNotifier {
     required String title,
     required int episodeNumber,
     List<HstreamSource>? hstreamSources,
+    List<Map<String, String>>? hstreamSubtitleTracks,
     Map<String, String>? headers,
   }) {
     // Save current progress before switching episode
@@ -319,6 +342,7 @@ class PlayerState extends ChangeNotifier {
     _title = title;
     _episodeNumber = episodeNumber;
     if (hstreamSources != null) _hstreamSources = hstreamSources;
+    if (hstreamSubtitleTracks != null) _hstreamSubtitleTracks = hstreamSubtitleTracks;
     _headers = headers;
 
     // Reset current position trackers
@@ -336,6 +360,22 @@ class PlayerState extends ChangeNotifier {
     
     final headersToPass = useProxy ? null : _headers;
     _player?.open(Media(proxyUrl, httpHeaders: headersToPass));
+
+    // Auto-load subtitle for the new episode
+    _tracksSubscription?.cancel();
+    _tracksSubscription = null;
+    final pendingVttUrl = _hstreamSubtitleTracks?.isNotEmpty == true
+        ? _hstreamSubtitleTracks!.first['url']
+        : null;
+    if (pendingVttUrl != null && pendingVttUrl.isNotEmpty) {
+      _tracksSubscription = _player!.stream.tracks.listen((_) {
+        _tracksSubscription?.cancel();
+        _tracksSubscription = null;
+        _player?.setSubtitleTrack(
+          SubtitleTrack.uri(pendingVttUrl, title: 'English', language: 'en'),
+        );
+      });
+    }
 
     final id = _anilistId?.toString() ?? _movieId;
     if (id != null) {
@@ -682,6 +722,8 @@ class PlayerState extends ChangeNotifier {
 
   void _cleanupPlayer() {
     _saveCurrentProgress(); // Save progress before disposing
+    _tracksSubscription?.cancel();
+    _tracksSubscription = null;
     _positionSubscription?.cancel();
     _positionSubscription = null;
     _durationSubscription?.cancel();
@@ -692,6 +734,7 @@ class PlayerState extends ChangeNotifier {
     _player = null;
     _controller = null;
     _hstreamSources = null;
+    _hstreamSubtitleTracks = null;
     _headers = null;
   }
 
@@ -717,6 +760,7 @@ class PlayerState extends ChangeNotifier {
     final eps = _episodes;
     final tmdbMap = _tmdbEpisodesMap;
     final hSources = _hstreamSources;
+    final hSubTracks = _hstreamSubtitleTracks;
     final hdrs = _headers;
 
     // Restart playback at the saved position
@@ -733,6 +777,7 @@ class PlayerState extends ChangeNotifier {
       episodes: eps,
       tmdbEpisodesMap: tmdbMap,
       hstreamSources: hSources,
+      hstreamSubtitleTracks: hSubTracks,
       headers: hdrs,
     );
 

@@ -241,12 +241,6 @@ class HstreamService {
           : (asiaDomains.isNotEmpty ? asiaDomains.first : '');
 
       if (baseDomain.isNotEmpty && streamPath.isNotEmpty) {
-        tracks.add({
-          'kind': 'subtitles',
-          'label': 'English',
-          'srclang': 'en',
-          'url': '$baseDomain/$streamPath/eng.vtt',
-        });
 
         // Build candidates — interpolated flags from API tell us if 48fps exists
         final candidates = <HstreamSource>[
@@ -283,6 +277,24 @@ class HstreamService {
         }));
 
         sources.addAll(checkedSources.whereType<HstreamSource>());
+
+        // Probe the subtitle VTT — only include if it actually exists on CDN
+        final vttUrl = '$baseDomain/$streamPath/eng.vtt';
+        try {
+          final vttReq = http.Request('HEAD', Uri.parse(vttUrl));
+          vttReq.headers['User-Agent'] = _kUserAgent;
+          vttReq.headers['Referer'] = '$_kHstreamBase/';
+          final vttRes = await _client.send(vttReq).timeout(const Duration(seconds: 5));
+          await vttRes.stream.listen((_) {}).cancel();
+          if (vttRes.statusCode == 200) {
+            tracks.add({
+              'kind': 'subtitles',
+              'label': 'English',
+              'srclang': 'en',
+              'url': vttUrl,
+            });
+          }
+        } catch (_) {}
       }
 
       return HstreamStreams(
@@ -328,7 +340,7 @@ class HstreamService {
       if (title.isEmpty) continue;
 
       final score = _titleScore(query, title);
-      if (score < 0.1) continue;
+      if (score < 0.35) continue;
 
       final image = _absolutizeUrl(
         _firstMatch(block, RegExp(r'<img\b[^>]*(?:data-src|src)="([^"]+)"', caseSensitive: false)) ?? '',

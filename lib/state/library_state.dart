@@ -10,6 +10,7 @@ import '../services/anilist_service.dart';
 import '../services/suwayomi_service.dart';
 import '../services/suwayomi_manager.dart';
 import '../services/download_service.dart';
+import '../services/image_cache_service.dart';
 import 'navigation_state.dart';
 import 'anilist_auth_state.dart';
 import '../database/app_database.dart' as db;
@@ -696,6 +697,9 @@ class LibraryState extends ChangeNotifier {
       debugPrint('Failed to delete library item from SQLite: $e');
     }
 
+    // Remove permanently cached images for this item
+    unawaited(LibraryImageCache().deleteImages(id, mode));
+
     notifyListeners();
   }
 
@@ -733,6 +737,11 @@ class LibraryState extends ChangeNotifier {
               extraData: drift.Value(jsonEncode(data)),
             ),
           );
+          // Persistently cache cover and banner images for offline use
+          final coverUrl = (data['coverImage']?['large'] ?? '').toString();
+          final bannerUrl = (data['bannerImage'] ?? '').toString();
+          if (coverUrl.isNotEmpty) unawaited(LibraryImageCache().cacheImage(coverUrl, id, 'anime', 'cover'));
+          if (bannerUrl.isNotEmpty) unawaited(LibraryImageCache().cacheImage(bannerUrl, id, 'anime', 'banner'));
         }
       });
     } catch (e) {
@@ -801,6 +810,13 @@ class LibraryState extends ChangeNotifier {
               extraData: drift.Value(jsonEncode(data)),
             ),
           );
+          // Persistently cache poster and backdrop images for offline use
+          final posterUrl = _resolveMovieCover(data);
+          final backdropUrl = (data['backdrop_path'] is String)
+              ? 'https://image.tmdb.org/t/p/w1280${data['backdrop_path']}'
+              : (data['bannerImage'] ?? '').toString();
+          if (posterUrl.isNotEmpty) unawaited(LibraryImageCache().cacheImage(posterUrl, id, 'movies', 'cover'));
+          if (backdropUrl.isNotEmpty) unawaited(LibraryImageCache().cacheImage(backdropUrl, id, 'movies', 'banner'));
         }
       });
     } catch (e) {
@@ -1229,6 +1245,9 @@ class LibraryState extends ChangeNotifier {
             extraData: drift.Value(jsonEncode(data)),
           ),
         );
+        // Persistently cache cover image for offline use
+        final coverUrl = (data['thumbnailUrl'] ?? '').toString();
+        if (coverUrl.isNotEmpty) unawaited(LibraryImageCache().cacheImage(coverUrl, id, 'manga', 'cover'));
       }
     });
     notifyListeners();
@@ -1240,6 +1259,58 @@ class LibraryState extends ChangeNotifier {
     final list = cache['readChapterIds'] as List?;
     if (list == null) return [];
     return list.map((e) => e.toString()).toList();
+  }
+
+  // ── Manga Download Tracking ─────────────────────────────────────────────────
+
+  /// Returns a map of chapterId -> local directory path for downloaded chapters.
+  Map<String, String> _getDownloadedChaptersMap(int mangaId) {
+    final cache = _mangaCache[mangaId];
+    if (cache == null) return {};
+    final raw = cache['downloadedChapters'];
+    if (raw is Map) return Map<String, String>.from(raw.map((k, v) => MapEntry(k.toString(), v.toString())));
+    return {};
+  }
+
+  /// Returns all downloaded chapter IDs for a manga.
+  List<String> getDownloadedChapterIds(int mangaId) => _getDownloadedChaptersMap(mangaId).keys.toList();
+
+  /// Returns the local directory path for a downloaded chapter, or null if not downloaded.
+  String? getChapterLocalDir(int mangaId, String chapterId) => _getDownloadedChaptersMap(mangaId)[chapterId];
+
+  /// Marks a chapter as downloaded and saves the local directory path.
+  void markChapterDownloaded(int mangaId, int chapterId, String localDirPath) {
+    final cache = _mangaCache[mangaId] ?? {};
+    final map = _getDownloadedChaptersMap(mangaId);
+    map[chapterId.toString()] = localDirPath;
+    cache['downloadedChapters'] = map;
+    _mangaCache[mangaId] = cache;
+    _persistMangaCache(mangaId, cache);
+    notifyListeners();
+  }
+
+  /// Removes a chapter's download record (called when user deletes a download).
+  void markChapterNotDownloaded(int mangaId, int chapterId) {
+    final cache = _mangaCache[mangaId];
+    if (cache == null) return;
+    final map = _getDownloadedChaptersMap(mangaId);
+    map.remove(chapterId.toString());
+    cache['downloadedChapters'] = map;
+    _mangaCache[mangaId] = cache;
+    _persistMangaCache(mangaId, cache);
+    notifyListeners();
+  }
+
+  void _persistMangaCache(int mangaId, Map<String, dynamic> cache) {
+    _db.into(_db.mediaCaches).insertOnConflictUpdate(
+      db.MediaCachesCompanion.insert(
+        id: mangaId,
+        mode: 'manga',
+        title: cache['title'] ?? 'Untitled',
+        coverImage: cache['thumbnailUrl'] ?? '',
+        extraData: drift.Value(jsonEncode(cache)),
+      ),
+    );
   }
 
   Future<void> setChapterReadStatus(int mangaId, String chapterId, bool read) async {

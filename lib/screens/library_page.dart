@@ -1,13 +1,13 @@
 import 'dart:async';
 import '../services/notification_service.dart';
 import 'package:flutter/material.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import '../state/library_state.dart';
 import '../state/navigation_state.dart';
 import '../services/anilist_service.dart';
 import '../services/tmdb_service.dart';
 import '../services/download_service.dart';
 import '../services/suwayomi_service.dart';
+import '../services/image_cache_service.dart';
 import '../widgets/smooth_scroll_area.dart';
 
 class LibraryPage extends StatefulWidget {
@@ -2276,6 +2276,21 @@ class _LibraryMediaCard extends StatefulWidget {
 
 class _LibraryMediaCardState extends State<_LibraryMediaCard> {
   bool _isHovered = false;
+  String? _localCoverPath;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadLocalCoverPath();
+  }
+
+  Future<void> _loadLocalCoverPath() async {
+    final id = _getMediaId();
+    if (id == 0) return;
+    final modeStr = widget.mode.name;
+    final path = await LibraryImageCache().getLocalPath(id, modeStr, 'cover');
+    if (mounted) setState(() => _localCoverPath = path);
+  }
 
   int _getMediaId() {
     final rawId = widget.media['id'];
@@ -2403,15 +2418,12 @@ class _LibraryMediaCardState extends State<_LibraryMediaCard> {
                     children: [
                       // Image
                       Positioned.fill(
-                        child: coverUrl.isNotEmpty
-                            ? CachedNetworkImage(
-                                imageUrl: coverUrl,
-                                fit: BoxFit.cover,
-                                memCacheWidth: 250,
-                                placeholder: (context, url) => Container(color: Colors.white.withValues(alpha: 0.02)),
-                                errorWidget: (context, url, error) => Container(color: Colors.white.withValues(alpha: 0.02)),
-                              )
-                            : Container(color: Colors.white.withValues(alpha: 0.02)),
+                        child: LibraryImageCache().buildWidget(
+                          localPath: _localCoverPath,
+                          networkUrl: coverUrl.isNotEmpty ? coverUrl : null,
+                          fit: BoxFit.cover,
+                          memCacheWidth: 250,
+                        ),
                       ),
 
                       // Selection checkbox overlay
