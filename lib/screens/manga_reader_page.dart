@@ -58,19 +58,12 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
   
   late AnimationController _webtoonScaleController;
   late ScrollController _webtoonHorizontalScrollController;
-  double _webtoonScale = 1.0;
-  double _startScale = 1.0;
+  late TransformationController _webtoonTransformationController;
+  Animation<Matrix4>? _webtoonAnimation;
   TapDownDetails? _webtoonDoubleTapDetails;
   bool _isPageZoomed = false;
 
-  double? _doubleTapTargetY;
-  double? _doubleTapTargetX;
-  double? _doubleTapStartY;
-  double? _doubleTapStartX;
-  double? _doubleTapStartScale;
-  double? _doubleTapTargetScale;
-  int _pointerCount = 0;
-  Offset? _pinchFocalPoint; // viewport-space focal point during active pinch
+  double get _webtoonScale => _webtoonTransformationController.value.getMaxScaleOnAxis();
 
   @override
   void initState() {
@@ -85,50 +78,13 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
     _scrollController.addListener(_onScroll);
     
     _webtoonHorizontalScrollController = ScrollController();
+    _webtoonTransformationController = TransformationController();
     _webtoonScaleController = AnimationController(
       vsync: this,
-      lowerBound: 1.0,
-      upperBound: 4.0,
-      value: 1.0,
-      duration: const Duration(milliseconds: 280),
+      duration: const Duration(milliseconds: 250),
     )..addListener(() {
-        if (mounted) {
-          final double newScale = _webtoonScaleController.value;
-          final double oldScale = _webtoonScale;
-          if (newScale != oldScale) {
-            setState(() {
-              _webtoonScale = newScale;
-            });
-            
-            if (_doubleTapTargetScale != null && _doubleTapStartScale != null && (_doubleTapTargetScale! - _doubleTapStartScale!).abs() > 0.01) {
-              final double t = ((newScale - _doubleTapStartScale!) / (_doubleTapTargetScale! - _doubleTapStartScale!)).clamp(0.0, 1.0);
-              if (_scrollController.hasClients && _doubleTapTargetY != null && _doubleTapStartY != null) {
-                final double y = _doubleTapStartY! + t * (_doubleTapTargetY! - _doubleTapStartY!);
-                _scrollController.jumpTo(y.clamp(0.0, _scrollController.position.maxScrollExtent));
-              }
-              if (_webtoonHorizontalScrollController.hasClients && _doubleTapTargetX != null && _doubleTapStartX != null) {
-                final double x = _doubleTapStartX! + t * (_doubleTapTargetX! - _doubleTapStartX!);
-                final double screenWidth = MediaQuery.of(context).size.width;
-                final double maxScroll = (newScale - 1) * screenWidth;
-                _webtoonHorizontalScrollController.jumpTo(x.clamp(0.0, maxScroll));
-              }
-            } else {
-              // Focal-point anchored scaling — keeps content under pinch fingers fixed
-              final double fx = _pinchFocalPoint?.dx ?? (MediaQuery.of(context).size.width / 2);
-              final double fy = _pinchFocalPoint?.dy ?? (MediaQuery.of(context).size.height / 2);
-              final double ratio = newScale / oldScale;
-              if (_scrollController.hasClients && oldScale > 0.0) {
-                final double newY = (_scrollController.offset + fy) * ratio - fy;
-                _scrollController.jumpTo(newY.clamp(0.0, _scrollController.position.maxScrollExtent));
-              }
-              if (_webtoonHorizontalScrollController.hasClients && oldScale > 0.0) {
-                final double screenWidth = MediaQuery.of(context).size.width;
-                final double maxScroll = (newScale - 1) * screenWidth;
-                final double newX = (_webtoonHorizontalScrollController.offset + fx) * ratio - fx;
-                _webtoonHorizontalScrollController.jumpTo(newX.clamp(0.0, maxScroll));
-              }
-            }
-          }
+        if (mounted && _webtoonAnimation != null) {
+          _webtoonTransformationController.value = _webtoonAnimation!.value;
         }
       });
 
@@ -156,14 +112,15 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
     _scrollController.dispose();
     _webtoonHorizontalScrollController.dispose();
     _webtoonScaleController.dispose();
+    _webtoonTransformationController.dispose();
     super.dispose();
   }
 
   void _onScroll() {
     if (_readingFormat != 'webtoon') return;
     if (_scrollController.hasClients && _pageUrls.isNotEmpty) {
-      // Normalize scroll offset by dividing by current zoom scale
-      final double offset = _scrollController.offset / _webtoonScale;
+      // Scroll offset is already at 1x scale because layout remains constant
+      final double offset = _scrollController.offset;
       final double width = MediaQuery.of(context).size.width.clamp(0.0, 800.0);
       
       double cumulativeHeight = 40.0; // matching top padding
@@ -955,182 +912,85 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
   }
 
   void _handleWebtoonDoubleTap() {
-    final double screenWidth = MediaQuery.of(context).size.width;
-    final double screenHeight = MediaQuery.of(context).size.height;
+    if (_webtoonDoubleTapDetails == null) return;
+    final focalPoint = _webtoonDoubleTapDetails!.localPosition;
     
-    if (_scrollController.hasClients && _webtoonHorizontalScrollController.hasClients) {
-      _doubleTapStartY = _scrollController.offset;
-      _doubleTapStartX = _webtoonHorizontalScrollController.offset;
-      _doubleTapStartScale = _webtoonScale;
-      
-      if (_webtoonScale > 1.05) {
-        // Zooming out to 1.0
-        _doubleTapTargetScale = 1.0;
-        _doubleTapTargetY = _scrollController.offset / _webtoonScale;
-        _doubleTapTargetX = 0.0;
-        
-        _pinchFocalPoint = null;
-        _webtoonScaleController.animateTo(1.0, curve: Curves.easeOut).then((_) {
-          _resetDoubleTapTargets();
-        });
-      } else {
-        // Zooming in to 2.5
-        const double targetScale = 2.5;
-        _doubleTapTargetScale = targetScale;
-        
-        // Calculate target X to center the tap coordinate
-        double targetX = 0.0;
-        if (_webtoonDoubleTapDetails != null) {
-          final double localX = _webtoonDoubleTapDetails!.localPosition.dx;
-          targetX = (localX * targetScale) - (screenWidth / 2);
-          final double maxScroll = (targetScale - 1) * screenWidth;
-          targetX = targetX.clamp(0.0, maxScroll);
-        }
-        _doubleTapTargetX = targetX;
-        
-        // Calculate target Y to center the tap coordinate
-        double targetY = _scrollController.offset;
-        if (_webtoonDoubleTapDetails != null) {
-          final double localY = _webtoonDoubleTapDetails!.localPosition.dy;
-          final double absoluteY = _scrollController.offset + localY;
-          targetY = (absoluteY * targetScale) - (screenHeight / 2);
-          targetY = targetY.clamp(0.0, _scrollController.position.maxScrollExtent * targetScale);
-        }
-        _doubleTapTargetY = targetY;
-        
-        _pinchFocalPoint = null;
-        _webtoonScaleController.animateTo(2.5, curve: Curves.easeOut).then((_) {
-          _resetDoubleTapTargets();
-        });
-      }
-    }
-  }
-
-  void _resetDoubleTapTargets() {
-    _doubleTapTargetY = null;
-    _doubleTapTargetX = null;
-    _doubleTapStartY = null;
-    _doubleTapStartX = null;
-    _doubleTapStartScale = null;
-    _doubleTapTargetScale = null;
-  }
-
-  void _handleWebtoonScaleStart(ScaleStartDetails details) {
-    _startScale = _webtoonScale;
-    _pinchFocalPoint = details.localFocalPoint;
+    final currentScale = _webtoonTransformationController.value.getMaxScaleOnAxis();
+    
     _webtoonScaleController.stop();
-  }
-
-  void _handleWebtoonScaleUpdate(ScaleUpdateDetails details) {
-    _pinchFocalPoint = details.localFocalPoint;
-    final double newScale = (_startScale * details.scale).clamp(1.0, 4.0);
-
-    // Setting value triggers the AnimationController listener which applies
-    // focal-point-anchored scroll offsets. Do NOT also apply focalPointDelta
-    // here — that causes double-scroll drift while pinching.
-    _webtoonScaleController.value = newScale;
-  }
-
-  void _handleWebtoonScaleEnd(ScaleEndDetails details) {
-    _pinchFocalPoint = null;
-    final double velocity = details.velocity.pixelsPerSecond.distance;
-
-    // If pinch-closing quickly, snap back to 1× with a spring
-    if (_webtoonScale < 1.1 || (velocity > 800 && _webtoonScale < 1.5)) {
-      _webtoonScaleController.animateTo(
-        1.0,
-        duration: const Duration(milliseconds: 320),
-        curve: Curves.elasticOut,
-      );
-      return;
+    
+    Matrix4 target;
+    if (currentScale > 1.05) {
+      target = Matrix4.identity();
+    } else {
+      // Zoom to 2.5x centered on the double-tap location
+      final double scale = 2.5;
+      final xTranslation = _webtoonTransformationController.value.storage[12];
+      final yTranslation = _webtoonTransformationController.value.storage[13];
+      final focalPointSceneX = (focalPoint.dx - xTranslation) / currentScale;
+      final focalPointSceneY = (focalPoint.dy - yTranslation) / currentScale;
+      
+      target = Matrix4.identity()
+        ..translate(
+          focalPoint.dx - focalPointSceneX * scale,
+          focalPoint.dy - focalPointSceneY * scale,
+        )
+        ..scale(scale);
     }
-
-    // Snap to the nearest clean scale stop for a satisfying "click" feel
-    const List<double> snapPoints = [1.0, 1.5, 2.0, 2.5, 3.0, 4.0];
-    double nearest = snapPoints.reduce((a, b) =>
-        (a - _webtoonScale).abs() < (b - _webtoonScale).abs() ? a : b);
-
-    // If within 0.15 of the current scale, don't snap — let it sit
-    if ((nearest - _webtoonScale).abs() > 0.15) {
-      _webtoonScaleController.animateTo(
-        nearest,
-        duration: const Duration(milliseconds: 260),
-        curve: Curves.easeOutCubic,
-      );
-    }
-    // Mark zoomed state
-    _isPageZoomed = _webtoonScale > 1.05;
+    
+    _webtoonAnimation = Matrix4Tween(
+      begin: _webtoonTransformationController.value,
+      end: target,
+    ).animate(CurvedAnimation(
+      parent: _webtoonScaleController,
+      curve: Curves.easeOutCubic,
+    ));
+    
+    _webtoonScaleController.forward(from: 0.0);
   }
-
 
   Widget _buildWebtoonViewer() {
-    final double screenWidth = MediaQuery.of(context).size.width;
-    
-    return Listener(
-      onPointerDown: (event) {
-        if (mounted) {
-          setState(() {
-            _pointerCount++;
-          });
-        }
+    return GestureDetector(
+      onTap: () {
+        setState(() => _showOverlay = !_showOverlay);
       },
-      onPointerUp: (event) {
-        if (mounted) {
-          setState(() {
-            _pointerCount = (_pointerCount - 1).clamp(0, 10);
-          });
-        }
-      },
-      onPointerCancel: (event) {
-        if (mounted) {
-          setState(() {
-            _pointerCount = (_pointerCount - 1).clamp(0, 10);
-          });
-        }
-      },
-      child: GestureDetector(
-        onTap: () {
-          setState(() => _showOverlay = !_showOverlay);
+      onDoubleTapDown: _handleWebtoonDoubleTapDown,
+      onDoubleTap: _handleWebtoonDoubleTap,
+      child: InteractiveViewer(
+        transformationController: _webtoonTransformationController,
+        minScale: 1.0,
+        maxScale: 4.0,
+        panEnabled: true,
+        scaleEnabled: true,
+        onInteractionEnd: (_) {
+          // Snap back to 1x if barely zoomed
+          if (_webtoonTransformationController.value.getMaxScaleOnAxis() < 1.05) {
+            _webtoonScaleController.stop();
+            _webtoonAnimation = Matrix4Tween(
+              begin: _webtoonTransformationController.value,
+              end: Matrix4.identity(),
+            ).animate(CurvedAnimation(
+              parent: _webtoonScaleController,
+              curve: Curves.elasticOut,
+            ));
+            _webtoonScaleController.forward(from: 0.0);
+          }
         },
-        onDoubleTapDown: _handleWebtoonDoubleTapDown,
-        onDoubleTap: _handleWebtoonDoubleTap,
-        onScaleStart: _pointerCount >= 2 ? _handleWebtoonScaleStart : null,
-        onScaleUpdate: _pointerCount >= 2 ? _handleWebtoonScaleUpdate : null,
-        onScaleEnd: _pointerCount >= 2 ? _handleWebtoonScaleEnd : null,
-        child: NotificationListener<ScrollNotification>(
-          onNotification: (ScrollNotification notification) {
-            return false;
-          },
-          child: SingleChildScrollView(
-            controller: _webtoonHorizontalScrollController,
-            scrollDirection: Axis.horizontal,
-            physics: _webtoonScale > 1.05
-                ? const ClampingScrollPhysics()
-                : const NeverScrollableScrollPhysics(),
-            child: SizedBox(
-              width: screenWidth * _webtoonScale,
-              child: ScrollConfiguration(
-                behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
-                child: ListView.builder(
-                  controller: _scrollController,
-                  // Disable scroll physics while pinching — the gesture handler
-                  // drives the scroll offset directly via focal-point anchoring.
-                  physics: _pointerCount >= 2
-                      ? const NeverScrollableScrollPhysics()
-                      : const ClampingScrollPhysics(),
-                  padding: const EdgeInsets.symmetric(vertical: 40.0),
-                  itemCount: _pageUrls.length,
-                  itemBuilder: (context, index) {
+        child: SingleChildScrollView(
+          controller: _scrollController,
+          physics: const ClampingScrollPhysics(),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 800.0),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 40.0),
+                child: Column(
+                  children: List.generate(_pageUrls.length, (index) {
                     _pageLoader?.setPriorityIndex(index);
-                    return Center(
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 800.0),
-                        child: _buildColorFilteredWidget(
-                          _buildPageImage(index, isWebtoon: true),
-                        ),
-                      ),
+                    return _buildColorFilteredWidget(
+                      _buildPageImage(index, isWebtoon: true),
                     );
-                  },
+                  }),
                 ),
               ),
             ),

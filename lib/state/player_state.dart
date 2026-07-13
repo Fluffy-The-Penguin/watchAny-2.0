@@ -10,6 +10,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../services/video_proxy_service.dart';
 import 'library_state.dart';
 import 'app_settings.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:http/http.dart' as http;
 import '../services/hstream_service.dart';
 import '../services/log_service.dart';
 
@@ -237,19 +239,44 @@ class PlayerState extends ChangeNotifier {
     _player!.open(Media(proxyUrl, httpHeaders: headersToPass));
 
     // Auto-load HStream subtitle track — works for both MP4 and DASH streams.
-    // We listen for the first tracks event (meaning media opened), then inject the VTT.
+    // We listen for media to fully load, then download and inject the VTT locally
+    // to prevent headers/403 errors and race conditions.
     _tracksSubscription?.cancel();
     _tracksSubscription = null;
     final pendingVttUrl = _hstreamSubtitleTracks?.isNotEmpty == true
         ? _hstreamSubtitleTracks!.first['url']
         : null;
     if (pendingVttUrl != null && pendingVttUrl.isNotEmpty) {
-      _tracksSubscription = _player!.stream.tracks.listen((_) {
-        _tracksSubscription?.cancel();
-        _tracksSubscription = null;
-        _player?.setSubtitleTrack(
-          SubtitleTrack.uri(pendingVttUrl, title: 'English', language: 'en'),
-        );
+      _tracksSubscription = _player!.stream.tracks.listen((tracks) async {
+        if (tracks.video.isNotEmpty || tracks.audio.isNotEmpty) {
+          _tracksSubscription?.cancel();
+          _tracksSubscription = null;
+          try {
+            LogService().info('Downloading HStream subtitle: $pendingVttUrl');
+            final response = await http.get(
+              Uri.parse(pendingVttUrl),
+              headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
+                'Referer': 'https://hstream.moe/',
+              },
+            ).timeout(const Duration(seconds: 10));
+            
+            if (response.statusCode == 200) {
+              final tempDir = await getTemporaryDirectory();
+              final tempFile = File('${tempDir.path}/hstream_subtitle.vtt');
+              await tempFile.writeAsBytes(response.bodyBytes);
+              
+              LogService().info('Injecting local HStream subtitle: ${tempFile.path}');
+              _player?.setSubtitleTrack(
+                SubtitleTrack.uri(tempFile.uri.toString(), title: 'English', language: 'en'),
+              );
+            } else {
+              LogService().error('Failed to download subtitle, status: ${response.statusCode}');
+            }
+          } catch (e, stack) {
+            LogService().error('Error downloading/injecting subtitle', e, stack);
+          }
+        }
       });
     }
 
