@@ -58,12 +58,9 @@ class AnilistAuthState extends ChangeNotifier {
 
   Future<bool> login(String rawInput) async {
     try {
-      String token = rawInput.trim();
-      if (!token.startsWith('eyJ')) {
-        final exchangedToken = await AnilistService().exchangeCodeForToken(token);
-        if (exchangedToken == null) return false;
-        token = exchangedToken;
-      }
+      // With Implicit Grant (response_type=token), AniList returns a JWT access
+      // token directly in the redirect URL — no server-side code exchange needed.
+      final String token = rawInput.trim();
 
       final viewer = await AnilistService().fetchViewerDetails(token);
       if (viewer != null) {

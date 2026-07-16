@@ -21,6 +21,7 @@ class AppSettings extends ChangeNotifier {
   bool _autoPlay = true;
   bool _autoNext = true;
   bool _autoSkipIntro = false;
+  bool _autoSkipFiller = false;
   bool _videoEnhancementEnabled = false;
   bool _customEnhancementEnabled = false;
   int _debandIterations = 4;
@@ -68,6 +69,7 @@ class AppSettings extends ChangeNotifier {
   bool get autoPlay => _autoPlay;
   bool get autoNext => _autoNext;
   bool get autoSkipIntro => _autoSkipIntro;
+  bool get autoSkipFiller => _autoSkipFiller;
   bool get videoEnhancementEnabled => _videoEnhancementEnabled;
   bool get customEnhancementEnabled => _customEnhancementEnabled;
   int get debandIterations => _debandIterations;
@@ -141,6 +143,7 @@ class AppSettings extends ChangeNotifier {
     _autoPlay = prefs.getBool('auto_play') ?? true;
     _autoNext = prefs.getBool('auto_next') ?? true;
     _autoSkipIntro = prefs.getBool('auto_skip_intro') ?? false;
+    _autoSkipFiller = prefs.getBool('auto_skip_filler') ?? false;
     _videoEnhancementEnabled = prefs.getBool('video_enhancement_enabled') ?? false;
     _customEnhancementEnabled = prefs.getBool('custom_enhancement_enabled') ?? false;
     _debandIterations = prefs.getInt('deband_iterations') ?? 4;
@@ -207,6 +210,14 @@ class AppSettings extends ChangeNotifier {
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('auto_skip_intro', value);
+  }
+
+  Future<void> setAutoSkipFiller(bool value) async {
+    if (_autoSkipFiller == value) return;
+    _autoSkipFiller = value;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('auto_skip_filler', value);
   }
 
   Future<void> setAutoPlay(bool value) async {

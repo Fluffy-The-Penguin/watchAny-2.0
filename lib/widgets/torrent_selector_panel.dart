@@ -96,7 +96,6 @@ class TorrentSelectorPanel extends StatefulWidget {
   final bool isMovie;
   final Map<String, dynamic>? media;
   final List<dynamic>? episodes;
-  final Map<int, dynamic>? tmdbEpisodesMap;
   final void Function(String streamUrl, String title)? onStreamSelected;
   final bool isFromPlayer;
 
@@ -110,7 +109,6 @@ class TorrentSelectorPanel extends StatefulWidget {
     this.isMovie = false,
     this.media,
     this.episodes,
-    this.tmdbEpisodesMap,
     this.onStreamSelected,
     this.isFromPlayer = false,
   });
@@ -219,7 +217,6 @@ class _TorrentSelectorPanelState extends State<TorrentSelectorPanel> {
           isMovie: widget.isMovie,
           media: widget.media,
           episodes: widget.episodes,
-          tmdbEpisodesMap: widget.tmdbEpisodesMap,
           onStreamSelected: widget.onStreamSelected,
           isFromPlayer: widget.isFromPlayer,
         );
@@ -902,8 +899,7 @@ class _TorrentSelectorPanelState extends State<TorrentSelectorPanel> {
                                                 isMovie: widget.isMovie,
                                                 media: widget.media,
                                                 episodes: widget.episodes,
-                                                tmdbEpisodesMap: widget.tmdbEpisodesMap,
-                                                onStreamSelected: widget.onStreamSelected,
+                                                                                      onStreamSelected: widget.onStreamSelected,
                                                 isDownload: true,
                                                 isFromPlayer: widget.isFromPlayer,
                                               );
@@ -929,8 +925,7 @@ class _TorrentSelectorPanelState extends State<TorrentSelectorPanel> {
                                                 isMovie: widget.isMovie,
                                                 media: widget.media,
                                                 episodes: widget.episodes,
-                                                tmdbEpisodesMap: widget.tmdbEpisodesMap,
-                                                onStreamSelected: widget.onStreamSelected,
+                                                                                      onStreamSelected: widget.onStreamSelected,
                                                 isFromPlayer: widget.isFromPlayer,
                                               );
                                             },
@@ -981,7 +976,6 @@ class PlaybackProgressDialog extends StatefulWidget {
   final bool isMovie;
   final Map<String, dynamic>? media;
   final List<dynamic>? episodes;
-  final Map<int, dynamic>? tmdbEpisodesMap;
   final void Function(String streamUrl, String title)? onStreamSelected;
   final bool isDownload;
   final bool isFromPlayer;
@@ -998,7 +992,6 @@ class PlaybackProgressDialog extends StatefulWidget {
     required this.isMovie,
     this.media,
     this.episodes,
-    this.tmdbEpisodesMap,
     this.onStreamSelected,
     this.isDownload = false,
     this.isFromPlayer = false,
@@ -1020,14 +1013,42 @@ class PlaybackProgressDialogState extends State<PlaybackProgressDialog> {
     _startPlaybackFlow();
   }
 
-  int? extractEpisodeNumber(String fileName) {
+  int? extractEpisodeNumber(String fileName, int expectedSeason) {
     final nameWithoutExt = fileName.contains('.') 
         ? fileName.substring(0, fileName.lastIndexOf('.')) 
         : fileName;
     
-    // Try pattern: S01E01 / E01 / Ep01
-    final sEPattern = RegExp(r'\b[sS]\d+[eE](\d+)\b');
+    // 1. Try pattern: S02E01 / S2E1 (Season-aware)
+    final sEPattern = RegExp(r'\b[sS](\d+)[eE](\d+)\b');
     var match = sEPattern.firstMatch(nameWithoutExt);
+    if (match != null) {
+      final fileSeason = int.tryParse(match.group(1)!);
+      final fileEp = int.tryParse(match.group(2)!);
+      if (fileSeason != null && fileEp != null) {
+        if (fileSeason == expectedSeason) {
+          return fileEp;
+        }
+        return null; // Belongs to a different season, ignore
+      }
+    }
+
+    // 2. Try pattern: S2 - 01 / Season 2 - 01 / Cour 2 - 01
+    final seasonPattern = RegExp(r'\b(?:s(?:eason)?|part|cour)\s*(\d+)\b.*?\b(?:ep|episode|e)?\.?\s*(\d+)\b', caseSensitive: false);
+    match = seasonPattern.firstMatch(nameWithoutExt);
+    if (match != null) {
+      final fileSeason = int.tryParse(match.group(1)!);
+      final fileEp = int.tryParse(match.group(2)!);
+      if (fileSeason != null && fileEp != null) {
+        if (fileSeason == expectedSeason) {
+          return fileEp;
+        }
+        return null; // Belongs to a different season
+      }
+    }
+
+    // 3. Try generic: S01E01 but without season check (fallback)
+    final genericSEPattern = RegExp(r'\b[sS]\d+[eE](\d+)\b');
+    match = genericSEPattern.firstMatch(nameWithoutExt);
     if (match != null) {
       return int.tryParse(match.group(1)!);
     }
@@ -1077,15 +1098,38 @@ class PlaybackProgressDialogState extends State<PlaybackProgressDialog> {
   int? _saveBatchMappingIfApplicable(String hash, List<TorrentFile> playableFiles) {
     if (playableFiles.length <= 1) return null;
     
+    // Build absolute to local maps and expected season number
+    final Map<int, int> absoluteToLocal = {};
+    int expectedSeason = 1;
+    if (widget.episodes != null) {
+      for (var idx = 0; idx < widget.episodes!.length; idx++) {
+        final ep = widget.episodes![idx];
+        final localEp = idx + 1;
+        
+        // Grab expected season from first item
+        if (idx == 0 && ep['seasonNumber'] is int) {
+          expectedSeason = ep['seasonNumber'] as int;
+        }
+        
+        final absEp = ep['absoluteEpisodeNumber'] as int?;
+        if (absEp != null) {
+          absoluteToLocal[absEp] = localEp;
+        }
+      }
+    }
+
     final Map<int, int> episodeToIndex = {};
     int? matchedIndex;
     for (var file in playableFiles) {
       final fileName = file.path.split('/').last.split('\\').last;
       final nameToUse = fileName.isNotEmpty ? fileName : file.name;
-      final epNum = extractEpisodeNumber(nameToUse);
-      if (epNum != null) {
-        episodeToIndex[epNum] = file.index;
-        if (epNum == widget.episodeNumber) {
+      final extractedNum = extractEpisodeNumber(nameToUse, expectedSeason);
+      if (extractedNum != null) {
+        // Map absolute episode number to local season episode number if matching
+        final localEpNum = absoluteToLocal[extractedNum] ?? extractedNum;
+        
+        episodeToIndex[localEpNum] = file.index;
+        if (localEpNum == widget.episodeNumber) {
           matchedIndex = file.index;
         }
       }
@@ -1192,7 +1236,6 @@ class PlaybackProgressDialogState extends State<PlaybackProgressDialog> {
                 isMovie: widget.isMovie,
                 mediaJson: widget.media != null ? jsonEncode(widget.media) : null,
                 episodesJson: widget.episodes != null ? jsonEncode(widget.episodes) : null,
-                tmdbEpisodesMapJson: widget.tmdbEpisodesMap != null ? jsonEncode(widget.tmdbEpisodesMap!.map((k, v) => MapEntry(k.toString(), v))) : null,
               );
               NotificationService().show(widget.parentContext, 'Added to downloads: $displayName');
             }, isFromPlayer: widget.isFromPlayer);
@@ -1211,7 +1254,6 @@ class PlaybackProgressDialogState extends State<PlaybackProgressDialog> {
             isMovie: widget.isMovie,
             mediaJson: widget.media != null ? jsonEncode(widget.media) : null,
             episodesJson: widget.episodes != null ? jsonEncode(widget.episodes) : null,
-            tmdbEpisodesMapJson: widget.tmdbEpisodesMap != null ? jsonEncode(widget.tmdbEpisodesMap!.map((k, v) => MapEntry(k.toString(), v))) : null,
           );
 
           if (!mounted) return;
@@ -1276,7 +1318,6 @@ class PlaybackProgressDialogState extends State<PlaybackProgressDialog> {
         isMovie: widget.isMovie,
         media: widget.media,
         episodes: widget.episodes,
-        tmdbEpisodesMap: widget.tmdbEpisodesMap,
       );
     }
   }
@@ -1331,7 +1372,6 @@ class PlaybackProgressDialogState extends State<PlaybackProgressDialog> {
                             isMovie: widget.isMovie,
                             mediaJson: widget.media != null ? jsonEncode(widget.media) : null,
                             episodesJson: widget.episodes != null ? jsonEncode(widget.episodes) : null,
-                            tmdbEpisodesMapJson: widget.tmdbEpisodesMap != null ? jsonEncode(widget.tmdbEpisodesMap!.map((k, v) => MapEntry(k.toString(), v))) : null,
                           );
                           NotificationService().show(widget.parentContext, 'Added to downloads: $displayName');
                         }, isFromPlayer: widget.isFromPlayer);
@@ -1350,8 +1390,7 @@ class PlaybackProgressDialogState extends State<PlaybackProgressDialog> {
                         isMovie: widget.isMovie,
                         mediaJson: widget.media != null ? jsonEncode(widget.media) : null,
                         episodesJson: widget.episodes != null ? jsonEncode(widget.episodes) : null,
-                        tmdbEpisodesMapJson: widget.tmdbEpisodesMap != null ? jsonEncode(widget.tmdbEpisodesMap!.map((k, v) => MapEntry(k.toString(), v))) : null,
-                      );
+                              );
                       NotificationService().show(widget.parentContext, 'Added to downloads: $displayName');
                     } else {
                       // Show buffering progress dialog
@@ -1371,8 +1410,7 @@ class PlaybackProgressDialogState extends State<PlaybackProgressDialog> {
                             isMovie: widget.isMovie,
                             media: widget.media,
                             episodes: widget.episodes,
-                            tmdbEpisodesMap: widget.tmdbEpisodesMap,
-                            onStreamSelected: widget.onStreamSelected,
+                                              onStreamSelected: widget.onStreamSelected,
                           );
                         },
                       );
@@ -1482,7 +1520,6 @@ class BufferingProgressDialog extends StatefulWidget {
   final bool isMovie;
   final Map<String, dynamic>? media;
   final List<dynamic>? episodes;
-  final Map<int, dynamic>? tmdbEpisodesMap;
   final void Function(String streamUrl, String title)? onStreamSelected;
 
   const BufferingProgressDialog({
@@ -1497,7 +1534,6 @@ class BufferingProgressDialog extends StatefulWidget {
     required this.isMovie,
     this.media,
     this.episodes,
-    this.tmdbEpisodesMap,
     this.onStreamSelected,
   });
 
@@ -1574,7 +1610,6 @@ class BufferingProgressDialogState extends State<BufferingProgressDialog> {
         isMovie: widget.isMovie,
         media: widget.media,
         episodes: widget.episodes,
-        tmdbEpisodesMap: widget.tmdbEpisodesMap,
       );
     }
   }

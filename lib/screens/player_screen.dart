@@ -1,4 +1,5 @@
 import '../services/notification_service.dart';
+import 'dart:math';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:developer' as developer;
@@ -21,6 +22,7 @@ import '../services/extension_service.dart';
 import '../state/app_settings.dart';
 import '../services/torrserver_service.dart';
 import '../services/batch_mapping_service.dart';
+import '../services/filler_service.dart';
 import '../services/aniskip_service.dart';
 import '../state/navigation_state.dart';
 import 'settings_page.dart';
@@ -35,7 +37,6 @@ class PlayerScreen extends StatefulWidget {
   final bool? isMovie;
   final dynamic media;
   final List<dynamic>? episodes;
-  final Map<int, dynamic>? tmdbEpisodesMap;
 
   const PlayerScreen({
     super.key,
@@ -48,7 +49,6 @@ class PlayerScreen extends StatefulWidget {
     this.isMovie,
     this.media,
     this.episodes,
-    this.tmdbEpisodesMap,
   });
 
   @override
@@ -566,7 +566,19 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
       return;
     }
     
-    final nextEp = currentEp + 1;
+    int nextEp = currentEp + 1;
+    if (widget.anilistId != null && AppSettings().autoSkipFiller) {
+      while (nextEp <= totalEps && FillerService().isFiller(widget.anilistId!, nextEp)) {
+        debugPrint('[PlayerScreen] Auto-skipping filler episode $nextEp');
+        nextEp++;
+      }
+      if (nextEp > totalEps) {
+        if (mounted) {
+          NotificationService().show(context, 'Remaining episodes are all filler.');
+        }
+        return;
+      }
+    }
 
     // If we're watching via HStream or this is a Hentai show, switch episode directly without opening a panel
     if ((playerState.hstreamSources != null && playerState.hstreamSources!.isNotEmpty) || _isHentai) {
@@ -746,7 +758,6 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
                 isMovie: widget.isMovie ?? false,
                 media: widget.media,
                 episodes: widget.episodes,
-                tmdbEpisodesMap: widget.tmdbEpisodesMap,
                 onStreamSelected: (String streamUrl, String title) {
                   PlayerState().updateActiveEpisode(
                     streamUrl: streamUrl,
@@ -974,13 +985,27 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
   String _cleanEpTitle(String title) {
     final cleaned = title.replaceAll(RegExp(r"^Episode\s*\d+\s*[-–—:·]?\s*", caseSensitive: false), '').trim();
     return cleaned.isNotEmpty ? cleaned : title;
-  }
-
-
-
-  void _openEpisodesPanel() {
+  }  void _openEpisodesPanel() {
     _hideSettingsMenu();
     if (widget.episodes == null || widget.episodes!.isEmpty) return;
+    
+    final int itemsPerPage = 50;
+    final int totalEpisodes = widget.episodes!.length;
+    final int totalPages = (totalEpisodes / itemsPerPage).ceil();
+
+    final int currentEp = PlayerState().episodeNumber ?? widget.episodeNumber ?? 1;
+    int currentEpIndex = 0;
+    for (int i = 0; i < widget.episodes!.length; i++) {
+      final ep = widget.episodes![i];
+      final String epTitle = ep['title'] ?? '';
+      final int epNum = ep['isPlaceholder'] == true ? (i + 1) : _extractEpNum(epTitle, i + 1);
+      if (epNum == currentEp) {
+        currentEpIndex = i;
+        break;
+      }
+    }
+    int currentPage = (currentEpIndex / itemsPerPage).floor().clamp(0, totalPages - 1);
+
     final double screenWidth = MediaQuery.of(context).size.width;
     final bool isMobileSheet = screenWidth < 650;
 
@@ -990,124 +1015,186 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
       backgroundColor: Colors.transparent,
       barrierColor: Colors.black54,
       builder: (context) {
-        return Align(
-          alignment: Alignment.bottomCenter,
-          child: Container(
-            width: isMobileSheet ? double.infinity : 800.0,
-            height: MediaQuery.of(context).size.height * (isMobileSheet ? 0.7 : 0.55),
-            margin: isMobileSheet
-                ? EdgeInsets.zero
-                : const EdgeInsets.only(left: 24.0, right: 24.0, top: 24.0),
-            decoration: BoxDecoration(
-              color: const Color(0xFF0C0C0E),
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(16.0)),
-              border: Border.all(color: Colors.white10, width: 1.0),
-              boxShadow: const [
-                BoxShadow(
-                  color: Colors.black87,
-                  blurRadius: 30,
-                  spreadRadius: 2,
-                )
-              ],
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text(
-                        "Episodes List",
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 16.0,
-                          fontWeight: FontWeight.bold,
-                          fontFamily: 'Outfit',
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            final startIdx = currentPage * itemsPerPage;
+            final endIdx = min(startIdx + itemsPerPage, totalEpisodes);
+            final pagedList = widget.episodes!.sublist(startIdx, endIdx);
+
+            return Align(
+              alignment: Alignment.bottomCenter,
+              child: Container(
+                width: isMobileSheet ? double.infinity : 800.0,
+                height: MediaQuery.of(context).size.height * (isMobileSheet ? 0.7 : 0.55),
+                margin: isMobileSheet
+                    ? EdgeInsets.zero
+                    : const EdgeInsets.only(left: 24.0, right: 24.0, top: 24.0),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF0C0C0E),
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(16.0)),
+                  border: Border.all(color: Colors.white10, width: 1.0),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Colors.black87,
+                      blurRadius: 30,
+                      spreadRadius: 2,
+                    )
+                  ],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            "Episodes List (${widget.episodes!.length} total)",
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 16.0,
+                              fontWeight: FontWeight.bold,
+                              fontFamily: 'Outfit',
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.close, color: Colors.white70),
+                            onPressed: () => Navigator.of(context).pop(),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Divider(color: Colors.white10, height: 1),
+                    const SizedBox(height: 8.0),
+                    
+                    // Render paginator if more than 1 page
+                    if (totalPages > 1) ...[
+                      SizedBox(
+                        height: 36.0,
+                        child: ListView.builder(
+                          scrollDirection: Axis.horizontal,
+                          padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                          itemCount: totalPages,
+                          itemBuilder: (context, index) {
+                            final int pageStart = index * itemsPerPage + 1;
+                            final int pageEnd = min((index + 1) * itemsPerPage, totalEpisodes);
+                            final isSelected = currentPage == index;
+
+                            return Padding(
+                              padding: const EdgeInsets.only(right: 8.0),
+                              child: InkWell(
+                                onTap: () {
+                                  setSheetState(() {
+                                    currentPage = index;
+                                  });
+                                },
+                                borderRadius: BorderRadius.circular(4.0),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 6.0),
+                                  decoration: BoxDecoration(
+                                    color: isSelected ? Colors.white : Colors.white.withValues(alpha: 0.05),
+                                    borderRadius: BorderRadius.circular(4.0),
+                                    border: Border.all(
+                                      color: isSelected ? Colors.white : Colors.white10,
+                                      width: 1.0,
+                                    ),
+                                  ),
+                                  child: Center(
+                                    child: Text(
+                                      '$pageStart-$pageEnd',
+                                      style: TextStyle(
+                                        color: isSelected ? Colors.black : Colors.white70,
+                                        fontSize: 11.0,
+                                        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                        fontFamily: 'Outfit',
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
                         ),
                       ),
-                      IconButton(
-                        icon: const Icon(Icons.close, color: Colors.white70),
-                        onPressed: () => Navigator.of(context).pop(),
-                      ),
+                      const SizedBox(height: 8.0),
+                      const Divider(color: Colors.white10, height: 1),
                     ],
-                  ),
-                ),
-                const Divider(color: Colors.white10, height: 1),
-                Expanded(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.all(16.0),
-                    child: GridView.builder(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: isMobileSheet ? 2 : 4,
-                        crossAxisSpacing: 12.0,
-                        mainAxisSpacing: 12.0,
-                        childAspectRatio: 1.45,
-                      ),
-                      itemCount: widget.episodes!.length,
-                      itemBuilder: (context, index) {
-                        final ep = widget.episodes![index];
-                        final String epTitle = ep['title'] ?? '';
-                        final String thumbnail = ep['thumbnail'] ?? '';
-                        final int epNum = ep['isPlaceholder'] == true ? (index + 1) : _extractEpNum(epTitle, index + 1);
-                        final String cleanTitle = ep['isPlaceholder'] == true ? epTitle : _cleanEpTitle(epTitle);
-                        
-                        // Check TMDB overrides
-                        final tmdbEp = widget.tmdbEpisodesMap?[epNum];
-                        final String finalTitle = tmdbEp?['name'] ?? cleanTitle;
-                        final String finalThumbnail = tmdbEp?['still_path'] ?? thumbnail;
-                                            final isPlaying = (PlayerState().episodeNumber ?? widget.episodeNumber ?? 1) == epNum;
-                        
-                        return GestureDetector(
-                          onTap: () {
-                            Navigator.of(context).pop(); // Close bottom sheet
-                            if (!isPlaying) {
-                              DownloadTask? downloadedTask;
-                              try {
-                                downloadedTask = DownloadService().tasks.firstWhere(
-                                  (t) => t.anilistId == widget.anilistId &&
-                                         t.episodeNumber == epNum &&
-                                         t.status == DownloadStatus.completed,
-                                );
-                              } catch (_) {}
- 
-                              if (downloadedTask != null) {
-                                PlayerState().updateActiveEpisode(
-                                  streamUrl: downloadedTask.savePath,
-                                  title: downloadedTask.title,
-                                  episodeNumber: epNum,
-                                );
-                              } else {
-                                // If we're currently watching via HStream or this is a Hentai show, switch directly.
-                                // Otherwise fall back to torrent panel / stremio.
-                                if ((PlayerState().hstreamSources != null &&
-                                    PlayerState().hstreamSources!.isNotEmpty) || _isHentai) {
-                                  _playHstreamEpisode(epNum);
-                                } else if (widget.anilistId != null) {
-                                  _openTorrentSelectorPanel(epNum: epNum);
-                                } else {
-                                  _changeStremioEpisode(epNum);
-                                }
-                              }
-                            }
-                          },
-                          child: _PlayerEpisodeCard(
-                            epNum: epNum,
-                            title: finalTitle,
-                            thumbnail: finalThumbnail,
-                            isPlaying: isPlaying,
+
+                    Expanded(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.all(16.0),
+                        child: GridView.builder(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: isMobileSheet ? 2 : 4,
+                            crossAxisSpacing: 12.0,
+                            mainAxisSpacing: 12.0,
+                            childAspectRatio: 1.45,
                           ),
-                        );
-                      },
+                          itemCount: pagedList.length,
+                          itemBuilder: (context, index) {
+                            final ep = pagedList[index];
+                            final String epTitle = ep['title'] ?? '';
+                            final String thumbnail = ep['thumbnail'] ?? '';
+                            final int epNum = ep['isPlaceholder'] == true
+                                ? (startIdx + index + 1)
+                                : _extractEpNum(epTitle, startIdx + index + 1);
+                            final String cleanTitle = ep['isPlaceholder'] == true ? epTitle : _cleanEpTitle(epTitle);
+                            
+                            final String finalTitle = cleanTitle;
+                            final String finalThumbnail = thumbnail;
+                            final isPlaying = (PlayerState().episodeNumber ?? widget.episodeNumber ?? 1) == epNum;
+                            
+                            return GestureDetector(
+                              onTap: () {
+                                Navigator.of(context).pop(); // Close bottom sheet
+                                if (!isPlaying) {
+                                  DownloadTask? downloadedTask;
+                                  try {
+                                    downloadedTask = DownloadService().tasks.firstWhere(
+                                      (t) => t.anilistId == widget.anilistId &&
+                                             t.episodeNumber == epNum &&
+                                             t.status == DownloadStatus.completed,
+                                    );
+                                  } catch (_) {}
+
+                                  if (downloadedTask != null) {
+                                    PlayerState().updateActiveEpisode(
+                                      streamUrl: downloadedTask.savePath,
+                                      title: downloadedTask.title,
+                                      episodeNumber: epNum,
+                                    );
+                                  } else {
+                                    if ((PlayerState().hstreamSources != null &&
+                                        PlayerState().hstreamSources!.isNotEmpty) || _isHentai) {
+                                      _playHstreamEpisode(epNum);
+                                    } else if (widget.anilistId != null) {
+                                      _openTorrentSelectorPanel(epNum: epNum);
+                                    } else {
+                                      _changeStremioEpisode(epNum);
+                                    }
+                                  }
+                                }
+                              },
+                              child: _PlayerEpisodeCard(
+                                epNum: epNum,
+                                title: finalTitle,
+                                thumbnail: finalThumbnail,
+                                isPlaying: isPlaying,
+                                anilistId: widget.anilistId,
+                              ),
+                            );
+                          },
+                        ),
+                      ),
                     ),
-                  ),
+                  ],
                 ),
-              ],
-            ),
-          ),
+              ),
+            );
+          },
         );
       },
     );
@@ -2736,7 +2823,7 @@ class _SettingsOverlayCardState extends State<_SettingsOverlayCard> {
             ),
           ),
         ),
-        if (widget.anilistId != null)
+        if (widget.anilistId != null) ...[
           ListTile(
             dense: true,
             leading: const Icon(Icons.skip_next_outlined, color: Colors.white70, size: 18),
@@ -2757,6 +2844,27 @@ class _SettingsOverlayCardState extends State<_SettingsOverlayCard> {
               ),
             ),
           ),
+          ListTile(
+            dense: true,
+            leading: const Icon(Icons.block, color: Colors.white70, size: 18),
+            title: const Text("Auto Skip Filler Episodes", style: TextStyle(color: Colors.white, fontSize: 13.0, fontFamily: 'Outfit')),
+            trailing: SizedBox(
+              height: 24,
+              child: ListenableBuilder(
+                listenable: AppSettings(),
+                builder: (context, _) {
+                  return Switch(
+                    value: AppSettings().autoSkipFiller,
+                    activeColor: Colors.amber,
+                    onChanged: (val) {
+                      AppSettings().setAutoSkipFiller(val);
+                    },
+                  );
+                },
+              ),
+            ),
+          ),
+        ],
         if (widget.anilistId != null) ...[
           const Divider(color: Colors.white10, height: 1),
           ListTile(
@@ -3375,12 +3483,14 @@ class _PlayerEpisodeCard extends StatefulWidget {
   final String title;
   final String thumbnail;
   final bool isPlaying;
+  final int? anilistId;
 
   const _PlayerEpisodeCard({
     required this.epNum,
     required this.title,
     required this.thumbnail,
     required this.isPlaying,
+    this.anilistId,
   });
 
   @override
@@ -3402,12 +3512,15 @@ class _PlayerEpisodeCardState extends State<_PlayerEpisodeCard> {
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 150),
               decoration: BoxDecoration(
+                color: const Color(0xFF141416), // Solid dark grey card background
                 borderRadius: BorderRadius.circular(6.0),
                 border: Border.all(
                   color: widget.isPlaying 
                       ? Colors.amber.withValues(alpha: 0.6) 
-                      : (_isHovered ? Colors.white30 : Colors.white10),
-                  width: widget.isPlaying ? 2.0 : 1.0,
+                      : (widget.anilistId != null && FillerService().isFiller(widget.anilistId!, widget.epNum)
+                          ? Colors.amber.withValues(alpha: 0.5)
+                          : (_isHovered ? Colors.white30 : Colors.white10)),
+                  width: widget.isPlaying ? 2.0 : (widget.anilistId != null && FillerService().isFiller(widget.anilistId!, widget.epNum) ? 1.5 : 1.0),
                 ),
               ),
               child: ClipRRect(
@@ -3466,6 +3579,59 @@ class _PlayerEpisodeCardState extends State<_PlayerEpisodeCard> {
                           ),
                         ),
                       ),
+
+                    // Filler Badge (Bottom-Left)
+                    () {
+                      if (widget.anilistId == null) return const SizedBox.shrink();
+                      final fillerType = FillerService().getFillerType(widget.anilistId!, widget.epNum);
+                      if (fillerType != null &&
+                          (fillerType.toLowerCase() == 'filler' ||
+                           fillerType.toLowerCase() == 'mixed canon/filler')) {
+                        final isFillerType = fillerType.toLowerCase() == 'filler';
+                        return Positioned(
+                          bottom: 6.0,
+                          left: 6.0,
+                          child: Container(
+                            padding: EdgeInsets.symmetric(
+                              horizontal: isFillerType ? 3.0 : 4.0,
+                              vertical: isFillerType ? 1.0 : 1.5,
+                            ),
+                            decoration: BoxDecoration(
+                              color: _getFillerColor(fillerType),
+                              borderRadius: BorderRadius.circular(3.0),
+                              border: isFillerType
+                                  ? Border.all(color: Colors.amber.withValues(alpha: 0.5), width: 1.0)
+                                  : null,
+                            ),
+                            child: isFillerType
+                                ? const Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(Icons.warning_amber_rounded, color: Colors.amber, size: 9.0),
+                                      SizedBox(width: 2.0),
+                                      Text(
+                                        'Filler',
+                                        style: TextStyle(
+                                          color: Colors.amber,
+                                          fontSize: 7.5,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ],
+                                  )
+                                : Text(
+                                    _getFillerLabel(fillerType),
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 7.5,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                          ),
+                        );
+                      }
+                      return const SizedBox.shrink();
+                    }(),
                   ],
                 ),
               ),
@@ -3498,9 +3664,28 @@ class _PlayerEpisodeCardState extends State<_PlayerEpisodeCard> {
     );
   }
 
+  Color _getFillerColor(String type) {
+    switch (type.toLowerCase()) {
+      case 'filler':
+        return Colors.amber.withValues(alpha: 0.15); // Transparent Yellow
+      case 'anime canon':
+        return const Color(0xFF8338EC); // Purple
+      case 'mixed canon/filler':
+        return const Color(0xFFF77F00); // Orange
+      default:
+        return Colors.blueGrey;
+    }
+  }
+
+  String _getFillerLabel(String type) {
+    if (type.toLowerCase() == 'mixed canon/filler') return 'Mixed';
+    return type;
+  }
+
+
   Widget _buildPlaceholder() {
     return Container(
-      color: Colors.grey[950],
+      color: const Color(0xFF141416), // Solid dark grey background
       child: const Center(
         child: Icon(Icons.movie, color: Colors.white10, size: 32.0),
       ),

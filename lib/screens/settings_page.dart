@@ -3946,7 +3946,7 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> _launchAniListUrl() async {
-    const url = 'https://anilist.co/api/v2/oauth/authorize?client_id=45095&response_type=token';
+    const url = 'https://anilist.co/api/v2/oauth/authorize?client_id=45910&response_type=token';
     if (Platform.isWindows) {
       try {
         await Process.run('powershell', ['-Command', 'Start-Process', "'$url'"]);
@@ -4492,7 +4492,7 @@ class _SettingsPageState extends State<SettingsPage> {
     return ListenableBuilder(
       listenable: updateService,
       builder: (context, _) {
-        return SingleChildScrollView(
+        return Padding(
           padding: const EdgeInsets.symmetric(horizontal: 4.0, vertical: 8.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,

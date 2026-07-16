@@ -7,6 +7,8 @@ import 'package:flutter/material.dart';
 import '../services/anilist_service.dart';
 import '../services/extension_service.dart';
 import '../services/tmdb_service.dart';
+import '../services/tvdb_service.dart';
+import '../services/filler_service.dart';
 import '../services/batch_mapping_service.dart';
 import '../services/torrserver_service.dart';
 import '../services/torrserver_manager.dart';
@@ -187,8 +189,14 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
 
           if (streamingMap.containsKey(i)) {
             final streamEp = streamingMap[i];
+            final String streamRawTitle = streamEp['title'] ?? '';
+            final String streamTitle = (streamRawTitle.isEmpty || streamRawTitle.toLowerCase() == 'untitled')
+                ? ''
+                : streamRawTitle;
             merged.add({
-              'title': streamEp['title'] ?? (zipTitle.isNotEmpty ? zipTitle : 'Episode $i'),
+              'title': streamTitle.isNotEmpty
+                  ? streamTitle
+                  : (zipTitle.isNotEmpty ? zipTitle : 'Episode $i'),
               'thumbnail': (streamEp['thumbnail'] != null && streamEp['thumbnail'].isNotEmpty) 
                   ? streamEp['thumbnail'] 
                   : zipThumb,
@@ -226,6 +234,22 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
         // Trigger TMDB mapping
         _initTmdbMapping();
         _loadPlaybackProgress();
+
+        // Load filler details
+        final List<String> fillerTitles = [];
+        if (data['title'] != null) {
+          if (data['title']['english'] != null) fillerTitles.add(data['title']['english']);
+          if (data['title']['romaji'] != null) fillerTitles.add(data['title']['romaji']);
+          if (data['title']['native'] != null) fillerTitles.add(data['title']['native']);
+        }
+        if (data['synonyms'] != null) {
+          fillerTitles.addAll((data['synonyms'] as List<dynamic>).map((s) => s.toString()));
+        }
+        FillerService().loadFillerData(widget.animeId, fillerTitles).then((_) {
+          if (mounted) {
+            setState(() {});
+          }
+        });
       }
     } catch (e) {
       final cached = LibraryState().animeCache[widget.animeId];
@@ -369,7 +393,6 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
         isMovie: (_details!['format']?.toString().toUpperCase() == 'MOVIE'),
         media: _details,
         episodes: _mergedEpisodes,
-        tmdbEpisodesMap: _tmdbEpisodesMap,
       );
     } else {
       _onPlayPressed(_continueEpisode, titles);
@@ -387,7 +410,15 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
       _isTmdbLoading = true;
     });
 
-    final tmdbId = await _tmdbService.searchShow(title, year: year, format: format);
+    // Prefer AniZip's direct themoviedb_id mapping (accurate) over TMDB title search (may mismatch)
+    int? tmdbId;
+    final mappings = await ExtensionService().getMappings(widget.animeId);
+    if (mappings != null && mappings['mappings'] != null) {
+      final tmdbIdVal = mappings['mappings']['themoviedb_id'];
+      tmdbId = tmdbIdVal != null ? int.tryParse(tmdbIdVal.toString()) : null;
+    }
+    // Fallback to title search if AniZip has no TMDB ID
+    tmdbId ??= await _tmdbService.searchShow(title, year: year, format: format);
     if (tmdbId != null && mounted) {
       _tmdbId = tmdbId;
       if (format.toUpperCase() == 'MOVIE') {
@@ -472,6 +503,24 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
       seasonEps.forEach((seasonEpNum, epData) {
         final absoluteEpNum = priorCount + seasonEpNum;
         _tmdbEpisodesMap[absoluteEpNum] = epData;
+
+        // Also patch the thumbnail directly in _mergedEpisodes so the grid
+        // always reflects the TMDB still, even when epNum extraction mismatches.
+        final stillPath = epData['still_path'] as String? ?? '';
+        if (stillPath.isNotEmpty && absoluteEpNum >= 1 && absoluteEpNum <= _mergedEpisodes.length) {
+          final ep = _mergedEpisodes[absoluteEpNum - 1];
+          final existingThumb = ep['thumbnail'] as String? ?? '';
+          // Only override if the existing thumb is empty or is a cover/banner fallback
+          final isFallback = existingThumb.isEmpty ||
+              existingThumb.contains('anilist.co/img') ||
+              existingThumb.contains('/cover/') ||
+              existingThumb.contains('/banners/') ||
+              existingThumb.contains('thetvdb.com');
+          if (isFallback) {
+            _mergedEpisodes[absoluteEpNum - 1] = Map<String, dynamic>.from(ep)
+              ..['thumbnail'] = stillPath;
+          }
+        }
       });
     }
 
@@ -525,9 +574,15 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
     return match != null ? int.parse(match.group(1)!) : fallback;
   }
 
-  String _cleanEpTitle(String title) {
+  String _cleanEpTitle(String title, [int? epNum]) {
+    if (title.isEmpty || title.toLowerCase() == 'untitled' || title.toLowerCase() == 'tba') {
+      return epNum != null ? 'Episode $epNum' : title;
+    }
     final cleaned = title.replaceAll(RegExp(r"^Episode\s*\d+\s*[-–—:·]?\s*", caseSensitive: false), '').trim();
-    return cleaned.isNotEmpty ? cleaned : title;
+    if (cleaned.isEmpty || cleaned.toLowerCase() == 'untitled' || cleaned.toLowerCase() == 'tba') {
+      return epNum != null ? 'Episode $epNum' : title;
+    }
+    return cleaned;
   }
 
   void _showEpisodeDetails({
@@ -791,9 +846,6 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
       isMovie: task.isMovie ?? false,
       media: task.mediaJson != null ? jsonDecode(task.mediaJson!) : null,
       episodes: task.episodesJson != null ? jsonDecode(task.episodesJson!) : null,
-      tmdbEpisodesMap: task.tmdbEpisodesMapJson != null 
-          ? (jsonDecode(task.tmdbEpisodesMapJson!) as Map<String, dynamic>).map((k, v) => MapEntry(int.parse(k), v))
-          : null,
     );
   }
 
@@ -1017,7 +1069,6 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
         isMovie: (_details?['format']?.toString().toUpperCase() == 'MOVIE'),
         media: _details,
         episodes: _mergedEpisodes,
-        tmdbEpisodesMap: _tmdbEpisodesMap,
         hstreamSources: streams.sources,
         hstreamSubtitleTracks: streams.tracks,
         headers: {
@@ -1217,7 +1268,6 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
                 isMovie: (_details!['format']?.toString().toUpperCase() == 'MOVIE'),
                 media: _details,
                 episodes: _mergedEpisodes,
-                tmdbEpisodesMap: _tmdbEpisodesMap,
               ),
             ),
           ),
@@ -1241,7 +1291,6 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
           isMovie: (_details!['format']?.toString().toUpperCase() == 'MOVIE'),
           media: _details,
           episodes: _mergedEpisodes,
-          tmdbEpisodesMap: _tmdbEpisodesMap,
         );
       },
     );
@@ -2142,13 +2191,17 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
                 final String epTitle = ep['title'] ?? '';
                 final String thumbnail = ep['thumbnail'] ?? '';
                 final int epNum = ep['isPlaceholder'] == true ? (startIdx + index + 1) : _extractEpNum(epTitle, startIdx + index + 1);
-                final String cleanTitle = ep['isPlaceholder'] == true ? epTitle : _cleanEpTitle(epTitle);
+                final String cleanTitle = ep['isPlaceholder'] == true ? epTitle : _cleanEpTitle(epTitle, epNum);
                 final String site = ep['site'] ?? '';
 
                 // Check TMDB overrides
                 final tmdbEp = _tmdbEpisodesMap[epNum];
-                final String finalTitle = tmdbEp?['name'] ?? cleanTitle;
-                final String finalThumbnail = tmdbEp?['still_path'] ?? thumbnail;
+                final String tmdbTitle = tmdbEp?['name'] ?? '';
+                final String finalTitle = (tmdbTitle.isNotEmpty && tmdbTitle.toLowerCase() != 'untitled')
+                    ? tmdbTitle
+                    : cleanTitle;
+                final String tmdbThumb = tmdbEp?['still_path'] ?? '';
+                final String finalThumbnail = tmdbThumb.isNotEmpty ? tmdbThumb : thumbnail;
                 final String finalSite = site;
 
                 final progress = PlayerState().getProgress(widget.animeId, epNum);
@@ -2251,12 +2304,66 @@ class _EpisodeCard extends StatefulWidget {
 
 class _EpisodeCardState extends State<_EpisodeCard> {
   bool _isHovered = false;
+  // Local disk-cached file path for the thumbnail.
+  // Null = not yet resolved; empty string = resolved but no thumbnail available.
+  String? _localPath;
+  bool _resolving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _resolveThumbnail();
+  }
+
+  @override
+  void didUpdateWidget(covariant _EpisodeCard old) {
+    super.didUpdateWidget(old);
+    // Re-resolve if the thumbnail URL changed (e.g. TMDB patch arrived)
+    if (old.thumbnail != widget.thumbnail && widget.thumbnail.isNotEmpty) {
+      _localPath = null;
+      _resolveThumbnail();
+    }
+  }
+
+  Future<void> _resolveThumbnail() async {
+    if (_resolving || widget.thumbnail.isEmpty) return;
+    _resolving = true;
+    try {
+      // 1. Check disk cache first (instant, no network)
+      final cached = await TvdbService().getCachedPath(widget.thumbnail);
+      if (cached != null) {
+        if (mounted) setState(() => _localPath = cached);
+        return;
+      }
+      // 2. Download and cache (handles TVDB auth automatically)
+      final downloaded = await TvdbService().downloadAndCache(widget.thumbnail);
+      if (mounted) setState(() => _localPath = downloaded ?? '');
+    } catch (_) {
+      if (mounted) setState(() => _localPath = '');
+    } finally {
+      _resolving = false;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final isWatched = widget.isWatched;
     final isDownloaded = widget.isDownloaded;
     final ratio = widget.ratio;
+
+    final String? fillerType = FillerService().getFillerType(widget.animeId, widget.epNum);
+    Color? fillerColor;
+    String? fillerLabel;
+    if (fillerType != null) {
+      final typeLower = fillerType.toLowerCase();
+      if (typeLower == 'filler') {
+        fillerColor = const Color(0xFFE74C3C);
+        fillerLabel = 'Filler';
+      } else if (typeLower == 'mixed canon/filler' || typeLower.contains('mixed')) {
+        fillerColor = const Color(0xFFE67E22);
+        fillerLabel = 'Mixed';
+      }
+    }
 
     return MouseRegion(
       onEnter: (_) => setState(() => _isHovered = true),
@@ -2306,19 +2413,7 @@ class _EpisodeCardState extends State<_EpisodeCard> {
                             child: AnimatedScale(
                               scale: _isHovered ? 1.05 : 1.0,
                               duration: const Duration(milliseconds: 150),
-                              child: widget.thumbnail.isNotEmpty
-                                  ? Image.network(
-                                      widget.thumbnail,
-                                      fit: BoxFit.cover,
-                                      cacheWidth: 320, // Optimize episode thumbnail caching (width is ~160px)
-                                      loadingBuilder: (context, child, progress) {
-                                        if (progress == null) return child;
-                                        return Container(color: Colors.grey[950]);
-                                      },
-                                      errorBuilder: (context, error, stackTrace) =>
-                                          _buildEpisodePlaceholder(),
-                                    )
-                                  : _buildEpisodePlaceholder(),
+                              child: _buildThumbnailImage(isWatched),
                             ),
                           ),
                         ),
@@ -2376,6 +2471,28 @@ class _EpisodeCardState extends State<_EpisodeCard> {
                               Icons.download_done,
                               color: Colors.white,
                               size: 11.0,
+                            ),
+                          ),
+                        ),
+
+                      // Filler Badge (Bottom-Left)
+                      if (fillerLabel != null && fillerColor != null)
+                        Positioned(
+                          bottom: 8.0,
+                          left: 8.0,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 5.0, vertical: 2.0),
+                            decoration: BoxDecoration(
+                              color: fillerColor.withValues(alpha: 0.85),
+                              borderRadius: BorderRadius.circular(3.0),
+                            ),
+                            child: Text(
+                              fillerLabel,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 8.5,
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
                           ),
                         ),
@@ -2441,6 +2558,40 @@ class _EpisodeCardState extends State<_EpisodeCard> {
           ],
         ),
       ),
+    );
+  }
+
+  /// Builds the thumbnail image widget.
+  /// Priority: disk-cached file → network (while caching) → placeholder.
+  Widget _buildThumbnailImage(bool isWatched) {
+    final thumb = widget.thumbnail;
+
+    // No URL at all — show placeholder immediately
+    if (thumb.isEmpty) return _buildEpisodePlaceholder();
+
+    // _localPath == null means still resolving; show a subtle shimmer
+    if (_localPath == null) {
+      return Container(color: Colors.grey[950]);
+    }
+
+    // _localPath == '' means resolution failed; fall back to network (may still work for non-TVDB)
+    if (_localPath!.isEmpty) {
+      return Image.network(
+        thumb,
+        fit: BoxFit.cover,
+        cacheWidth: 320,
+        loadingBuilder: (_, child, progress) =>
+            progress == null ? child : Container(color: Colors.grey[950]),
+        errorBuilder: (_, __, ___) => _buildEpisodePlaceholder(),
+      );
+    }
+
+    // Disk-cached — instant load, no network call
+    return Image.file(
+      File(_localPath!),
+      fit: BoxFit.cover,
+      cacheWidth: 320,
+      errorBuilder: (_, __, ___) => _buildEpisodePlaceholder(),
     );
   }
 
@@ -2581,7 +2732,6 @@ class _DirectPlaybackProgressDialog extends StatefulWidget {
   final bool isMovie;
   final Map<String, dynamic>? media;
   final List<dynamic> episodes;
-  final Map<int, dynamic> tmdbEpisodesMap;
 
   const _DirectPlaybackProgressDialog({
     required this.mapping,
@@ -2593,7 +2743,6 @@ class _DirectPlaybackProgressDialog extends StatefulWidget {
     required this.isMovie,
     this.media,
     required this.episodes,
-    required this.tmdbEpisodesMap,
   });
 
   @override
@@ -2707,7 +2856,6 @@ class _DirectPlaybackProgressDialogState extends State<_DirectPlaybackProgressDi
           isMovie: widget.isMovie,
           media: widget.media,
           episodes: widget.episodes,
-          tmdbEpisodesMap: widget.tmdbEpisodesMap,
         ),
       ),
     );

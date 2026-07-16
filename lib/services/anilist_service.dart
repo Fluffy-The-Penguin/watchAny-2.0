@@ -670,45 +670,6 @@ class AnilistService {
     return [];
   }
 
-  Future<String?> exchangeCodeForToken(String code) async {
-    const tokenUrl = 'https://anilist.co/api/v2/oauth/token';
-    try {
-      final dioResponse = await _dio.post(
-        tokenUrl,
-        data: {
-          'grant_type': 'authorization_code',
-          'client_id': '45095',
-          'client_secret': 'VzfQd0wcEAg2VUiWEV8oCiZMGsVI0QsXrvSONL8r',
-          'redirect_uri': 'https://anilist.co/api/v2/oauth/pin',
-          'code': code.trim(),
-        },
-        options: Options(
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'Accept': 'application/json',
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-          },
-          contentType: Headers.formUrlEncodedContentType,
-        ),
-      );
-      final Map<String, String> headerMap = {};
-      dioResponse.headers.forEach((name, values) {
-        headerMap[name] = values.join(',');
-      });
-
-      final response = _MockHttpResponse(
-        dioResponse.statusCode ?? 200,
-        dioResponse.data is String ? dioResponse.data : jsonEncode(dioResponse.data),
-        headers: headerMap,
-      );
-
-      if (response.statusCode == 200) {
-        final body = jsonDecode(response.body);
-        return body['access_token'] as String?;
-      }
-    } catch (_) {}
-    return null;
-  }
 
   Future<Map<String, dynamic>?> fetchViewerDetails(String token) async {
     const query = r'''

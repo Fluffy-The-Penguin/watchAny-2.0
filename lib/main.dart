@@ -38,17 +38,10 @@ class MyCustomScrollBehavior extends MaterialScrollBehavior {
   }
 }
 
-class MyHttpOverrides extends HttpOverrides {
-  @override
-  HttpClient createHttpClient(SecurityContext? context) {
-    return super.createHttpClient(context)
-      ..badCertificateCallback = (X509Certificate cert, String host, int port) => true;
-  }
-}
 
 void main() async {
-  HttpOverrides.global = MyHttpOverrides();
   WidgetsFlutterBinding.ensureInitialized();
+  HttpOverrides.global = MyHttpOverrides();
   
   // Initialize LogService
   await LogService().init();
@@ -149,20 +142,23 @@ class _MyAppState extends State<MyApp> with WindowListener, WidgetsBindingObserv
     final prefs = await SharedPreferences.getInstance();
     _savedWidth = prefs.getDouble('window_width') ?? 1280.0;
     _savedHeight = prefs.getDouble('window_height') ?? 720.0;
-    final bool hasLocalLibrary = prefs.getString('library_items') != null;
-    
-    // Restore backups ONLY if there is no local database (saves massive redundant I/O on normal boots)
-    if (!hasLocalLibrary) {
-      await BackupService().restoreAll();
-    }
-
-    // 2. Load configurations and parse databases concurrently
+    // Restore backups ONLY on a fresh install (empty library).
+    // LibraryState is initialized first so we can read its in-memory item
+    // count — no second DB connection needed.
     await Future.wait([
       AppSettings().init(),
       AnilistAuthState().init(),
       LibraryState().init(),
       DownloadService().init(),
     ]);
+
+    if (LibraryState().items.isEmpty) {
+      await BackupService().restoreAll();
+      // If restore added items, reload the library state from the DB
+      if (LibraryState().items.isEmpty) {
+        await LibraryState().init();
+      }
+    }
 
     // Initialize NavigationState with the loaded AppSettings
     NavigationState().init();
@@ -189,9 +185,19 @@ class _MyAppState extends State<MyApp> with WindowListener, WidgetsBindingObserv
       windowManager.removeListener(this);
     }
     _navigationState.removeListener(_handleNavigationModeChange);
-    // Stop TorrServer when the app widget is disposed
+    // Stop TorrServer when the app widget is disposed.
+    // Fire-and-forget is intentional here — dispose() is synchronous,
+    // but the HTTP /shutdown + graceful wait run in the background.
     TorrServerManager.stop();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // On Android, stop TorrServer when the app is fully detached (killed/swiped away).
+    if (state == AppLifecycleState.detached && !_isDesktop) {
+      TorrServerManager.stop();
+    }
   }
 
   @override
@@ -338,3 +344,12 @@ class _MyAppState extends State<MyApp> with WindowListener, WidgetsBindingObserv
     );
   }
 }
+
+class MyHttpOverrides extends HttpOverrides {
+  @override
+  HttpClient createHttpClient(SecurityContext? context) {
+    return super.createHttpClient(context)
+      ..badCertificateCallback = (X509Certificate cert, String host, int port) => true;
+  }
+}
+

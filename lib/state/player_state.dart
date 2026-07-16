@@ -44,7 +44,6 @@ class PlayerState extends ChangeNotifier {
   bool? _isMovie;
   dynamic _media;
   List<dynamic>? _episodes;
-  Map<int, dynamic>? _tmdbEpisodesMap;
   List<HstreamSource>? _hstreamSources;
   List<Map<String, String>>? _hstreamSubtitleTracks; // VTT subtitle tracks from HStream
   StreamSubscription? _tracksSubscription;            // fires once after media opens to load subtitle
@@ -77,7 +76,6 @@ class PlayerState extends ChangeNotifier {
   bool? get isMovie => _isMovie;
   dynamic get media => _media;
   List<dynamic>? get episodes => _episodes;
-  Map<int, dynamic>? get tmdbEpisodesMap => _tmdbEpisodesMap;
   List<HstreamSource>? get hstreamSources => _hstreamSources;
   List<Map<String, String>>? get hstreamSubtitleTracks => _hstreamSubtitleTracks;
 
@@ -110,7 +108,6 @@ class PlayerState extends ChangeNotifier {
     bool? isMovie,
     dynamic media,
     List<dynamic>? episodes,
-    Map<int, dynamic>? tmdbEpisodesMap,
     List<HstreamSource>? hstreamSources,
     List<Map<String, String>>? hstreamSubtitleTracks,
     Map<String, String>? headers,
@@ -128,7 +125,6 @@ class PlayerState extends ChangeNotifier {
     _isMovie = isMovie;
     _media = media;
     _episodes = episodes;
-    _tmdbEpisodesMap = tmdbEpisodesMap;
     _hstreamSources = hstreamSources;
     _hstreamSubtitleTracks = hstreamSubtitleTracks;
     _headers = headers;
@@ -785,7 +781,6 @@ class PlayerState extends ChangeNotifier {
     final movie = _isMovie;
     final med = _media;
     final eps = _episodes;
-    final tmdbMap = _tmdbEpisodesMap;
     final hSources = _hstreamSources;
     final hSubTracks = _hstreamSubtitleTracks;
     final hdrs = _headers;
@@ -802,7 +797,6 @@ class PlayerState extends ChangeNotifier {
       isMovie: movie,
       media: med,
       episodes: eps,
-      tmdbEpisodesMap: tmdbMap,
       hstreamSources: hSources,
       hstreamSubtitleTracks: hSubTracks,
       headers: hdrs,

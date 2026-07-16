@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
@@ -67,7 +68,7 @@ class UpdateService extends ChangeNotifier {
   factory UpdateService() => _instance;
   UpdateService._internal();
 
-  static const String currentVersion = '2.0.60';
+  static const String currentVersion = '2.0.62';
   
   // GitHub Releases API Endpoint
   static const String gitHubReleasesUrl = 'https://api.github.com/repos/Fluffy-The-Penguin/watchAny-2.0/releases/latest';
@@ -117,23 +118,6 @@ class UpdateService extends ChangeNotifier {
     return 0;
   }
 
-  Future<String> _getGhToken() async {
-    // 1. Check system environment GITHUB_TOKEN
-    final envToken = Platform.environment['GITHUB_TOKEN'] ?? '';
-    if (envToken.isNotEmpty && !envToken.contains('invalid')) {
-      return envToken.trim();
-    }
-    
-    // 2. Try querying gh CLI auth token
-    try {
-      final result = await Process.run('gh', ['auth', 'token']);
-      if (result.exitCode == 0) {
-        return result.stdout.toString().trim();
-      }
-    } catch (_) {}
-
-    return '';
-  }
 
   Future<bool> checkForUpdates() async {
     _isChecking = true;
@@ -141,16 +125,9 @@ class UpdateService extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final headers = <String, String>{'User-Agent': 'watchAny-Updater'};
-      final token = await _getGhToken();
-      if (token.isNotEmpty) {
-        headers['Authorization'] = 'token $token';
-        debugPrint('[UpdateService] Using GitHub Auth token for live update query.');
-      }
-
       final response = await http.get(
         Uri.parse(gitHubReleasesUrl),
-        headers: headers,
+        headers: const {'User-Agent': 'watchAny-Updater'},
       ).timeout(const Duration(seconds: 8));
 
       if (response.statusCode == 200) {
@@ -196,10 +173,7 @@ class UpdateService extends ChangeNotifier {
     try {
       final url = _latestUpdate!.downloadUrl;
       final request = http.Request('GET', Uri.parse(url));
-      final token = await _getGhToken();
-      if (token.isNotEmpty) {
-        request.headers['Authorization'] = 'token $token';
-      }
+      request.headers['User-Agent'] = 'watchAny-Updater';
       
       final response = await http.Client().send(request);
       final contentLength = response.contentLength ?? 0;
@@ -234,6 +208,43 @@ class UpdateService extends ChangeNotifier {
 
       _downloadedFilePath = filePath;
       _isDownloading = false;
+
+      // SHA-256 verification: fetch checksums.txt from the same release and
+      // compare against the hash of the downloaded file before executing it.
+      final checksumUrl = _latestUpdate!.downloadUrl
+          .replaceAll(RegExp(r'/[^/]+$'), '/checksums.txt');
+      try {
+        final checksumResp = await http.get(
+          Uri.parse(checksumUrl),
+          headers: const {'User-Agent': 'watchAny-Updater'},
+        ).timeout(const Duration(seconds: 8));
+        if (checksumResp.statusCode == 200) {
+          final expectedHash = _extractHash(
+            checksumResp.body,
+            filePath.split(Platform.pathSeparator).last,
+          );
+          if (expectedHash != null) {
+            final fileBytes = await File(filePath).readAsBytes();
+            final actualHash = sha256.convert(fileBytes).toString();
+            if (actualHash != expectedHash) {
+              await File(filePath).delete();
+              _downloadedFilePath = null;
+              _error = 'SHA-256 mismatch — download may be corrupted or tampered. Please try again.';
+              _isDownloading = false;
+              notifyListeners();
+              return;
+            }
+            debugPrint('[UpdateService] SHA-256 verified: $actualHash');
+          } else {
+            debugPrint('[UpdateService] No checksum entry found for this asset; skipping verification.');
+          }
+        } else {
+          debugPrint('[UpdateService] checksums.txt not found (${checksumResp.statusCode}); skipping verification.');
+        }
+      } catch (e) {
+        debugPrint('[UpdateService] Checksum fetch failed ($e); proceeding without verification.');
+      }
+
       notifyListeners();
 
       // Launch the installer
@@ -262,5 +273,22 @@ class UpdateService extends ChangeNotifier {
       _error = 'Failed to launch installer: $e';
       notifyListeners();
     }
+  }
+
+  /// Parses a standard `sha256sum` formatted file (each line: `<hash>  <filename>`)
+  /// and returns the expected hash for [filename], or null if not found.
+  String? _extractHash(String checksumsContent, String filename) {
+    for (final line in checksumsContent.split('\n')) {
+      final trimmed = line.trim();
+      if (trimmed.isEmpty) continue;
+      // Format: "<64-char hash>  <filename>" (two spaces) or "<hash> <filename>"
+      final spaceIdx = trimmed.indexOf(' ');
+      if (spaceIdx == 64) {
+        final hash = trimmed.substring(0, 64);
+        final name = trimmed.substring(spaceIdx).trimLeft();
+        if (name == filename) return hash;
+      }
+    }
+    return null;
   }
 }

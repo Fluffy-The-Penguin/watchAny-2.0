@@ -275,7 +275,6 @@ class LibraryState extends ChangeNotifier {
     SuwayomiService.host = prefs.getString('manga_server_host') ?? '127.0.0.1';
     SuwayomiService.port = prefs.getInt('manga_server_port') ?? 4567;
     
-    await _migrateIfNecessary();
 
     // Load everything synchronously from SQLite into memory for runtime backwards compatibility
     try {
@@ -335,130 +334,6 @@ class LibraryState extends ChangeNotifier {
     });
   }
 
-  Future<void> _migrateIfNecessary() async {
-    final prefs = _prefs!;
-    final String? itemsJson = prefs.getString('library_items');
-    if (itemsJson == null) return; // Already migrated or empty
-
-    debugPrint('Starting one-time SharedPreferences to SQLite migration...');
-
-    try {
-      final List<dynamic> decodedItems = jsonDecode(itemsJson);
-      for (var itemMap in decodedItems) {
-        final item = LibraryItem.fromJson(itemMap);
-        await _db.into(_db.libraryItems).insertOnConflictUpdate(
-          db.LibraryItemsCompanion.insert(
-            id: item.id,
-            mode: item.mode,
-            format: item.format,
-            libraryStatus: item.libraryStatus,
-            rating: item.rating,
-            watchedEpisodes: item.watchedEpisodes,
-            totalEpisodes: drift.Value(item.totalEpisodes),
-            addedAt: item.addedAt,
-            categoryIds: jsonEncode(item.categoryIds),
-          ),
-        );
-      }
-
-      final String? catsJson = prefs.getString('library_categories');
-      if (catsJson != null) {
-        final List<dynamic> decodedCats = jsonDecode(catsJson);
-        for (var catMap in decodedCats) {
-          final cat = LibraryCategory.fromJson(catMap);
-          await _db.into(_db.libraryCategories).insertOnConflictUpdate(
-            db.LibraryCategoriesCompanion.insert(
-              id: cat.id,
-              name: cat.name,
-              mode: cat.mode,
-            ),
-          );
-        }
-      }
-
-      final String? mangaCacheJson = prefs.getString('manga_library_cache');
-      if (mangaCacheJson != null) {
-        final Map<String, dynamic> decoded = jsonDecode(mangaCacheJson);
-        for (var entry in decoded.entries) {
-          final val = entry.value;
-          await _db.into(_db.mediaCaches).insertOnConflictUpdate(
-            db.MediaCachesCompanion.insert(
-              id: int.parse(entry.key),
-              mode: 'manga',
-              title: val['title'] ?? 'Untitled',
-              coverImage: val['thumbnailUrl'] ?? '',
-              extraData: drift.Value(jsonEncode(val)),
-            ),
-          );
-        }
-      }
-
-      final String? animeCacheJson = prefs.getString('anime_library_cache');
-      if (animeCacheJson != null) {
-        final Map<String, dynamic> decoded = jsonDecode(animeCacheJson);
-        for (var entry in decoded.entries) {
-          final val = entry.value;
-          await _db.into(_db.mediaCaches).insertOnConflictUpdate(
-            db.MediaCachesCompanion.insert(
-              id: int.parse(entry.key),
-              mode: 'anime',
-              title: val['title']?['english'] ?? val['title']?['romaji'] ?? 'Untitled',
-              coverImage: val['coverImage']?['large'] ?? '',
-              extraData: drift.Value(jsonEncode(val)),
-            ),
-          );
-        }
-      }
-
-      final String? movieCacheJson = prefs.getString('movie_library_cache');
-      if (movieCacheJson != null) {
-        final Map<String, dynamic> decoded = jsonDecode(movieCacheJson);
-        for (var entry in decoded.entries) {
-          final val = entry.value;
-          await _db.into(_db.mediaCaches).insertOnConflictUpdate(
-            db.MediaCachesCompanion.insert(
-              id: int.parse(entry.key),
-              mode: 'movies',
-              title: val['title'] ?? 'Untitled',
-              coverImage: val['coverImage'] ?? '',
-              extraData: drift.Value(jsonEncode(val)),
-            ),
-          );
-        }
-      }
-
-      final String? ackString = prefs.getString('notif_ack_all');
-      if (ackString != null) {
-        final Map<String, dynamic> ackDecoded = jsonDecode(ackString);
-        final String? startString = prefs.getString('notif_start_all');
-        final Map<String, dynamic> startDecoded = startString != null ? jsonDecode(startString) : {};
-
-        for (var key in ackDecoded.keys) {
-          final ackVal = (ackDecoded[key] as num).toInt();
-          final startVal = (startDecoded[key] as num?)?.toInt() ?? ackVal;
-          await _db.into(_db.notificationAcks).insertOnConflictUpdate(
-            db.NotificationAcksCompanion.insert(
-              mediaKey: key,
-              ackValue: ackVal,
-              startValue: startVal,
-            ),
-          );
-        }
-      }
-      debugPrint('Migration to SQLite completed successfully!');
-    } catch (e) {
-      debugPrint('Migration failed: $e');
-    }
-
-    // Clear old SharedPreferences keys
-    await prefs.remove('library_items');
-    await prefs.remove('library_categories');
-    await prefs.remove('manga_library_cache');
-    await prefs.remove('anime_library_cache');
-    await prefs.remove('movie_library_cache');
-    await prefs.remove('notif_ack_all');
-    await prefs.remove('notif_start_all');
-  }
 
   bool isSaved(int id, String mode) {
     return _items.any((item) => item.id == id && item.mode == mode);

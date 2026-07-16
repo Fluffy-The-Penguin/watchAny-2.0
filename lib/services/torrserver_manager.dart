@@ -210,11 +210,36 @@ class TorrServerManager {
   }
 
   static Future<void> stop() async {
+    _isStarting = false;
+
+    // Always attempt a graceful HTTP shutdown first.
+    // This works even when _process is null (i.e. we reused an already-running
+    // TorrServer instance and never held a Process handle for it).
+    try {
+      await http.get(
+        Uri.parse('http://127.0.0.1:$_port/shutdown'),
+      ).timeout(const Duration(seconds: 2));
+      _log('Sent /shutdown to TorrServer.');
+    } catch (_) {
+      // Server may have already exited or wasn't running — that's fine.
+    }
+
     if (_process != null) {
-      _log('Terminating TorrServer process...');
-      _process!.kill();
+      // Give the process up to 3 seconds to exit gracefully after /shutdown
+      bool exited = false;
+      try {
+        await _process!.exitCode.timeout(const Duration(seconds: 3));
+        exited = true;
+      } catch (_) {}
+
+      if (!exited) {
+        _log('TorrServer did not exit gracefully, force-killing...');
+        _process!.kill(ProcessSignal.sigkill);
+      }
       _process = null;
     }
+
+    _log('TorrServer stopped.');
   }
 
   static void _log(String message, {String level = 'INFO', dynamic error, StackTrace? stackTrace}) {

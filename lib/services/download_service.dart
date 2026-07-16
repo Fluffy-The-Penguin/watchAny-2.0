@@ -36,7 +36,6 @@ class DownloadTask {
   final bool? isMovie;
   final String? mediaJson;
   final String? episodesJson;
-  final String? tmdbEpisodesMapJson;
 
   DownloadTask({
     required this.id,
@@ -56,7 +55,6 @@ class DownloadTask {
     this.isMovie,
     this.mediaJson,
     this.episodesJson,
-    this.tmdbEpisodesMapJson,
   });
 
   Map<String, dynamic> toJson() => {
@@ -76,7 +74,6 @@ class DownloadTask {
         'isMovie': isMovie,
         'mediaJson': mediaJson,
         'episodesJson': episodesJson,
-        'tmdbEpisodesMapJson': tmdbEpisodesMapJson,
       };
 
   factory DownloadTask.fromJson(Map<String, dynamic> json) => DownloadTask(
@@ -96,7 +93,6 @@ class DownloadTask {
         isMovie: json['isMovie'] as bool?,
         mediaJson: json['mediaJson'] as String?,
         episodesJson: json['episodesJson'] as String?,
-        tmdbEpisodesMapJson: json['tmdbEpisodesMapJson'] as String?,
       );
 }
 
@@ -188,7 +184,6 @@ class DownloadService extends ChangeNotifier {
     bool? isMovie,
     String? mediaJson,
     String? episodesJson,
-    String? tmdbEpisodesMapJson,
   }) async {
     final id = '${hash}_$fileIndex';
     
@@ -231,7 +226,6 @@ class DownloadService extends ChangeNotifier {
       isMovie: isMovie,
       mediaJson: mediaJson,
       episodesJson: episodesJson,
-      tmdbEpisodesMapJson: tmdbEpisodesMapJson,
     );
 
     _tasks.add(task);

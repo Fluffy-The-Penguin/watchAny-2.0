@@ -480,7 +480,6 @@ class ShellLayout extends StatelessWidget {
                                     isMovie: playerState.isMovie,
                                     media: playerState.media,
                                     episodes: playerState.episodes,
-                                    tmdbEpisodesMap: playerState.tmdbEpisodesMap,
                                   ),
                           ),
                         ),

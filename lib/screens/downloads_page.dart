@@ -206,9 +206,6 @@ class _DownloadsPageState extends State<DownloadsPage> {
       isMovie: task.isMovie ?? false,
       media: task.mediaJson != null ? jsonDecode(task.mediaJson!) : null,
       episodes: task.episodesJson != null ? jsonDecode(task.episodesJson!) : null,
-      tmdbEpisodesMap: task.tmdbEpisodesMapJson != null 
-          ? (jsonDecode(task.tmdbEpisodesMapJson!) as Map<String, dynamic>).map((k, v) => MapEntry(int.parse(k), v))
-          : null,
     );
   }
 
