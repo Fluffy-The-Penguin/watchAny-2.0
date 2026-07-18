@@ -932,18 +932,24 @@ class ExtensionService extends ChangeNotifier {
             if (filtered.isNotEmpty) {
               allStreams.addAll(filtered);
               allStreams.sort((a, b) => b.seeders.compareTo(a.seeders));
-              controller.add(List.from(allStreams));
+              if (!controller.isClosed) {
+                controller.add(List.from(allStreams));
+              }
             }
           }
           activeCount--;
           if (activeCount == 0) {
-            controller.close();
+            if (!controller.isClosed) {
+              controller.close();
+            }
           }
         }).catchError((err) {
           _logError('Error inside extension ${ext.name} async runner: $err');
           activeCount--;
           if (activeCount == 0) {
-            controller.close();
+            if (!controller.isClosed) {
+              controller.close();
+            }
           }
         });
       }

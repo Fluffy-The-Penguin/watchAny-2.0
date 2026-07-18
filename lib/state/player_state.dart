@@ -14,6 +14,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:http/http.dart' as http;
 import '../services/hstream_service.dart';
 import '../services/log_service.dart';
+import '../services/torrserver_service.dart';
 
 class PlaybackProgress {
   final int position; // in milliseconds
@@ -759,6 +760,9 @@ class PlayerState extends ChangeNotifier {
     _hstreamSources = null;
     _hstreamSubtitleTracks = null;
     _headers = null;
+    try {
+      TorrServerService().cancelAllPreloads();
+    } catch (_) {}
   }
 
   void toggleHardwareAcceleration(bool enabled) {

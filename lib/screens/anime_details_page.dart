@@ -154,11 +154,17 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
         }
 
         totalCount = data['episodes'] ?? 0;
+        if (totalCount == 0 && data['nextAiringEpisode'] != null) {
+          totalCount = (data['nextAiringEpisode']['episode'] as int) - 1;
+        }
+        if (localAniZipMap.isNotEmpty) {
+          final maxZip = localAniZipMap.keys.reduce(max);
+          if (maxZip > totalCount) {
+            totalCount = maxZip;
+          }
+        }
         if (totalCount == 0 && streaming.isNotEmpty) {
           totalCount = streaming.length;
-        }
-        if (totalCount == 0 && localAniZipMap.isNotEmpty) {
-          totalCount = localAniZipMap.keys.reduce(max);
         }
         if (totalCount == 0) {
           totalCount = 1;
@@ -181,6 +187,9 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
         final List<dynamic> merged = [];
         for (var i = 1; i <= totalCount; i++) {
           final zipEp = localAniZipMap[i];
+          final int? absEpNum = zipEp != null
+              ? int.tryParse(zipEp['absoluteEpisodeNumber']?.toString() ?? '')
+              : null;
 
           final String zipTitle = zipEp?['title']?['en'] ?? zipEp?['title']?['x-jat'] ?? zipEp?['title']?['ja'] ?? '';
           final String zipThumb = zipEp?['image'] ?? '';
@@ -205,6 +214,7 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
               'overview': zipOverview,
               'airDate': zipAirDate,
               'isPlaceholder': false,
+              'absoluteEpisodeNumber': absEpNum,
             });
           } else {
             merged.add({
@@ -215,6 +225,7 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
               'overview': zipOverview,
               'airDate': zipAirDate,
               'isPlaceholder': zipTitle.isEmpty,
+              'absoluteEpisodeNumber': absEpNum,
             });
           }
         }
@@ -429,7 +440,6 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
             _isTmdbLoading = false;
           });
         }
-      } else {
         final seasons = await _tmdbService.fetchTvSeasons(tmdbId);
         if (mounted) {
           setState(() {
@@ -440,8 +450,10 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
               tmdbTotalCount += season.episodeCount;
             }
             
-            if (tmdbTotalCount > _mergedEpisodes.length) {
-              final List<dynamic> expanded = List.from(_mergedEpisodes);
+            final int aniListEpCount = _details!['episodes'] ?? 0;
+            final List<dynamic> expanded = List.from(_mergedEpisodes);
+            
+            if (aniListEpCount == 0 && tmdbTotalCount > _mergedEpisodes.length) {
               for (var i = _mergedEpisodes.length + 1; i <= tmdbTotalCount; i++) {
                 expanded.add({
                   'title': 'Episode $i',
@@ -453,8 +465,21 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
                   'isPlaceholder': true,
                 });
               }
-              _mergedEpisodes = expanded;
             }
+            
+            for (var i = 0; i < expanded.length; i++) {
+              final ep = expanded[i];
+              final int absEp = ep['absoluteEpisodeNumber'] as int? ?? (i + 1);
+              final mapping = _mapAbsoluteToTmdb(absEp, seasons);
+              if (mapping != null) {
+                expanded[i] = Map<String, dynamic>.from(ep)
+                  ..['seasonNumber'] = mapping['seasonNumber']
+                  ..['episodeNumber'] = mapping['episodeNumber']
+                  ..['absoluteEpisodeNumber'] = absEp;
+              }
+            }
+            
+            _mergedEpisodes = expanded;
           });
           _loadPlaybackProgress();
           // Load episode details for the initial page
@@ -504,22 +529,41 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
         final absoluteEpNum = priorCount + seasonEpNum;
         _tmdbEpisodesMap[absoluteEpNum] = epData;
 
-        // Also patch the thumbnail directly in _mergedEpisodes so the grid
-        // always reflects the TMDB still, even when epNum extraction mismatches.
-        final stillPath = epData['still_path'] as String? ?? '';
-        if (stillPath.isNotEmpty && absoluteEpNum >= 1 && absoluteEpNum <= _mergedEpisodes.length) {
+        if (absoluteEpNum >= 1 && absoluteEpNum <= _mergedEpisodes.length) {
           final ep = _mergedEpisodes[absoluteEpNum - 1];
-          final existingThumb = ep['thumbnail'] as String? ?? '';
-          // Only override if the existing thumb is empty or is a cover/banner fallback
-          final isFallback = existingThumb.isEmpty ||
-              existingThumb.contains('anilist.co/img') ||
-              existingThumb.contains('/cover/') ||
-              existingThumb.contains('/banners/') ||
-              existingThumb.contains('thetvdb.com');
-          if (isFallback) {
-            _mergedEpisodes[absoluteEpNum - 1] = Map<String, dynamic>.from(ep)
-              ..['thumbnail'] = stillPath;
+          final Map<String, dynamic> updatedEp = Map<String, dynamic>.from(ep);
+
+          updatedEp['seasonNumber'] = seasonNum;
+          updatedEp['episodeNumber'] = seasonEpNum;
+          updatedEp['absoluteEpisodeNumber'] = absoluteEpNum;
+
+          final stillPath = epData['still_path'] as String? ?? '';
+          if (stillPath.isNotEmpty) {
+            final existingThumb = ep['thumbnail'] as String? ?? '';
+            final isFallback = existingThumb.isEmpty ||
+                existingThumb.contains('anilist.co/img') ||
+                existingThumb.contains('/cover/') ||
+                existingThumb.contains('/banners/') ||
+                existingThumb.contains('thetvdb.com');
+            if (isFallback) {
+              updatedEp['thumbnail'] = stillPath;
+            }
           }
+
+          final String epTitle = epData['name'] as String? ?? '';
+          final String existingTitle = ep['title'] as String? ?? '';
+          if (epTitle.isNotEmpty && (existingTitle.isEmpty || existingTitle.startsWith('Episode '))) {
+            updatedEp['title'] = epTitle;
+          }
+
+          final String epOverview = epData['overview'] as String? ?? '';
+          final String existingOverview = ep['overview'] as String? ?? '';
+          if (epOverview.isNotEmpty && existingOverview.isEmpty) {
+            updatedEp['overview'] = epOverview;
+          }
+
+          updatedEp['isPlaceholder'] = false;
+          _mergedEpisodes[absoluteEpNum - 1] = updatedEp;
         }
       });
     }
@@ -915,7 +959,7 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
       return;
     }
 
-    final mapping = BatchMappingService().getMapping(widget.animeId, epNum);
+    final mapping = BatchMappingService().getMapping(widget.animeId.toString(), epNum);
     if (mapping != null) {
       showDialog(
         context: context,

@@ -190,6 +190,12 @@ class _MovieStreamSelectorPanelState extends State<MovieStreamSelectorPanel> {
         return map;
       }
       return s;
+    }).where((s) {
+      if (s is Map) {
+        final title = s['title']?.toString() ?? s['name']?.toString() ?? '';
+        return title.trim().isNotEmpty;
+      }
+      return true;
     }).toList();
 
     // 1. Text Search filter (matching stream name or description)

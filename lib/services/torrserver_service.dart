@@ -117,11 +117,28 @@ class TorrServerService {
     return '$baseUrl/stream?link=$hash&index=${fileIndex + 1}&play';
   }
 
+  final List<http.Client> _activePreloadClients = [];
+
+  /// Cancels all active preload requests to free up TorrServer download bandwidth.
+  void cancelAllPreloads() {
+    for (final client in _activePreloadClients) {
+      try {
+        client.close();
+      } catch (_) {}
+    }
+    _activePreloadClients.clear();
+    debugPrint('[TorrServer] Cancelled all active preloads.');
+  }
+
   /// Triggers a prebuffer/preload for a specific file index in the torrent.
   Future<void> preloadTorrentFile(String hash, int fileIndex) async {
+    // Cancel any existing preloads first so the new one gets full bandwidth
+    cancelAllPreloads();
+
     try {
       final uri = Uri.parse('$baseUrl/stream?link=$hash&index=${fileIndex + 1}&preload');
       final client = http.Client();
+      _activePreloadClients.add(client);
       final request = http.Request('GET', uri);
       
       client.send(request).then((response) {
@@ -131,11 +148,18 @@ class TorrServerService {
           (chunk) {
             // Discard bytes
           },
-          onDone: () => client.close(),
-          onError: (_) => client.close(),
+          onDone: () {
+            _activePreloadClients.remove(client);
+            client.close();
+          },
+          onError: (_) {
+            _activePreloadClients.remove(client);
+            client.close();
+          },
           cancelOnError: true,
         );
       }).catchError((_) {
+        _activePreloadClients.remove(client);
         client.close();
       });
     } catch (_) {

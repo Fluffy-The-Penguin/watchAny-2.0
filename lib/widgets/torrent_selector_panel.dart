@@ -248,7 +248,7 @@ class _TorrentSelectorPanelState extends State<TorrentSelectorPanel> {
   }
 
   List<TorrentStream> get _processedStreams {
-    List<TorrentStream> list = List.from(_streams);
+    List<TorrentStream> list = _streams.where((s) => s.title.trim().isNotEmpty).toList();
 
     // 1. Type Filter
     if (_selectedTypeFilter == 'episode') {
@@ -765,7 +765,9 @@ class _TorrentSelectorPanelState extends State<TorrentSelectorPanel> {
                                 itemCount: _processedStreams.length,
                                 itemBuilder: (context, index) {
                               final stream = _processedStreams[index];
-                              return Container(
+                              return _AnimatedStreamCard(
+                                key: ValueKey(stream.link),
+                                child: Container(
                                 margin: const EdgeInsets.only(bottom: 10.0),
                                 decoration: BoxDecoration(
                                   color: Colors.white.withValues(alpha: 0.02),
@@ -942,8 +944,9 @@ class _TorrentSelectorPanelState extends State<TorrentSelectorPanel> {
                                     ],
                                   ),
                                 ),
-                              );
-                            },
+                              ),
+                            );
+                          },
                           ),
                           if (_isLoading)
                             const Positioned(
@@ -1101,17 +1104,18 @@ class PlaybackProgressDialogState extends State<PlaybackProgressDialog> {
     // Build absolute to local maps and expected season number
     final Map<int, int> absoluteToLocal = {};
     int expectedSeason = 1;
-    if (widget.episodes != null) {
+    if (widget.episodes != null && widget.episodes!.isNotEmpty) {
+      final int targetIdx = (widget.episodeNumber - 1).clamp(0, widget.episodes!.length - 1);
+      final ep = widget.episodes![targetIdx];
+      if (ep['seasonNumber'] is int) {
+        expectedSeason = ep['seasonNumber'] as int;
+      }
+
       for (var idx = 0; idx < widget.episodes!.length; idx++) {
-        final ep = widget.episodes![idx];
+        final epItem = widget.episodes![idx];
         final localEp = idx + 1;
         
-        // Grab expected season from first item
-        if (idx == 0 && ep['seasonNumber'] is int) {
-          expectedSeason = ep['seasonNumber'] as int;
-        }
-        
-        final absEp = ep['absoluteEpisodeNumber'] as int?;
+        final absEp = epItem['absoluteEpisodeNumber'] as int?;
         if (absEp != null) {
           absoluteToLocal[absEp] = localEp;
         }
@@ -1135,9 +1139,10 @@ class PlaybackProgressDialogState extends State<PlaybackProgressDialog> {
       }
     }
     
-    if (episodeToIndex.isNotEmpty && widget.anilistId != null) {
+    final String? mediaId = widget.anilistId?.toString() ?? widget.movieId;
+    if (episodeToIndex.isNotEmpty && mediaId != null) {
       BatchMappingService().saveMapping(
-        anilistId: widget.anilistId!,
+        mediaId: mediaId,
         torrentLink: widget.stream.link,
         torrentHash: hash,
         torrentTitle: widget.stream.title,
@@ -1758,4 +1763,56 @@ void showStorageFullDialog(BuildContext context, int fileBytes, VoidCallback onR
       );
     },
   );
+}
+
+class _AnimatedStreamCard extends StatefulWidget {
+  final Widget child;
+  final Key? key;
+
+  const _AnimatedStreamCard({required this.child, this.key}) : super(key: key);
+
+  @override
+  State<_AnimatedStreamCard> createState() => _AnimatedStreamCardState();
+}
+
+class _AnimatedStreamCardState extends State<_AnimatedStreamCard> with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final Animation<double> _fadeAnimation;
+  late final Animation<double> _slideAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 350),
+    );
+    _fadeAnimation = CurvedAnimation(parent: _controller, curve: Curves.easeIn);
+    _slideAnimation = Tween<double>(begin: 12.0, end: 0.0).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeOutQuad),
+    );
+    _controller.forward();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, child) {
+        return Opacity(
+          opacity: _fadeAnimation.value,
+          child: Transform.translate(
+            offset: Offset(0, _slideAnimation.value),
+            child: widget.child,
+          ),
+        );
+      },
+    );
+  }
 }

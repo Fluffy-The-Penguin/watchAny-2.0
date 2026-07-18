@@ -586,28 +586,31 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
       return;
     }
     
-    if (widget.anilistId != null) {
-      final mapping = BatchMappingService().getMapping(widget.anilistId!, nextEp);
-      if (mapping != null) {
-        final hash = mapping['torrentHash'] as String;
-        final fileIndex = mapping['fileIndex'] as int;
-        final torrentTitle = mapping['torrentTitle'] as String;
-        
-        final streamUrl = _torrServerService.getStreamUrl(hash, fileIndex);
-        final displayName = 'Episode $nextEp ($torrentTitle)';
-        
-        try {
-          await _torrServerService.preloadTorrentFile(hash, fileIndex);
-        } catch (_) {}
-        
-        playerState.updateActiveEpisode(
-          streamUrl: streamUrl,
-          title: displayName,
-          episodeNumber: nextEp,
-        );
-      } else {
-        _openTorrentSelectorPanel(epNum: nextEp);
-      }
+    final String? mediaId = widget.anilistId?.toString() ?? playerState.movieId;
+    Map<String, dynamic>? mapping;
+    if (mediaId != null) {
+      mapping = BatchMappingService().getMapping(mediaId, nextEp);
+    }
+
+    if (mapping != null) {
+      final hash = mapping['torrentHash'] as String;
+      final fileIndex = mapping['fileIndex'] as int;
+      final torrentTitle = mapping['torrentTitle'] as String;
+      
+      final streamUrl = _torrServerService.getStreamUrl(hash, fileIndex);
+      final displayName = 'Episode $nextEp ($torrentTitle)';
+      
+      try {
+        await _torrServerService.preloadTorrentFile(hash, fileIndex);
+      } catch (_) {}
+      
+      playerState.updateActiveEpisode(
+        streamUrl: streamUrl,
+        title: displayName,
+        episodeNumber: nextEp,
+      );
+    } else if (widget.anilistId != null) {
+      _openTorrentSelectorPanel(epNum: nextEp);
     } else {
       _changeStremioEpisode(nextEp);
     }
@@ -1148,7 +1151,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
                             final isPlaying = (PlayerState().episodeNumber ?? widget.episodeNumber ?? 1) == epNum;
                             
                             return GestureDetector(
-                              onTap: () {
+                              onTap: () async {
                                 Navigator.of(context).pop(); // Close bottom sheet
                                 if (!isPlaying) {
                                   DownloadTask? downloadedTask;
@@ -1167,7 +1170,30 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
                                       episodeNumber: epNum,
                                     );
                                   } else {
-                                    if ((PlayerState().hstreamSources != null &&
+                                    final String? mediaId = widget.anilistId?.toString() ?? PlayerState().movieId;
+                                    Map<String, dynamic>? mapping;
+                                    if (mediaId != null) {
+                                      mapping = BatchMappingService().getMapping(mediaId, epNum);
+                                    }
+
+                                    if (mapping != null) {
+                                      final hash = mapping['torrentHash'] as String;
+                                      final fileIndex = mapping['fileIndex'] as int;
+                                      final torrentTitle = mapping['torrentTitle'] as String;
+                                      
+                                      final streamUrl = _torrServerService.getStreamUrl(hash, fileIndex);
+                                      final displayName = 'Episode $epNum ($torrentTitle)';
+                                      
+                                      try {
+                                        await _torrServerService.preloadTorrentFile(hash, fileIndex);
+                                      } catch (_) {}
+                                      
+                                      PlayerState().updateActiveEpisode(
+                                        streamUrl: streamUrl,
+                                        title: displayName,
+                                        episodeNumber: epNum,
+                                      );
+                                    } else if ((PlayerState().hstreamSources != null &&
                                         PlayerState().hstreamSources!.isNotEmpty) || _isHentai) {
                                       _playHstreamEpisode(epNum);
                                     } else if (widget.anilistId != null) {

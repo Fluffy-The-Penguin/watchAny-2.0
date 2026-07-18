@@ -28,7 +28,7 @@ class BatchMappingService {
   }
 
   Future<void> saveMapping({
-    required int anilistId,
+    required String mediaId,
     required String torrentLink,
     required String torrentHash,
     required String torrentTitle,
@@ -36,8 +36,7 @@ class BatchMappingService {
   }) async {
     await init();
     
-    final idStr = anilistId.toString();
-    _mappings[idStr] = {
+    _mappings[mediaId] = {
       'torrentLink': torrentLink,
       'torrentHash': torrentHash,
       'torrentTitle': torrentTitle,
@@ -51,7 +50,7 @@ class BatchMappingService {
     }
   }
 
-  Map<String, dynamic>? getMapping(int anilistId, int episodeNumber) {
+  Map<String, dynamic>? getMapping(String mediaId, int episodeNumber) {
     if (!_initialized) {
       try {
         if (_file.existsSync()) {
@@ -64,8 +63,7 @@ class BatchMappingService {
       _initialized = true;
     }
 
-    final idStr = anilistId.toString();
-    final data = _mappings[idStr];
+    final data = _mappings[mediaId];
     if (data == null) return null;
 
     final eps = data['episodes'] as Map<String, dynamic>?;

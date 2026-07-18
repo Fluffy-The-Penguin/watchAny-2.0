@@ -8,12 +8,17 @@ import '../state/navigation_state.dart';
 import '../services/stremio_addon_service.dart';
 import '../state/player_state.dart';
 import '../state/library_state.dart';
+import 'player_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/extension_service.dart';
 import '../widgets/torrent_selector_panel.dart';
 import '../widgets/movie_stream_selector_panel.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../widgets/smooth_scroll_area.dart';
+import '../services/batch_mapping_service.dart';
+import '../services/torrserver_service.dart';
+import '../services/torrserver_manager.dart';
+import '../models/torrent.dart';
 
 // ─── Lightweight metadata cache (populated on home page card tap) ─────────────
 class MovieMetadataCache {
@@ -220,7 +225,7 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
         final Set<int> seasonNums = {};
 
         for (final video in videosList) {
-          int s = (video['season'] as num?)?.toInt() ?? 1;
+          int s = int.tryParse(video['season']?.toString() ?? '') ?? 1;
           // Treat season 0 (specials) as season 0 — we label it properly below
           seasonNums.add(s);
           grouped.putIfAbsent(s, () => []).add(video);
@@ -359,6 +364,14 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
   }
 
   Future<void> _fetchStreamsAndPlay({int? episode, String? episodeId}) async {
+    final String mediaId = widget.movieId;
+    final int epNum = episode ?? 1;
+    final mapping = BatchMappingService().getMapping(mediaId, epNum);
+    if (mapping != null) {
+      _showBatchMappingPlayDialog(mapping, epNum);
+      return;
+    }
+
     final targetId = _getFormattedEpisodeId(episodeId: episodeId, episode: episode);
 
     // Show loading
@@ -1319,6 +1332,116 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
       ],
     );
   }
+
+  void _showBatchMappingPlayDialog(Map<String, dynamic> mapping, int epNum) {
+    final mediaTitle = _meta['name']?.toString() ?? _meta['title']?.toString() ?? 'Media';
+    
+    showDialog(
+      context: context,
+      builder: (dialogCtx) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF0F0F11),
+          title: const Text(
+            "Play Stream",
+            style: TextStyle(color: Colors.white, fontFamily: 'Outfit', fontSize: 16.0),
+          ),
+          content: Text(
+            "This episode is available in your active batch torrent:\n\n${mapping['torrentTitle']}\n\nDo you want to play it directly or search for another stream?",
+            style: const TextStyle(color: Colors.white70, fontSize: 13.0, height: 1.4),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(dialogCtx);
+                _fetchStreamsAndPlayBypassingBatch(episode: epNum);
+              },
+              child: const Text("Search Streams", style: TextStyle(color: Colors.white70)),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(dialogCtx);
+                _startDirectPlayback(mapping, epNum);
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.white,
+                foregroundColor: Colors.black,
+              ),
+              child: const Text("Play Direct", style: TextStyle(fontWeight: FontWeight.bold)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _startDirectPlayback(Map<String, dynamic> mapping, int epNum) {
+    final mediaTitle = _meta['name']?.toString() ?? _meta['title']?.toString() ?? 'Media';
+    final List<dynamic> videos = _meta['videos'] is List ? _meta['videos'] as List : [];
+    
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return _DirectPlaybackProgressDialog(
+          mapping: mapping,
+          episodeNumber: epNum,
+          parentContext: context,
+          titles: [mediaTitle],
+          episodeCount: videos.isNotEmpty ? videos.length : 1,
+          isMovie: !_isSeries,
+          media: _meta,
+          episodes: videos,
+        );
+      },
+    );
+  }
+
+  Future<void> _fetchStreamsAndPlayBypassingBatch({required int episode}) async {
+    final targetId = _getFormattedEpisodeId(episode: episode);
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => const Center(
+        child: CircularProgressIndicator(color: Colors.white),
+      ),
+    );
+    final addonService = StremioAddonService();
+    final streamAddons = addonService.streamAddons
+        .where((a) => a.matchesId(targetId))
+        .where((a) => a.supportsType(_type) || a.types.isEmpty)
+        .toList();
+    final streamFutures = <Future<List<dynamic>>>[];
+    for (final addon in streamAddons) {
+      streamFutures.add(() async {
+        try {
+          final url = '${addon.baseUrl}/stream/$_type/$targetId.json';
+          final response = await http.get(Uri.parse(url)).timeout(const Duration(seconds: 10));
+          if (response.statusCode == 200) {
+            final body = jsonDecode(response.body);
+            final List streams = body['streams'] ?? [];
+            return streams.map((s) => Map<String, dynamic>.from(s as Map)..['addonName'] = addon.name).toList();
+          }
+        } catch (e, stack) {
+          developer.log('Error fetching stream', error: e, stackTrace: stack);
+        }
+        return [];
+      }());
+    }
+    final allStreams = <dynamic>[];
+    if (streamFutures.isNotEmpty) {
+      final results = await Future.wait(streamFutures);
+      for (final r in results) {
+        allStreams.addAll(r);
+      }
+    }
+    if (mounted) Navigator.pop(context);
+    if (allStreams.isEmpty) {
+      if (mounted) NotificationService().show(context, 'No streams found.');
+      return;
+    }
+    if (mounted) _showStreamSheet(allStreams, episode);
+  }
 }
 
 // ─── Stream Tile ──────────────────────────────────────────────────────────────
@@ -2122,6 +2245,202 @@ class _MovieLibraryEditPanelState extends State<_MovieLibraryEditPanel> {
                 ),
               ),
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DirectPlaybackProgressDialog extends StatefulWidget {
+  final Map<String, dynamic> mapping;
+  final int episodeNumber;
+  final BuildContext parentContext;
+  final List<String> titles;
+  final int episodeCount;
+  final bool isMovie;
+  final Map<String, dynamic>? media;
+  final List<dynamic> episodes;
+
+  const _DirectPlaybackProgressDialog({
+    required this.mapping,
+    required this.episodeNumber,
+    required this.parentContext,
+    required this.titles,
+    required this.episodeCount,
+    required this.isMovie,
+    this.media,
+    required this.episodes,
+  });
+
+  @override
+  State<_DirectPlaybackProgressDialog> createState() => _DirectPlaybackProgressDialogState();
+}
+
+class _DirectPlaybackProgressDialogState extends State<_DirectPlaybackProgressDialog> {
+  final TorrServerService _torrServerService = TorrServerService();
+  String _status = "Checking TorrServer status...";
+  bool _hasError = false;
+  String _errorMessage = "";
+  TorrentFile? _playingFile;
+  String? _playingHash;
+
+  @override
+  void initState() {
+    super.initState();
+    _startPlayback();
+  }
+
+  Future<void> _startPlayback() async {
+    try {
+      final bool online = await _torrServerService.ping();
+      if (!online) {
+        setState(() {
+          _status = "TorrServer starting up, waiting...";
+        });
+        await Future.delayed(const Duration(seconds: 2));
+        final bool retryOnline = await _torrServerService.ping();
+        if (!retryOnline) {
+          final lastError = TorrServerManager.lastStartupError;
+          throw Exception("TorrServer is not running. Please restart the app.${lastError != null ? '\n\nDetails:\n$lastError' : ''}");
+        }
+      }
+
+      setState(() {
+        _status = "Adding torrent & loading file...";
+      });
+
+      String torrentLink = widget.mapping['torrentLink']?.toString() ?? '';
+      if (!torrentLink.contains('&tr=')) {
+        final List<String> defaultTrackers = [
+          'udp://tracker.coppersurfer.tk:6969/announce',
+          'udp://tracker.openittracker.com:80/announce',
+          'udp://tracker.opentrackr.org:1337/announce',
+          'udp://explodie.org:6969/announce',
+          'udp://9.rarbg.to:2710/announce',
+          'udp://9.rarbg.me:2780/announce',
+          'udp://open.stealth.si:80/announce',
+          'udp://tracker.torrent.eu.org:451/announce',
+          'udp://opentracker.i2p.rocks:6969/announce',
+        ];
+        for (final tr in defaultTrackers) {
+          torrentLink += '&tr=${Uri.encodeComponent(tr)}';
+        }
+      }
+
+      final torrentInfo = await _torrServerService.addTorrent(
+        torrentLink,
+        title: widget.mapping['torrentTitle'] ?? 'Batch Torrent',
+      );
+
+      final fileIndex = widget.mapping['fileIndex'] as int;
+      final fileExists = torrentInfo.files.any((f) => f.index == fileIndex);
+      if (!fileExists) {
+        throw Exception("Mapped file index no longer exists in torrent.");
+      }
+
+      final file = torrentInfo.files.firstWhere((f) => f.index == fileIndex);
+
+      _playingFile = file;
+      _playingHash = torrentInfo.hash;
+
+      if (!mounted) return;
+
+      setState(() {
+        _status = "Starting playback...";
+      });
+
+      await _torrServerService.preloadTorrentFile(torrentInfo.hash, file.index);
+      await Future.delayed(const Duration(milliseconds: 800));
+
+      if (!mounted) return;
+      Navigator.of(context).pop(); // pop progress dialog
+      _navigateToPlayer(torrentInfo.hash, file);
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _hasError = true;
+          _errorMessage = e.toString().replaceAll("Exception: ", "");
+        });
+      }
+    }
+  }
+
+  void _navigateToPlayer(String hash, TorrentFile file) {
+    final streamUrl = _torrServerService.getStreamUrl(hash, file.index);
+    final fileName = file.path.split('/').last.split('\\').last;
+    
+    final navigator = Navigator.of(widget.parentContext);
+    navigator.push(
+      MaterialPageRoute(
+        builder: (context) => PlayerScreen(
+          streamUrl: streamUrl,
+          title: fileName.isNotEmpty ? fileName : file.name,
+          anilistId: null, // Stremio media has no AniList ID
+          titles: widget.titles,
+          episodeCount: widget.episodeCount,
+          episodeNumber: widget.episodeNumber,
+          isMovie: widget.isMovie,
+          media: widget.media,
+          episodes: widget.episodes,
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return WillPopScope(
+      onWillPop: () async => !_hasError,
+      child: AlertDialog(
+        backgroundColor: const Color(0xFF0F0F11),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
+        content: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12.0, horizontal: 4.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (!_hasError) ...[
+                const SizedBox(
+                  width: 36.0,
+                  height: 36.0,
+                  child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.0),
+                ),
+                const SizedBox(height: 24.0),
+                Text(
+                  _status,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.white, fontSize: 13.0, height: 1.4),
+                ),
+              ] else ...[
+                const Icon(Icons.error_outline, color: Colors.redAccent, size: 36.0),
+                const SizedBox(height: 16.0),
+                const Text(
+                  "Playback Failed",
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15.0),
+                ),
+                const SizedBox(height: 12.0),
+                Text(
+                  _errorMessage,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.white70, fontSize: 12.5, height: 1.4),
+                ),
+                const SizedBox(height: 24.0),
+                SizedBox(
+                  width: double.infinity,
+                  height: 40.0,
+                  child: ElevatedButton(
+                    onPressed: () => Navigator.pop(context),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.white,
+                      foregroundColor: Colors.black,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6.0)),
+                    ),
+                    child: const Text("Close", style: TextStyle(fontWeight: FontWeight.bold)),
+                  ),
+                ),
+              ],
+            ],
           ),
         ),
       ),
