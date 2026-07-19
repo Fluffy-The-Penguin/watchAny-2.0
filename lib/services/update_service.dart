@@ -68,7 +68,7 @@ class UpdateService extends ChangeNotifier {
   factory UpdateService() => _instance;
   UpdateService._internal();
 
-  static const String currentVersion = '2.0.68';
+  static const String currentVersion = '2.0.69';
   
   // GitHub Releases API Endpoint
   static const String gitHubReleasesUrl = 'https://api.github.com/repos/Fluffy-The-Penguin/watchAny-2.0/releases/latest';
@@ -260,8 +260,14 @@ class UpdateService extends ChangeNotifier {
     if (_downloadedFilePath == null) return;
     try {
       if (Platform.isWindows) {
-        await Process.start(_downloadedFilePath!, []);
-        // Exit the current app so the installer can overwrite the executable
+        // Run Inno Setup installer silently and force close running app instance
+        await Process.start(_downloadedFilePath!, [
+          '/SILENT',
+          '/SUPPRESSMSGBOXES',
+          '/NORESTART',
+          '/CLOSEAPPLICATIONS',
+          '/FORCECLOSEAPPLICATIONS',
+        ]);
         exit(0);
       } else if (Platform.isAndroid) {
         const channel = MethodChannel('com.example.watch_any/native_path');
