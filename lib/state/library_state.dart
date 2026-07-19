@@ -421,6 +421,32 @@ class LibraryState extends ChangeNotifier {
     final List<dynamic> entries = await AnilistService().fetchUserLibrary(viewerId, type, token);
     if (entries.isEmpty) return 0;
 
+    // Calculate unique statistics for AniList auth state during sync
+    final Map<int, Map<String, int>> uniqueAnime = {};
+    for (var entry in entries) {
+      final media = entry['media'];
+      if (media == null) continue;
+      final int id = media['id'];
+      final int progress = entry['progress'] ?? 0;
+      final int duration = media['duration'] ?? 24;
+      if (!uniqueAnime.containsKey(id)) {
+        uniqueAnime[id] = {'progress': progress, 'duration': duration};
+      } else {
+        if (progress > uniqueAnime[id]!['progress']!) {
+          uniqueAnime[id]!['progress'] = progress;
+        }
+      }
+    }
+    final calcAnimeCount = uniqueAnime.length;
+    final calcEpisodesWatched = uniqueAnime.values.fold(0, (sum, val) => sum + val['progress']!);
+    final calcMinutesWatched = uniqueAnime.values.fold(0, (sum, val) => sum + (val['progress']! * val['duration']!));
+
+    await AnilistAuthState().updateStats(
+      animeCount: calcAnimeCount,
+      episodesWatched: calcEpisodesWatched,
+      minutesWatched: calcMinutesWatched,
+    );
+
     int importedCount = 0;
     final existingMap = {for (var item in _items) '${item.id}_${item.mode}': item};
 

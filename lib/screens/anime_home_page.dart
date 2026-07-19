@@ -6,6 +6,10 @@ import '../services/anilist_service.dart';
 import '../state/navigation_state.dart';
 import '../state/player_state.dart';
 import '../widgets/smooth_scroll_area.dart';
+import '../state/app_settings.dart';
+import '../state/library_state.dart';
+import '../services/download_service.dart';
+
 
 class AnimeHomePage extends StatefulWidget {
   final NavigationState navigationState;
@@ -41,6 +45,69 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
   }
 
   Future<void> _loadData({bool forceRefresh = false}) async {
+    if (AppSettings().offlineMode) {
+      if (mounted) {
+        setState(() {
+          final library = LibraryState();
+          
+          List<dynamic> getLocalAnimeItems(String status) {
+            return library.items
+                .where((i) => i.mode == 'anime' && i.libraryStatus == status)
+                .map((item) {
+                  final cache = library.animeCache[item.id];
+                  if (cache != null) return cache;
+                  return {
+                    'id': item.id,
+                    'title': {'userPreferred': 'Anime #${item.id}'},
+                    'coverImage': {'large': ''},
+                    'format': item.format,
+                    'episodes': item.totalEpisodes,
+                  };
+                })
+                .toList();
+          }
+
+          _trending = getLocalAnimeItems('watching');
+          _popularThisSeason = getLocalAnimeItems('completed');
+          _newlyReleased = getLocalAnimeItems('planning');
+
+          final completedDownloads = DownloadService().tasks
+              .where((t) => t.isMovie != true && t.status == DownloadStatus.completed)
+              .toList();
+          
+          final List<dynamic> downloadedMapped = [];
+          for (final task in completedDownloads) {
+            if (task.anilistId != null) {
+              final cache = library.animeCache[task.anilistId!];
+              if (cache != null) {
+                if (!downloadedMapped.any((m) => m['id'] == task.anilistId)) {
+                  downloadedMapped.add(cache);
+                }
+              } else {
+                if (!downloadedMapped.any((m) => m['id'] == task.anilistId)) {
+                  downloadedMapped.add({
+                    'id': task.anilistId,
+                    'title': {'userPreferred': task.title},
+                    'coverImage': {'large': ''},
+                    'format': 'TV',
+                    'episodes': task.episodeCount,
+                  });
+                }
+              }
+            }
+          }
+          _upcoming = downloadedMapped;
+
+          _action = [];
+          _adventure = [];
+          _romance = [];
+          _fantasy = [];
+          _isLoading = false;
+        });
+      }
+      return;
+    }
+
     try {
       final data = await _anilistService.fetchDashboardData(forceRefresh: forceRefresh);
       if (mounted) {
@@ -169,6 +236,8 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
       );
     }
 
+    final bool isOffline = AppSettings().offlineMode;
+
     return SmoothScrollArea(
       builder: (controller, physics) => ListView(
         controller: controller,
@@ -210,33 +279,33 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
                 const SizedBox(height: 24.0),
                 if (_trending.isNotEmpty)
                   _RailwayTrack(
-                    title: 'Trending Now',
+                    title: isOffline ? 'Watching (Local)' : 'Trending Now',
                     initialItems: _trending,
-                    onLoadMore: (page) => _loadMoreCategoryData(category: 'trending', page: page),
+                    onLoadMore: isOffline ? (page) async => const [] : (page) => _loadMoreCategoryData(category: 'trending', page: page),
                     navigationState: widget.navigationState,
                   ),
 
                 if (_popularThisSeason.isNotEmpty)
                   _RailwayTrack(
-                    title: 'Popular This Season',
+                    title: isOffline ? 'Completed (Local)' : 'Popular This Season',
                     initialItems: _popularThisSeason,
-                    onLoadMore: (page) => _loadMoreCategoryData(category: 'popular', page: page),
+                    onLoadMore: isOffline ? (page) async => const [] : (page) => _loadMoreCategoryData(category: 'popular', page: page),
                     navigationState: widget.navigationState,
                   ),
                 
                 if (_newlyReleased.isNotEmpty)
                   _RailwayTrack(
-                    title: 'Newly Released',
+                    title: isOffline ? 'Planning (Local)' : 'Newly Released',
                     initialItems: _newlyReleased,
-                    onLoadMore: (page) => _loadMoreCategoryData(category: 'newlyReleased', page: page),
+                    onLoadMore: isOffline ? (page) async => const [] : (page) => _loadMoreCategoryData(category: 'newlyReleased', page: page),
                     navigationState: widget.navigationState,
                   ),
                 
                 if (_upcoming.isNotEmpty)
                   _RailwayTrack(
-                    title: 'Upcoming Releases',
+                    title: isOffline ? 'Downloaded (Local)' : 'Upcoming Releases',
                     initialItems: _upcoming,
-                    onLoadMore: (page) => _loadMoreCategoryData(category: 'upcoming', page: page),
+                    onLoadMore: isOffline ? (page) async => const [] : (page) => _loadMoreCategoryData(category: 'upcoming', page: page),
                     navigationState: widget.navigationState,
                   ),
 

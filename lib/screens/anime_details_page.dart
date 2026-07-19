@@ -18,6 +18,7 @@ import '../state/navigation_state.dart';
 import '../state/player_state.dart';
 import '../widgets/torrent_selector_panel.dart';
 import '../services/hstream_service.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../models/torrent.dart';
 import '../widgets/smooth_scroll_area.dart';
 import '../state/library_state.dart';
@@ -669,10 +670,12 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
                         AspectRatio(
                           aspectRatio: 16 / 9,
                           child: thumbnail.isNotEmpty
-                              ? Image.network(
-                                  thumbnail,
+                              ? CachedNetworkImage(
+                                  imageUrl: thumbnail,
                                   fit: BoxFit.cover,
-                                  errorBuilder: (context, error, stackTrace) =>
+                                  memCacheWidth: 640,
+                                  placeholder: (context, url) => Container(color: Colors.white.withValues(alpha: 0.05)),
+                                  errorWidget: (context, error, stackTrace) =>
                                       Container(
                                         color: Colors.white.withValues(alpha: 0.05),
                                         child: const Center(
@@ -683,7 +686,7 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
                               : Container(
                                   color: Colors.white.withValues(alpha: 0.05),
                                   child: const Center(
-                                    child: Icon(Icons.movie, size: 64.0, color: Colors.white24),
+                                    child: Icon(Icons.broken_image, size: 48.0, color: Colors.white24),
                                   ),
                                 ),
                         ),
@@ -1440,12 +1443,14 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
               height: 300.0,
               child: Stack(
                 children: [
-                  Image.network(
-                    bannerUrl,
+                  CachedNetworkImage(
+                    imageUrl: bannerUrl,
                     width: double.infinity,
                     height: 300.0,
                     fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) => const SizedBox(),
+                    memCacheWidth: 1200,
+                    placeholder: (context, url) => const SizedBox(),
+                    errorWidget: (context, url, error) => const SizedBox(),
                   ),
                   Container(
                     decoration: const BoxDecoration(
@@ -1570,10 +1575,12 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
                                           ),
                                           child: ClipRRect(
                                             borderRadius: BorderRadius.circular(7.0),
-                                            child: Image.network(
-                                              coverUrl, 
+                                            child: CachedNetworkImage(
+                                              imageUrl: coverUrl, 
                                               fit: BoxFit.cover,
-                                              cacheWidth: 250,
+                                              memCacheWidth: 250,
+                                              placeholder: (context, url) => Container(color: Colors.grey[950]),
+                                              errorWidget: (context, url, error) => Container(color: Colors.grey[950]),
                                             ),
                                           ),
                                         ),
@@ -1678,10 +1685,12 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
                                           ),
                                           child: ClipRRect(
                                             borderRadius: BorderRadius.circular(7.0),
-                                            child: Image.network(
-                                              coverUrl, 
+                                            child: CachedNetworkImage(
+                                              imageUrl: coverUrl, 
                                               fit: BoxFit.cover,
-                                              cacheWidth: 310, // Optimizes cover RAM caching (155px * 2)
+                                              memCacheWidth: 310,
+                                              placeholder: (context, url) => Container(color: Colors.grey[950]),
+                                              errorWidget: (context, url, error) => Container(color: Colors.grey[950]),
                                             ),
                                           ),
                                         ),
@@ -1993,28 +2002,31 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
           final va = (edge['voiceActors'] as List?)?.firstOrNull;
           final vaName = va?['name']?['full'] ?? 'Unknown';
 
-          return Container(
-            padding: const EdgeInsets.all(6.0),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.02),
-              borderRadius: BorderRadius.circular(6.0),
-              border: Border.all(color: Colors.white10, width: 1.0),
-            ),
-            child: Row(
-              children: [
-                // Character circular avatar
-                if (charPic.isNotEmpty)
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(4.0),
-                    child: Image.network(
-                      charPic, 
-                      width: 38.0, 
-                      height: double.infinity, 
-                      fit: BoxFit.cover,
-                      cacheWidth: 80, // Optimize character avatar caching
+          return RepaintBoundary(
+            child: Container(
+              padding: const EdgeInsets.all(6.0),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.02),
+                borderRadius: BorderRadius.circular(6.0),
+                border: Border.all(color: Colors.white10, width: 1.0),
+              ),
+              child: Row(
+                children: [
+                  // Character circular avatar
+                  if (charPic.isNotEmpty)
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(4.0),
+                      child: CachedNetworkImage(
+                        imageUrl: charPic, 
+                        width: 38.0, 
+                        height: double.infinity, 
+                        fit: BoxFit.cover,
+                        memCacheWidth: 80,
+                        placeholder: (context, url) => Container(color: Colors.grey[950]),
+                        errorWidget: (context, url, error) => Container(color: Colors.grey[950]),
+                      ),
                     ),
-                  ),
-                const SizedBox(width: 10.0),
+                  const SizedBox(width: 10.0),
                 
                 // Character name, role, and seiyuu details
                 Expanded(
@@ -2046,8 +2058,9 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
                 ),
               ],
             ),
-          );
-        },
+          ),
+        );
+      },
       );
     } else {
       // 2. Relations
@@ -2069,25 +2082,28 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
           final nodeStatus = node['status'] ?? '';
           final nodeId = node['id'];
 
-          return Container(
-            margin: const EdgeInsets.only(bottom: 8.0),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.01),
-              borderRadius: BorderRadius.circular(6.0),
-            ),
-            child: ListTile(
-              leading: nodeCover.isNotEmpty
-                  ? ClipRRect(
-                      borderRadius: BorderRadius.circular(4.0),
-                      child: Image.network(
-                        nodeCover, 
-                        width: 40.0, 
-                        height: double.infinity, 
-                        fit: BoxFit.cover,
-                        cacheWidth: 80, // Optimize relation thumb caching
-                      ),
-                    )
-                  : null,
+          return RepaintBoundary(
+            child: Container(
+              margin: const EdgeInsets.only(bottom: 8.0),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.01),
+                borderRadius: BorderRadius.circular(6.0),
+              ),
+              child: ListTile(
+                leading: nodeCover.isNotEmpty
+                    ? ClipRRect(
+                        borderRadius: BorderRadius.circular(4.0),
+                        child: CachedNetworkImage(
+                          imageUrl: nodeCover, 
+                          width: 40.0, 
+                          height: double.infinity, 
+                          fit: BoxFit.cover,
+                          memCacheWidth: 80,
+                          placeholder: (context, url) => Container(color: Colors.grey[950]),
+                          errorWidget: (context, url, error) => Container(color: Colors.grey[950]),
+                        ),
+                      )
+                    : null,
               title: Text(nodeTitle, style: const TextStyle(color: Colors.white, fontSize: 13.5)),
               subtitle: Text(
                 '${relationType.replaceAll('_', ' ')} · $nodeFormat · $nodeStatus',
@@ -2098,8 +2114,9 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
                   ? () => widget.navigationState.selectAnime(nodeId)
                   : null,
             ),
-          );
-        },
+          ),
+        );
+      },
       );
     }
   }
@@ -2255,11 +2272,14 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
                 final bool isWatched = ratio >= 0.90;
                 final bool isDownloaded = downloadedEps.contains(epNum);
 
+                final String showBanner = _details?['bannerImage'] ?? _details?['coverImage']?['extraLarge'] ?? '';
+
                 return _EpisodeCard(
                   animeId: widget.animeId,
                   epNum: epNum,
                   title: finalTitle,
                   thumbnail: finalThumbnail,
+                  showBanner: showBanner,
                   site: finalSite,
                   isDownloaded: isDownloaded,
                   isWatched: isWatched,
@@ -2324,6 +2344,7 @@ class _EpisodeCard extends StatefulWidget {
   final int epNum;
   final String title;
   final String thumbnail;
+  final String showBanner;
   final String site;
   final bool isDownloaded;
   final bool isWatched;
@@ -2335,6 +2356,7 @@ class _EpisodeCard extends StatefulWidget {
     required this.epNum,
     required this.title,
     required this.thumbnail,
+    required this.showBanner,
     required this.site,
     required this.isDownloaded,
     required this.isWatched,
@@ -2401,21 +2423,55 @@ class _EpisodeCardState extends State<_EpisodeCard> {
     if (fillerType != null) {
       final typeLower = fillerType.toLowerCase();
       if (typeLower == 'filler') {
-        fillerColor = const Color(0xFFE74C3C);
+        fillerColor = const Color(0xFFF1C40F); // Yellow
         fillerLabel = 'Filler';
       } else if (typeLower == 'mixed canon/filler' || typeLower.contains('mixed')) {
-        fillerColor = const Color(0xFFE67E22);
+        fillerColor = const Color(0xFF81C784); // Light Green
         fillerLabel = 'Mixed';
+      } else if (typeLower.contains('canon')) {
+        fillerColor = const Color(0xFF2ECC71); // Green
+        fillerLabel = 'Canon';
       }
     }
 
-    return MouseRegion(
-      onEnter: (_) => setState(() => _isHovered = true),
-      onExit: (_) => setState(() => _isHovered = false),
-      child: GestureDetector(
-        onTap: widget.onTap,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+
+    Color borderColor = _isHovered ? Colors.white30 : Colors.white10;
+    double borderWidth = 1.0;
+    List<BoxShadow> cardShadows = _isHovered
+        ? [
+            BoxShadow(
+              color: Colors.white.withValues(alpha: 0.05),
+              blurRadius: 6.0,
+              spreadRadius: 1.0,
+            )
+          ]
+        : [];
+
+    if (fillerLabel == 'Filler' || fillerLabel == 'Mixed') {
+      final brightColor = fillerLabel == 'Filler' 
+          ? const Color(0xFFFFD700) 
+          : const Color(0xFF00FF7F); 
+      
+      borderColor = brightColor.withValues(alpha: _isHovered ? 1.0 : 0.8);
+      borderWidth = 2.2;
+      
+      cardShadows = [
+        BoxShadow(
+          color: brightColor.withValues(alpha: _isHovered ? 0.35 : 0.15),
+          blurRadius: _isHovered ? 8.0 : 4.0,
+          spreadRadius: _isHovered ? 2.0 : 0.5,
+        ),
+      ];
+    }
+
+    return RepaintBoundary(
+      child: MouseRegion(
+        onEnter: (_) => setState(() => _isHovered = true),
+        onExit: (_) => setState(() => _isHovered = false),
+        child: GestureDetector(
+          onTap: widget.onTap,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             // Image area
             Expanded(
@@ -2424,18 +2480,10 @@ class _EpisodeCardState extends State<_EpisodeCard> {
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(6.0),
                   border: Border.all(
-                    color: _isHovered ? Colors.white30 : Colors.white10,
-                    width: 1.0,
+                    color: borderColor,
+                    width: borderWidth,
                   ),
-                  boxShadow: _isHovered
-                      ? [
-                          BoxShadow(
-                            color: Colors.white.withValues(alpha: 0.05),
-                            blurRadius: 6.0,
-                            spreadRadius: 1.0,
-                          )
-                        ]
-                      : [],
+                  boxShadow: cardShadows,
                 ),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(5.0),
@@ -2532,12 +2580,13 @@ class _EpisodeCardState extends State<_EpisodeCard> {
                             ),
                             child: Text(
                               fillerLabel,
-                              style: const TextStyle(
-                                color: Colors.white,
+                              style: TextStyle(
+                                color: fillerLabel == 'Filler' ? Colors.black87 : Colors.white,
                                 fontSize: 8.5,
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
+
                           ),
                         ),
 
@@ -2602,6 +2651,7 @@ class _EpisodeCardState extends State<_EpisodeCard> {
           ],
         ),
       ),
+    ),
     );
   }
 
@@ -2620,13 +2670,12 @@ class _EpisodeCardState extends State<_EpisodeCard> {
 
     // _localPath == '' means resolution failed; fall back to network (may still work for non-TVDB)
     if (_localPath!.isEmpty) {
-      return Image.network(
-        thumb,
+      return CachedNetworkImage(
+        imageUrl: thumb,
         fit: BoxFit.cover,
-        cacheWidth: 320,
-        loadingBuilder: (_, child, progress) =>
-            progress == null ? child : Container(color: Colors.grey[950]),
-        errorBuilder: (_, __, ___) => _buildEpisodePlaceholder(),
+        memCacheWidth: 800,
+        placeholder: (_, __) => Container(color: Colors.grey[950]),
+        errorWidget: (_, __, ___) => _buildEpisodePlaceholder(),
       );
     }
 
@@ -2634,12 +2683,25 @@ class _EpisodeCardState extends State<_EpisodeCard> {
     return Image.file(
       File(_localPath!),
       fit: BoxFit.cover,
-      cacheWidth: 320,
       errorBuilder: (_, __, ___) => _buildEpisodePlaceholder(),
     );
   }
 
   Widget _buildEpisodePlaceholder() {
+    final banner = widget.showBanner;
+    if (banner.isNotEmpty) {
+      return CachedNetworkImage(
+        imageUrl: banner,
+        fit: BoxFit.cover,
+        memCacheWidth: 1200,
+        placeholder: (_, __) => _buildSolidPlaceholder(),
+        errorWidget: (_, __, ___) => _buildSolidPlaceholder(),
+      );
+    }
+    return _buildSolidPlaceholder();
+  }
+
+  Widget _buildSolidPlaceholder() {
     return Container(
       color: Colors.grey[950],
       child: Center(
@@ -2682,41 +2744,44 @@ class _RecommendationTileState extends State<_RecommendationTile> {
 
   @override
   Widget build(BuildContext context) {
-    return MouseRegion(
-      onEnter: (_) => setState(() => _isHovered = true),
-      onExit: (_) => setState(() => _isHovered = false),
-      child: GestureDetector(
-        onTap: widget.onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
-          margin: const EdgeInsets.only(bottom: 12.0),
-          padding: const EdgeInsets.all(6.0),
-          decoration: BoxDecoration(
-            color: _isHovered ? Colors.white.withValues(alpha: 0.04) : Colors.transparent,
-            borderRadius: BorderRadius.circular(6.0),
-          ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Cover thumbnail
-              if (widget.coverUrl.isNotEmpty)
-                Container(
-                  width: 55.0,
-                  height: 75.0,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(4.0),
-                    border: Border.all(color: Colors.white10, width: 1.0),
-                  ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(3.0),
-                    child: Image.network(
-                      widget.coverUrl, 
-                      fit: BoxFit.cover,
-                      cacheWidth: 110, // Optimizes RAM of recommendation thumb
+    return RepaintBoundary(
+      child: MouseRegion(
+        onEnter: (_) => setState(() => _isHovered = true),
+        onExit: (_) => setState(() => _isHovered = false),
+        child: GestureDetector(
+          onTap: widget.onTap,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 150),
+            margin: const EdgeInsets.only(bottom: 12.0),
+            padding: const EdgeInsets.all(6.0),
+            decoration: BoxDecoration(
+              color: _isHovered ? Colors.white.withValues(alpha: 0.04) : Colors.transparent,
+              borderRadius: BorderRadius.circular(6.0),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Cover thumbnail
+                if (widget.coverUrl.isNotEmpty)
+                  Container(
+                    width: 55.0,
+                    height: 75.0,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(4.0),
+                      border: Border.all(color: Colors.white10, width: 1.0),
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(3.0),
+                      child: CachedNetworkImage(
+                        imageUrl: widget.coverUrl, 
+                        fit: BoxFit.cover,
+                        memCacheWidth: 110,
+                        placeholder: (context, url) => Container(color: Colors.grey[950]),
+                        errorWidget: (context, url, error) => Container(color: Colors.grey[950]),
+                      ),
                     ),
                   ),
-                ),
-              const SizedBox(width: 12.0),
+                const SizedBox(width: 12.0),
 
               // Title and details
               Expanded(
@@ -2762,6 +2827,7 @@ class _RecommendationTileState extends State<_RecommendationTile> {
           ),
         ),
       ),
+    ),
     );
   }
 }

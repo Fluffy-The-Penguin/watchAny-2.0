@@ -13,6 +13,8 @@ import '../state/player_state.dart';
 import '../state/app_settings.dart';
 import '../state/navigation_state.dart';
 import 'package:flutter/gestures.dart';
+import 'shimmer_card.dart';
+
 
 extension TorrentStreamExtension on TorrentStream {
   String get computedType {
@@ -706,21 +708,17 @@ class _TorrentSelectorPanelState extends State<TorrentSelectorPanel> {
           
           // Main list area
           Expanded(
-            child: _isLoading && _streams.isEmpty
-                ? const Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        CircularProgressIndicator(color: Colors.white, strokeWidth: 2.0),
-                        SizedBox(height: 16.0),
-                        Text(
-                          'Querying active extensions...',
-                          style: TextStyle(color: Colors.white54, fontSize: 13.0, fontFamily: 'Outfit'),
-                        ),
-                      ],
+            child: (_isLoading && _processedStreams.isEmpty)
+                ? ListView.builder(
+                    padding: const EdgeInsets.all(16.0),
+                    itemCount: 6,
+                    itemBuilder: (context, index) => const Padding(
+                      padding: EdgeInsets.only(bottom: 10.0),
+                      child: ShimmerCard(),
                     ),
                   )
-                : _errorMessage != null && _streams.isEmpty
+
+                : _errorMessage != null && _processedStreams.isEmpty
                     ? Center(
                         child: Padding(
                           padding: const EdgeInsets.all(24.0),

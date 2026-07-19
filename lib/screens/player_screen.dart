@@ -23,6 +23,7 @@ import '../state/app_settings.dart';
 import '../services/torrserver_service.dart';
 import '../services/batch_mapping_service.dart';
 import '../services/filler_service.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../services/aniskip_service.dart';
 import '../state/navigation_state.dart';
 import 'settings_page.dart';
@@ -89,6 +90,8 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
   OverlayEntry? _overlayEntry;
   DateTime? _lastClosedTime;
   DateTime? _lastOpenedTime;
+  DateTime? _lastSeekTime;
+
 
   // Track settings open/close hover state
   Duration _controlsHoverDuration = const Duration(seconds: 3);
@@ -117,6 +120,14 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
   double _torrentSpeedBytes = 0.0;
   int _torrentActivePeers = 0;
   int _torrentTotalPeers = 0;
+  bool _showTorrentDashboard = false;
+  final List<double> _torrentSpeedHistory = [];
+
+  BoxFit _videoFit = BoxFit.contain;
+  String _fitName = 'Fit';
+  Timer? _fitToastTimer;
+  bool _showFitToastFlag = false;
+
 
   String? _getTorrentHash(String? url) {
     if (url == null) return null;
@@ -145,6 +156,12 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
               _torrentSpeedBytes = info.downloadSpeed;
               _torrentActivePeers = info.activePeers;
               _torrentTotalPeers = info.totalPeers;
+              
+              final double mbps = info.downloadSpeed / (1024.0 * 1024.0);
+              _torrentSpeedHistory.add(mbps);
+              if (_torrentSpeedHistory.length > 30) {
+                _torrentSpeedHistory.removeAt(0);
+              }
             });
           }
         } catch (_) {}
@@ -157,10 +174,12 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
           _torrentSpeedBytes = 0.0;
           _torrentActivePeers = 0;
           _torrentTotalPeers = 0;
+          _torrentSpeedHistory.clear();
         });
       }
     }
   }
+
 
   String _formatSpeed(double bytesPerSec) {
     if (bytesPerSec <= 0) return "0 B/s";
@@ -1238,6 +1257,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
         // 1. Desktop custom controls theme configuration
     final desktopTheme = MaterialDesktopVideoControlsTheme(
       normal: MaterialDesktopVideoControlsThemeData(
+        keyboardShortcuts: const {},
         displaySeekBar: false,
         buttonBarHeight: 88.0,
         controlsHoverDuration: _controlsHoverDuration,
@@ -1316,6 +1336,26 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
                         },
                       ),
                     ),
+                    // Video Fit/Resize Button
+                    MaterialDesktopCustomButton(
+                      onPressed: _cycleVideoFit,
+                      icon: const Icon(
+                        Icons.aspect_ratio,
+                        color: Colors.white,
+                      ),
+                    ),
+                    // Diagnostics Dashboard Button
+                    MaterialDesktopCustomButton(
+                      onPressed: () {
+                        setState(() {
+                          _showTorrentDashboard = !_showTorrentDashboard;
+                        });
+                      },
+                      icon: Icon(
+                        Icons.analytics_outlined,
+                        color: _showTorrentDashboard ? Colors.cyanAccent : Colors.white,
+                      ),
+                    ),
                     // Change Stream Button
                     if (widget.anilistId != null)
                       MaterialDesktopCustomButton(
@@ -1342,6 +1382,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
         ],
       ),
       fullscreen: MaterialDesktopVideoControlsThemeData(
+        keyboardShortcuts: const {},
         displaySeekBar: false,
         buttonBarHeight: 88.0,
         controlsHoverDuration: _controlsHoverDuration,
@@ -1533,6 +1574,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
               Widget videoWidget = Video(
                 controller: controller,
                 subtitleViewConfiguration: subtitleConfig,
+                fit: _videoFit,
                 onEnterFullscreen: () async {
                   PlayerState().enterFullscreen();
                   if (isDesktop) {
@@ -1592,6 +1634,46 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
                     fit: StackFit.expand,
                     children: [
                       controlsWidget,
+                      if (_showFitToastFlag)
+                        Center(
+                          child: IgnorePointer(
+                            child: AnimatedOpacity(
+                              opacity: _showFitToastFlag ? 1.0 : 0.0,
+                              duration: const Duration(milliseconds: 200),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 10.0),
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withValues(alpha: 0.8),
+                                  borderRadius: BorderRadius.circular(20.0),
+                                  border: Border.all(color: Colors.white24, width: 0.5),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(Icons.aspect_ratio, color: Colors.white, size: 18.0),
+                                    const SizedBox(width: 8.0),
+                                    Text(
+                                      'Fit: $_fitName',
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 14.0,
+                                        fontWeight: FontWeight.w600,
+                                        fontFamily: 'Outfit',
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      if (_showTorrentDashboard)
+                        Positioned(
+                          top: 80.0,
+                          right: 24.0,
+                          width: 320.0,
+                          child: _buildTorrentDashboardOverlay(),
+                        ),
                       if (_showSkipButton && _activeSkipInterval != null)
                         Positioned(
                           bottom: 96.0,
@@ -1603,18 +1685,17 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
                               color: Colors.transparent,
                               child: InkWell(
                                 onTap: _performSkip,
-                                borderRadius: BorderRadius.circular(8.0),
+                                borderRadius: BorderRadius.circular(6.0),
                                 child: Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 18.0, vertical: 10.0),
+                                  padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 6.0),
                                   decoration: BoxDecoration(
-                                    color: Colors.black.withOpacity(0.75),
-                                    borderRadius: BorderRadius.circular(8.0),
-                                    border: Border.all(color: Colors.amber.withOpacity(0.5), width: 1.5),
+                                    color: Colors.black.withOpacity(0.5),
+                                    borderRadius: BorderRadius.circular(6.0),
+                                    border: Border.all(color: Colors.white.withOpacity(0.3), width: 1.0),
                                     boxShadow: [
                                       BoxShadow(
-                                        color: Colors.amber.withOpacity(0.15),
-                                        blurRadius: 10,
-                                        spreadRadius: 1,
+                                        color: Colors.black.withOpacity(0.25),
+                                        blurRadius: 8,
                                       )
                                     ],
                                   ),
@@ -1625,10 +1706,10 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
                                         _activeSkipInterval!.skipType == 'ed'
                                             ? Icons.skip_next
                                             : Icons.fast_forward,
-                                        color: Colors.amber,
-                                        size: 20,
+                                        color: Colors.white,
+                                        size: 16,
                                       ),
-                                      const SizedBox(width: 8.0),
+                                      const SizedBox(width: 6.0),
                                       Text(
                                         _activeSkipInterval!.skipType == 'ed'
                                             ? 'Skip Ending'
@@ -1638,8 +1719,8 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
                                         style: const TextStyle(
                                           color: Colors.white,
                                           fontFamily: 'Outfit',
-                                          fontSize: 14.0,
-                                          fontWeight: FontWeight.bold,
+                                          fontSize: 12.0,
+                                          fontWeight: FontWeight.w600,
                                         ),
                                       ),
                                     ],
@@ -1946,6 +2027,14 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
                       ),
                     const MaterialPositionIndicator(),
                     const Spacer(),
+                    // Video Fit/Resize Button
+                    MaterialCustomButton(
+                      onPressed: _cycleVideoFit,
+                      icon: const Icon(
+                        Icons.aspect_ratio,
+                        color: Colors.white,
+                      ),
+                    ),
                     // Subtitles On/Off Button (CC)
                     MaterialCustomButton(
                       onPressed: () {
@@ -2056,6 +2145,14 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
                       ),
                     const MaterialPositionIndicator(),
                     const Spacer(),
+                    // Video Fit/Resize Button
+                    MaterialCustomButton(
+                      onPressed: _cycleVideoFit,
+                      icon: const Icon(
+                        Icons.aspect_ratio,
+                        color: Colors.white,
+                      ),
+                    ),
                     // Subtitles On/Off Button (CC)
                     MaterialCustomButton(
                       onPressed: () {
@@ -2116,11 +2213,21 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
     
               final key = event.logicalKey;
               if (key == LogicalKeyboardKey.arrowLeft) {
+                final now = DateTime.now();
+                if (_lastSeekTime != null && now.difference(_lastSeekTime!) < const Duration(milliseconds: 300)) {
+                  return KeyEventResult.handled;
+                }
+                _lastSeekTime = now;
                 final current = player.state.position;
                 final target = (current.inSeconds - 10).clamp(0, player.state.duration.inSeconds);
                 player.seek(Duration(seconds: target));
                 return KeyEventResult.handled;
               } else if (key == LogicalKeyboardKey.arrowRight) {
+                final now = DateTime.now();
+                if (_lastSeekTime != null && now.difference(_lastSeekTime!) < const Duration(milliseconds: 300)) {
+                  return KeyEventResult.handled;
+                }
+                _lastSeekTime = now;
                 final current = player.state.position;
                 final target = (current.inSeconds + 10).clamp(0, player.state.duration.inSeconds);
                 player.seek(Duration(seconds: target));
@@ -2583,7 +2690,236 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
     final digits = imdbId.replaceAll(RegExp(r'\D'), '');
     return int.tryParse(digits) ?? 0;
   }
+
+  Widget _buildTorrentDashboardOverlay() {
+    double maxSpeed = 1.0; 
+    for (final s in _torrentSpeedHistory) {
+      if (s > maxSpeed) maxSpeed = s;
+    }
+    maxSpeed = maxSpeed.ceilToDouble();
+
+    return Container(
+      padding: const EdgeInsets.all(16.0),
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.85),
+        borderRadius: BorderRadius.circular(12.0),
+        border: Border.all(color: Colors.cyanAccent.withOpacity(0.3), width: 1.0),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.cyanAccent.withOpacity(0.08),
+            blurRadius: 16.0,
+            spreadRadius: 2.0,
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Row(
+                children: [
+                  Icon(Icons.analytics_outlined, color: Colors.cyanAccent, size: 16.0),
+                  SizedBox(width: 8.0),
+                  Text(
+                    'STREAM DIAGNOSTICS',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 12.0,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 1.2,
+                      fontFamily: 'Outfit',
+                    ),
+                  ),
+                ],
+              ),
+              GestureDetector(
+                onTap: () {
+                  setState(() {
+                    _showTorrentDashboard = false;
+                  });
+                },
+                child: const Icon(Icons.close, color: Colors.white54, size: 16.0),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12.0),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Speed', style: TextStyle(color: Colors.white38, fontSize: 10.0, fontFamily: 'Outfit')),
+                  const SizedBox(height: 2.0),
+                  Text(
+                    _formatSpeed(_torrentSpeedBytes.toDouble()),
+                    style: const TextStyle(
+                      color: Colors.cyanAccent,
+                      fontSize: 14.0,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: 'Outfit',
+                    ),
+                  ),
+                ],
+              ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  const Text('Active / Total Peers', style: TextStyle(color: Colors.white38, fontSize: 10.0, fontFamily: 'Outfit')),
+                  const SizedBox(height: 2.0),
+                  Text(
+                    '$_torrentActivePeers / $_torrentTotalPeers',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 14.0,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: 'Outfit',
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 16.0),
+          SizedBox(
+            height: 100.0,
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Container(height: 1.0, color: Colors.white10),
+                      Container(height: 1.0, color: Colors.white10),
+                      Container(height: 1.0, color: Colors.white10),
+                    ],
+                  ),
+                ),
+                Positioned(
+                  top: 2.0,
+                  left: 2.0,
+                  child: Text('${maxSpeed.toStringAsFixed(0)} MB/s', style: const TextStyle(color: Colors.white30, fontSize: 8.0, fontFamily: 'Outfit')),
+                ),
+                Positioned(
+                  bottom: 2.0,
+                  left: 2.0,
+                  child: const Text('0 MB/s', style: TextStyle(color: Colors.white30, fontSize: 8.0, fontFamily: 'Outfit')),
+                ),
+                Positioned.fill(
+                  child: CustomPaint(
+                    painter: _SpeedGraphPainter(_torrentSpeedHistory, maxSpeed),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _cycleVideoFit() {
+    setState(() {
+      if (_videoFit == BoxFit.contain) {
+        _videoFit = BoxFit.fill;
+        _showFitToast('Stretch (16:9)');
+      } else if (_videoFit == BoxFit.fill) {
+        _videoFit = BoxFit.cover;
+        _showFitToast('Zoom / Fill');
+      } else {
+        _videoFit = BoxFit.contain;
+        _showFitToast('Fit (Default)');
+      }
+    });
+  }
+
+  void _showFitToast(String name) {
+    _fitToastTimer?.cancel();
+    setState(() {
+      _fitName = name;
+      _showFitToastFlag = true;
+    });
+    _fitToastTimer = Timer(const Duration(seconds: 2), () {
+      if (mounted) {
+        setState(() {
+          _showFitToastFlag = false;
+        });
+      }
+    });
+  }
 }
+
+class _SpeedGraphPainter extends CustomPainter {
+  final List<double> history;
+  final double maxSpeed;
+
+  _SpeedGraphPainter(this.history, this.maxSpeed);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (history.isEmpty) return;
+
+    final paint = Paint()
+      ..color = Colors.cyanAccent.withOpacity(0.85)
+      ..strokeWidth = 2.0
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+
+    final fillPaint = Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [
+          Colors.cyanAccent.withOpacity(0.25),
+          Colors.cyanAccent.withOpacity(0.0),
+        ],
+      ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
+
+    final path = Path();
+    final fillPath = Path();
+
+    final double dx = size.width / 30.0; 
+    final double scaleY = maxSpeed > 0 ? size.height / maxSpeed : 1.0;
+
+    final int historyLength = history.length;
+    final double startX = size.width - (historyLength - 1) * dx;
+
+    for (int i = 0; i < historyLength; i++) {
+      final double x = startX + i * dx;
+      final double y = size.height - (history[i] * scaleY).clamp(0.0, size.height);
+
+      if (i == 0) {
+        path.moveTo(x, y);
+        fillPath.moveTo(x, size.height);
+        fillPath.lineTo(x, y);
+      } else {
+        final prevX = startX + (i - 1) * dx;
+        final prevY = size.height - (history[i - 1] * scaleY).clamp(0.0, size.height);
+        final controlX1 = prevX + dx / 2;
+        final controlY1 = prevY;
+        final controlX2 = prevX + dx / 2;
+        final controlY2 = y;
+        
+        path.cubicTo(controlX1, controlY1, controlX2, controlY2, x, y);
+        fillPath.cubicTo(controlX1, controlY1, controlX2, controlY2, x, y);
+      }
+    }
+
+    if (historyLength > 0) {
+      fillPath.lineTo(size.width, size.height);
+      fillPath.close();
+      canvas.drawPath(fillPath, fillPaint);
+      canvas.drawPath(path, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _SpeedGraphPainter oldDelegate) => true;
+}
+
 class _SettingsOverlayCard extends StatefulWidget {
   final Player player;
   final VoidCallback onClose;
@@ -3528,41 +3864,43 @@ class _PlayerEpisodeCardState extends State<_PlayerEpisodeCard> {
 
   @override
   Widget build(BuildContext context) {
-    return MouseRegion(
-      onEnter: (_) => setState(() => _isHovered = true),
-      onExit: (_) => setState(() => _isHovered = false),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 150),
-              decoration: BoxDecoration(
-                color: const Color(0xFF141416), // Solid dark grey card background
-                borderRadius: BorderRadius.circular(6.0),
-                border: Border.all(
-                  color: widget.isPlaying 
-                      ? Colors.amber.withValues(alpha: 0.6) 
-                      : (widget.anilistId != null && FillerService().isFiller(widget.anilistId!, widget.epNum)
-                          ? Colors.amber.withValues(alpha: 0.5)
-                          : (_isHovered ? Colors.white30 : Colors.white10)),
-                  width: widget.isPlaying ? 2.0 : (widget.anilistId != null && FillerService().isFiller(widget.anilistId!, widget.epNum) ? 1.5 : 1.0),
+    return RepaintBoundary(
+      child: MouseRegion(
+        onEnter: (_) => setState(() => _isHovered = true),
+        onExit: (_) => setState(() => _isHovered = false),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 150),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF141416), // Solid dark grey card background
+                  borderRadius: BorderRadius.circular(6.0),
+                  border: Border.all(
+                    color: widget.isPlaying 
+                        ? Colors.amber.withValues(alpha: 0.6) 
+                        : (widget.anilistId != null && FillerService().isFiller(widget.anilistId!, widget.epNum)
+                            ? Colors.amber.withValues(alpha: 0.5)
+                            : (_isHovered ? Colors.white30 : Colors.white10)),
+                    width: widget.isPlaying ? 2.0 : (widget.anilistId != null && FillerService().isFiller(widget.anilistId!, widget.epNum) ? 1.5 : 1.0),
+                  ),
                 ),
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(5.0),
-                child: Stack(
-                  children: [
-                    Positioned.fill(
-                      child: widget.thumbnail.isNotEmpty
-                          ? Image.network(
-                              widget.thumbnail,
-                              fit: BoxFit.cover,
-                              errorBuilder: (context, error, stackTrace) =>
-                                  _buildPlaceholder(),
-                            )
-                          : _buildPlaceholder(),
-                    ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(5.0),
+                  child: Stack(
+                    children: [
+                      Positioned.fill(
+                        child: widget.thumbnail.isNotEmpty
+                            ? CachedNetworkImage(
+                                imageUrl: widget.thumbnail,
+                                fit: BoxFit.cover,
+                                memCacheWidth: 640,
+                                placeholder: (context, url) => _buildPlaceholder(),
+                                errorWidget: (context, url, error) => _buildPlaceholder(),
+                              )
+                            : _buildPlaceholder(),
+                      ),
                     if (widget.isPlaying)
                       Positioned.fill(
                         child: Container(
@@ -3687,6 +4025,7 @@ class _PlayerEpisodeCardState extends State<_PlayerEpisodeCard> {
           ),
         ],
       ),
+    ),
     );
   }
 

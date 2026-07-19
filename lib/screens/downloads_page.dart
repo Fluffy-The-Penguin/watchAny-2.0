@@ -10,6 +10,7 @@ import '../models/torrent.dart';
 import '../state/player_state.dart';
 import '../state/app_settings.dart';
 import '../state/navigation_state.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 class DownloadsPage extends StatefulWidget {
   final AppMode mode;
@@ -547,71 +548,77 @@ class _DownloadsPageState extends State<DownloadsPage> {
                             ? (media?['poster'] ?? '')
                             : (media?['coverImage']?['large'] ?? media?['coverImage']?['medium'] ?? '');
 
-                        return Container(
-                          margin: const EdgeInsets.only(bottom: 10.0),
-                          decoration: BoxDecoration(
-                            color: isCurrentTask ? Colors.white.withValues(alpha: 0.025) : const Color(0xFF0F0F11),
-                            borderRadius: BorderRadius.circular(12.0),
-                            border: Border.all(
-                              color: isCurrentTask ? Colors.white30 : Colors.white.withValues(alpha: 0.05),
-                              width: 1.0,
+                        return RepaintBoundary(
+                          child: Container(
+                            margin: const EdgeInsets.only(bottom: 10.0),
+                            decoration: BoxDecoration(
+                              color: isCurrentTask ? Colors.white.withValues(alpha: 0.025) : const Color(0xFF0F0F11),
+                              borderRadius: BorderRadius.circular(12.0),
+                              border: Border.all(
+                                color: isCurrentTask ? Colors.white30 : Colors.white.withValues(alpha: 0.05),
+                                width: 1.0,
+                              ),
                             ),
-                          ),
-                          child: InkWell(
-                            onTap: () {
-                              _selectTask(task.id);
-                            },
-                            onDoubleTap: () {
-                              _selectTask(task.id);
-                              setState(() {
-                                _activeTab = DownloadsTab.overview;
-                              });
-                            },
-                            borderRadius: BorderRadius.circular(11.0),
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
-                              child: Row(
-                                children: [
-                                  // Checkbox for multiselect
-                                  Checkbox(
-                                    value: isSelected,
-                                    activeColor: Colors.white,
-                                    checkColor: Colors.black,
-                                    side: const BorderSide(color: Colors.white38),
-                                    onChanged: (val) {
-                                      setState(() {
-                                        if (val == true) {
-                                          _selectedTaskIds.add(task.id);
-                                        } else {
-                                          _selectedTaskIds.remove(task.id);
-                                        }
-                                      });
-                                    },
-                                  ),
-                                  const SizedBox(width: 8.0),
+                            child: InkWell(
+                              onTap: () {
+                                _selectTask(task.id);
+                              },
+                              onDoubleTap: () {
+                                _selectTask(task.id);
+                                setState(() {
+                                  _activeTab = DownloadsTab.overview;
+                                });
+                              },
+                              borderRadius: BorderRadius.circular(11.0),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+                                child: Row(
+                                  children: [
+                                    // Checkbox for multiselect
+                                    Checkbox(
+                                      value: isSelected,
+                                      activeColor: Colors.white,
+                                      checkColor: Colors.black,
+                                      side: const BorderSide(color: Colors.white38),
+                                      onChanged: (val) {
+                                        setState(() {
+                                          if (val == true) {
+                                            _selectedTaskIds.add(task.id);
+                                          } else {
+                                            _selectedTaskIds.remove(task.id);
+                                          }
+                                        });
+                                      },
+                                    ),
+                                    const SizedBox(width: 8.0),
 
-                                  // Poster/Cover Art image
-                                  ClipRRect(
-                                    borderRadius: BorderRadius.circular(6.0),
-                                    child: SizedBox(
-                                      width: 36.0,
-                                      height: 52.0,
-                                      child: coverUrl.isNotEmpty
-                                          ? Image.network(
-                                              coverUrl,
-                                              fit: BoxFit.cover,
-                                              errorBuilder: (c, e, s) => Container(
+                                    // Poster/Cover Art image
+                                    ClipRRect(
+                                      borderRadius: BorderRadius.circular(6.0),
+                                      child: SizedBox(
+                                        width: 36.0,
+                                        height: 52.0,
+                                        child: coverUrl.isNotEmpty
+                                            ? CachedNetworkImage(
+                                                imageUrl: coverUrl,
+                                                fit: BoxFit.cover,
+                                                memCacheWidth: 100,
+                                                placeholder: (c, u) => Container(
+                                                  color: Colors.white.withValues(alpha: 0.03),
+                                                  child: const Icon(Icons.movie_outlined, color: Colors.white24, size: 18),
+                                                ),
+                                                errorWidget: (c, u, e) => Container(
+                                                  color: Colors.white.withValues(alpha: 0.03),
+                                                  child: const Icon(Icons.movie_outlined, color: Colors.white24, size: 18),
+                                                ),
+                                              )
+                                            : Container(
                                                 color: Colors.white.withValues(alpha: 0.03),
                                                 child: const Icon(Icons.movie_outlined, color: Colors.white24, size: 18),
                                               ),
-                                            )
-                                          : Container(
-                                              color: Colors.white.withValues(alpha: 0.03),
-                                              child: const Icon(Icons.movie_outlined, color: Colors.white24, size: 18),
-                                            ),
+                                      ),
                                     ),
-                                  ),
-                                  const SizedBox(width: 14.0),
+                                    const SizedBox(width: 14.0),
                                   
                                   // Main Task Info
                                   Expanded(
@@ -760,9 +767,10 @@ class _DownloadsPageState extends State<DownloadsPage> {
                               ),
                             ),
                           ),
-                        );
-                      },
-                    ),
+                        ),
+                      );
+                    },
+                  ),
             ),
           ],
         );
@@ -1077,10 +1085,15 @@ class _DownloadsPageState extends State<DownloadsPage> {
                   width: 64.0,
                   height: 92.0,
                   child: coverUrl.isNotEmpty
-                      ? Image.network(
-                          coverUrl,
+                      ? CachedNetworkImage(
+                          imageUrl: coverUrl,
                           fit: BoxFit.cover,
-                          errorBuilder: (c, e, s) => Container(
+                          memCacheWidth: 150,
+                          placeholder: (c, u) => Container(
+                            color: Colors.white.withValues(alpha: 0.03),
+                            child: const Icon(Icons.movie_outlined, color: Colors.white24, size: 24),
+                          ),
+                          errorWidget: (c, u, e) => Container(
                             color: Colors.white.withValues(alpha: 0.03),
                             child: const Icon(Icons.movie_outlined, color: Colors.white24, size: 24),
                           ),

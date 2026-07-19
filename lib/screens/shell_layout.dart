@@ -22,6 +22,7 @@ import 'player_screen.dart';
 import 'schedule_page.dart';
 import 'history_page.dart';
 import 'notifications_page.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../state/library_providers.dart';
 import 'movies_details_page.dart';
@@ -434,6 +435,34 @@ class ShellLayout extends StatelessWidget {
                               right: 0,
                               child: CustomTitleBar(),
                             ),
+                          if (AppSettings().offlineMode)
+                            Positioned(
+                              top: (!isMobile && (Platform.isWindows || Platform.isMacOS || Platform.isLinux)) ? 32.0 : 0.0,
+                              left: 0,
+                              right: 0,
+                              child: Material(
+                                color: const Color(0xFFFF9F1C).withOpacity(0.95),
+                                child: const Padding(
+                                  padding: EdgeInsets.symmetric(vertical: 4.0, horizontal: 16.0),
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(Icons.wifi_off, color: Colors.black, size: 14.0),
+                                      SizedBox(width: 8.0),
+                                      Text(
+                                        'Offline Mode Active (Showing local library downloads)',
+                                        style: TextStyle(
+                                          color: Colors.black,
+                                          fontSize: 11.5,
+                                          fontWeight: FontWeight.bold,
+                                          fontFamily: 'Outfit',
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
                         ],
                       ),
                     ),
@@ -444,10 +473,16 @@ class ShellLayout extends StatelessWidget {
                 if (playerState.isActive)
                   AnimatedPositioned(
                     key: const ValueKey('player_animated_container'),
-                    duration: const Duration(milliseconds: 350),
+                    duration: playerState.isDraggingMiniPlayer 
+                        ? Duration.zero 
+                        : const Duration(milliseconds: 350),
                     curve: Curves.easeInOutCubic,
-                    left: playerState.isMinimized ? (screenWidth - 280.0 - 12.0) : 0.0,
-                    top: playerState.isMinimized ? (screenHeight - 158.0 - miniPlayerBottomOffset - layoutTopOffset) : 0.0,
+                    left: playerState.isMinimized 
+                        ? (screenWidth - 280.0 - 12.0 + playerState.miniPlayerOffset.dx) 
+                        : 0.0,
+                    top: playerState.isMinimized 
+                        ? (screenHeight - 158.0 - miniPlayerBottomOffset - layoutTopOffset + playerState.miniPlayerOffset.dy) 
+                        : 0.0,
                     width: playerState.isMinimized ? 280.0 : screenWidth,
                     height: playerState.isMinimized ? 158.0 : screenHeight,
                     child: Material(
@@ -468,7 +503,31 @@ class ShellLayout extends StatelessWidget {
                           child: AnimatedSwitcher(
                             duration: const Duration(milliseconds: 250),
                             child: playerState.isMinimized
-                                ? const MiniPlayer(key: ValueKey('mini'))
+                                ? GestureDetector(
+                                    behavior: HitTestBehavior.opaque,
+                                    onPanStart: (_) {
+                                      playerState.setDraggingMiniPlayer(true);
+                                    },
+                                    onPanUpdate: (details) {
+                                      final defaultLeft = screenWidth - 280.0 - 12.0;
+                                      final defaultTop = screenHeight - 158.0 - miniPlayerBottomOffset - layoutTopOffset;
+
+                                      final proposedLeft = defaultLeft + playerState.miniPlayerOffset.dx + details.delta.dx;
+                                      final proposedTop = defaultTop + playerState.miniPlayerOffset.dy + details.delta.dy;
+
+                                      final clampedLeft = proposedLeft.clamp(12.0, screenWidth - 280.0 - 12.0);
+                                      final clampedTop = proposedTop.clamp(12.0, screenHeight - 158.0 - 12.0);
+
+                                      final dx = clampedLeft - defaultLeft;
+                                      final dy = clampedTop - defaultTop;
+
+                                      playerState.setMiniPlayerOffset(Offset(dx, dy));
+                                    },
+                                    onPanEnd: (_) {
+                                      playerState.setDraggingMiniPlayer(false);
+                                    },
+                                    child: const MiniPlayer(key: ValueKey('mini')),
+                                  )
                                 : PlayerScreen(
                                     key: const ValueKey('full'),
                                     streamUrl: playerState.streamUrl!,
@@ -486,6 +545,7 @@ class ShellLayout extends StatelessWidget {
                       ),
                     ),
                   ),
+
 
               ],
             ),
@@ -862,7 +922,15 @@ class _HistoryPopupContentState extends State<_HistoryPopupContent> {
             child: SizedBox(
               width: 32.0,
               height: 46.0,
-              child: cover.isNotEmpty ? Image.network(cover, fit: BoxFit.cover) : Container(color: Colors.grey[950]),
+              child: cover.isNotEmpty
+                  ? CachedNetworkImage(
+                      imageUrl: cover,
+                      fit: BoxFit.cover,
+                      memCacheWidth: 80,
+                      placeholder: (c, u) => Container(color: Colors.grey[950]),
+                      errorWidget: (c, u, e) => Container(color: Colors.grey[950]),
+                    )
+                  : Container(color: Colors.grey[950]),
             ),
           ),
           title: Text(
@@ -1093,7 +1161,15 @@ class _NotificationsPopupContentState extends State<_NotificationsPopupContent> 
             child: SizedBox(
               width: 32.0,
               height: 46.0,
-              child: cover.isNotEmpty ? Image.network(cover, fit: BoxFit.cover) : Container(color: Colors.grey[950]),
+              child: cover.isNotEmpty
+                  ? CachedNetworkImage(
+                      imageUrl: cover,
+                      fit: BoxFit.cover,
+                      memCacheWidth: 80,
+                      placeholder: (c, u) => Container(color: Colors.grey[950]),
+                      errorWidget: (c, u, e) => Container(color: Colors.grey[950]),
+                    )
+                  : Container(color: Colors.grey[950]),
             ),
           ),
           title: Text(

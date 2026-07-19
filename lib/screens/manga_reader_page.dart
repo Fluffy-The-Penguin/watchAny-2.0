@@ -15,6 +15,8 @@ import 'dart:io';
 import 'dart:async';
 import 'package:window_manager/window_manager.dart';
 import 'package:async/async.dart';
+import '../widgets/shimmer_card.dart';
+
 
 class MangaReaderPage extends StatefulWidget {
   final String chapterId;
@@ -1761,10 +1763,9 @@ class _MihonPagePlaceholder extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: width,
+    return ShimmerCard(
       height: height,
-      color: const Color(0xFF0F0F11),
+      borderRadius: 0.0,
       child: Stack(
         children: [
           // Center: page number + spinner/progress

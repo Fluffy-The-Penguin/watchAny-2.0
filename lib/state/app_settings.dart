@@ -31,6 +31,8 @@ class AppSettings extends ChangeNotifier {
   int _colorContrast = 3;
   int _colorSaturation = 4;
 
+  bool _offlineMode = false;
+
   // Downloads & Cache storage configuration
   double _downloadsLimitGB = 10.0;
   double _cacheLimitGB = 10.0;
@@ -82,6 +84,15 @@ class AppSettings extends ChangeNotifier {
   double get cacheLimitGB => _cacheLimitGB;
   String get cachePath => _cachePath;
   bool get autoManageStorage => _autoManageStorage;
+  bool get offlineMode => _offlineMode;
+
+  Future<void> setOfflineMode(bool val) async {
+    _offlineMode = val;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('offline_mode', val);
+    notifyListeners();
+  }
+
 
   // Custom Subtitles getters
   bool get subtitlesCustomStylesEnabled => _subtitlesCustomStylesEnabled;
@@ -152,6 +163,7 @@ class AppSettings extends ChangeNotifier {
     _colorBrightness = prefs.getInt('color_brightness') ?? 0;
     _colorContrast = prefs.getInt('color_contrast') ?? 3;
     _colorSaturation = prefs.getInt('color_saturation') ?? 4;
+    _offlineMode = prefs.getBool('offline_mode') ?? false;
 
     // Load Storage Settings
     final bool isMobileDevice = !kIsWeb && (Platform.isAndroid || Platform.isIOS);

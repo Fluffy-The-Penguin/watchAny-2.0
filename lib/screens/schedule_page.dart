@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../services/anilist_service.dart';
 import '../state/navigation_state.dart';
 import '../state/library_state.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 class SchedulePage extends StatefulWidget {
   final NavigationState navigationState;
@@ -590,10 +591,12 @@ class _SchedulePageState extends State<SchedulePage> {
                                     width: 48.0,
                                     height: 68.0,
                                     child: coverUrl.isNotEmpty
-                                        ? Image.network(
-                                            coverUrl,
+                                        ? CachedNetworkImage(
+                                            imageUrl: coverUrl,
                                             fit: BoxFit.cover,
-                                            errorBuilder: (context, error, stackTrace) =>
+                                            memCacheWidth: 100,
+                                            placeholder: (context, url) => Container(color: Colors.grey[950]),
+                                            errorWidget: (context, error, stackTrace) =>
                                                 Container(color: Colors.grey[950]),
                                           )
                                         : Container(color: Colors.grey[950]),
@@ -835,42 +838,45 @@ class _SchedulePageState extends State<SchedulePage> {
 
         return Padding(
           padding: const EdgeInsets.only(bottom: 12.0),
-          child: InkWell(
-            onTap: () {
-              widget.navigationState.selectAnime(media['id']);
-            },
-            borderRadius: BorderRadius.circular(8.0),
-            child: Container(
-              padding: const EdgeInsets.all(8.0),
-              decoration: BoxDecoration(
-                color: const Color(0xFF0F0F11),
-                borderRadius: BorderRadius.circular(8.0),
-                border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
-              ),
-              child: Row(
-                children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(6.0),
-                    child: SizedBox(
-                      width: 50.0,
-                      height: 70.0,
-                      child: coverUrl.isNotEmpty
-                          ? Image.network(
-                              coverUrl,
-                              fit: BoxFit.cover,
-                              errorBuilder: (context, error, stackTrace) =>
-                                  Container(color: Colors.grey[950]),
-                            )
-                          : Container(color: Colors.grey[950]),
+          child: RepaintBoundary(
+            child: InkWell(
+              onTap: () {
+                widget.navigationState.selectAnime(media['id']);
+              },
+              borderRadius: BorderRadius.circular(8.0),
+              child: Container(
+                padding: const EdgeInsets.all(8.0),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF0F0F11),
+                  borderRadius: BorderRadius.circular(8.0),
+                  border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
+                ),
+                child: Row(
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(6.0),
+                      child: SizedBox(
+                        width: 50.0,
+                        height: 70.0,
+                        child: coverUrl.isNotEmpty
+                            ? CachedNetworkImage(
+                                imageUrl: coverUrl,
+                                fit: BoxFit.cover,
+                                memCacheWidth: 100,
+                                placeholder: (context, url) => Container(color: Colors.grey[950]),
+                                errorWidget: (context, error, stackTrace) =>
+                                    Container(color: Colors.grey[950]),
+                              )
+                            : Container(color: Colors.grey[950]),
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 12.0),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          title,
+                    const SizedBox(width: 12.0),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            title,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
@@ -947,8 +953,9 @@ class _SchedulePageState extends State<SchedulePage> {
               ),
             ),
           ),
-        );
-      },
+        ),
+      );
+    },
     );
   }
 

@@ -1,0 +1,12 @@
+[
+  {
+    "id": "vidnest-scraper",
+    "name": "Vidnest Scraper",
+    "version": "1.0.0",
+    "type": "video",
+    "accuracy": "high",
+    "languages": ["en"],
+    "icon": "https://vidnest.fun/favicon.ico",
+    "code": "vidnest.js"
+  }
+]

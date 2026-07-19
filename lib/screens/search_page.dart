@@ -362,6 +362,7 @@ class _SearchPageState extends State<SearchPage> {
         builder: (controller, physics) => GridView.builder(
           controller: controller,
           physics: physics,
+          addAutomaticKeepAlives: false,
           padding: const EdgeInsets.all(16.0),
           gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
             maxCrossAxisExtent: 150.0,
@@ -723,6 +724,7 @@ class _SearchPageState extends State<SearchPage> {
           builder: (controller, physics) => GridView.builder(
             controller: controller,
             physics: physics,
+            addAutomaticKeepAlives: false,
             padding: const EdgeInsets.all(16.0),
             gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
               maxCrossAxisExtent: 150.0,

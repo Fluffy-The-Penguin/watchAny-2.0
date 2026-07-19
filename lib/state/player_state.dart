@@ -35,6 +35,10 @@ class PlayerState extends ChangeNotifier {
   bool _isMinimized = false;
   bool _isFullscreen = false;
 
+  Offset _miniPlayerOffset = Offset.zero;
+  bool _isDraggingMiniPlayer = false;
+
+
   String? _streamUrl;
   String? _title;
   int? _anilistId;
@@ -67,7 +71,10 @@ class PlayerState extends ChangeNotifier {
   bool get isActive => _isActive;
   bool get isMinimized => _isMinimized;
   bool get isFullscreen => _isFullscreen;
+  Offset get miniPlayerOffset => _miniPlayerOffset;
+  bool get isDraggingMiniPlayer => _isDraggingMiniPlayer;
   String? get streamUrl => _streamUrl;
+
   String? get title => _title;
   int? get anilistId => _anilistId;
   String? get movieId => _movieId;
@@ -310,6 +317,8 @@ class PlayerState extends ChangeNotifier {
     if (_isActive && !_isMinimized) {
       _isMinimized = true;
       _isFullscreen = false;
+      _miniPlayerOffset = Offset.zero;
+      _isDraggingMiniPlayer = false;
       notifyListeners();
     }
   }
@@ -317,6 +326,8 @@ class PlayerState extends ChangeNotifier {
   void maximize() {
     if (_isActive && _isMinimized) {
       _isMinimized = false;
+      _miniPlayerOffset = Offset.zero;
+      _isDraggingMiniPlayer = false;
       notifyListeners();
     }
   }
@@ -326,8 +337,27 @@ class PlayerState extends ChangeNotifier {
     _isActive = false;
     _isMinimized = false;
     _isFullscreen = false;
+    _miniPlayerOffset = Offset.zero;
+    _isDraggingMiniPlayer = false;
     notifyListeners();
   }
+
+  void setMiniPlayerOffset(Offset offset) {
+    _miniPlayerOffset = offset;
+    notifyListeners();
+  }
+
+  void setDraggingMiniPlayer(bool dragging) {
+    _isDraggingMiniPlayer = dragging;
+    notifyListeners();
+  }
+
+  void resetMiniPlayerOffset() {
+    _miniPlayerOffset = Offset.zero;
+    _isDraggingMiniPlayer = false;
+    notifyListeners();
+  }
+
 
   Future<void> switchHstreamQuality(String newUrl) async {
     if (_player == null) return;

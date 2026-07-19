@@ -9,6 +9,7 @@ import '../services/suwayomi_manager.dart';
 import '../services/suwayomi_service.dart';
 import '../state/navigation_state.dart';
 import '../state/library_state.dart';
+import '../state/app_settings.dart';
 import '../widgets/smooth_scroll_area.dart';
 
 class MangaHomePage extends StatefulWidget {
@@ -126,6 +127,11 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
   void _checkAndStartEngine() {
     final curMode = widget.navigationState.currentMode;
     final curPage = widget.navigationState.currentPage;
+
+    if (AppSettings().offlineMode) {
+      if (mounted) setState(() {});
+      return;
+    }
 
     if (curMode == AppMode.manga) {
       if (!_engineStarted) {
@@ -811,6 +817,160 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
   }
 
   Widget _buildCatalogTab() {
+    if (AppSettings().offlineMode) {
+      final library = LibraryState();
+      List<dynamic> getLocalMangaItems(String status) {
+        return library.items
+            .where((i) => i.mode == 'manga' && i.libraryStatus == status)
+            .map((item) {
+              final cache = library.mangaCache[item.id];
+              if (cache != null) return cache;
+              return {
+                'id': item.id,
+                'title': 'Manga #${item.id}',
+                'thumbnailUrl': '',
+              };
+            })
+            .toList();
+      }
+
+      final reading = getLocalMangaItems('watching');
+      final completed = getLocalMangaItems('completed');
+      final planning = getLocalMangaItems('planning');
+
+      return ListView(
+        padding: const EdgeInsets.all(24.0),
+        children: [
+          if (reading.isNotEmpty) ...[
+            const Text('Reading (Local)', style: TextStyle(color: Colors.white, fontSize: 20.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit')),
+            const SizedBox(height: 12.0),
+            SizedBox(
+              height: 220.0,
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                itemCount: reading.length,
+                itemBuilder: (context, idx) {
+                  final item = reading[idx];
+                  final title = item['title'] is Map ? (item['title']['english'] ?? item['title']['romaji']) : (item['title']?.toString() ?? 'Untitled');
+                  final coverUrl = item['thumbnailUrl']?.toString() ?? item['coverImage']?['large']?.toString() ?? '';
+                  final idStr = item['id'].toString();
+                  return Container(
+                    width: 130.0,
+                    margin: const EdgeInsets.only(right: 14.0),
+                    child: InkWell(
+                      onTap: () => widget.navigationState.selectManga(idStr),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(6.0),
+                              child: coverUrl.isNotEmpty
+                                  ? CachedNetworkImage(imageUrl: coverUrl, fit: BoxFit.cover, width: double.infinity, memCacheWidth: 200)
+                                  : Container(color: const Color(0xFF0F0F11), child: const Center(child: Icon(Icons.book, color: Colors.white12))),
+                            ),
+                          ),
+                          const SizedBox(height: 6.0),
+                          Text(title, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontSize: 11.5, fontWeight: FontWeight.bold, fontFamily: 'Outfit')),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 24.0),
+          ],
+          if (completed.isNotEmpty) ...[
+            const Text('Completed (Local)', style: TextStyle(color: Colors.white, fontSize: 20.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit')),
+            const SizedBox(height: 12.0),
+            SizedBox(
+              height: 220.0,
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                itemCount: completed.length,
+                itemBuilder: (context, idx) {
+                  final item = completed[idx];
+                  final title = item['title'] is Map ? (item['title']['english'] ?? item['title']['romaji']) : (item['title']?.toString() ?? 'Untitled');
+                  final coverUrl = item['thumbnailUrl']?.toString() ?? item['coverImage']?['large']?.toString() ?? '';
+                  final idStr = item['id'].toString();
+                  return Container(
+                    width: 130.0,
+                    margin: const EdgeInsets.only(right: 14.0),
+                    child: InkWell(
+                      onTap: () => widget.navigationState.selectManga(idStr),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(6.0),
+                              child: coverUrl.isNotEmpty
+                                  ? CachedNetworkImage(imageUrl: coverUrl, fit: BoxFit.cover, width: double.infinity, memCacheWidth: 200)
+                                  : Container(color: const Color(0xFF0F0F11), child: const Center(child: Icon(Icons.book, color: Colors.white12))),
+                            ),
+                          ),
+                          const SizedBox(height: 6.0),
+                          Text(title, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontSize: 11.5, fontWeight: FontWeight.bold, fontFamily: 'Outfit')),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 24.0),
+          ],
+          if (planning.isNotEmpty) ...[
+            const Text('Planning (Local)', style: TextStyle(color: Colors.white, fontSize: 20.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit')),
+            const SizedBox(height: 12.0),
+            SizedBox(
+              height: 220.0,
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                itemCount: planning.length,
+                itemBuilder: (context, idx) {
+                  final item = planning[idx];
+                  final title = item['title'] is Map ? (item['title']['english'] ?? item['title']['romaji']) : (item['title']?.toString() ?? 'Untitled');
+                  final coverUrl = item['thumbnailUrl']?.toString() ?? item['coverImage']?['large']?.toString() ?? '';
+                  final idStr = item['id'].toString();
+                  return Container(
+                    width: 130.0,
+                    margin: const EdgeInsets.only(right: 14.0),
+                    child: InkWell(
+                      onTap: () => widget.navigationState.selectManga(idStr),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(6.0),
+                              child: coverUrl.isNotEmpty
+                                  ? CachedNetworkImage(imageUrl: coverUrl, fit: BoxFit.cover, width: double.infinity, memCacheWidth: 200)
+                                  : Container(color: const Color(0xFF0F0F11), child: const Center(child: Icon(Icons.book, color: Colors.white12))),
+                            ),
+                          ),
+                          const SizedBox(height: 6.0),
+                          Text(title, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontSize: 11.5, fontWeight: FontWeight.bold, fontFamily: 'Outfit')),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+          if (reading.isEmpty && completed.isEmpty && planning.isEmpty)
+            const Center(
+              child: Padding(
+                padding: EdgeInsets.symmetric(vertical: 64.0),
+                child: Text('Offline Mode Active. No saved manga found in local library.', style: TextStyle(color: Colors.white38, fontFamily: 'Outfit')),
+              ),
+            ),
+        ],
+      );
+    }
+
     final double screenWidth = MediaQuery.of(context).size.width;
     final crossAxisCount = (screenWidth / 160).floor().clamp(2, 8);
 

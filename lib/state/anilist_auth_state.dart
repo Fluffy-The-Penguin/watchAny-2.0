@@ -70,13 +70,43 @@ class AnilistAuthState extends ChangeNotifier {
         _bannerUrl = viewer['bannerImage'];
         _userId = viewer['id'];
         
-        final stats = viewer['statistics'];
-        _animeCount = stats?['anime']?['count'] ?? 0;
-        _episodesWatched = stats?['anime']?['episodesWatched'] ?? 0;
-        _minutesWatched = stats?['anime']?['minutesWatched'] ?? 0;
-        _mangaCount = stats?['manga']?['count'] ?? 0;
-        _chaptersRead = stats?['manga']?['chaptersRead'] ?? 0;
-        _volumesRead = stats?['manga']?['volumesRead'] ?? 0;
+        // Fetch library entries to get correct unique stats
+        int count = 0;
+        int episodes = 0;
+        int minutes = 0;
+        try {
+          final entries = await AnilistService().fetchUserLibrary(_userId!, 'ANIME', token);
+          final Map<int, Map<String, int>> uniqueAnime = {};
+          for (var entry in entries) {
+            final media = entry['media'];
+            if (media == null) continue;
+            final int id = media['id'];
+            final int progress = entry['progress'] ?? 0;
+            final int duration = media['duration'] ?? 24;
+            if (!uniqueAnime.containsKey(id)) {
+              uniqueAnime[id] = {'progress': progress, 'duration': duration};
+            } else {
+              if (progress > uniqueAnime[id]!['progress']!) {
+                uniqueAnime[id]!['progress'] = progress;
+              }
+            }
+          }
+          count = uniqueAnime.length;
+          episodes = uniqueAnime.values.fold(0, (sum, val) => sum + val['progress']!);
+          minutes = uniqueAnime.values.fold(0, (sum, val) => sum + (val['progress']! * val['duration']!));
+        } catch (_) {
+          final stats = viewer['statistics'];
+          count = stats?['anime']?['count'] ?? 0;
+          episodes = stats?['anime']?['episodesWatched'] ?? 0;
+          minutes = stats?['anime']?['minutesWatched'] ?? 0;
+        }
+
+        _animeCount = count;
+        _episodesWatched = episodes;
+        _minutesWatched = minutes;
+        _mangaCount = 0;
+        _chaptersRead = 0;
+        _volumesRead = 0;
 
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('anilist_access_token', token);
@@ -110,6 +140,23 @@ class AnilistAuthState extends ChangeNotifier {
       }
     } catch (_) {}
     return false;
+  }
+
+  Future<void> updateStats({
+    required int animeCount,
+    required int episodesWatched,
+    required int minutesWatched,
+  }) async {
+    _animeCount = animeCount;
+    _episodesWatched = episodesWatched;
+    _minutesWatched = minutesWatched;
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('anilist_anime_count', _animeCount);
+    await prefs.setInt('anilist_episodes_watched', _episodesWatched);
+    await prefs.setInt('anilist_minutes_watched', _minutesWatched);
+
+    notifyListeners();
   }
 
   Future<void> logout() async {

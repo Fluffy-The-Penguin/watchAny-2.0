@@ -9,6 +9,11 @@ import '../state/player_state.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'movies_details_page.dart';
 import '../widgets/smooth_scroll_area.dart';
+import '../state/app_settings.dart';
+import '../state/library_state.dart';
+import '../services/download_service.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+
 
 class MoviesHomePage extends StatefulWidget {
   final NavigationState navigationState;
@@ -76,6 +81,115 @@ class _MoviesHomePageState extends State<MoviesHomePage> {
   Future<void> _loadCatalogs() async {
     if (!mounted) return;
     _carouselTimer?.cancel();
+
+    if (AppSettings().offlineMode) {
+      setState(() {
+        _isLoading = true;
+        _isFetching = true;
+        _catalogRows = [];
+        _featuredItem = null;
+        _featuredItems = [];
+        _currentCarouselIndex = 0;
+        _hasEnabledAddons = true;
+      });
+
+      final library = LibraryState();
+      
+      List<dynamic> getLocalMovieItems(String status) {
+        return library.items
+            .where((i) => i.mode == 'movies' && i.libraryStatus == status)
+            .map((item) {
+              final cache = library.movieCache[item.id];
+              if (cache != null) return cache;
+              return {
+                'id': 'movie:tt${item.id}',
+                'name': 'Media #${item.id}',
+                'poster': '',
+                'type': item.format == 'MOVIE' ? 'movie' : 'series',
+              };
+            })
+            .toList();
+      }
+
+      final completedDownloads = DownloadService().tasks
+          .where((t) => t.isMovie == true && t.status == DownloadStatus.completed)
+          .toList();
+      
+      final List<dynamic> downloadedMapped = [];
+      for (final task in completedDownloads) {
+        final cleanId = task.id.split(':').last;
+        final digits = RegExp(r'\d+').allMatches(cleanId).map((m) => m.group(0)!).join();
+        final parsedId = int.tryParse(digits) ?? task.id.hashCode.abs();
+        
+        final cache = library.movieCache[parsedId];
+        if (cache != null) {
+          if (!downloadedMapped.any((m) => m['id'] == cache['id'])) {
+            downloadedMapped.add(cache);
+          }
+        } else {
+          if (!downloadedMapped.any((m) => m['id'] == task.id)) {
+            downloadedMapped.add({
+              'id': task.id,
+              'name': task.title,
+              'poster': '',
+              'type': task.isMovie == true ? 'movie' : 'series',
+            });
+          }
+        }
+      }
+
+      final watching = getLocalMovieItems('watching');
+      final completed = getLocalMovieItems('completed');
+      final planning = getLocalMovieItems('planning');
+
+      setState(() {
+        if (watching.isNotEmpty) {
+          _catalogRows.add({
+            'addonName': 'Library',
+            'catalogName': 'Watching (Local)',
+            'type': 'movie',
+            'items': watching,
+          });
+          _featuredItems.addAll(watching.cast<Map<String, dynamic>>());
+        }
+        if (completed.isNotEmpty) {
+          _catalogRows.add({
+            'addonName': 'Library',
+            'catalogName': 'Completed (Local)',
+            'type': 'movie',
+            'items': completed,
+          });
+          _featuredItems.addAll(completed.cast<Map<String, dynamic>>());
+        }
+        if (planning.isNotEmpty) {
+          _catalogRows.add({
+            'addonName': 'Library',
+            'catalogName': 'Planning (Local)',
+            'type': 'movie',
+            'items': planning,
+          });
+        }
+        if (downloadedMapped.isNotEmpty) {
+          _catalogRows.add({
+            'addonName': 'Library',
+            'catalogName': 'Downloaded (Local)',
+            'type': 'movie',
+            'items': downloadedMapped,
+          });
+          _featuredItems.addAll(downloadedMapped.cast<Map<String, dynamic>>());
+        }
+
+        if (_featuredItems.isNotEmpty) {
+          _featuredItem = _featuredItems.first;
+        }
+        _isLoading = false;
+        _isFetching = false;
+      });
+
+      _startCarouselTimer();
+      return;
+    }
+
     setState(() {
       _isLoading = true;
       _isFetching = true;
@@ -293,13 +407,15 @@ class _MoviesHomePageState extends State<MoviesHomePage> {
                           ),
                         ),
                       )
-                    : const Center(
+                    : Center(
                         child: Padding(
-                          padding: EdgeInsets.symmetric(vertical: 64.0),
+                          padding: const EdgeInsets.symmetric(vertical: 64.0),
                           child: Text(
-                            'No content returned by enabled addons.\nCheck your addon settings.',
+                            AppSettings().offlineMode
+                                ? 'No local downloads or library items found.\nToggle Offline Mode off in Settings to stream online content.'
+                                : 'No content returned by enabled addons.\nCheck your addon settings.',
                             textAlign: TextAlign.center,
-                            style: TextStyle(color: Colors.white38),
+                            style: const TextStyle(color: Colors.white38),
                           ),
                         ),
                       )
@@ -779,12 +895,12 @@ class _MovieCardState extends State<_MovieCard> {
                           scale: _isHovered ? 1.05 : 1.0,
                           duration: const Duration(milliseconds: 150),
                           child: posterUrl.isNotEmpty
-                              ? Image.network(
-                                  posterUrl,
+                              ? CachedNetworkImage(
+                                  imageUrl: posterUrl,
                                   fit: BoxFit.cover,
-                                  cacheWidth: 280,
-                                  errorBuilder: (context, error, stackTrace) =>
-                                      _placeholder(),
+                                  memCacheWidth: 280,
+                                  placeholder: (context, url) => _placeholder(),
+                                  errorWidget: (context, url, error) => _placeholder(),
                                 )
                               : _placeholder(),
                         ),

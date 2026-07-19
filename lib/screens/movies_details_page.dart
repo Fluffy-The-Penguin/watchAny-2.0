@@ -1534,7 +1534,7 @@ class _MovieEpisodeCardState extends State<_MovieEpisodeCard> {
                                       ? CachedNetworkImage(
                                           imageUrl: widget.thumbnail,
                                           fit: BoxFit.cover,
-                                          memCacheWidth: 320,
+                                          memCacheWidth: 640,
                                           placeholder: (_, __) => const SizedBox(),
                                           errorWidget: (_, __, ___) => _placeholder(),
                                         )

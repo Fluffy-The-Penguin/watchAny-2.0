@@ -742,6 +742,7 @@ class AnilistService {
                 status
                 averageScore
                 bannerImage
+                duration
               }
             }
           }

@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../state/navigation_state.dart';
-import '../state/library_state.dart';
 import '../state/app_settings.dart';
 import '../state/library_providers.dart';
+import '../state/user_profile_state.dart';
+import '../state/anilist_auth_state.dart';
 
 class Sidebar extends StatelessWidget {
   final NavigationState state;
@@ -134,6 +135,7 @@ class Sidebar extends StatelessWidget {
                       const SizedBox(height: 8.0),
                       _SidebarItem(
                         icon: Icons.person,
+                        customLeading: _ProfileSidebarAvatar(isSelected: state.currentPage == TabPage.profile),
                         label: 'Profile',
                         isSelected: state.currentPage == TabPage.profile,
                         isExpanded: isExpanded,
@@ -176,6 +178,7 @@ class Sidebar extends StatelessWidget {
 
 class _SidebarItem extends StatefulWidget {
   final IconData icon;
+  final Widget? customLeading;
   final String label;
   final bool isSelected;
   final bool isExpanded;
@@ -184,6 +187,7 @@ class _SidebarItem extends StatefulWidget {
 
   const _SidebarItem({
     required this.icon,
+    this.customLeading,
     required this.label,
     required this.isSelected,
     required this.isExpanded,
@@ -227,11 +231,14 @@ class _SidebarItemState extends State<_SidebarItem> {
                 Stack(
                   clipBehavior: Clip.none,
                   children: [
-                    Icon(
-                      widget.icon,
-                      color: widget.isSelected ? Colors.white : Colors.white54,
-                      size: 20.0,
-                    ),
+                    if (widget.customLeading != null)
+                      widget.customLeading!
+                    else
+                      Icon(
+                        widget.icon,
+                        color: widget.isSelected ? Colors.white : Colors.white54,
+                        size: 20.0,
+                      ),
                     if (widget.badgeCount > 0)
                       Positioned(
                         right: -4,
@@ -409,6 +416,81 @@ class _ModeSelectorState extends State<_ModeSelector> {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _ProfileSidebarAvatar extends StatelessWidget {
+  final bool isSelected;
+  const _ProfileSidebarAvatar({required this.isSelected});
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: Listenable.merge([UserProfileState(), AnilistAuthState()]),
+      builder: (context, _) {
+        final userProfile = UserProfileState();
+        final anilistAuth = AnilistAuthState();
+
+        final imgProvider = userProfile.getAvatarImageProvider() ??
+            (anilistAuth.isLoggedIn && anilistAuth.avatarUrl != null ? NetworkImage(anilistAuth.avatarUrl!) : null);
+
+        if (imgProvider != null) {
+          return Container(
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: isSelected ? const Color(0xFF2EC4B6) : Colors.transparent,
+                width: 1.5,
+              ),
+            ),
+            child: CircleAvatar(
+              radius: 10.0,
+              backgroundImage: imgProvider,
+              backgroundColor: Colors.white10,
+            ),
+          );
+        }
+
+        final gradients = [
+          [const Color(0xFF2EC4B6), const Color(0xFF0F4C81)],
+          [const Color(0xFFFF9F1C), const Color(0xFFE71D36)],
+          [const Color(0xFFA855F7), const Color(0xFF3B82F6)],
+          [const Color(0xFF10B981), const Color(0xFF059669)],
+          [const Color(0xFFEC4899), const Color(0xFF8B5CF6)],
+          [const Color(0xFFF59E0B), const Color(0xFFD97706)],
+          [const Color(0xFF3B82F6), const Color(0xFF1D4ED8)],
+          [const Color(0xFF6366F1), const Color(0xFF4338CA)],
+        ];
+        final icons = [
+          Icons.auto_awesome,
+          Icons.bolt,
+          Icons.local_fire_department,
+          Icons.star_rounded,
+          Icons.psychology,
+          Icons.favorite,
+          Icons.explore,
+          Icons.shield,
+        ];
+        final gradient = gradients[userProfile.avatarIndex % gradients.length];
+        final icon = icons[userProfile.avatarIndex % icons.length];
+
+        return Container(
+          width: 20.0,
+          height: 20.0,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: LinearGradient(colors: gradient),
+            border: Border.all(
+              color: isSelected ? Colors.white : Colors.transparent,
+              width: 1.5,
+            ),
+          ),
+          child: Center(
+            child: Icon(icon, color: Colors.white, size: 10.0),
+          ),
+        );
+      },
     );
   }
 }

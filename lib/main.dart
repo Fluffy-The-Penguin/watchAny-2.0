@@ -43,6 +43,10 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   HttpOverrides.global = MyHttpOverrides();
   
+  // Expand global in-memory decoded image cache limits (300 MB / 3000 textures)
+  PaintingBinding.instance.imageCache.maximumSizeBytes = 300 * 1024 * 1024;
+  PaintingBinding.instance.imageCache.maximumSize = 3000;
+
   // Initialize LogService
   await LogService().init();
   

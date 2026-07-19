@@ -1684,6 +1684,28 @@ class _SettingsPageState extends State<SettingsPage> {
             const Divider(color: Colors.white10, height: 1.0),
             const SizedBox(height: 24.0),
 
+            // ── Offline Mode ──
+            _SettingsTile(
+              icon: Icons.wifi_off_outlined,
+              title: 'Offline Mode',
+              subtitle: 'Restrict all external network connections and browse local downloads only.',
+              trailing: Transform.scale(
+                scale: 0.9,
+                child: Switch(
+                  value: settings.offlineMode,
+                  activeColor: const Color(0xFFFF9F1C),
+                  activeTrackColor: const Color(0xFFFF9F1C).withValues(alpha: 0.2),
+                  inactiveThumbColor: Colors.white30,
+                  inactiveTrackColor: Colors.black26,
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  onChanged: (v) => settings.setOfflineMode(v),
+                ),
+              ),
+            ),
+            const SizedBox(height: 24.0),
+            const Divider(color: Colors.white10, height: 1.0),
+            const SizedBox(height: 24.0),
+
             // ── Downloads Storage Header ──
             const Row(
               children: [

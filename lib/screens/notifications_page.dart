@@ -6,6 +6,7 @@ import '../state/navigation_state.dart';
 import '../state/library_state.dart';
 import '../services/anilist_service.dart';
 import '../services/download_service.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 class NotificationsPage extends StatefulWidget {
   final AppMode mode;
@@ -347,107 +348,111 @@ class _NotificationsPageState extends State<NotificationsPage> {
                                 final message = notif['message'];
                                 final status = notif['status'];
 
-                                return Container(
-                                  margin: const EdgeInsets.only(bottom: 12.0),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFF0F0F11),
-                                    borderRadius: BorderRadius.circular(10.0),
-                                    border: Border.all(
-                                      color: const Color(0xFF2EC4B6).withValues(alpha: 0.15),
-                                      width: 1.0,
+                                return RepaintBoundary(
+                                  child: Container(
+                                    margin: const EdgeInsets.only(bottom: 12.0),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF0F0F11),
+                                      borderRadius: BorderRadius.circular(10.0),
+                                      border: Border.all(
+                                        color: const Color(0xFF2EC4B6).withValues(alpha: 0.15),
+                                        width: 1.0,
+                                      ),
                                     ),
-                                  ),
-                                  child: InkWell(
-                                    onTap: () {
-                                      if (widget.mode == AppMode.anime) {
-                                        widget.navigationState.selectAnime(notif['id']);
-                                      } else if (widget.mode == AppMode.manga) {
-                                        widget.navigationState.selectManga(notif['id'].toString());
-                                      } else {
-                                        widget.navigationState.selectMovie('series:${notif['id']}');
-                                      }
-                                    },
-                                    borderRadius: BorderRadius.circular(10.0),
-                                    child: Padding(
-                                      padding: const EdgeInsets.all(12.0),
-                                      child: Row(
-                                        children: [
-                                          // Accent circle indicator
-                                          Container(
-                                            width: 8.0,
-                                            height: 8.0,
-                                            decoration: const BoxDecoration(
-                                              color: Color(0xFF2EC4B6),
-                                              shape: BoxShape.circle,
+                                    child: InkWell(
+                                      onTap: () {
+                                        if (widget.mode == AppMode.anime) {
+                                          widget.navigationState.selectAnime(notif['id']);
+                                        } else if (widget.mode == AppMode.manga) {
+                                          widget.navigationState.selectManga(notif['id'].toString());
+                                        } else {
+                                          widget.navigationState.selectMovie('series:${notif['id']}');
+                                        }
+                                      },
+                                      borderRadius: BorderRadius.circular(10.0),
+                                      child: Padding(
+                                        padding: const EdgeInsets.all(12.0),
+                                        child: Row(
+                                          children: [
+                                            // Accent circle indicator
+                                            Container(
+                                              width: 8.0,
+                                              height: 8.0,
+                                              decoration: const BoxDecoration(
+                                                color: Color(0xFF2EC4B6),
+                                                shape: BoxShape.circle,
+                                              ),
                                             ),
-                                          ),
-                                          const SizedBox(width: 12.0),
+                                            const SizedBox(width: 12.0),
 
-                                          // Cover Art
-                                          ClipRRect(
-                                            borderRadius: BorderRadius.circular(6.0),
-                                            child: SizedBox(
-                                              width: 44.0,
-                                              height: 60.0,
-                                              child: coverUrl.isNotEmpty
-                                                  ? Image.network(
-                                                      coverUrl,
-                                                      fit: BoxFit.cover,
-                                                      errorBuilder: (context, error, stackTrace) =>
-                                                          Container(color: Colors.grey[950]),
-                                                    )
-                                                  : Container(color: Colors.grey[950]),
+                                            // Cover Art
+                                            ClipRRect(
+                                              borderRadius: BorderRadius.circular(6.0),
+                                              child: SizedBox(
+                                                width: 44.0,
+                                                height: 60.0,
+                                                child: coverUrl.isNotEmpty
+                                                    ? CachedNetworkImage(
+                                                        imageUrl: coverUrl,
+                                                        fit: BoxFit.cover,
+                                                        memCacheWidth: 100,
+                                                        placeholder: (context, url) => Container(color: Colors.grey[950]),
+                                                        errorWidget: (context, error, stackTrace) =>
+                                                            Container(color: Colors.grey[950]),
+                                                      )
+                                                    : Container(color: Colors.grey[950]),
+                                              ),
                                             ),
-                                          ),
-                                          const SizedBox(width: 16.0),
+                                            const SizedBox(width: 16.0),
 
-                                          // Text details
-                                          Expanded(
-                                            child: Column(
-                                              crossAxisAlignment: CrossAxisAlignment.start,
-                                              children: [
-                                                Text(
-                                                  title,
-                                                  maxLines: 1,
-                                                  overflow: TextOverflow.ellipsis,
-                                                  style: const TextStyle(
-                                                    color: Colors.white,
-                                                    fontWeight: FontWeight.bold,
-                                                    fontSize: 14.0,
-                                                    fontFamily: 'Outfit',
-                                                  ),
-                                                ),
-                                                const SizedBox(height: 4.0),
-                                                Text(
-                                                  message,
-                                                  style: const TextStyle(
-                                                    color: Color(0xFF2EC4B6),
-                                                    fontWeight: FontWeight.w600,
-                                                    fontSize: 12.5,
-                                                    fontFamily: 'Outfit',
-                                                  ),
-                                                ),
-                                                if (status.isNotEmpty) ...[
-                                                  const SizedBox(height: 4.0),
+                                            // Text details
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment: CrossAxisAlignment.start,
+                                                children: [
                                                   Text(
-                                                    'Status: ${status.replaceAll('_', ' ')}',
+                                                    title,
+                                                    maxLines: 1,
+                                                    overflow: TextOverflow.ellipsis,
                                                     style: const TextStyle(
-                                                      color: Colors.white38,
-                                                      fontSize: 10.5,
+                                                      color: Colors.white,
+                                                      fontWeight: FontWeight.bold,
+                                                      fontSize: 14.0,
                                                       fontFamily: 'Outfit',
                                                     ),
                                                   ),
+                                                  const SizedBox(height: 4.0),
+                                                  Text(
+                                                    message,
+                                                    style: const TextStyle(
+                                                      color: Color(0xFF2EC4B6),
+                                                      fontWeight: FontWeight.w600,
+                                                      fontSize: 12.5,
+                                                      fontFamily: 'Outfit',
+                                                    ),
+                                                  ),
+                                                  if (status.isNotEmpty) ...[
+                                                    const SizedBox(height: 4.0),
+                                                    Text(
+                                                      'Status: ${status.replaceAll('_', ' ')}',
+                                                      style: const TextStyle(
+                                                        color: Colors.white38,
+                                                        fontSize: 10.5,
+                                                        fontFamily: 'Outfit',
+                                                      ),
+                                                    ),
+                                                  ],
                                                 ],
-                                              ],
+                                              ),
                                             ),
-                                          ),
 
-                                          const Icon(
-                                            Icons.chevron_right,
-                                            color: Colors.white30,
-                                            size: 20.0,
-                                          ),
-                                        ],
+                                            const Icon(
+                                              Icons.chevron_right,
+                                              color: Colors.white30,
+                                              size: 20.0,
+                                            ),
+                                          ],
+                                        ),
                                       ),
                                     ),
                                   ),
