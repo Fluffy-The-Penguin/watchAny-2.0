@@ -618,8 +618,13 @@ class LibraryState extends ChangeNotifier {
           }
         }
         if (importedItems.isNotEmpty) {
-          _items = importedItems;
-          for (var item in _items) {
+          for (var item in importedItems) {
+            final idx = _items.indexWhere((x) => x.id == item.id && x.mode == item.mode);
+            if (idx != -1) {
+              _items[idx] = item;
+            } else {
+              _items.add(item);
+            }
             await _db.into(_db.libraryItems).insertOnConflictUpdate(
               db.LibraryItemsCompanion.insert(
                 id: item.id,

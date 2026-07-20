@@ -9,6 +9,7 @@ import '../state/library_state.dart';
 import '../state/user_profile_state.dart';
 import 'backup_service.dart';
 import 'download_service.dart';
+import 'extension_service.dart';
 
 enum SyncStatus {
   idle,
@@ -218,31 +219,7 @@ class CloudSyncService extends ChangeNotifier {
     _lastErrorMessage = null;
 
     try {
-      // 1. Build local state payload
-      final localPayload = await _buildLocalSyncPayload();
-
-      // 2. Offload JSON encoding to isolate thread to keep UI completely responsive
-      final pushBody = await compute(_encodeSyncPayload, localPayload);
-
-      // 3. Push local state to cloud server
-      final pushResponse = await http
-          .post(
-            Uri.parse('$_serverUrl/api/sync/push'),
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': 'Bearer $_authToken',
-            },
-            body: pushBody,
-          )
-          .timeout(const Duration(seconds: 25));
-
-      if (pushResponse.statusCode == 401 || pushResponse.statusCode == 403) {
-        _lastErrorMessage = 'Session expired. Please log in again.';
-        await logout();
-        return false;
-      }
-
-      // 4. Pull cloud state from server
+      // 1. Pull cloud state from server FIRST so fresh devices restore cloud backup before pushing
       final pullResponse = await http
           .get(
             Uri.parse('$_serverUrl/api/sync/pull'),
@@ -252,12 +229,36 @@ class CloudSyncService extends ChangeNotifier {
           )
           .timeout(const Duration(seconds: 25));
 
+      if (pullResponse.statusCode == 401 || pullResponse.statusCode == 403) {
+        _lastErrorMessage = 'Session expired. Please log in again.';
+        await logout();
+        return false;
+      }
+
       if (pullResponse.statusCode == 200) {
         final data = jsonDecode(pullResponse.body);
         if (data['exists'] == true && data['syncPayload'] != null) {
           await _applyCloudSyncPayload(data['syncPayload']);
         }
       }
+
+      // 2. Build local state payload (including newly restored items)
+      final localPayload = await _buildLocalSyncPayload();
+
+      // 3. Offload JSON encoding to isolate thread to keep UI completely responsive
+      final pushBody = await compute(_encodeSyncPayload, localPayload);
+
+      // 4. Push merged state to cloud server
+      await http
+          .post(
+            Uri.parse('$_serverUrl/api/sync/push'),
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer $_authToken',
+            },
+            body: pushBody,
+          )
+          .timeout(const Duration(seconds: 25));
 
       final now = DateTime.now();
       _lastSyncTime = now;
@@ -325,6 +326,7 @@ class CloudSyncService extends ChangeNotifier {
 
     final libraryState = LibraryState();
     final userProfile = UserProfileState();
+    final extService = ExtensionService();
 
     // Collect settings keys (Exclude internal staging, setup, and cache keys)
     const excludeKeys = {
@@ -356,6 +358,11 @@ class CloudSyncService extends ChangeNotifier {
       'timestamp': DateTime.now().millisecondsSinceEpoch,
       'library_items': libraryState.items.map((e) => e.toJson()).toList(),
       'library_categories': libraryState.categories.map((e) => e.toJson()).toList(),
+      'anime_cache': _cleanMapForJson(libraryState.animeCache),
+      'manga_cache': _cleanMapForJson(libraryState.mangaCache),
+      'movie_cache': _cleanMapForJson(libraryState.movieCache),
+      'extension_repos': extService.repos.map((e) => e.toJson()).toList(),
+      'installed_extensions': extService.extensions.map((e) => e.toJson()).toList(),
       'profile': {
         'displayName': userProfile.displayName,
         'userTitle': userProfile.userTitle,
@@ -401,7 +408,15 @@ class CloudSyncService extends ChangeNotifier {
         }
       }
 
-      // 2. Restore Extension Repositories & Extension Lists in SharedPreferences
+      // 2. Restore Extension Repositories & Extension Lists
+      if (data['extension_repos'] is List || data['installed_extensions'] is List) {
+        await ExtensionService().importCloudData(
+          reposJson: data['extension_repos'] as List<dynamic>?,
+          extensionsJson: data['installed_extensions'] as List<dynamic>?,
+        );
+      }
+
+      // 3. Restore Extension Repositories & Extension Lists in SharedPreferences
       if (data['settings'] is Map) {
         final settings = Map<String, dynamic>.from(data['settings']);
         const skipKeys = {
@@ -440,8 +455,8 @@ class CloudSyncService extends ChangeNotifier {
         }
       }
 
-      // 3. Restore Library Items & Categories
-      if (data['library_items'] is List || data['library_categories'] is List) {
+      // 4. Restore Library Items, Categories, and Media Caches
+      if (data['library_items'] is List || data['library_categories'] is List || data['anime_cache'] is Map || data['manga_cache'] is Map) {
         await LibraryState().importLibraryData(
           itemsJson: data['library_items'] as List<dynamic>?,
           categoriesJson: data['library_categories'] as List<dynamic>?,

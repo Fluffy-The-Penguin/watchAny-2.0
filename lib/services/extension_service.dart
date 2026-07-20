@@ -392,6 +392,36 @@ class ExtensionService extends ChangeNotifier {
     }
   }
 
+  Future<void> importCloudData({List<dynamic>? reposJson, List<dynamic>? extensionsJson}) async {
+    await init();
+    bool changed = false;
+
+    if (reposJson != null && reposJson.isNotEmpty) {
+      final cloudRepos = reposJson.map((r) => ExtensionRepo.fromJson(Map<String, dynamic>.from(r))).toList();
+      for (final cr in cloudRepos) {
+        if (cr.url.isNotEmpty && !repos.any((r) => r.url.toLowerCase() == cr.url.toLowerCase())) {
+          repos.add(cr);
+          changed = true;
+        }
+      }
+    }
+
+    if (extensionsJson != null && extensionsJson.isNotEmpty) {
+      final cloudExts = extensionsJson.map((e) => Extension.fromJson(Map<String, dynamic>.from(e))).toList();
+      for (final ce in cloudExts) {
+        if (ce.id.isNotEmpty && !extensions.any((e) => e.id == ce.id)) {
+          extensions.add(ce);
+          changed = true;
+        }
+      }
+    }
+
+    if (changed) {
+      await save();
+      unawaited(checkForUpdates());
+    }
+  }
+
   // Save current repos and extensions to disk
   Future<void> save() async {
     try {
