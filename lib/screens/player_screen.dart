@@ -1373,7 +1373,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
         // 1. Desktop custom controls theme configuration
     final desktopTheme = MaterialDesktopVideoControlsTheme(
       normal: MaterialDesktopVideoControlsThemeData(
-        toggleFullscreenOnDoublePress: false,
+        toggleFullscreenOnDoublePress: true,
         keyboardShortcuts: const {},
         displaySeekBar: false,
         buttonBarHeight: 88.0,
@@ -1514,7 +1514,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
         ],
       ),
       fullscreen: MaterialDesktopVideoControlsThemeData(
-        toggleFullscreenOnDoublePress: false,
+        toggleFullscreenOnDoublePress: true,
         keyboardShortcuts: const {},
         displaySeekBar: false,
         buttonBarHeight: 88.0,
@@ -1814,19 +1814,6 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
                         fit: StackFit.expand,
                         children: [
                           controlsWidget,
-                          // Double tap seek detector in middle region (placed ON TOP of controlsWidget)
-                          Positioned(
-                            top: 60.0,
-                            bottom: 88.0,
-                            left: 0.0,
-                            right: 0.0,
-                            child: _DoubleTapSeekDetector(
-                              player: player,
-                              resetControlsTimer: _resetHideControlsTimer,
-                              performSeekOffset: _performSeekOffset,
-                              toggleFullscreen: _toggleFullscreen,
-                            ),
-                          ),
                         ListenableBuilder(
                           listenable: PlayerState(),
                           builder: (context, _) {
