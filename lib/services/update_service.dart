@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:crypto/crypto.dart';
@@ -68,7 +69,7 @@ class UpdateService extends ChangeNotifier {
   factory UpdateService() => _instance;
   UpdateService._internal();
 
-  static const String currentVersion = '2.0.72';
+  static const String currentVersion = '2.0.73';
   
   // GitHub Releases API Endpoint
   static const String gitHubReleasesUrl = 'https://api.github.com/repos/Fluffy-The-Penguin/watchAny-2.0/releases/latest';
@@ -125,35 +126,55 @@ class UpdateService extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final response = await http.get(
-        Uri.parse(gitHubReleasesUrl),
-        headers: const {'User-Agent': 'watchAny-Updater'},
-      ).timeout(const Duration(seconds: 8));
+      final headers = <String, String>{
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) watchAny-App/$currentVersion',
+        'Accept': 'application/vnd.github.v3+json',
+      };
 
-      if (response.statusCode == 200) {
-        final json = jsonDecode(response.body);
-        _latestUpdate = UpdateInfo.fromJson(json);
-        if (_latestUpdate!.downloadUrl.isEmpty) {
-          final ext = Platform.isAndroid ? 'APK' : 'executable (.exe)';
-          throw Exception('No release asset ($ext) found in the latest release.');
-        }
-      } else {
-        throw Exception('GitHub API returned status code: ${response.statusCode}');
+      http.Response? response;
+      try {
+        response = await http.get(
+          Uri.parse(gitHubReleasesUrl),
+          headers: headers,
+        ).timeout(const Duration(seconds: 10));
+      } catch (_) {
+        // Fallback: Releases list endpoint if latest endpoint fails/redirects
+        response = await http.get(
+          Uri.parse('https://api.github.com/repos/Fluffy-The-Penguin/watchAny-2.0/releases'),
+          headers: headers,
+        ).timeout(const Duration(seconds: 10));
       }
+
+      if (response != null && response.statusCode == 200) {
+        final decoded = jsonDecode(response.body);
+        final json = decoded is List ? (decoded.isNotEmpty ? decoded.first : null) : decoded;
+
+        if (json != null && json is Map<String, dynamic>) {
+          final info = UpdateInfo.fromJson(json);
+          if (info.downloadUrl.isNotEmpty) {
+            _latestUpdate = info;
+            _error = null;
+          } else {
+            final ext = Platform.isAndroid ? 'APK' : 'executable (.exe)';
+            _error = 'Latest release found (${info.version}) but no $ext download asset was available.';
+          }
+        } else {
+          _error = 'Unable to parse update details from release server.';
+        }
+      } else if (response != null && response.statusCode == 403) {
+        _error = 'Update check rate-limited by GitHub. Please try again in a few minutes.';
+      } else {
+        _error = 'Update server responded with status code: ${response?.statusCode ?? 'Unknown'}';
+      }
+    } on SocketException {
+      _error = 'Unable to check for updates: No internet connection or host unreachable.';
+      _latestUpdate = null;
+    } on TimeoutException {
+      _error = 'Update check timed out. Please check your internet connection.';
+      _latestUpdate = null;
     } catch (e) {
-      // Fallback mock update in case of failure
-      _error = 'Live check failed ($e). Showing fallback updates.';
-      _latestUpdate = UpdateInfo(
-        version: 'v2.0.39',
-        changelog: '• Fixed startup update dialog stretched layout width on desktop\n'
-            '• Restored transparent floating logo startup animation\n'
-            '• Fixed Hentai episode counts (e.g. Natsuzuma)\n'
-            '• Vertically centered search bar layouts\n'
-            '• Added global bouncy scroll physics (BouncingScrollPhysics)',
-        downloadUrl: Platform.isAndroid 
-            ? 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.39/app-arm64-v8a-release.apk'
-            : 'https://github.com/Fluffy-The-Penguin/watchAny-2.0/releases/download/v2.0.39/watchany_setup.exe',
-      );
+      _error = 'Unable to check for updates: ${e.toString().replaceAll(RegExp(r'^Exception:\s*'), '')}';
+      _latestUpdate = null;
     } finally {
       _isChecking = false;
       _hasChecked = true;
@@ -173,7 +194,7 @@ class UpdateService extends ChangeNotifier {
     try {
       final url = _latestUpdate!.downloadUrl;
       final request = http.Request('GET', Uri.parse(url));
-      request.headers['User-Agent'] = 'watchAny-Updater';
+      request.headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) watchAny-App/$currentVersion';
       
       final response = await http.Client().send(request);
       final contentLength = response.contentLength ?? 0;
@@ -216,7 +237,7 @@ class UpdateService extends ChangeNotifier {
       try {
         final checksumResp = await http.get(
           Uri.parse(checksumUrl),
-          headers: const {'User-Agent': 'watchAny-Updater'},
+          headers: {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) watchAny-App/$currentVersion'},
         ).timeout(const Duration(seconds: 8));
         if (checksumResp.statusCode == 200) {
           final expectedHash = _extractHash(

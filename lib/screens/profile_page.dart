@@ -10,6 +10,7 @@ import '../state/navigation_state.dart';
 import '../state/player_state.dart';
 import '../state/user_profile_state.dart';
 import '../services/download_service.dart';
+import '../services/cloud_sync_service.dart';
 
 class ProfilePage extends StatefulWidget {
   final NavigationState navigationState;
@@ -118,6 +119,7 @@ class _ProfilePageState extends State<ProfilePage> with SingleTickerProviderStat
   void _showEditProfileDialog() {
     final userProfile = UserProfileState();
     final nameCtrl = TextEditingController(text: userProfile.displayName);
+    final titleCtrl = TextEditingController(text: userProfile.userTitle);
     final bioCtrl = TextEditingController(text: userProfile.bio);
     final quoteCtrl = TextEditingController(text: userProfile.favoriteQuote);
     final avatarUrlCtrl = TextEditingController(text: userProfile.customAvatarUrl);
@@ -402,6 +404,7 @@ class _ProfilePageState extends State<ProfilePage> with SingleTickerProviderStat
                             final navigator = Navigator.of(context);
                             await userProfile.saveProfile(
                               name: nameCtrl.text.trim().isNotEmpty ? nameCtrl.text.trim() : 'watchAny Explorer',
+                              userTitle: titleCtrl.text.trim().isNotEmpty ? titleCtrl.text.trim() : 'Otaku & Cinephile',
                               bio: bioCtrl.text.trim(),
                               quote: quoteCtrl.text.trim(),
                               avatarIdx: selectedAvatar,
@@ -535,9 +538,8 @@ class _ProfilePageState extends State<ProfilePage> with SingleTickerProviderStat
       
       int count = 0;
       for (var record in _watchHistory) {
-        final ts = record['timestamp'] ?? 0;
-        if (ts > 0) {
-          final recDate = DateTime.fromMillisecondsSinceEpoch(ts is int ? ts : int.parse(ts.toString()));
+        final recDate = _parseTimestamp(record['timestamp']);
+        if (recDate != null) {
           if (recDate.year == date.year && recDate.month == date.month && recDate.day == date.day) {
             count++;
           }
@@ -740,6 +742,24 @@ class _ProfilePageState extends State<ProfilePage> with SingleTickerProviderStat
                       ),
                     ),
                     const SizedBox(width: 10),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 3.0),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFA855F7).withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(12.0),
+                        border: Border.all(color: const Color(0xFFA855F7).withValues(alpha: 0.3)),
+                      ),
+                      child: Text(
+                        userProfile.userTitle,
+                        style: const TextStyle(
+                          color: Color(0xFFA855F7),
+                          fontSize: 11.0,
+                          fontWeight: FontWeight.bold,
+                          fontFamily: 'Outfit',
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 3.0),
                       decoration: BoxDecoration(
@@ -1549,11 +1569,17 @@ class _ProfilePageState extends State<ProfilePage> with SingleTickerProviderStat
                         ),
                         const SizedBox(height: 24.0),
 
-                        // 1. Top watchAny Profile Header
-                        _buildWatchAnyProfileHeader(stats),
                         const SizedBox(height: 24.0),
 
-                        // 2. Highlights Metrics Grid
+                        // 1. Top watchAny Profile Header
+                        _buildWatchAnyProfileHeader(stats),
+                        const SizedBox(height: 28.0),
+
+                        // 2. Favorite Media Showcase ("Hall of Fame")
+                        _buildFavoriteShowcaseSection(),
+                        const SizedBox(height: 28.0),
+
+                        // 3. Highlights Metrics Grid
                         if (isLargeScreen || isMediumScreen)
                           Row(
                             children: [
@@ -1616,9 +1642,13 @@ class _ProfilePageState extends State<ProfilePage> with SingleTickerProviderStat
                               ),
                             ],
                           ),
-                        const SizedBox(height: 24.0),
+                        const SizedBox(height: 28.0),
 
-                        // 3. Activity & Ratings Interactive Graphs
+                        // 4. Continue Watching / Recent Activity Carousel
+                        _buildRecentWatchHistoryCarousel(),
+                        const SizedBox(height: 28.0),
+
+                        // 5. Activity & Ratings Interactive Graphs
                         if (isLargeScreen)
                           Row(
                             children: [
@@ -1635,9 +1665,9 @@ class _ProfilePageState extends State<ProfilePage> with SingleTickerProviderStat
                               _buildRatingsGraphCard(ratingsDist),
                             ],
                           ),
-                        const SizedBox(height: 24.0),
+                        const SizedBox(height: 28.0),
 
-                        // 4. Media Breakdown Cards (Anime, Manga Categories, Movies)
+                        // 6. Media Breakdown & Top Genre Preferences
                         if (isLargeScreen)
                           Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1719,9 +1749,17 @@ class _ProfilePageState extends State<ProfilePage> with SingleTickerProviderStat
                               ),
                             ],
                           ),
+                        const SizedBox(height: 28.0),
+
+                        // 7. Genre Preferences
+                        _buildGenreBreakdownSection(),
+                        const SizedBox(height: 28.0),
+
+                        // 8. Milestones & Achievements
+                        _buildAchievementsSection(stats),
                         const SizedBox(height: 32.0),
 
-                        // 5. Cloud Integration Section Header
+                        // 9. Cloud Integration Section Header
                         const Row(
                           children: [
                             Icon(Icons.cloud_sync, color: Color(0xFF3DB4F2), size: 22),
@@ -1737,7 +1775,10 @@ class _ProfilePageState extends State<ProfilePage> with SingleTickerProviderStat
                             ),
                           ],
                         ),
-                        const SizedBox(height: 12.0),
+                        const SizedBox(height: 14.0),
+
+                        // watchAny Native Cloud Account Sync
+                        _buildCloudSyncSection(),
 
                         // AniList Sub-Section below
                         if (authState.isLoggedIn)
@@ -1755,6 +1796,1526 @@ class _ProfilePageState extends State<ProfilePage> with SingleTickerProviderStat
           ),
         );
       },
+    );
+  }
+
+  // --- watchAny Cloud Account & Sync Widgets ---
+
+  Widget _buildCloudSyncSection() {
+    return ListenableBuilder(
+      listenable: CloudSyncService(),
+      builder: (context, _) {
+        final syncService = CloudSyncService();
+        final isLoggedIn = syncService.isLoggedIn;
+        final isSyncing = syncService.isSyncing;
+        final lastTime = syncService.lastSyncTime;
+
+        String syncTimeText = 'Never synced';
+        if (lastTime != null) {
+          final diff = DateTime.now().difference(lastTime);
+          if (diff.inSeconds < 60) {
+            syncTimeText = 'Just now';
+          } else if (diff.inMinutes < 60) {
+            syncTimeText = '${diff.inMinutes}m ago';
+          } else if (diff.inHours < 24) {
+            syncTimeText = '${diff.inHours}h ago';
+          } else {
+            syncTimeText = '${diff.inDays}d ago';
+          }
+        }
+
+        return Container(
+          margin: const EdgeInsets.only(bottom: 24.0),
+          padding: const EdgeInsets.all(20.0),
+          decoration: BoxDecoration(
+            color: const Color(0xFF141416),
+            borderRadius: BorderRadius.circular(16.0),
+            border: Border.all(
+              color: isLoggedIn ? const Color(0xFF2EC4B6).withValues(alpha: 0.3) : Colors.white12,
+              width: 1.5,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: (isLoggedIn ? const Color(0xFF2EC4B6) : const Color(0xFF3B82F6)).withValues(alpha: 0.08),
+                blurRadius: 16,
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: (isLoggedIn ? const Color(0xFF2EC4B6) : const Color(0xFF3B82F6)).withValues(alpha: 0.15),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      Icons.cloud_sync_rounded,
+                      color: isLoggedIn ? const Color(0xFF2EC4B6) : const Color(0xFF3B82F6),
+                      size: 22,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          isLoggedIn ? 'watchAny Cloud Account (Synced)' : 'watchAny Cloud Account & Sync',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            fontFamily: 'Outfit',
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          isLoggedIn
+                              ? 'Connected as ${syncService.userEmail ?? syncService.username ?? 'Cloud User'}'
+                              : '1-Click Stremio-style sync across PC, Mobile, and Android TV',
+                          style: const TextStyle(
+                            color: Colors.white54,
+                            fontSize: 12,
+                            fontFamily: 'Outfit',
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (isLoggedIn)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: syncService.status == SyncStatus.error
+                            ? Colors.red.withValues(alpha: 0.2)
+                            : (isSyncing
+                                ? Colors.amber.withValues(alpha: 0.2)
+                                : const Color(0xFF2EC4B6).withValues(alpha: 0.2)),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: syncService.status == SyncStatus.error
+                              ? Colors.redAccent
+                              : (isSyncing ? Colors.amber : const Color(0xFF2EC4B6)),
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (isSyncing)
+                            const SizedBox(
+                              width: 10,
+                              height: 10,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.amber),
+                            )
+                          else
+                            Icon(
+                              syncService.status == SyncStatus.error ? Icons.error_outline : Icons.check_circle_rounded,
+                              size: 12,
+                              color: syncService.status == SyncStatus.error ? Colors.redAccent : const Color(0xFF2EC4B6),
+                            ),
+                          const SizedBox(width: 6),
+                          Text(
+                            isSyncing
+                                ? 'Syncing...'
+                                : (syncService.status == SyncStatus.error ? 'Sync Error' : 'Synced'),
+                            style: TextStyle(
+                              color: syncService.status == SyncStatus.error
+                                  ? Colors.redAccent
+                                  : (isSyncing ? Colors.amber : const Color(0xFF2EC4B6)),
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              fontFamily: 'Outfit',
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              if (syncService.lastErrorMessage != null)
+                Container(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.red.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.redAccent.withValues(alpha: 0.3)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.warning_amber_rounded, color: Colors.redAccent, size: 16),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          syncService.lastErrorMessage!,
+                          style: const TextStyle(color: Colors.white70, fontSize: 11, fontFamily: 'Outfit'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              if (isLoggedIn)
+                Row(
+                  children: [
+                    ElevatedButton.icon(
+                      onPressed: isSyncing ? null : () => syncService.syncNow(),
+                      icon: isSyncing
+                          ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                          : const Icon(Icons.sync_rounded, size: 16),
+                      label: const Text('Sync Now', style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 12)),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF2EC4B6),
+                        foregroundColor: Colors.black,
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    OutlinedButton.icon(
+                      onPressed: () => _showAuthDialog(context, initialTab: 2),
+                      icon: const Icon(Icons.settings_outlined, size: 16, color: Colors.white70),
+                      label: const Text('Server Settings', style: TextStyle(color: Colors.white70, fontFamily: 'Outfit', fontSize: 12)),
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: Colors.white24),
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                    ),
+                    const Spacer(),
+                    Text(
+                      'Last sync: $syncTimeText',
+                      style: const TextStyle(color: Colors.white38, fontSize: 11, fontFamily: 'Outfit'),
+                    ),
+                    const SizedBox(width: 12),
+                    TextButton(
+                      onPressed: () => syncService.logout(),
+                      child: const Text('Log Out', style: TextStyle(color: Colors.redAccent, fontSize: 12, fontFamily: 'Outfit')),
+                    ),
+                  ],
+                )
+              else
+                Row(
+                  children: [
+                    ElevatedButton.icon(
+                      onPressed: () => _showAuthDialog(context, initialTab: 0),
+                      icon: const Icon(Icons.login_rounded, size: 16),
+                      label: const Text('Log In / Create Account', style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 13)),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF3B82F6),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    OutlinedButton.icon(
+                      onPressed: () => _showAuthDialog(context, initialTab: 2),
+                      icon: const Icon(Icons.dns_rounded, size: 16, color: Colors.white70),
+                      label: const Text('Server URL', style: TextStyle(color: Colors.white70, fontFamily: 'Outfit', fontSize: 12)),
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: Colors.white24),
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                    ),
+                  ],
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _showAuthDialog(BuildContext context, {int initialTab = 0}) {
+    final syncService = CloudSyncService();
+    final loginUserCtrl = TextEditingController();
+    final loginPassCtrl = TextEditingController();
+
+    final regUserCtrl = TextEditingController();
+    final regEmailCtrl = TextEditingController();
+    final regPassCtrl = TextEditingController();
+    final regConfirmCtrl = TextEditingController();
+
+    final serverUrlCtrl = TextEditingController(text: syncService.serverUrl);
+
+    bool isSubmitting = false;
+    String? modalError;
+    bool showPass = false;
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return DefaultTabController(
+              length: 3,
+              initialIndex: initialTab,
+              child: Dialog(
+                backgroundColor: const Color(0xFF141416),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  side: BorderSide(color: Colors.white.withValues(alpha: 0.12)),
+                ),
+                child: Container(
+                  width: 460,
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.cloud_rounded, color: Color(0xFF3B82F6), size: 22),
+                          const SizedBox(width: 10),
+                          const Text(
+                            'watchAny Cloud Account',
+                            style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                          ),
+                          const Spacer(),
+                          IconButton(
+                            icon: const Icon(Icons.close, color: Colors.white54, size: 18),
+                            onPressed: () => Navigator.pop(context),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      const TabBar(
+                        indicatorColor: Color(0xFF3B82F6),
+                        labelColor: Colors.white,
+                        unselectedLabelColor: Colors.white38,
+                        labelStyle: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 13),
+                        tabs: [
+                          Tab(text: 'Log In'),
+                          Tab(text: 'Create Account'),
+                          Tab(text: 'Server Settings'),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      if (modalError != null)
+                        Container(
+                          margin: const EdgeInsets.only(bottom: 12),
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: Colors.red.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.redAccent.withValues(alpha: 0.4)),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.error_outline, color: Colors.redAccent, size: 16),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  modalError!,
+                                  style: const TextStyle(color: Colors.white, fontSize: 11, fontFamily: 'Outfit'),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      SizedBox(
+                        height: 280,
+                        child: TabBarView(
+                          children: [
+                            // 1. LOGIN TAB
+                            SingleChildScrollView(
+                              child: Column(
+                                children: [
+                                  TextField(
+                                    controller: loginUserCtrl,
+                                    style: const TextStyle(color: Colors.white, fontFamily: 'Outfit', fontSize: 13),
+                                    decoration: InputDecoration(
+                                      labelText: 'Email or Username',
+                                      labelStyle: const TextStyle(color: Colors.white54, fontFamily: 'Outfit'),
+                                      prefixIcon: const Icon(Icons.person_outline, color: Colors.white54, size: 18),
+                                      filled: true,
+                                      fillColor: Colors.white.withValues(alpha: 0.05),
+                                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  TextField(
+                                    controller: loginPassCtrl,
+                                    obscureText: !showPass,
+                                    style: const TextStyle(color: Colors.white, fontFamily: 'Outfit', fontSize: 13),
+                                    decoration: InputDecoration(
+                                      labelText: 'Password',
+                                      labelStyle: const TextStyle(color: Colors.white54, fontFamily: 'Outfit'),
+                                      prefixIcon: const Icon(Icons.lock_outline, color: Colors.white54, size: 18),
+                                      suffixIcon: IconButton(
+                                        icon: Icon(showPass ? Icons.visibility_off : Icons.visibility, color: Colors.white54, size: 18),
+                                        onPressed: () => setModalState(() => showPass = !showPass),
+                                      ),
+                                      filled: true,
+                                      fillColor: Colors.white.withValues(alpha: 0.05),
+                                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 20),
+                                  SizedBox(
+                                    width: double.infinity,
+                                    height: 44,
+                                    child: ElevatedButton(
+                                      onPressed: isSubmitting
+                                          ? null
+                                          : () async {
+                                              if (loginUserCtrl.text.trim().isEmpty || loginPassCtrl.text.isEmpty) {
+                                                setModalState(() => modalError = 'Please enter both username/email and password');
+                                                return;
+                                              }
+                                              setModalState(() {
+                                                isSubmitting = true;
+                                                modalError = null;
+                                              });
+
+                                              final success = await syncService.login(
+                                                serverUrl: serverUrlCtrl.text.trim(),
+                                                emailOrUsername: loginUserCtrl.text.trim(),
+                                                password: loginPassCtrl.text,
+                                              );
+
+                                              if (mounted) {
+                                                if (success) {
+                                                  Navigator.pop(context);
+                                                } else {
+                                                  setModalState(() {
+                                                    isSubmitting = false;
+                                                    modalError = syncService.lastErrorMessage ?? 'Login failed';
+                                                  });
+                                                }
+                                              }
+                                            },
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: const Color(0xFF3B82F6),
+                                        foregroundColor: Colors.white,
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                      ),
+                                      child: isSubmitting
+                                          ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                                          : const Text('Log In', style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 14)),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+
+                            // 2. REGISTER TAB
+                            SingleChildScrollView(
+                              child: Column(
+                                children: [
+                                  TextField(
+                                    controller: regUserCtrl,
+                                    style: const TextStyle(color: Colors.white, fontFamily: 'Outfit', fontSize: 13),
+                                    decoration: InputDecoration(
+                                      labelText: 'Username',
+                                      labelStyle: const TextStyle(color: Colors.white54, fontFamily: 'Outfit'),
+                                      prefixIcon: const Icon(Icons.person_outline, color: Colors.white54, size: 18),
+                                      filled: true,
+                                      fillColor: Colors.white.withValues(alpha: 0.05),
+                                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 10),
+                                  TextField(
+                                    controller: regEmailCtrl,
+                                    keyboardType: TextInputType.emailAddress,
+                                    style: const TextStyle(color: Colors.white, fontFamily: 'Outfit', fontSize: 13),
+                                    decoration: InputDecoration(
+                                      labelText: 'Email Address',
+                                      labelStyle: const TextStyle(color: Colors.white54, fontFamily: 'Outfit'),
+                                      prefixIcon: const Icon(Icons.email_outlined, color: Colors.white54, size: 18),
+                                      filled: true,
+                                      fillColor: Colors.white.withValues(alpha: 0.05),
+                                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 10),
+                                  TextField(
+                                    controller: regPassCtrl,
+                                    obscureText: !showPass,
+                                    style: const TextStyle(color: Colors.white, fontFamily: 'Outfit', fontSize: 13),
+                                    decoration: InputDecoration(
+                                      labelText: 'Password (min 6 chars)',
+                                      labelStyle: const TextStyle(color: Colors.white54, fontFamily: 'Outfit'),
+                                      prefixIcon: const Icon(Icons.lock_outline, color: Colors.white54, size: 18),
+                                      filled: true,
+                                      fillColor: Colors.white.withValues(alpha: 0.05),
+                                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 10),
+                                  TextField(
+                                    controller: regConfirmCtrl,
+                                    obscureText: !showPass,
+                                    style: const TextStyle(color: Colors.white, fontFamily: 'Outfit', fontSize: 13),
+                                    decoration: InputDecoration(
+                                      labelText: 'Confirm Password',
+                                      labelStyle: const TextStyle(color: Colors.white54, fontFamily: 'Outfit'),
+                                      prefixIcon: const Icon(Icons.lock_clock_outlined, color: Colors.white54, size: 18),
+                                      filled: true,
+                                      fillColor: Colors.white.withValues(alpha: 0.05),
+                                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 14),
+                                  SizedBox(
+                                    width: double.infinity,
+                                    height: 44,
+                                    child: ElevatedButton(
+                                      onPressed: isSubmitting
+                                          ? null
+                                          : () async {
+                                              if (regUserCtrl.text.trim().length < 3) {
+                                                setModalState(() => modalError = 'Username must be at least 3 characters');
+                                                return;
+                                              }
+                                              if (!regEmailCtrl.text.contains('@')) {
+                                                setModalState(() => modalError = 'Please enter a valid email address');
+                                                return;
+                                              }
+                                              if (regPassCtrl.text.length < 6) {
+                                                setModalState(() => modalError = 'Password must be at least 6 characters');
+                                                return;
+                                              }
+                                              if (regPassCtrl.text != regConfirmCtrl.text) {
+                                                setModalState(() => modalError = 'Passwords do not match');
+                                                return;
+                                              }
+                                              setModalState(() {
+                                                isSubmitting = true;
+                                                modalError = null;
+                                              });
+
+                                              final success = await syncService.register(
+                                                serverUrl: serverUrlCtrl.text.trim(),
+                                                username: regUserCtrl.text.trim(),
+                                                email: regEmailCtrl.text.trim(),
+                                                password: regPassCtrl.text,
+                                              );
+
+                                              if (mounted) {
+                                                if (success) {
+                                                  Navigator.pop(context);
+                                                } else {
+                                                  setModalState(() {
+                                                    isSubmitting = false;
+                                                    modalError = syncService.lastErrorMessage ?? 'Registration failed';
+                                                  });
+                                                }
+                                              }
+                                            },
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: const Color(0xFF2EC4B6),
+                                        foregroundColor: Colors.black,
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                      ),
+                                      child: isSubmitting
+                                          ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
+                                          : const Text('Create Account', style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 14)),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+
+                            // 3. SERVER SETTINGS TAB
+                            SingleChildScrollView(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'Cloud Sync Server Address:',
+                                    style: TextStyle(color: Colors.white70, fontSize: 12, fontFamily: 'Outfit'),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  TextField(
+                                    controller: serverUrlCtrl,
+                                    style: const TextStyle(color: Colors.white, fontFamily: 'Outfit', fontSize: 13),
+                                    decoration: InputDecoration(
+                                      labelText: 'Server URL',
+                                      hintText: CloudSyncService.defaultServerUrl,
+                                      labelStyle: const TextStyle(color: Colors.white54, fontFamily: 'Outfit'),
+                                      prefixIcon: const Icon(Icons.dns_outlined, color: Colors.white54, size: 18),
+                                      filled: true,
+                                      fillColor: Colors.white.withValues(alpha: 0.05),
+                                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 10),
+                                  TextButton.icon(
+                                    onPressed: () {
+                                      serverUrlCtrl.text = CloudSyncService.defaultServerUrl;
+                                    },
+                                    icon: const Icon(Icons.restore, size: 14, color: Color(0xFF3B82F6)),
+                                    label: const Text('Reset to Default Server (fi10.bot-hosting.net)', style: TextStyle(color: Color(0xFF3B82F6), fontSize: 12, fontFamily: 'Outfit')),
+                                  ),
+                                  const SizedBox(height: 16),
+                                  SizedBox(
+                                    width: double.infinity,
+                                    height: 44,
+                                    child: ElevatedButton(
+                                      onPressed: () {
+                                        syncService.setServerUrl(serverUrlCtrl.text.trim());
+                                        Navigator.pop(context);
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          SnackBar(
+                                            content: Text('Server URL updated to ${syncService.serverUrl}'),
+                                            backgroundColor: const Color(0xFF2EC4B6),
+                                          ),
+                                        );
+                                      },
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: Colors.white.withValues(alpha: 0.1),
+                                        foregroundColor: Colors.white,
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                      ),
+                                      child: const Text('Save Server URL', style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 13)),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+  // --- Media Parsing Helpers ---
+  DateTime? _parseTimestamp(dynamic ts) {
+    if (ts == null) return null;
+    if (ts is int) {
+      return DateTime.fromMillisecondsSinceEpoch(ts);
+    }
+    if (ts is String) {
+      final asInt = int.tryParse(ts);
+      if (asInt != null) {
+        return DateTime.fromMillisecondsSinceEpoch(asInt);
+      }
+      return DateTime.tryParse(ts);
+    }
+    return null;
+  }
+
+  String _parseTitleValue(dynamic rawTitle) {
+    if (rawTitle == null) return 'Untitled';
+    if (rawTitle is Map) {
+      final t = (rawTitle['userPreferred'] ?? rawTitle['english'] ?? rawTitle['romaji'] ?? rawTitle['native'])?.toString().trim();
+      if (t != null && t.isNotEmpty) return t;
+    } else {
+      final t = rawTitle.toString().trim();
+      if (t.isNotEmpty && !t.startsWith('{')) return t;
+    }
+    return 'Untitled';
+  }
+
+  String _getMediaTitle(dynamic item) {
+    if (item == null) return 'Untitled';
+    if (item is Map) {
+      final media = item['media'] is Map ? item['media'] as Map : null;
+      if (media != null && media['title'] != null) {
+        final t = _parseTitleValue(media['title']);
+        if (t != 'Untitled' && t.isNotEmpty) return t;
+      }
+      final rawTitle = item['title'];
+      if (rawTitle != null) {
+        final t = _parseTitleValue(rawTitle);
+        if (t != 'Untitled' && t.isNotEmpty) return t;
+      }
+      if (item['name'] != null && item['name'].toString().trim().isNotEmpty) {
+        return item['name'].toString().trim();
+      }
+
+      // Fallback: Lookup in LibraryState caches by ID
+      final idRaw = item['id'] ?? item['anilistId'] ?? item['movieId'];
+      if (idRaw != null) {
+        final idStr = idRaw.toString();
+        final idInt = int.tryParse(idStr);
+
+        if (idInt != null && LibraryState().animeCache.containsKey(idInt)) {
+          final cached = LibraryState().animeCache[idInt] ?? {};
+          final t = _parseTitleValue(cached['title']);
+          if (t != 'Untitled' && t.isNotEmpty) return t;
+        }
+
+        if (idInt != null && LibraryState().mangaCache.containsKey(idInt)) {
+          final cached = LibraryState().mangaCache[idInt] ?? {};
+          final t = _parseTitleValue(cached['title']);
+          if (t != 'Untitled' && t.isNotEmpty) return t;
+        }
+
+        if (LibraryState().movieCache.containsKey(idStr)) {
+          final cached = LibraryState().movieCache[idStr] ?? {};
+          final t = _parseTitleValue(cached['title']);
+          if (t != 'Untitled' && t.isNotEmpty) return t;
+        }
+      }
+    }
+    final str = item.toString().trim();
+    if (str.isEmpty || str.startsWith('{')) return 'Untitled';
+    return str;
+  }
+
+  String _parseCoverValue(dynamic rawCover) {
+    if (rawCover == null) return '';
+    if (rawCover is Map) {
+      final c = (rawCover['extraLarge'] ?? rawCover['large'] ?? rawCover['medium'])?.toString().trim();
+      if (c != null && c.isNotEmpty) return c;
+    } else {
+      final c = rawCover.toString().trim();
+      if (c.isNotEmpty && !c.startsWith('{')) return c;
+    }
+    return '';
+  }
+
+  String _getMediaCover(dynamic item) {
+    if (item == null) return '';
+    if (item is Map) {
+      final media = item['media'] is Map ? item['media'] as Map : null;
+      if (media != null) {
+        if (media['coverImage'] != null) {
+          final c = _parseCoverValue(media['coverImage']);
+          if (c.isNotEmpty) return c;
+        }
+        if (media['bannerImage'] != null && media['bannerImage'].toString().isNotEmpty) {
+          return media['bannerImage'].toString();
+        }
+      }
+      final rawCover = item['cover'] ?? item['coverUrl'] ?? item['coverImage'] ?? item['posterPath'] ?? item['poster'] ?? item['thumbnailUrl'];
+      if (rawCover != null) {
+        final c = _parseCoverValue(rawCover);
+        if (c.isNotEmpty) return c;
+      }
+
+      // Fallback: Lookup in LibraryState caches by ID
+      final idRaw = item['id'] ?? item['anilistId'] ?? item['movieId'];
+      if (idRaw != null) {
+        final idStr = idRaw.toString();
+        final idInt = int.tryParse(idStr);
+
+        if (idInt != null && LibraryState().animeCache.containsKey(idInt)) {
+          final cached = LibraryState().animeCache[idInt] ?? {};
+          final c = _parseCoverValue(cached['coverImage'] ?? cached['coverUrl'] ?? cached['cover']);
+          if (c.isNotEmpty) return c;
+        }
+
+        if (idInt != null && LibraryState().mangaCache.containsKey(idInt)) {
+          final cached = LibraryState().mangaCache[idInt] ?? {};
+          final c = _parseCoverValue(cached['coverImage'] ?? cached['coverUrl'] ?? cached['cover'] ?? cached['thumbnailUrl']);
+          if (c.isNotEmpty) return c;
+        }
+
+        if (LibraryState().movieCache.containsKey(idStr)) {
+          final cached = LibraryState().movieCache[idStr] ?? {};
+          final c = _parseCoverValue(cached['coverImage'] ?? cached['coverUrl'] ?? cached['posterPath'] ?? cached['cover']);
+          if (c.isNotEmpty) return c;
+        }
+      }
+    }
+    final str = item.toString().trim();
+    if (str.isEmpty || str.startsWith('{')) return '';
+    return str;
+  }
+
+  // --- New Profile Enhancement Widgets ---
+
+  Widget _buildFavoriteShowcaseSection() {
+    final userProfile = UserProfileState();
+    final favorites = userProfile.favoriteItems;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Row(
+          children: [
+            Icon(Icons.star_rounded, color: Colors.amber, size: 20),
+            SizedBox(width: 8),
+            Text(
+              'Hall of Fame / Favorites',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                fontFamily: 'Outfit',
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final double width = (constraints.maxWidth - 4 * 12) / 5;
+            final double cardWidth = width.clamp(100.0, 220.0);
+            return Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: List.generate(5, (index) {
+                final Map<String, dynamic> item = index < favorites.length ? favorites[index] : {};
+                final String title = _getMediaTitle(item);
+                final String cover = _getMediaCover(item);
+                final bool hasItem = item.isNotEmpty && (title != 'Untitled' || cover.isNotEmpty);
+                final rankColors = [
+                  const Color(0xFFFFD700), // #1 Gold
+                  const Color(0xFFC0C0C0), // #2 Silver
+                  const Color(0xFFCD7F32), // #3 Bronze
+                  const Color(0xFFA855F7), // #4 Purple
+                  const Color(0xFF2EC4B6), // #5 Teal / Cyan
+                ];
+                final rankColor = rankColors[index % rankColors.length];
+
+                return InkWell(
+                  onTap: () => _showFavoritePickerModal(index),
+                  borderRadius: BorderRadius.circular(14),
+                  child: Container(
+                    width: cardWidth,
+                    height: cardWidth * 1.35,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF141416),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                        color: hasItem ? rankColor.withValues(alpha: 0.5) : Colors.white10,
+                        width: hasItem ? 1.5 : 1.0,
+                      ),
+                      boxShadow: hasItem
+                          ? [BoxShadow(color: rankColor.withValues(alpha: 0.15), blurRadius: 10)]
+                          : null,
+                    ),
+                    clipBehavior: Clip.antiAlias,
+                    child: Stack(
+                      children: [
+                        if (hasItem && cover.isNotEmpty)
+                          Positioned.fill(
+                            child: Image.network(
+                              cover,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => Container(color: Colors.white10),
+                            ),
+                          ),
+                        if (hasItem)
+                          Positioned.fill(
+                            child: Container(
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  colors: [Colors.transparent, Colors.black.withValues(alpha: 0.85)],
+                                  begin: Alignment.topCenter,
+                                  end: Alignment.bottomCenter,
+                                ),
+                              ),
+                            ),
+                          ),
+                        if (!hasItem)
+                          Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.add_circle_outline, color: Colors.white38, size: 28),
+                                const SizedBox(height: 6),
+                                Text(
+                                  'Add Slot #${index + 1}',
+                                  style: const TextStyle(color: Colors.white38, fontSize: 11, fontFamily: 'Outfit'),
+                                ),
+                              ],
+                            ),
+                          )
+                        else ...[
+                          Positioned(
+                            bottom: 8,
+                            left: 8,
+                            right: 8,
+                            child: Text(
+                              title,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                fontFamily: 'Outfit',
+                              ),
+                            ),
+                          ),
+                          Positioned(
+                            top: 6,
+                            right: 6,
+                            child: GestureDetector(
+                              onTap: () => userProfile.removeFavoriteItem(index),
+                              child: Container(
+                                padding: const EdgeInsets.all(4),
+                                decoration: const BoxDecoration(
+                                  color: Colors.black54,
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Icon(Icons.close, color: Colors.white70, size: 12),
+                              ),
+                            ),
+                          ),
+                        ],
+                        // Rank Badge
+                        Positioned(
+                          top: 6,
+                          left: 6,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: rankColor,
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              '#${index + 1}',
+                              style: const TextStyle(
+                                color: Colors.black,
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                fontFamily: 'Outfit',
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }),
+            );
+          },
+        ),
+      ],
+    );
+  }
+
+  void _showFavoritePickerModal(int slotIndex) {
+    final libraryState = LibraryState();
+    final animeSaved = libraryState.items.where((i) => i.mode == 'anime').toList();
+    final mangaSaved = libraryState.items.where((i) => i.mode == 'manga').toList();
+
+    final animeItems = animeSaved.map((item) {
+      final cached = libraryState.animeCache[item.id] ?? {};
+      return {
+        'id': item.id.toString(),
+        'title': _getMediaTitle(cached.isNotEmpty ? cached : item),
+        'cover': _getMediaCover(cached.isNotEmpty ? cached : item),
+        'type': 'anime',
+      };
+    }).toList();
+
+    final mangaItems = mangaSaved.map((item) {
+      final cached = libraryState.mangaCache[item.id] ?? {};
+      return {
+        'id': item.id.toString(),
+        'title': _getMediaTitle(cached.isNotEmpty ? cached : item),
+        'cover': _getMediaCover(cached.isNotEmpty ? cached : item),
+        'type': 'manga',
+      };
+    }).toList();
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return DefaultTabController(
+          length: 3,
+          child: Dialog(
+            backgroundColor: const Color(0xFF141416),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+              side: BorderSide(color: Colors.white.withValues(alpha: 0.12)),
+            ),
+            child: Container(
+              width: 500,
+              height: 520,
+              padding: const EdgeInsets.all(18),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.star_rounded, color: Colors.amber, size: 20),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Select Favorite #${slotIndex + 1}',
+                        style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                      ),
+                      const Spacer(),
+                      IconButton(
+                        icon: const Icon(Icons.close, color: Colors.white54, size: 18),
+                        onPressed: () => Navigator.pop(context),
+                      ),
+                    ],
+                  ),
+                  const TabBar(
+                    indicatorColor: Color(0xFF2EC4B6),
+                    labelColor: Colors.white,
+                    unselectedLabelColor: Colors.white38,
+                    labelStyle: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 13),
+                    tabs: [
+                      Tab(text: 'Anime'),
+                      Tab(text: 'Manga'),
+                      Tab(text: 'History'),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Expanded(
+                    child: TabBarView(
+                      children: [
+                        _buildPickerGrid(animeItems, slotIndex),
+                        _buildPickerGrid(mangaItems, slotIndex),
+                        _buildPickerGrid(_watchHistory.map((e) => {
+                          'id': (e['id'] ?? e['anilistId'] ?? '').toString(),
+                          'title': _getMediaTitle(e),
+                          'cover': _getMediaCover(e),
+                          'type': (e['isManga'] == true ? 'manga' : (e['isMovie'] == true ? 'movie' : 'anime')).toString(),
+                        }).toList(), slotIndex),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildPickerGrid(List<Map<String, String>> items, int slotIndex) {
+    if (items.isEmpty) {
+      return const Center(
+        child: Text('No items found in this section.', style: TextStyle(color: Colors.white38, fontFamily: 'Outfit', fontSize: 13)),
+      );
+    }
+    return GridView.builder(
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 3,
+        childAspectRatio: 0.7,
+        crossAxisSpacing: 10,
+        mainAxisSpacing: 10,
+      ),
+      itemCount: items.length,
+      itemBuilder: (context, idx) {
+        final item = items[idx];
+        final title = _getMediaTitle(item);
+        final cover = _getMediaCover(item);
+
+        return InkWell(
+          onTap: () {
+            UserProfileState().setFavoriteItem(slotIndex, {
+              'id': item['id'] ?? '',
+              'title': title,
+              'cover': cover,
+              'type': item['type'] ?? 'anime',
+            });
+            Navigator.pop(context);
+          },
+          borderRadius: BorderRadius.circular(10),
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.05),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: Colors.white12),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: Stack(
+              children: [
+                if (cover.isNotEmpty)
+                  Positioned.fill(
+                    child: Image.network(
+                      cover,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => Container(color: Colors.white10),
+                    ),
+                  ),
+                Positioned.fill(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [Colors.transparent, Colors.black.withValues(alpha: 0.85)],
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                      ),
+                    ),
+                  ),
+                ),
+                Positioned(
+                  bottom: 6,
+                  left: 6,
+                  right: 6,
+                  child: Text(
+                    title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildRecentWatchHistoryCarousel() {
+    if (_watchHistory.isEmpty) return const SizedBox.shrink();
+
+    final recentItems = _watchHistory.take(10).toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Icon(Icons.history_toggle_off, color: Color(0xFF3B82F6), size: 20),
+            const SizedBox(width: 8),
+            const Text(
+              'Continue Watching / Recent Activity',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                fontFamily: 'Outfit',
+              ),
+            ),
+            const Spacer(),
+            TextButton(
+              onPressed: () {
+                widget.navigationState.setPage(TabPage.history);
+              },
+              child: const Text('View All', style: TextStyle(color: Color(0xFF3B82F6), fontSize: 12, fontFamily: 'Outfit')),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        SizedBox(
+          height: 160,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            physics: const BouncingScrollPhysics(),
+            itemCount: recentItems.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 12),
+            itemBuilder: (context, index) {
+              final item = recentItems[index];
+              final title = _getMediaTitle(item);
+              final cover = _getMediaCover(item);
+              final eps = item['episodes'] is List ? item['episodes'] as List : [];
+              final epText = eps.isNotEmpty ? 'Ep ${eps.last}' : '';
+              final double pos = (item['position'] ?? 0).toDouble();
+              final double dur = (item['duration'] ?? 1).toDouble();
+              final double progress = dur > 0 ? (pos / dur).clamp(0.0, 1.0) : 0.0;
+
+              return InkWell(
+                onTap: () {
+                  final isManga = item['isManga'] ?? false;
+                  final isAnime = item['isAnime'] ?? true;
+                  if (isManga) {
+                    widget.navigationState.selectManga(item['id'].toString());
+                  } else if (isAnime) {
+                    final idInt = int.tryParse(item['id'].toString());
+                    if (idInt != null) {
+                      widget.navigationState.selectAnime(idInt);
+                    }
+                  } else {
+                    widget.navigationState.selectMovie(item['id'].toString());
+                  }
+                },
+                borderRadius: BorderRadius.circular(12),
+                child: Container(
+                  width: 200,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF141416),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Stack(
+                          children: [
+                            if (cover.isNotEmpty)
+                              Positioned.fill(
+                                child: Image.network(
+                                  cover,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (_, __, ___) => Container(color: Colors.white10),
+                                ),
+                              )
+                            else
+                              Container(color: const Color(0xFF1E1E24)),
+                            Positioned.fill(
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    colors: [Colors.transparent, Colors.black.withValues(alpha: 0.8)],
+                                    begin: Alignment.topCenter,
+                                    end: Alignment.bottomCenter,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            Positioned(
+                              bottom: 8,
+                              left: 8,
+                              right: 8,
+                              child: Text(
+                                title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  fontFamily: 'Outfit',
+                                ),
+                              ),
+                            ),
+                            if (epText.isNotEmpty)
+                              Positioned(
+                                top: 6,
+                                right: 6,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: Colors.black.withValues(alpha: 0.7),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: Text(
+                                    epText,
+                                    style: const TextStyle(color: Colors.white70, fontSize: 10, fontFamily: 'Outfit'),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                      if (progress > 0)
+                        LinearProgressIndicator(
+                          value: progress,
+                          minHeight: 3,
+                          backgroundColor: Colors.white10,
+                          valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF3B82F6)),
+                        ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildGenreBreakdownSection() {
+    final animeCache = LibraryState().animeCache;
+    final mangaCache = LibraryState().mangaCache;
+
+    final Map<String, int> genreCounts = {};
+    for (var a in animeCache.values) {
+      final genres = a['genres'];
+      if (genres is List) {
+        for (var g in genres) {
+          final str = g.toString().trim();
+          if (str.isNotEmpty) {
+            genreCounts[str] = (genreCounts[str] ?? 0) + 1;
+          }
+        }
+      }
+    }
+    for (var m in mangaCache.values) {
+      final genres = m['genres'];
+      if (genres is List) {
+        for (var g in genres) {
+          final str = g.toString().trim();
+          if (str.isNotEmpty) {
+            genreCounts[str] = (genreCounts[str] ?? 0) + 1;
+          }
+        }
+      }
+    }
+
+    if (genreCounts.isEmpty) return const SizedBox.shrink();
+
+    final sortedGenres = genreCounts.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    final topGenres = sortedGenres.take(5).toList();
+    final int totalGenreHits = topGenres.fold(0, (sum, e) => sum + e.value);
+
+    final colors = [
+      const Color(0xFF2EC4B6),
+      const Color(0xFFA855F7),
+      const Color(0xFFFF9F1C),
+      const Color(0xFF3B82F6),
+      const Color(0xFFEC4899),
+    ];
+
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: const Color(0xFF141416),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.donut_small_rounded, color: Color(0xFFA855F7), size: 20),
+              SizedBox(width: 8),
+              Text(
+                'Top Genre Preferences',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  fontFamily: 'Outfit',
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          ...List.generate(topGenres.length, (idx) {
+            final entry = topGenres[idx];
+            final color = colors[idx % colors.length];
+            final double percent = totalGenreHits > 0 ? (entry.value / totalGenreHits) : 0.0;
+
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 12.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          Container(width: 8, height: 8, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+                          const SizedBox(width: 8),
+                          Text(entry.key, style: const TextStyle(color: Colors.white, fontSize: 13, fontFamily: 'Outfit')),
+                        ],
+                      ),
+                      Text(
+                        '${entry.value} titles (${(percent * 100).toStringAsFixed(0)}%)',
+                        style: const TextStyle(color: Colors.white54, fontSize: 12, fontFamily: 'Outfit'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(4),
+                    child: LinearProgressIndicator(
+                      value: percent,
+                      minHeight: 6,
+                      backgroundColor: Colors.white.withValues(alpha: 0.05),
+                      valueColor: AlwaysStoppedAnimation<Color>(color),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAchievementsSection(Map<String, dynamic> stats) {
+    final int watchEp = stats['watchedEpisodes'] ?? 0;
+    final int movieCount = stats['movieCount'] ?? 0;
+    final int readCh = stats['readChapters'] ?? 0;
+    final double watchHours = stats['watchHours'] ?? 0.0;
+    final double downloadGB = stats['downloadGB'] ?? 0.0;
+    final int animeCompleted = stats['animeCompleted'] ?? 0;
+    final int moviesCompleted = stats['moviesCompleted'] ?? 0;
+    final bool isAnilistAuth = AnilistAuthState().isLoggedIn;
+
+    final achievements = [
+      {
+        'title': 'First Light',
+        'desc': 'Began your watch journey on watchAny',
+        'icon': Icons.flare,
+        'color': const Color(0xFF2EC4B6),
+        'unlocked': (watchEp + movieCount + readCh) > 0,
+        'progressStr': '${(watchEp + movieCount + readCh).clamp(0, 1)} / 1',
+      },
+      {
+        'title': 'Marathon Runner',
+        'desc': 'Accumulated 10+ hours watch time',
+        'icon': Icons.directions_run,
+        'color': const Color(0xFFFF9F1C),
+        'unlocked': watchHours >= 10.0,
+        'progressStr': '${watchHours.toStringAsFixed(1)} / 10.0 hrs',
+      },
+      {
+        'title': 'Otaku Royalty',
+        'desc': 'Accumulated 50+ hours watch time',
+        'icon': Icons.workspace_premium,
+        'color': const Color(0xFFA855F7),
+        'unlocked': watchHours >= 50.0,
+        'progressStr': '${watchHours.toStringAsFixed(1)} / 50.0 hrs',
+      },
+      {
+        'title': 'Manga Scholar',
+        'desc': 'Read 25+ manga chapters',
+        'icon': Icons.menu_book,
+        'color': const Color(0xFFEC4899),
+        'unlocked': readCh >= 25,
+        'progressStr': '$readCh / 25 ch',
+      },
+      {
+        'title': 'Data Vault',
+        'desc': 'Saved 5+ GB offline downloads',
+        'icon': Icons.sd_storage_rounded,
+        'color': const Color(0xFF10B981),
+        'unlocked': downloadGB >= 5.0,
+        'progressStr': '${downloadGB.toStringAsFixed(1)} / 5.0 GB',
+      },
+      {
+        'title': 'Completionist',
+        'desc': 'Completed 5+ series or movies',
+        'icon': Icons.verified_rounded,
+        'color': const Color(0xFF3B82F6),
+        'unlocked': (animeCompleted + moviesCompleted) >= 5,
+        'progressStr': '${animeCompleted + moviesCompleted} / 5 completed',
+      },
+      {
+        'title': 'History Chronicler',
+        'desc': 'Recorded 5+ watch history entries',
+        'icon': Icons.history_edu,
+        'color': const Color(0xFFF59E0B),
+        'unlocked': _watchHistory.length >= 5,
+        'progressStr': '${_watchHistory.length} / 5 entries',
+      },
+      {
+        'title': 'Cloud Synced',
+        'desc': 'Linked external AniList account',
+        'icon': Icons.cloud_done,
+        'color': const Color(0xFF00B4D8),
+        'unlocked': isAnilistAuth,
+        'progressStr': isAnilistAuth ? 'Linked' : 'Not linked',
+      },
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Row(
+          children: [
+            Icon(Icons.emoji_events, color: Color(0xFFFF9F1C), size: 20),
+            SizedBox(width: 8),
+            Text(
+              'Milestones & Achievements',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                fontFamily: 'Outfit',
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+            maxCrossAxisExtent: 260,
+            mainAxisExtent: 110,
+            crossAxisSpacing: 12,
+            mainAxisSpacing: 12,
+          ),
+          itemCount: achievements.length,
+          itemBuilder: (context, idx) {
+            final ach = achievements[idx];
+            final bool unlocked = ach['unlocked'] as bool;
+            final Color color = ach['color'] as Color;
+
+            return Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: unlocked ? const Color(0xFF141416) : Colors.white.withValues(alpha: 0.02),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: unlocked ? color.withValues(alpha: 0.4) : Colors.white10,
+                  width: unlocked ? 1.5 : 1.0,
+                ),
+                boxShadow: unlocked
+                    ? [BoxShadow(color: color.withValues(alpha: 0.12), blurRadius: 10)]
+                    : null,
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: unlocked ? color.withValues(alpha: 0.15) : Colors.white.withValues(alpha: 0.05),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      ach['icon'] as IconData,
+                      color: unlocked ? color : Colors.white24,
+                      size: 22,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          ach['title'] as String,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: unlocked ? Colors.white : Colors.white38,
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                            fontFamily: 'Outfit',
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          ach['desc'] as String,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: unlocked ? Colors.white70 : Colors.white24,
+                            fontSize: 10,
+                            fontFamily: 'Outfit',
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          ach['progressStr'] as String,
+                          style: TextStyle(
+                            color: unlocked ? color : Colors.white24,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                            fontFamily: 'Outfit',
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+      ],
     );
   }
 }

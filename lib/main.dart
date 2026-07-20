@@ -16,6 +16,7 @@ import 'state/anilist_auth_state.dart';
 import 'state/player_state.dart' as ps;
 import 'services/log_service.dart';
 import 'services/video_proxy_service.dart';
+import 'services/cloud_sync_service.dart';
 import 'screens/shell_layout.dart';
 import 'screens/setup_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -155,6 +156,7 @@ class _MyAppState extends State<MyApp> with WindowListener, WidgetsBindingObserv
       AnilistAuthState().init(),
       LibraryState().init(),
       DownloadService().init(),
+      CloudSyncService().init(),
       NotificationService().initLocalNotifications(),
     ]);
 
@@ -169,12 +171,14 @@ class _MyAppState extends State<MyApp> with WindowListener, WidgetsBindingObserv
     // Initialize NavigationState with the loaded AppSettings
     NavigationState().init();
 
-    // 3. Register change listeners for debounced background exports
+    // 3. Register change listeners for debounced background exports & cloud sync
     AppSettings().addListener(() {
       BackupService().backupAllDebounced();
+      CloudSyncService().triggerDebouncedSync();
     });
     LibraryState().addListener(() {
       BackupService().backupAllDebounced();
+      CloudSyncService().triggerDebouncedSync();
     });
 
     // 4. Initialize ExtensionService early to load local extensions in the background

@@ -581,6 +581,95 @@ class LibraryState extends ChangeNotifier {
     return importedCount;
   }
 
+  Future<void> importLibraryData({
+    List<dynamic>? itemsJson,
+    List<dynamic>? categoriesJson,
+    Map<String, dynamic>? mangaCacheJson,
+    Map<String, dynamic>? animeCacheJson,
+    Map<String, dynamic>? movieCacheJson,
+  }) async {
+    try {
+      if (categoriesJson != null) {
+        final List<LibraryCategory> importedCategories = [];
+        for (var c in categoriesJson) {
+          if (c is Map) {
+            importedCategories.add(LibraryCategory.fromJson(Map<String, dynamic>.from(c)));
+          }
+        }
+        if (importedCategories.isNotEmpty) {
+          _categories = importedCategories;
+          for (var cat in _categories) {
+            await _db.into(_db.libraryCategories).insertOnConflictUpdate(
+              db.LibraryCategoriesCompanion.insert(
+                id: cat.id,
+                name: cat.name,
+                mode: cat.mode,
+              ),
+            );
+          }
+        }
+      }
+
+      if (itemsJson != null) {
+        final List<LibraryItem> importedItems = [];
+        for (var i in itemsJson) {
+          if (i is Map) {
+            importedItems.add(LibraryItem.fromJson(Map<String, dynamic>.from(i)));
+          }
+        }
+        if (importedItems.isNotEmpty) {
+          _items = importedItems;
+          for (var item in _items) {
+            await _db.into(_db.libraryItems).insertOnConflictUpdate(
+              db.LibraryItemsCompanion.insert(
+                id: item.id,
+                mode: item.mode,
+                format: item.format,
+                addedAt: item.addedAt,
+                libraryStatus: item.libraryStatus,
+                rating: item.rating,
+                watchedEpisodes: item.watchedEpisodes,
+                totalEpisodes: drift.Value(item.totalEpisodes),
+                categoryIds: item.categoryIds.join(','),
+              ),
+            );
+          }
+        }
+      }
+
+      if (mangaCacheJson != null) {
+        mangaCacheJson.forEach((key, val) {
+          final intId = int.tryParse(key.toString());
+          if (intId != null && val is Map) {
+            _mangaCache[intId] = Map<String, dynamic>.from(val);
+          }
+        });
+      }
+
+      if (animeCacheJson != null) {
+        animeCacheJson.forEach((key, val) {
+          final intId = int.tryParse(key.toString());
+          if (intId != null && val is Map) {
+            _animeCache[intId] = Map<String, dynamic>.from(val);
+          }
+        });
+      }
+
+      if (movieCacheJson != null) {
+        movieCacheJson.forEach((key, val) {
+          final intId = int.tryParse(key.toString());
+          if (intId != null && val is Map) {
+            _movieCache[intId] = Map<String, dynamic>.from(val);
+          }
+        });
+      }
+
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Failed to import cloud library data: $e');
+    }
+  }
+
   Future<void> removeItem(int id, String mode) async {
     _items.removeWhere((item) => item.id == id && item.mode == mode);
     if (mode == 'manga') {
