@@ -237,10 +237,10 @@ class SuwayomiManager {
       final jarPath = '${appDir.path}\\keiyoushi-runtime.jar';
       final jarFile = File(jarPath);
 
-      if (!await jarFile.exists() || await jarFile.length() == 0) {
+      final byteData = await rootBundle.load('assets/bin/keiyoushi-runtime.jar');
+      if (!await jarFile.exists() || await jarFile.length() != byteData.lengthInBytes) {
         statusNotifier.value = "Extracting Manga engine...";
         developer.log('Extracting keiyoushi-runtime.jar from assets...', name: 'SuwayomiManager');
-        final byteData = await rootBundle.load('assets/bin/keiyoushi-runtime.jar');
         final bytes = byteData.buffer.asUint8List(byteData.offsetInBytes, byteData.lengthInBytes);
         await jarFile.writeAsBytes(bytes);
         developer.log('Extraction complete.', name: 'SuwayomiManager');
@@ -253,6 +253,7 @@ class SuwayomiManager {
       _process = await Process.start(
         javaPath,
         [
+          '-noverify',
           '-jar',
           jarPath,
           '--root',

@@ -1444,20 +1444,15 @@ class MangaPageLoader {
     if (urls.isEmpty) return -1;
     final int safePriority = _priorityIndex.clamp(0, urls.length - 1);
     
-    // 1. Check if the priority index itself needs download, is not already in-flight
-    if (localPaths[safePriority] == null && _failedCounts[safePriority] < 3 && !_downloading[safePriority]) {
-      return safePriority;
-    }
-    
-    // 2. Prioritize downloading all subsequent pages forward from the current page in sequence
-    for (int idx = safePriority + 1; idx < urls.length; idx++) {
+    // 1. Always ensure any un-downloaded pages from Page 0 up to current viewport (safePriority) are fetched first in order
+    for (int idx = 0; idx <= safePriority; idx++) {
       if (localPaths[idx] == null && _failedCounts[idx] < 3 && !_downloading[idx]) {
         return idx;
       }
     }
     
-    // 3. Fallback to downloading previous pages backward from the current page (in case of scroll back)
-    for (int idx = safePriority - 1; idx >= 0; idx--) {
+    // 2. Download forward in sequence from current viewport to end of chapter
+    for (int idx = safePriority + 1; idx < urls.length; idx++) {
       if (localPaths[idx] == null && _failedCounts[idx] < 3 && !_downloading[idx]) {
         return idx;
       }
