@@ -148,44 +148,48 @@ class _MyAppState extends State<MyApp> with WindowListener, WidgetsBindingObserv
     final prefs = await SharedPreferences.getInstance();
     _savedWidth = prefs.getDouble('window_width') ?? 1280.0;
     _savedHeight = prefs.getDouble('window_height') ?? 720.0;
-    // Restore backups ONLY on a fresh install (empty library).
-    // LibraryState is initialized first so we can read its in-memory item
-    // count — no second DB connection needed.
+
+    // Fast-path: Load UI essential states concurrently for instant UI reveal
     await Future.wait([
       AppSettings().init(),
       AnilistAuthState().init(),
       LibraryState().init(),
-      DownloadService().init(),
-      CloudSyncService().init(),
-      NotificationService().initLocalNotifications(),
     ]);
+
+    // Initialize NavigationState with the loaded AppSettings
+    NavigationState().init();
 
     if (LibraryState().items.isEmpty) {
       await BackupService().restoreAll();
-      // If restore added items, reload the library state from the DB
       if (LibraryState().items.isEmpty) {
         await LibraryState().init();
       }
     }
 
-    // Initialize NavigationState with the loaded AppSettings
-    NavigationState().init();
+    // Deferred non-critical background services initialization (non-blocking)
+    Future.microtask(() async {
+      await Future.wait([
+        DownloadService().init(),
+        CloudSyncService().init(),
+        NotificationService().initLocalNotifications(),
+      ]);
 
-    // 3. Register change listeners for debounced background exports & cloud sync
-    AppSettings().addListener(() {
-      BackupService().backupAllDebounced();
-      CloudSyncService().triggerDebouncedSync();
+      // Register change listeners for debounced background exports & cloud sync
+      AppSettings().addListener(() {
+        BackupService().backupAllDebounced();
+        CloudSyncService().triggerDebouncedSync();
+      });
+      LibraryState().addListener(() {
+        BackupService().backupAllDebounced();
+        CloudSyncService().triggerDebouncedSync();
+      });
+
+      // Initialize ExtensionService early to load local extensions in the background
+      ExtensionService().init();
+
+      // Register WorkManager background synchronization for Android devices
+      AndroidBackgroundSync().init();
     });
-    LibraryState().addListener(() {
-      BackupService().backupAllDebounced();
-      CloudSyncService().triggerDebouncedSync();
-    });
-
-    // 4. Initialize ExtensionService early to load local extensions in the background
-    ExtensionService().init();
-
-    // 5. Register WorkManager background synchronization for Android devices
-    AndroidBackgroundSync().init();
   }
 
   @override

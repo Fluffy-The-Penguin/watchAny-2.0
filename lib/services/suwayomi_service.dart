@@ -129,7 +129,7 @@ class SuwayomiService {
     try {
       final response = await http.get(
         Uri.parse('$_baseUrl/api/install?pkg=$pkgName'),
-      ).timeout(const Duration(seconds: 30));
+      ).timeout(const Duration(seconds: 90));
 
       if (response.statusCode == 200) {
         final decoded = jsonDecode(response.body);
@@ -168,7 +168,7 @@ class SuwayomiService {
     }
   }
 
-  // Seed default Keiyoushi repository on the server if the repository list is empty
+  // Seed default Keiyoushi repository and CDN mirror on the server if empty
   Future<void> seedExternalRepositories() async {
     try {
       final reposUrl = Uri.parse('$_baseUrl/api/repos');
@@ -176,34 +176,18 @@ class SuwayomiService {
       if (reposResponse.statusCode == 200) {
         final data = jsonDecode(reposResponse.body);
         final list = data['data'] as List?;
-        final repoUrl = "https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.min.json";
+        final repoUrls = [
+          "https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.min.json",
+          "https://cdn.jsdelivr.net/gh/keiyoushi/extensions@repo/index.min.json",
+        ];
         
-        if (list == null || list.isEmpty) {
-          developer.log('Seeding Keiyoushi repository on server...', name: 'SuwayomiService');
-          final addUrl = Uri.parse('$_baseUrl/api/repos/add?url=${Uri.encodeComponent(repoUrl)}');
-          await http.get(addUrl).timeout(const Duration(seconds: 15));
-          developer.log('Seeding complete.', name: 'SuwayomiService');
-          // Give the server 1.5 seconds to pull/sync the index in the background
-          await Future.delayed(const Duration(milliseconds: 1500));
-        } else {
-          // If the repo exists, check when it was last fetched.
-          // If it was fetched more than 12 hours ago, trigger a background refresh to keep index URLs fresh.
-          for (final repo in list) {
-            final indexUrl = repo['indexUrl']?.toString() ?? '';
-            if (indexUrl == repoUrl) {
-              final lastFetched = repo['lastFetchedAt'] as int? ?? 0;
-              final now = DateTime.now().millisecondsSinceEpoch;
-              if (now - lastFetched > 12 * 60 * 60 * 1000) {
-                developer.log('Keiyoushi repository index is stale (>12h). Triggering background refresh...', name: 'SuwayomiService');
-                final addUrl = Uri.parse('$_baseUrl/api/repos/add?url=${Uri.encodeComponent(repoUrl)}');
-                http.get(addUrl).timeout(const Duration(seconds: 15)).then((_) {
-                  developer.log('Background repository refresh complete.', name: 'SuwayomiService');
-                }).catchError((e) {
-                  developer.log('Failed to refresh repository: $e', name: 'SuwayomiService');
-                });
-              }
-              break;
-            }
+        final existingUrls = list?.map((r) => r['indexUrl']?.toString()).toSet() ?? {};
+
+        for (final repoUrl in repoUrls) {
+          if (!existingUrls.contains(repoUrl)) {
+            developer.log('Seeding repository ($repoUrl) on server...', name: 'SuwayomiService');
+            final addUrl = Uri.parse('$_baseUrl/api/repos/add?url=${Uri.encodeComponent(repoUrl)}');
+            await http.get(addUrl).timeout(const Duration(seconds: 15)).catchError((_) => http.Response('', 500));
           }
         }
       }

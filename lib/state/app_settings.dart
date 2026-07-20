@@ -211,7 +211,14 @@ class AppSettings extends ChangeNotifier {
     if (savedModes != null && savedModes.isNotEmpty) {
       _enabledModes = savedModes.toSet();
     }
-    _setupCompleted = prefs.getBool('setup_completed') ?? false;
+
+    final bool explicitCompleted = prefs.getBool('setup_completed') ?? false;
+    if (explicitCompleted || (savedModes != null && savedModes.isNotEmpty)) {
+      _setupCompleted = true;
+      await prefs.setBool('setup_completed', true);
+    } else {
+      _setupCompleted = false;
+    }
 
     notifyListeners();
   }
@@ -708,6 +715,7 @@ class AppSettings extends ChangeNotifier {
 
   Future<void> completeSetup() async {
     _setupCompleted = true;
+    notifyListeners();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('setup_completed', true);
   }
