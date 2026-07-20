@@ -326,7 +326,7 @@ class CloudSyncService extends ChangeNotifier {
     final libraryState = LibraryState();
     final userProfile = UserProfileState();
 
-    // Collect settings keys (Exclude internal staging and cache keys)
+    // Collect settings keys (Exclude internal staging, setup, and cache keys)
     const excludeKeys = {
       'cloud_sync_auth_token',
       'cloud_sync_user_email',
@@ -334,6 +334,7 @@ class CloudSyncService extends ChangeNotifier {
       'cloud_sync_user_id',
       'cloud_sync_last_time',
       'cloud_sync_server_url',
+      'setup_completed',
       'library_items',
       'library_categories',
       'manga_library_cache',
@@ -410,6 +411,7 @@ class CloudSyncService extends ChangeNotifier {
           'cloud_sync_user_id',
           'cloud_sync_last_time',
           'cloud_sync_server_url',
+          'setup_completed',
           'library_items',
           'library_categories',
           'manga_library_cache',
