@@ -3,6 +3,7 @@ import 'dart:developer' as developer;
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'suwayomi_manager.dart';
 
 class SuwayomiService {
   static final SuwayomiService _instance = SuwayomiService._internal();
@@ -271,9 +272,17 @@ class SuwayomiService {
               ? '$_baseUrl/api/latest?sourceId=$sourceId&page=$page'
               : '$_baseUrl/api/popular?sourceId=$sourceId&page=$page';
 
-      final response = await http.get(Uri.parse(urlStr)).timeout(const Duration(seconds: 20)).catchError((e) {
-        throw Exception('Network request failed: $e');
-      });
+      http.Response response;
+      try {
+        response = await http.get(Uri.parse(urlStr)).timeout(const Duration(seconds: 20));
+      } catch (e) {
+        developer.log('fetchSourceManga initial request failed, retrying after restart: $e', name: 'SuwayomiService');
+        await SuwayomiManager.start();
+        await Future.delayed(const Duration(seconds: 2));
+        response = await http.get(Uri.parse(urlStr)).timeout(const Duration(seconds: 20)).catchError((err) {
+          throw Exception('Network request failed: $err');
+        });
+      }
 
       _checkResponse(response);
 

@@ -236,13 +236,16 @@ class SuwayomiManager {
       // 3. Extract keiyoushi-runtime.jar from assets
       final jarPath = '${appDir.path}\\keiyoushi-runtime.jar';
       final jarFile = File(jarPath);
+      const String jarBuildTag = 'v2.0.79_v2';
+      final String? savedJarBuild = prefs.getString('runtime_jar_build');
 
       final byteData = await rootBundle.load('assets/bin/keiyoushi-runtime.jar');
-      if (!await jarFile.exists() || await jarFile.length() != byteData.lengthInBytes) {
+      if (!await jarFile.exists() || savedJarBuild != jarBuildTag || await jarFile.length() != byteData.lengthInBytes) {
         statusNotifier.value = "Extracting Manga engine...";
-        developer.log('Extracting keiyoushi-runtime.jar from assets...', name: 'SuwayomiManager');
+        developer.log('Extracting updated keiyoushi-runtime.jar from assets...', name: 'SuwayomiManager');
         final bytes = byteData.buffer.asUint8List(byteData.offsetInBytes, byteData.lengthInBytes);
         await jarFile.writeAsBytes(bytes);
+        await prefs.setString('runtime_jar_build', jarBuildTag);
         developer.log('Extraction complete.', name: 'SuwayomiManager');
       }
 
