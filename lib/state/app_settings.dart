@@ -210,15 +210,13 @@ class AppSettings extends ChangeNotifier {
     final List<String>? savedModes = prefs.getStringList('enabled_modes');
     if (savedModes != null && savedModes.isNotEmpty) {
       _enabledModes = savedModes.toSet();
+    } else {
+      _enabledModes = {'anime', 'manga', 'movies'};
+      await prefs.setStringList('enabled_modes', _enabledModes.toList());
     }
 
-    final bool explicitCompleted = prefs.getBool('setup_completed') ?? false;
-    if (explicitCompleted || (savedModes != null && savedModes.isNotEmpty)) {
-      _setupCompleted = true;
-      await prefs.setBool('setup_completed', true);
-    } else {
-      _setupCompleted = false;
-    }
+    _setupCompleted = true;
+    await prefs.setBool('setup_completed', true);
 
     notifyListeners();
   }

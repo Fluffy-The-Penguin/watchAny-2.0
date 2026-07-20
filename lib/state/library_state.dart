@@ -279,17 +279,31 @@ class LibraryState extends ChangeNotifier {
     // Load everything synchronously from SQLite into memory for runtime backwards compatibility
     try {
       final allItems = await _db.select(_db.libraryItems).get();
-      _items = allItems.map((item) => LibraryItem(
-        id: item.id,
-        mode: item.mode,
-        format: item.format,
-        addedAt: item.addedAt,
-        libraryStatus: item.libraryStatus,
-        rating: item.rating,
-        watchedEpisodes: item.watchedEpisodes,
-        totalEpisodes: item.totalEpisodes,
-        categoryIds: (jsonDecode(item.categoryIds) as List).map((c) => c.toString()).toList(),
-      )).toList();
+      _items = allItems.map((item) {
+        List<String> parsedCategories = [];
+        try {
+          final decoded = jsonDecode(item.categoryIds);
+          if (decoded is List) {
+            parsedCategories = decoded.map((c) => c.toString()).toList();
+          }
+        } catch (_) {
+          if (item.categoryIds.isNotEmpty) {
+            parsedCategories = item.categoryIds.split(',').where((c) => c.isNotEmpty).toList();
+          }
+        }
+
+        return LibraryItem(
+          id: item.id,
+          mode: item.mode,
+          format: item.format,
+          addedAt: item.addedAt,
+          libraryStatus: item.libraryStatus,
+          rating: item.rating,
+          watchedEpisodes: item.watchedEpisodes,
+          totalEpisodes: item.totalEpisodes,
+          categoryIds: parsedCategories,
+        );
+      }).toList();
     } catch (e) {
       debugPrint('Failed to load library items from SQLite: $e');
     }
@@ -590,15 +604,15 @@ class LibraryState extends ChangeNotifier {
   }) async {
     try {
       if (categoriesJson != null) {
-        final List<LibraryCategory> importedCategories = [];
         for (var c in categoriesJson) {
           if (c is Map) {
-            importedCategories.add(LibraryCategory.fromJson(Map<String, dynamic>.from(c)));
-          }
-        }
-        if (importedCategories.isNotEmpty) {
-          _categories = importedCategories;
-          for (var cat in _categories) {
+            final cat = LibraryCategory.fromJson(Map<String, dynamic>.from(c));
+            final idx = _categories.indexWhere((x) => x.id == cat.id);
+            if (idx != -1) {
+              _categories[idx] = cat;
+            } else {
+              _categories.add(cat);
+            }
             await _db.into(_db.libraryCategories).insertOnConflictUpdate(
               db.LibraryCategoriesCompanion.insert(
                 id: cat.id,
@@ -635,7 +649,7 @@ class LibraryState extends ChangeNotifier {
                 rating: item.rating,
                 watchedEpisodes: item.watchedEpisodes,
                 totalEpisodes: drift.Value(item.totalEpisodes),
-                categoryIds: item.categoryIds.join(','),
+                categoryIds: jsonEncode(item.categoryIds),
               ),
             );
           }
@@ -643,30 +657,60 @@ class LibraryState extends ChangeNotifier {
       }
 
       if (mangaCacheJson != null) {
-        mangaCacheJson.forEach((key, val) {
-          final intId = int.tryParse(key.toString());
-          if (intId != null && val is Map) {
-            _mangaCache[intId] = Map<String, dynamic>.from(val);
+        for (var entry in mangaCacheJson.entries) {
+          final intId = int.tryParse(entry.key.toString());
+          if (intId != null && entry.value is Map) {
+            final cache = Map<String, dynamic>.from(entry.value);
+            _mangaCache[intId] = cache;
+            await _db.into(_db.mediaCaches).insertOnConflictUpdate(
+              db.MediaCachesCompanion.insert(
+                id: intId,
+                mode: 'manga',
+                title: cache['title']?.toString() ?? 'Untitled',
+                coverImage: cache['thumbnailUrl']?.toString() ?? cache['coverImage']?.toString() ?? '',
+                extraData: drift.Value(jsonEncode(cache)),
+              ),
+            );
           }
-        });
+        }
       }
 
       if (animeCacheJson != null) {
-        animeCacheJson.forEach((key, val) {
-          final intId = int.tryParse(key.toString());
-          if (intId != null && val is Map) {
-            _animeCache[intId] = Map<String, dynamic>.from(val);
+        for (var entry in animeCacheJson.entries) {
+          final intId = int.tryParse(entry.key.toString());
+          if (intId != null && entry.value is Map) {
+            final cache = Map<String, dynamic>.from(entry.value);
+            _animeCache[intId] = cache;
+            await _db.into(_db.mediaCaches).insertOnConflictUpdate(
+              db.MediaCachesCompanion.insert(
+                id: intId,
+                mode: 'anime',
+                title: cache['title']?['userPreferred']?.toString() ?? cache['title']?.toString() ?? 'Untitled',
+                coverImage: cache['coverImage']?['large']?.toString() ?? cache['thumbnailUrl']?.toString() ?? '',
+                extraData: drift.Value(jsonEncode(cache)),
+              ),
+            );
           }
-        });
+        }
       }
 
       if (movieCacheJson != null) {
-        movieCacheJson.forEach((key, val) {
-          final intId = int.tryParse(key.toString());
-          if (intId != null && val is Map) {
-            _movieCache[intId] = Map<String, dynamic>.from(val);
+        for (var entry in movieCacheJson.entries) {
+          final intId = int.tryParse(entry.key.toString());
+          if (intId != null && entry.value is Map) {
+            final cache = Map<String, dynamic>.from(entry.value);
+            _movieCache[intId] = cache;
+            await _db.into(_db.mediaCaches).insertOnConflictUpdate(
+              db.MediaCachesCompanion.insert(
+                id: intId,
+                mode: 'movies',
+                title: cache['title']?.toString() ?? cache['name']?.toString() ?? 'Untitled',
+                coverImage: cache['poster_path']?.toString() ?? cache['thumbnailUrl']?.toString() ?? '',
+                extraData: drift.Value(jsonEncode(cache)),
+              ),
+            );
           }
-        });
+        }
       }
 
       notifyListeners();
