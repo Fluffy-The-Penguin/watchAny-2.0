@@ -504,6 +504,49 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
     }
   }
 
+  KeyEventResult _handleKeyEvent(KeyEvent event) {
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+
+    final primaryFocus = FocusManager.instance.primaryFocus;
+    if (primaryFocus != null && primaryFocus.context != null) {
+      final w = primaryFocus.context!.widget;
+      if (w is EditableText) {
+        return KeyEventResult.ignored;
+      }
+    }
+
+    final key = event.logicalKey;
+    if (key == LogicalKeyboardKey.arrowLeft) {
+      _performSeekOffset(-10);
+      return KeyEventResult.handled;
+    } else if (key == LogicalKeyboardKey.arrowRight) {
+      _performSeekOffset(10);
+      return KeyEventResult.handled;
+    } else if (key == LogicalKeyboardKey.space) {
+      player.playOrPause();
+      return KeyEventResult.handled;
+    } else if (key == LogicalKeyboardKey.arrowUp) {
+      final vol = (player.state.volume + 5.0).clamp(0.0, 100.0);
+      player.setVolume(vol);
+      return KeyEventResult.handled;
+    } else if (key == LogicalKeyboardKey.arrowDown) {
+      final vol = (player.state.volume - 5.0).clamp(0.0, 100.0);
+      player.setVolume(vol);
+      return KeyEventResult.handled;
+    } else if (key == LogicalKeyboardKey.keyF || key == LogicalKeyboardKey.f11) {
+      _toggleFullscreen();
+      return KeyEventResult.handled;
+    } else if (key == LogicalKeyboardKey.keyC) {
+      _toggleSubtitles();
+      return KeyEventResult.handled;
+    } else if (key == LogicalKeyboardKey.keyE) {
+      _toggleQualityEnhancement();
+      return KeyEventResult.handled;
+    }
+
+    return KeyEventResult.ignored;
+  }
+
   void _toggleSettingsMenu() {
     final now = DateTime.now();
     if (_overlayEntry != null) {
@@ -1755,67 +1798,35 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
                         : MaterialDesktopVideoControls(state),
                   );
 
-                  return Focus(
-                    autofocus: true,
-                    onKeyEvent: (FocusNode node, KeyEvent event) {
-                      if (event is! KeyDownEvent) return KeyEventResult.ignored;
-                      
-                      final primaryFocus = FocusManager.instance.primaryFocus;
-                      if (primaryFocus != null && primaryFocus.context != null) {
-                        final w = primaryFocus.context!.widget;
-                        if (w is EditableText) {
-                          return KeyEventResult.ignored;
-                        }
-                      }
-                      
-                      final key = event.logicalKey;
-                      if (key == LogicalKeyboardKey.arrowLeft) {
-                        _performSeekOffset(-10);
-                        return KeyEventResult.handled;
-                      } else if (key == LogicalKeyboardKey.arrowRight) {
-                        _performSeekOffset(10);
-                        return KeyEventResult.handled;
-                      } else if (key == LogicalKeyboardKey.space) {
-                        player.playOrPause();
-                        return KeyEventResult.handled;
-                      } else if (key == LogicalKeyboardKey.arrowUp) {
-                        final vol = (player.state.volume + 5.0).clamp(0.0, 100.0);
-                        player.setVolume(vol);
-                        return KeyEventResult.handled;
-                      } else if (key == LogicalKeyboardKey.arrowDown) {
-                        final vol = (player.state.volume - 5.0).clamp(0.0, 100.0);
-                        player.setVolume(vol);
-                        return KeyEventResult.handled;
-                      } else if (key == LogicalKeyboardKey.keyF || key == LogicalKeyboardKey.f11) {
-                        _toggleFullscreen();
-                        return KeyEventResult.handled;
-                      } else if (key == LogicalKeyboardKey.keyC) {
-                        _toggleSubtitles();
-                        return KeyEventResult.handled;
-                      } else if (key == LogicalKeyboardKey.keyE) {
-                        _toggleQualityEnhancement();
-                        return KeyEventResult.handled;
-                      }
-                      
-                      return KeyEventResult.ignored;
+                  return Listener(
+                    behavior: HitTestBehavior.translucent,
+                    onPointerDown: (_) {
+                      _resetHideControlsTimer();
+                      Focus.of(state.context).requestFocus();
                     },
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        // Double tap seek detector in middle region
-                        Positioned(
-                          top: 60.0,
-                          bottom: 88.0,
-                          left: 0.0,
-                          right: 0.0,
-                          child: _DoubleTapSeekDetector(
-                            player: player,
-                            resetControlsTimer: _resetHideControlsTimer,
-                            performSeekOffset: _performSeekOffset,
-                            toggleFullscreen: _toggleFullscreen,
+                    child: Focus(
+                      autofocus: true,
+                      onKeyEvent: (FocusNode node, KeyEvent event) {
+                        _resetHideControlsTimer();
+                        return _handleKeyEvent(event);
+                      },
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          controlsWidget,
+                          // Double tap seek detector in middle region (placed ON TOP of controlsWidget)
+                          Positioned(
+                            top: 60.0,
+                            bottom: 88.0,
+                            left: 0.0,
+                            right: 0.0,
+                            child: _DoubleTapSeekDetector(
+                              player: player,
+                              resetControlsTimer: _resetHideControlsTimer,
+                              performSeekOffset: _performSeekOffset,
+                              toggleFullscreen: _toggleFullscreen,
+                            ),
                           ),
-                        ),
-                        controlsWidget,
                         ListenableBuilder(
                           listenable: PlayerState(),
                           builder: (context, _) {
@@ -1933,7 +1944,8 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
                         ),
                       ],
                     ),
-                  );
+                  ),
+                );
                 },
               );
 
@@ -2209,6 +2221,21 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
             icon: const Icon(Icons.settings, color: Colors.white),
           ),
         ],
+        primaryButtonBar: [
+          const Spacer(flex: 3),
+          MaterialCustomButton(
+            onPressed: () => _performSeekOffset(-10),
+            icon: const Icon(Icons.replay_10, color: Colors.white, size: 48.0),
+          ),
+          const Spacer(),
+          const MaterialPlayOrPauseButton(iconSize: 56.0),
+          const Spacer(),
+          MaterialCustomButton(
+            onPressed: () => _performSeekOffset(10),
+            icon: const Icon(Icons.forward_10, color: Colors.white, size: 48.0),
+          ),
+          const Spacer(flex: 3),
+        ],
         bottomButtonBar: [
           Expanded(
             child: Column(
@@ -2222,23 +2249,14 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
                 const SizedBox(height: 4.0),
                 Row(
                   children: [
-                    // Seek Back 10 Button
-                    MaterialCustomButton(
-                      onPressed: () => _performSeekOffset(-10),
-                      icon: const Icon(Icons.replay_10, color: Colors.white),
-                    ),
-                    const MaterialPlayOrPauseButton(),
-                    // Seek Forward 10 Button
-                    MaterialCustomButton(
-                      onPressed: () => _performSeekOffset(10),
-                      icon: const Icon(Icons.forward_10, color: Colors.white),
-                    ),
-                    if (widget.isMovie != true)
+                    const MaterialPositionIndicator(),
+                    if (widget.isMovie != true) ...[
+                      const SizedBox(width: 8.0),
                       MaterialCustomButton(
                         onPressed: _playNextEpisode,
                         icon: const Icon(Icons.skip_next, color: Colors.white),
                       ),
-                    const MaterialPositionIndicator(),
+                    ],
                     const Spacer(),
                      // Video Fit/Resize Button
                      Builder(
@@ -2340,6 +2358,21 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
             icon: const Icon(Icons.settings, color: Colors.white),
           ),
         ],
+        primaryButtonBar: [
+          const Spacer(flex: 3),
+          MaterialCustomButton(
+            onPressed: () => _performSeekOffset(-10),
+            icon: const Icon(Icons.replay_10, color: Colors.white, size: 48.0),
+          ),
+          const Spacer(),
+          const MaterialPlayOrPauseButton(iconSize: 56.0),
+          const Spacer(),
+          MaterialCustomButton(
+            onPressed: () => _performSeekOffset(10),
+            icon: const Icon(Icons.forward_10, color: Colors.white, size: 48.0),
+          ),
+          const Spacer(flex: 3),
+        ],
         bottomButtonBar: [
           Expanded(
             child: Column(
@@ -2353,23 +2386,14 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
                 const SizedBox(height: 4.0),
                 Row(
                   children: [
-                    // Seek Back 10 Button
-                    MaterialCustomButton(
-                      onPressed: () => _performSeekOffset(-10),
-                      icon: const Icon(Icons.replay_10, color: Colors.white),
-                    ),
-                    const MaterialPlayOrPauseButton(),
-                    // Seek Forward 10 Button
-                    MaterialCustomButton(
-                      onPressed: () => _performSeekOffset(10),
-                      icon: const Icon(Icons.forward_10, color: Colors.white),
-                    ),
-                    if (widget.isMovie != true)
+                    const MaterialPositionIndicator(),
+                    if (widget.isMovie != true) ...[
+                      const SizedBox(width: 8.0),
                       MaterialCustomButton(
                         onPressed: _playNextEpisode,
                         icon: const Icon(Icons.skip_next, color: Colors.white),
                       ),
-                    const MaterialPositionIndicator(),
+                    ],
                     const Spacer(),
                      // Video Fit/Resize Button
                      Builder(
@@ -2423,14 +2447,19 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
       onHover: (_) => _resetHideControlsTimer(),
       child: Listener(
         behavior: HitTestBehavior.translucent,
-        onPointerDown: (_) => _resetHideControlsTimer(),
+        onPointerDown: (_) {
+          _resetHideControlsTimer();
+          if (!_playerFocusNode.hasFocus) {
+            _playerFocusNode.requestFocus();
+          }
+        },
         onPointerMove: (_) => _resetHideControlsTimer(),
         child: Focus(
           focusNode: _playerFocusNode,
           autofocus: true,
           onKeyEvent: (FocusNode node, KeyEvent event) {
             _resetHideControlsTimer();
-            return KeyEventResult.ignored;
+            return _handleKeyEvent(event);
           },
           child: Scaffold(
             backgroundColor: Colors.black,
@@ -3361,6 +3390,31 @@ class _SettingsOverlayCardState extends State<_SettingsOverlayCard> {
             title: const Text("Change Stream", style: TextStyle(color: Colors.white, fontSize: 13.0, fontFamily: 'Outfit')),
             trailing: const Icon(Icons.chevron_right, color: Colors.white30, size: 16),
             onTap: widget.onOpenTorrentPanel,
+          ),
+        ],
+        if (PlayerState().streamUrl != null &&
+            (RegExp(r'link=([a-fA-F0-9]+)').hasMatch(PlayerState().streamUrl!) ||
+             PlayerState().streamUrl!.startsWith('magnet:?xt=urn:btih:'))) ...[
+          const Divider(color: Colors.white10, height: 1),
+          ListTile(
+            dense: true,
+            leading: const Icon(Icons.analytics_outlined, color: Colors.white70, size: 18),
+            title: const Text("Show Stats Dashboard", style: TextStyle(color: Colors.white, fontSize: 13.0, fontFamily: 'Outfit')),
+            trailing: SizedBox(
+              height: 24,
+              child: ListenableBuilder(
+                listenable: PlayerState(),
+                builder: (context, _) {
+                  return Switch(
+                    value: PlayerState().showTorrentDashboard,
+                    activeColor: Colors.amber,
+                    onChanged: (val) {
+                      PlayerState().setShowTorrentDashboard(val);
+                    },
+                  );
+                },
+              ),
+            ),
           ),
         ],
         const Divider(color: Colors.white10, height: 1),

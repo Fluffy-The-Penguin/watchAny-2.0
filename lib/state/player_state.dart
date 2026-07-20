@@ -5,7 +5,9 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
+import '../services/aniskip_service.dart';
 import 'package:media_kit_video/media_kit_video.dart';
+import 'package:media_kit_video/media_kit_video_controls/media_kit_video_controls.dart' as media_kit_video_controls;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/video_proxy_service.dart';
 import 'library_state.dart';
@@ -54,6 +56,22 @@ class PlayerState extends ChangeNotifier {
   StreamSubscription? _tracksSubscription;            // fires once after media opens to load subtitle
   Map<String, String>? _headers;
 
+  BoxFit _videoFit = BoxFit.contain;
+  String _fitName = 'Fit (Default)';
+  bool _showFitToastFlag = false;
+  Timer? _fitToastTimer;
+
+  bool _showTorrentDashboard = false;
+  bool _showSkipButton = false;
+  SkipInterval? _activeSkipInterval;
+  bool _isQualityEnhanced = false;
+  bool _showAppBar = true;
+
+  double _torrentSpeedBytes = 0.0;
+  int _torrentActivePeers = 0;
+  int _torrentTotalPeers = 0;
+  final List<double> _torrentSpeedHistory = [];
+
   // Progress Tracking Subscriptions and variables
   StreamSubscription<Duration>? _positionSubscription;
   StreamSubscription<Duration>? _durationSubscription;
@@ -86,6 +104,102 @@ class PlayerState extends ChangeNotifier {
   List<dynamic>? get episodes => _episodes;
   List<HstreamSource>? get hstreamSources => _hstreamSources;
   List<Map<String, String>>? get hstreamSubtitleTracks => _hstreamSubtitleTracks;
+
+  BoxFit get videoFit => _videoFit;
+  String get fitName => _fitName;
+  bool get showFitToastFlag => _showFitToastFlag;
+
+  bool get showTorrentDashboard => _showTorrentDashboard;
+  bool get showSkipButton => _showSkipButton;
+  SkipInterval? get activeSkipInterval => _activeSkipInterval;
+  bool get isQualityEnhanced => _isQualityEnhanced;
+
+  void setShowTorrentDashboard(bool show) {
+    _showTorrentDashboard = show;
+    notifyListeners();
+  }
+
+  void setShowSkipButton(bool show) {
+    _showSkipButton = show;
+    notifyListeners();
+  }
+
+  void setActiveSkipInterval(SkipInterval? interval) {
+    _activeSkipInterval = interval;
+    notifyListeners();
+  }
+
+  void setIsQualityEnhanced(bool enhanced) {
+    _isQualityEnhanced = enhanced;
+    notifyListeners();
+  }
+
+  bool get showAppBar => _showAppBar;
+  void setShowAppBar(bool show) {
+    _showAppBar = show;
+    notifyListeners();
+  }
+
+  double get torrentSpeedBytes => _torrentSpeedBytes;
+  int get torrentActivePeers => _torrentActivePeers;
+  int get torrentTotalPeers => _torrentTotalPeers;
+  List<double> get torrentSpeedHistory => _torrentSpeedHistory;
+
+  void updateTorrentStats(double speed, int active, int total) {
+    _torrentSpeedBytes = speed;
+    _torrentActivePeers = active;
+    _torrentTotalPeers = total;
+    
+    final double mbps = speed / (1024.0 * 1024.0);
+    _torrentSpeedHistory.add(mbps);
+    if (_torrentSpeedHistory.length > 30) {
+      _torrentSpeedHistory.removeAt(0);
+    }
+    notifyListeners();
+  }
+
+  void clearTorrentStats() {
+    _torrentSpeedBytes = 0.0;
+    _torrentActivePeers = 0;
+    _torrentTotalPeers = 0;
+    _torrentSpeedHistory.clear();
+    notifyListeners();
+  }
+
+  void cycleVideoFit([BuildContext? context]) {
+    if (_videoFit == BoxFit.contain) {
+      _videoFit = BoxFit.fill;
+      _showFitToast('Stretch (16:9)');
+    } else if (_videoFit == BoxFit.fill) {
+      _videoFit = BoxFit.cover;
+      _showFitToast('Zoom / Fill');
+    } else {
+      _videoFit = BoxFit.contain;
+      _showFitToast('Fit (Default)');
+    }
+    
+    if (context != null) {
+      try {
+        final videoViewParametersNotifier = media_kit_video_controls.VideoStateInheritedWidget.maybeOf(context)?.videoViewParametersNotifier;
+        if (videoViewParametersNotifier != null) {
+          videoViewParametersNotifier.value = videoViewParametersNotifier.value.copyWith(fit: _videoFit);
+        }
+      } catch (_) {}
+    }
+    notifyListeners();
+  }
+
+  void _showFitToast(String name) {
+    _fitToastTimer?.cancel();
+    _fitName = name;
+    _showFitToastFlag = true;
+    notifyListeners();
+
+    _fitToastTimer = Timer(const Duration(seconds: 2), () {
+      _showFitToastFlag = false;
+      notifyListeners();
+    });
+  }
 
   // Progress helpers
   PlaybackProgress? getProgress(dynamic id, int episodeNumber) {
@@ -122,6 +236,21 @@ class PlayerState extends ChangeNotifier {
   }) {
     FocusManager.instance.primaryFocus?.unfocus();
     _cleanupPlayer();
+
+    _videoFit = BoxFit.contain;
+    _fitName = 'Fit (Default)';
+    _showFitToastFlag = false;
+    _fitToastTimer?.cancel();
+
+    _showTorrentDashboard = false;
+    _showSkipButton = false;
+    _activeSkipInterval = null;
+    _isQualityEnhanced = false;
+    _showAppBar = true;
+    _torrentSpeedBytes = 0.0;
+    _torrentActivePeers = 0;
+    _torrentTotalPeers = 0;
+    _torrentSpeedHistory.clear();
 
     _streamUrl = streamUrl;
     _title = title;

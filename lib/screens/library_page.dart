@@ -37,6 +37,8 @@ class _LibraryPageState extends State<LibraryPage> {
   bool _isBackgroundFetchingMissing = false;
   bool _isBackgroundFetchingMissingAnime = false;
   bool _isUpdatingLibrary = false;
+  double _mangaUpdateProgress = 0.0;
+  String _mangaUpdateStatusText = '';
   final Set<int> _attemptedFetchIds = {};
   bool _isSelectionMode = false;
   final Set<int> _selectedItemIds = {};
@@ -356,85 +358,9 @@ class _LibraryPageState extends State<LibraryPage> {
 
     setState(() {
       _isUpdatingLibrary = true;
+      _mangaUpdateProgress = 0.0;
+      _mangaUpdateStatusText = 'Initializing update...';
     });
-
-    final progressTextNotifier = ValueNotifier<String>('0 / ${savedItems.length}');
-    final progressValueNotifier = ValueNotifier<double>(0.0);
-    final currentMangaTitleNotifier = ValueNotifier<String>('Initializing update...');
-
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (BuildContext context) {
-        return PopScope(
-          canPop: false,
-          child: AlertDialog(
-            backgroundColor: const Color(0xFF141414),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
-            content: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8.0),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    onlyCategory
-                        ? 'Updating Category "$categoryName"...'
-                        : 'Updating Library...',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontFamily: 'Outfit',
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16.0,
-                    ),
-                  ),
-                  const SizedBox(height: 16.0),
-                  ValueListenableBuilder<String>(
-                    valueListenable: currentMangaTitleNotifier,
-                    builder: (context, title, _) {
-                      return Text(
-                        title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(color: Colors.white70, fontSize: 13.0),
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 16.0),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(4.0),
-                    child: ValueListenableBuilder<double>(
-                      valueListenable: progressValueNotifier,
-                      builder: (context, val, _) {
-                        return LinearProgressIndicator(
-                          value: val,
-                          backgroundColor: Colors.white10,
-                          valueColor: const AlwaysStoppedAnimation<Color>(Colors.blueAccent),
-                          minHeight: 6.0,
-                        );
-                      },
-                    ),
-                  ),
-                  const SizedBox(height: 12.0),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: ValueListenableBuilder<String>(
-                      valueListenable: progressTextNotifier,
-                      builder: (context, txt, _) {
-                        return Text(
-                          txt,
-                          style: const TextStyle(color: Colors.white38, fontSize: 12.0, fontFamily: 'Outfit'),
-                        );
-                      },
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-    );
 
     int updatedCount = 0;
     try {
@@ -442,7 +368,11 @@ class _LibraryPageState extends State<LibraryPage> {
         final item = savedItems[i];
         final cached = LibraryState().mangaCache[item.id];
         final String displayName = cached?['title'] ?? 'Manga #${item.id}';
-        currentMangaTitleNotifier.value = 'Updating: $displayName';
+        
+        setState(() {
+          _mangaUpdateStatusText = 'Updating: $displayName';
+          _mangaUpdateProgress = i / savedItems.length;
+        });
 
         final freshDetails = await SuwayomiService().getMangaDetails(item.id);
         if (freshDetails != null) {
@@ -465,19 +395,25 @@ class _LibraryPageState extends State<LibraryPage> {
           updatedCount++;
         }
 
-        progressValueNotifier.value = (i + 1) / savedItems.length;
-        progressTextNotifier.value = '${i + 1} / ${savedItems.length}';
+        setState(() {
+          _mangaUpdateProgress = (i + 1) / savedItems.length;
+        });
       }
     } catch (e) {
       debugPrint('[LibraryPage] Manga library update error: $e');
     } finally {
-      setState(() {
-        _isUpdatingLibrary = false;
-      });
       if (mounted) {
-        Navigator.pop(context);
-        NotificationService().show(context, 'Manga update complete! Updated $updatedCount of ${savedItems.length} manga.');
+        setState(() {
+          _isUpdatingLibrary = false;
+          _mangaUpdateProgress = 1.0;
+          _mangaUpdateStatusText = '';
+        });
         _loadLibraryData();
+        NotificationService().show(context, 'Manga update complete! Updated $updatedCount of ${savedItems.length} manga.');
+        NotificationService().showNativeNotification(
+          'Manga Library Updated',
+          'Successfully updated $updatedCount of ${savedItems.length} manga.',
+        );
       }
     }
   }
@@ -925,11 +861,14 @@ class _LibraryPageState extends State<LibraryPage> {
         child: Builder(
           builder: (context) {
             final controller = DefaultTabController.of(context);
-            final activeIndex = controller.index;
-            final activeId = tabIds.isNotEmpty && activeIndex < tabIds.length ? tabIds[activeIndex] : '';
+            return ListenableBuilder(
+              listenable: controller,
+              builder: (context, _) {
+                final activeIndex = controller.index;
+                final activeId = tabIds.isNotEmpty && activeIndex < tabIds.length ? tabIds[activeIndex] : '';
 
-            return Scaffold(
-              backgroundColor: Colors.transparent,
+                return Scaffold(
+                  backgroundColor: Colors.transparent,
               bottomNavigationBar: _buildSelectionActionBar(activeCategoryId: activeId),
               body: Padding(
                 padding: EdgeInsets.only(
@@ -1119,6 +1058,74 @@ class _LibraryPageState extends State<LibraryPage> {
                         ],
                       ],
                     ),
+                    if (_isUpdatingLibrary) ...[
+                      const SizedBox(height: 12.0),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF1A1A1A),
+                          borderRadius: BorderRadius.circular(10.0),
+                          border: Border.all(color: Colors.blueAccent.withOpacity(0.3), width: 1.0),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.blueAccent.withOpacity(0.05),
+                              blurRadius: 10,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Row(
+                              children: [
+                                const SizedBox(
+                                  width: 14.0,
+                                  height: 14.0,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2.0,
+                                    color: Colors.blueAccent,
+                                  ),
+                                ),
+                                const SizedBox(width: 10.0),
+                                Expanded(
+                                  child: Text(
+                                    _mangaUpdateStatusText,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontFamily: 'Outfit',
+                                      fontSize: 13.0,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                                Text(
+                                  '${(_mangaUpdateProgress * 100).toInt()}%',
+                                  style: const TextStyle(
+                                    color: Colors.blueAccent,
+                                    fontFamily: 'Outfit',
+                                    fontSize: 12.0,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8.0),
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(4.0),
+                              child: LinearProgressIndicator(
+                                value: _mangaUpdateProgress,
+                                backgroundColor: Colors.white10,
+                                valueColor: const AlwaysStoppedAnimation<Color>(Colors.blueAccent),
+                                minHeight: 4.0,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 16.0),
 
                     // Search & Filter row
@@ -1167,9 +1174,11 @@ class _LibraryPageState extends State<LibraryPage> {
                 ),
               ),
             );
-          }
-        ),
-      );
+          },
+        );
+      }
+    ),
+  );
     } else if (widget.mode == AppMode.movies) {
       final displayItems = _applyFilters(List.from(_fetchedMedia));
 

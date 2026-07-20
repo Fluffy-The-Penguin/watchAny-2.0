@@ -980,6 +980,8 @@ class PlaybackProgressDialog extends StatefulWidget {
   final void Function(String streamUrl, String title)? onStreamSelected;
   final bool isDownload;
   final bool isFromPlayer;
+  final int? season;
+  final int? fileIndex;
 
   const PlaybackProgressDialog({
     super.key,
@@ -996,6 +998,8 @@ class PlaybackProgressDialog extends StatefulWidget {
     this.onStreamSelected,
     this.isDownload = false,
     this.isFromPlayer = false,
+    this.season,
+    this.fileIndex,
   });
 
   @override
@@ -1102,20 +1106,49 @@ class PlaybackProgressDialogState extends State<PlaybackProgressDialog> {
     // Build absolute to local maps and expected season number
     final Map<int, int> absoluteToLocal = {};
     int expectedSeason = 1;
+    if (widget.season != null) {
+      expectedSeason = widget.season!;
+    } else if (widget.movieId != null) {
+      final parts = widget.movieId!.split(':');
+      if (parts.length >= 4) {
+        expectedSeason = int.tryParse(parts[2]) ?? 1;
+      }
+    }
+
+    dynamic activeEpObj;
     if (widget.episodes != null && widget.episodes!.isNotEmpty) {
-      final int targetIdx = (widget.episodeNumber - 1).clamp(0, widget.episodes!.length - 1);
-      final ep = widget.episodes![targetIdx];
-      if (ep['seasonNumber'] is int) {
-        expectedSeason = ep['seasonNumber'] as int;
+      // Try to find the exact Stremio episode object by matching season and episode
+      for (final e in widget.episodes!) {
+        if (e is Map &&
+            (int.tryParse(e['season']?.toString() ?? '') == expectedSeason) &&
+            (int.tryParse(e['episode']?.toString() ?? '') == widget.episodeNumber)) {
+          activeEpObj = e;
+          break;
+        }
+      }
+
+      // Fallback: match by index
+      if (activeEpObj == null) {
+        final int targetIdx = (widget.episodeNumber - 1).clamp(0, widget.episodes!.length - 1);
+        activeEpObj = widget.episodes![targetIdx];
+      }
+
+      if (activeEpObj != null && activeEpObj is Map) {
+        if (activeEpObj['seasonNumber'] is int) {
+          expectedSeason = activeEpObj['seasonNumber'] as int;
+        } else if (activeEpObj['season'] != null) {
+          expectedSeason = int.tryParse(activeEpObj['season'].toString()) ?? expectedSeason;
+        }
       }
 
       for (var idx = 0; idx < widget.episodes!.length; idx++) {
         final epItem = widget.episodes![idx];
-        final localEp = idx + 1;
-        
-        final absEp = epItem['absoluteEpisodeNumber'] as int?;
-        if (absEp != null) {
-          absoluteToLocal[absEp] = localEp;
+        if (epItem is Map) {
+          final localEp = (epItem['episode'] as num?)?.toInt() ?? (idx + 1);
+          final absEp = epItem['absoluteEpisodeNumber'] as int?;
+          if (absEp != null) {
+            absoluteToLocal[absEp] = localEp;
+          }
         }
       }
     }
@@ -1207,12 +1240,12 @@ class PlaybackProgressDialogState extends State<PlaybackProgressDialog> {
         throw Exception("No playable media files found in this torrent.");
       }
 
-      int? autoPlayIndex = _saveBatchMappingIfApplicable(torrentInfo.hash, playableFiles);
+      int? autoPlayIndex = widget.fileIndex ?? _saveBatchMappingIfApplicable(torrentInfo.hash, playableFiles);
 
-      if (playableFiles.length == 1 || autoPlayIndex != null) {
-        final file = playableFiles.length == 1
-            ? playableFiles[0]
-            : playableFiles.firstWhere((f) => f.index == autoPlayIndex);
+      if (autoPlayIndex != null || playableFiles.length == 1) {
+        final file = autoPlayIndex != null
+            ? playableFiles.firstWhere((f) => f.index == autoPlayIndex, orElse: () => playableFiles[0])
+            : playableFiles[0];
 
         _playingFile = file;
         _playingHash = torrentInfo.hash;
@@ -1326,111 +1359,255 @@ class PlaybackProgressDialogState extends State<PlaybackProgressDialog> {
   }
 
   void _showFileSelectionDialog(String hash, List<TorrentFile> files) {
+    int expectedSeason = 1;
+    if (widget.season != null) {
+      expectedSeason = widget.season!;
+    } else if (widget.movieId != null) {
+      final parts = widget.movieId!.split(':');
+      if (parts.length >= 4) {
+        expectedSeason = int.tryParse(parts[2]) ?? 1;
+      }
+    }
+
+    final sortedFiles = List<TorrentFile>.from(files);
+    sortedFiles.sort((a, b) {
+      final aName = a.path.split('/').last.split('\\').last;
+      final aNameToUse = aName.isNotEmpty ? aName : a.name;
+      final aNum = extractEpisodeNumber(aNameToUse, expectedSeason);
+      final aSug = widget.isMovie ? (a.length > 500 * 1024 * 1024) : (aNum == widget.episodeNumber);
+
+      final bName = b.path.split('/').last.split('\\').last;
+      final bNameToUse = bName.isNotEmpty ? bName : b.name;
+      final bNum = extractEpisodeNumber(bNameToUse, expectedSeason);
+      final bSug = widget.isMovie ? (b.length > 500 * 1024 * 1024) : (bNum == widget.episodeNumber);
+
+      if (aSug && !bSug) return -1;
+      if (!aSug && bSug) return 1;
+      return a.index.compareTo(b.index);
+    });
+
     showDialog(
       context: widget.parentContext,
       builder: (context) {
-        return AlertDialog(
-          backgroundColor: const Color(0xFF0F0F11),
-          title: Text(
-            widget.isDownload ? "Select File to Download" : "Select File to Play",
-            style: const TextStyle(color: Colors.white, fontFamily: 'Outfit', fontSize: 16.0),
-          ),
-          content: SizedBox(
-            width: 400,
-            child: ListView.builder(
-              shrinkWrap: true,
-              itemCount: files.length,
-              itemBuilder: (context, index) {
-                final file = files[index];
-                final fileName = file.path.split('/').last.split('\\').last;
-                final displayName = fileName.isNotEmpty ? fileName : file.name;
-                return ListTile(
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
-                  title: Text(
-                    displayName,
-                    style: const TextStyle(color: Colors.white, fontSize: 13.0),
-                  ),
-                  subtitle: Text(
-                    file.sizeLabel,
-                    style: const TextStyle(color: Colors.white38, fontSize: 11.0),
-                  ),
-                  onTap: () async {
-                    Navigator.of(context).pop(); // pop selection dialog
-                    if (widget.isDownload) {
-                      final streamUrl = _torrServerService.getStreamUrl(hash, file.index);
-                      
-                      final fits = await DownloadService().preCheckStorageLimit(file.length);
-                      if (!fits) {
-                        if (!context.mounted) return;
-                        showStorageFullDialog(context, file.length, () async {
-                          await DownloadService().addDownloadTask(
-                            hash: hash,
-                            fileIndex: file.index,
-                            title: displayName,
-                            streamUrl: streamUrl,
-                            anilistId: widget.anilistId,
-                            titles: widget.titles,
-                            episodeCount: widget.episodeCount,
-                            episodeNumber: widget.episodeNumber,
-                            isMovie: widget.isMovie,
-                            mediaJson: widget.media != null ? jsonEncode(widget.media) : null,
-                            episodesJson: widget.episodes != null ? jsonEncode(widget.episodes) : null,
-                          );
-                          NotificationService().show(widget.parentContext, 'Added to downloads: $displayName');
-                        }, isFromPlayer: widget.isFromPlayer);
-                        return;
-                      }
+        String searchQuery = '';
+        final ScrollController scrollController = ScrollController();
+        return StatefulBuilder(
+          builder: (context, setState) {
+            final filteredFiles = sortedFiles.where((file) {
+              final fileName = file.path.split('/').last.split('\\').last;
+              final displayName = fileName.isNotEmpty ? fileName : file.name;
+              return displayName.toLowerCase().contains(searchQuery.toLowerCase());
+            }).toList();
 
-                      await DownloadService().addDownloadTask(
-                        hash: hash,
-                        fileIndex: file.index,
-                        title: displayName,
-                        streamUrl: streamUrl,
-                        anilistId: widget.anilistId,
-                        titles: widget.titles,
-                        episodeCount: widget.episodeCount,
-                        episodeNumber: widget.episodeNumber,
-                        isMovie: widget.isMovie,
-                        mediaJson: widget.media != null ? jsonEncode(widget.media) : null,
-                        episodesJson: widget.episodes != null ? jsonEncode(widget.episodes) : null,
-                              );
-                      NotificationService().show(widget.parentContext, 'Added to downloads: $displayName');
-                    } else {
-                      // Show buffering progress dialog
-                      showDialog(
-                        context: widget.parentContext,
-                        barrierDismissible: false,
-                        builder: (dialogContext) {
-                          return BufferingProgressDialog(
-                            hash: hash,
-                            file: file,
-                            parentContext: widget.parentContext,
-                            anilistId: widget.anilistId,
-                            movieId: widget.movieId,
-                            episodeNumber: widget.episodeNumber,
-                            titles: widget.titles,
-                            episodeCount: widget.episodeCount,
-                            isMovie: widget.isMovie,
-                            media: widget.media,
-                            episodes: widget.episodes,
-                                              onStreamSelected: widget.onStreamSelected,
-                          );
-                        },
-                      );
-                    }
-                  },
-                );
-              },
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.of(context).pop(); // pop selection dialog
-              },
-              child: const Text("Cancel", style: TextStyle(color: Colors.white70)),
-            ),
-          ],
+            return AlertDialog(
+              backgroundColor: const Color(0xFF0F0F11),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16.0)),
+              titlePadding: const EdgeInsets.fromLTRB(20.0, 20.0, 20.0, 10.0),
+              contentPadding: const EdgeInsets.fromLTRB(20.0, 0.0, 20.0, 10.0),
+              title: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    widget.isDownload ? "Select File to Download" : "Select File to Play",
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontFamily: 'Outfit',
+                      fontSize: 16.0,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, color: Colors.white60, size: 20.0),
+                    onPressed: () => Navigator.of(context).pop(),
+                  ),
+                ],
+              ),
+              content: SizedBox(
+                width: MediaQuery.of(context).size.width * 0.9,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    TextField(
+                      onChanged: (val) {
+                        setState(() {
+                          searchQuery = val;
+                        });
+                      },
+                      style: const TextStyle(color: Colors.white, fontSize: 13.0),
+                      decoration: InputDecoration(
+                        hintText: 'Search files...',
+                        hintStyle: const TextStyle(color: Colors.white30, fontSize: 13.0),
+                        prefixIcon: const Icon(Icons.search, color: Colors.white30, size: 18.0),
+                        filled: true,
+                        fillColor: const Color(0xFF18181C),
+                        isDense: true,
+                        contentPadding: const EdgeInsets.symmetric(vertical: 10.0),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8.0),
+                          borderSide: BorderSide.none,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12.0),
+                    ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxHeight: MediaQuery.of(context).size.height * 0.45,
+                      ),
+                      child: filteredFiles.isEmpty
+                          ? const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 24.0),
+                              child: Center(
+                                child: Text(
+                                  'No matching files found',
+                                  style: TextStyle(color: Colors.white38, fontSize: 13.0),
+                                ),
+                              ),
+                            )
+                          : Scrollbar(
+                              controller: scrollController,
+                              thumbVisibility: true,
+                              child: ListView.builder(
+                                controller: scrollController,
+                                shrinkWrap: true,
+                                itemCount: filteredFiles.length,
+                                itemBuilder: (context, index) {
+                                  final file = filteredFiles[index];
+                                  final fileName = file.path.split('/').last.split('\\').last;
+                                  final displayName = fileName.isNotEmpty ? fileName : file.name;
+
+                                  final fileNum = extractEpisodeNumber(displayName, expectedSeason);
+                                  final isSuggested = widget.isMovie 
+                                      ? (file.length > 500 * 1024 * 1024) 
+                                      : (fileNum == widget.episodeNumber);
+
+                                  return Container(
+                                    margin: const EdgeInsets.symmetric(vertical: 4.0, horizontal: 4.0),
+                                    decoration: BoxDecoration(
+                                      color: isSuggested 
+                                          ? Colors.blueAccent.withOpacity(0.08) 
+                                          : Colors.transparent,
+                                      borderRadius: BorderRadius.circular(8.0),
+                                      border: Border.all(
+                                        color: isSuggested 
+                                            ? Colors.blueAccent.withOpacity(0.3) 
+                                            : Colors.transparent,
+                                        width: 1.0,
+                                      ),
+                                    ),
+                                    child: ListTile(
+                                      contentPadding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 4.0),
+                                      title: Text(
+                                        displayName,
+                                        maxLines: 3,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          color: isSuggested ? Colors.white : Colors.white.withOpacity(0.9),
+                                          fontSize: 12.0,
+                                          height: 1.3,
+                                          fontWeight: isSuggested ? FontWeight.bold : FontWeight.normal,
+                                        ),
+                                      ),
+                                      subtitle: Row(
+                                        children: [
+                                          Text(
+                                            file.sizeLabel,
+                                            style: const TextStyle(color: Colors.white38, fontSize: 11.0),
+                                          ),
+                                          if (isSuggested) ...[
+                                            const SizedBox(width: 8.0),
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 6.0, vertical: 2.0),
+                                            decoration: BoxDecoration(
+                                              color: Colors.blueAccent.withOpacity(0.2),
+                                              borderRadius: BorderRadius.circular(4.0),
+                                            ),
+                                            child: Text(
+                                              widget.isMovie ? 'Main Movie' : 'Episode ${widget.episodeNumber}',
+                                              style: const TextStyle(
+                                                color: Colors.blueAccent,
+                                                fontSize: 9.0,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ],
+                                    ),
+                                    onTap: () async {
+                                      Navigator.of(context).pop();
+                                      if (widget.isDownload) {
+                                        final streamUrl = _torrServerService.getStreamUrl(hash, file.index);
+                                        
+                                        final fits = await DownloadService().preCheckStorageLimit(file.length);
+                                        if (!fits) {
+                                          if (!context.mounted) return;
+                                          showStorageFullDialog(context, file.length, () async {
+                                            await DownloadService().addDownloadTask(
+                                              hash: hash,
+                                              fileIndex: file.index,
+                                              title: displayName,
+                                              streamUrl: streamUrl,
+                                              anilistId: widget.anilistId,
+                                              titles: widget.titles,
+                                              episodeCount: widget.episodeCount,
+                                              episodeNumber: widget.episodeNumber,
+                                              isMovie: widget.isMovie,
+                                              mediaJson: widget.media != null ? jsonEncode(widget.media) : null,
+                                              episodesJson: widget.episodes != null ? jsonEncode(widget.episodes) : null,
+                                            );
+                                            NotificationService().show(widget.parentContext, 'Added to downloads: $displayName');
+                                          }, isFromPlayer: widget.isFromPlayer);
+                                          return;
+                                        }
+
+                                        await DownloadService().addDownloadTask(
+                                          hash: hash,
+                                          fileIndex: file.index,
+                                          title: displayName,
+                                          streamUrl: streamUrl,
+                                          anilistId: widget.anilistId,
+                                          titles: widget.titles,
+                                          episodeCount: widget.episodeCount,
+                                          episodeNumber: widget.episodeNumber,
+                                          isMovie: widget.isMovie,
+                                          mediaJson: widget.media != null ? jsonEncode(widget.media) : null,
+                                          episodesJson: widget.episodes != null ? jsonEncode(widget.episodes) : null,
+                                        );
+                                        NotificationService().show(widget.parentContext, 'Added to downloads: $displayName');
+                                      } else {
+                                        showDialog(
+                                          context: widget.parentContext,
+                                          barrierDismissible: false,
+                                          builder: (dialogCtx) => PlaybackProgressDialog(
+                                            stream: widget.stream,
+                                            fileIndex: file.index,
+                                            parentContext: widget.parentContext,
+                                            episodeNumber: widget.episodeNumber,
+                                            titles: widget.titles,
+                                            episodeCount: widget.episodeCount,
+                                            isMovie: widget.isMovie,
+                                            media: widget.media,
+                                            episodes: widget.episodes ?? [],
+                                            anilistId: widget.anilistId,
+                                            movieId: widget.movieId,
+                                            isFromPlayer: widget.isFromPlayer,
+                                            season: expectedSeason,
+                                          ),
+                                        );
+                                      }
+                                    },
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+              ),
+            );
+          },
         );
       },
     );
@@ -1461,6 +1638,15 @@ class PlaybackProgressDialogState extends State<PlaybackProgressDialog> {
                     _navigateToPlayer(_playingHash!, _playingFile!, shouldPopParent: true);
                   },
                   child: const Text("Skip Buffering", style: TextStyle(color: Colors.white54, fontSize: 12.0)),
+                ),
+              ] else ...[
+                const SizedBox(height: 16),
+                TextButton(
+                  onPressed: () {
+                    _torrServerService.cancelAllPreloads();
+                    Navigator.of(context).pop();
+                  },
+                  child: const Text("Cancel", style: TextStyle(color: Colors.white38, fontSize: 12.0)),
                 ),
               ],
             ] else ...[

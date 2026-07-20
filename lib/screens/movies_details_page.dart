@@ -582,6 +582,7 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
           media: media,
           episodes: _isSeries && _hasVideos ? _meta['videos'] : null,
           isDownload: isDownload,
+          season: _selectedSeason,
         ),
       );
       return;
@@ -2390,8 +2391,8 @@ class _DirectPlaybackProgressDialogState extends State<_DirectPlaybackProgressDi
 
   @override
   Widget build(BuildContext context) {
-    return WillPopScope(
-      onWillPop: () async => !_hasError,
+    return PopScope(
+      canPop: _hasError,
       child: AlertDialog(
         backgroundColor: const Color(0xFF0F0F11),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
@@ -2411,6 +2412,17 @@ class _DirectPlaybackProgressDialogState extends State<_DirectPlaybackProgressDi
                   _status,
                   textAlign: TextAlign.center,
                   style: const TextStyle(color: Colors.white, fontSize: 13.0, height: 1.4),
+                ),
+                const SizedBox(height: 16.0),
+                TextButton(
+                  onPressed: () {
+                    _torrServerService.cancelAllPreloads();
+                    Navigator.pop(context);
+                  },
+                  child: const Text(
+                    "Cancel",
+                    style: TextStyle(color: Colors.white38, fontSize: 12.0),
+                  ),
                 ),
               ] else ...[
                 const Icon(Icons.error_outline, color: Colors.redAccent, size: 36.0),

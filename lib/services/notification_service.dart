@@ -1,6 +1,9 @@
 import 'dart:async';
 import 'dart:ui';
+import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 class AppNotification {
   final String id;
@@ -22,6 +25,80 @@ class NotificationService {
 
   final List<AppNotification> _notifications = [];
   OverlayEntry? _overlayEntry;
+
+  final FlutterLocalNotificationsPlugin _localNotificationsPlugin =
+      FlutterLocalNotificationsPlugin();
+  bool _localNotificationsInitialized = false;
+
+  Future<void> initLocalNotifications() async {
+    if (_localNotificationsInitialized) return;
+
+    final isMobile = !kIsWeb && (Platform.isAndroid || Platform.isIOS);
+    if (!isMobile) return;
+
+    const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+    const iosSettings = DarwinInitializationSettings(
+      requestAlertPermission: true,
+      requestBadgePermission: true,
+      requestSoundPermission: true,
+    );
+
+    const initSettings = InitializationSettings(
+      android: androidSettings,
+      iOS: iosSettings,
+    );
+
+    try {
+      await _localNotificationsPlugin.initialize(initSettings);
+      
+      if (Platform.isAndroid) {
+        await _localNotificationsPlugin
+            .resolvePlatformSpecificImplementation<
+                AndroidFlutterLocalNotificationsPlugin>()
+            ?.requestNotificationsPermission();
+      }
+      
+      _localNotificationsInitialized = true;
+    } catch (e) {
+      debugPrint('[NotificationService] Failed to initialize local notifications: $e');
+    }
+  }
+
+  Future<void> showNativeNotification(String title, String body) async {
+    await initLocalNotifications();
+    if (!_localNotificationsInitialized) return;
+
+    const androidDetails = AndroidNotificationDetails(
+      'watchany_library_updates',
+      'Library Updates',
+      channelDescription: 'Notifications for library background synchronization and updates',
+      importance: Importance.high,
+      priority: Priority.high,
+      showWhen: true,
+    );
+
+    const iosDetails = DarwinNotificationDetails(
+      presentAlert: true,
+      presentBadge: true,
+      presentSound: true,
+    );
+
+    const details = NotificationDetails(
+      android: androidDetails,
+      iOS: iosDetails,
+    );
+
+    try {
+      await _localNotificationsPlugin.show(
+        DateTime.now().millisecond,
+        title,
+        body,
+        details,
+      );
+    } catch (e) {
+      debugPrint('[NotificationService] Error showing native notification: $e');
+    }
+  }
 
   void show(BuildContext context, String message, {bool isError = false}) {
     final notification = AppNotification(

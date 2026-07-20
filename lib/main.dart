@@ -23,6 +23,7 @@ import 'widgets/brand_splash_screen.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'state/library_providers.dart';
 import 'services/android_background_sync.dart';
+import 'services/notification_service.dart';
 
 class MyCustomScrollBehavior extends MaterialScrollBehavior {
   @override
@@ -154,6 +155,7 @@ class _MyAppState extends State<MyApp> with WindowListener, WidgetsBindingObserv
       AnilistAuthState().init(),
       LibraryState().init(),
       DownloadService().init(),
+      NotificationService().initLocalNotifications(),
     ]);
 
     if (LibraryState().items.isEmpty) {
