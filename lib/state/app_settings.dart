@@ -60,7 +60,7 @@ class AppSettings extends ChangeNotifier {
 
   // Section management
   Set<String> _enabledModes = {'anime', 'manga', 'movies'};
-  bool _setupCompleted = false;
+  bool _setupCompleted = true;
 
   bool get smoothScrollEnabled => _smoothScrollEnabled;
   String get torrServerUrl => _torrServerUrl;

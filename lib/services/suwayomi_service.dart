@@ -127,6 +127,9 @@ class SuwayomiService {
   // Install extension
   Future<bool> installExtension(String pkgName) async {
     try {
+      // 1. Force seed external repos on the server first
+      await seedExternalRepositories();
+
       final response = await http.get(
         Uri.parse('$_baseUrl/api/install?pkg=$pkgName'),
       ).timeout(const Duration(seconds: 90));
@@ -136,9 +139,38 @@ class SuwayomiService {
         final success = decoded['ok'] == true;
         if (success) {
           changeNotifier.notifyListeners();
+          return true;
         }
-        return success;
       }
+
+      // 2. If first attempt returned false, refresh repo index on Suwayomi server and retry
+      developer.log('First install attempt returned false for $pkgName. Refreshing repo index and retrying...', name: 'SuwayomiService');
+      final repoUrls = [
+        "https://cdn.jsdelivr.net/gh/keiyoushi/extensions@repo/index.min.json",
+        "https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.min.json",
+      ];
+      for (final repoUrl in repoUrls) {
+        try {
+          final addUrl = Uri.parse('$_baseUrl/api/repos/add?url=${Uri.encodeComponent(repoUrl)}');
+          await http.get(addUrl).timeout(const Duration(seconds: 15));
+        } catch (_) {}
+      }
+
+      await Future.delayed(const Duration(seconds: 2));
+
+      final retryResponse = await http.get(
+        Uri.parse('$_baseUrl/api/install?pkg=$pkgName'),
+      ).timeout(const Duration(seconds: 90));
+
+      if (retryResponse.statusCode == 200) {
+        final decoded = jsonDecode(retryResponse.body);
+        final success = decoded['ok'] == true;
+        if (success) {
+          changeNotifier.notifyListeners();
+          return true;
+        }
+      }
+
       return false;
     } catch (e, stack) {
       developer.log('installExtension Error', name: 'SuwayomiService', error: e, stackTrace: stack);

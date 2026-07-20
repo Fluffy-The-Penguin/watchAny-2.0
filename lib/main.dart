@@ -341,19 +341,10 @@ class _MyAppState extends State<MyApp> with WindowListener, WidgetsBindingObserv
                   }
                 },
               )
-            : (_showSetup || !AppSettings().setupCompleted)
-                ? SetupScreen(
-                    key: const ValueKey('setup'),
-                    onSetupComplete: () {
-                      setState(() => _showSetup = false);
-                      // Re-sync TorrServer after setup
-                      _handleNavigationModeChange();
-                    },
-                  )
-                : ShellLayout(
-                    key: const ValueKey('shell'),
-                    navigationState: _navigationState,
-                  ),
+            : ShellLayout(
+                key: const ValueKey('shell'),
+                navigationState: _navigationState,
+              ),
       ),
     );
   }
