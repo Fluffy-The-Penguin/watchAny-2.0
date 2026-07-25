@@ -977,7 +977,12 @@ class SuwayomiService {
   }
 
   List<dynamic> _mapV1Mangas(dynamic v1Data, String sourceId) {
-    final list = (v1Data['mangaList'] ?? v1Data['mangas']) as List? ?? [];
+    if (v1Data == null) return [];
+    dynamic container = v1Data;
+    if (container is Map && container.containsKey('data') && container['data'] != null) {
+      container = container['data'];
+    }
+    final List list = (container is Map ? (container['mangaList'] ?? container['mangas']) : (container is List ? container : [])) as List? ?? [];
     final mapped = <dynamic>[];
     for (var manga in list) {
       final String url = manga['url'] ?? '';
@@ -996,6 +1001,7 @@ class SuwayomiService {
     }
     return mapped;
   }
+
 
 
 
