@@ -562,7 +562,7 @@ class ExtensionRuntime(private val context: Context, private val root: Path) {
             .filter { it.isNotBlank() }
             .map { if (it.startsWith('.')) metadata.pkgName + it else it }
 
-        val loaded = loadSourcesFromApkDetailed(apkPath, classNames)
+        val loaded = loadSourcesFromApkDetailed(apkPath, classNames, extension.pkg)
         val sourceErrors = loaded.errors.toMutableList()
         val sourceMetadata = loaded.sources.mapNotNull { source ->
             runCatching { InstalledSource(source.id, source.lang, source.name) }
@@ -595,20 +595,20 @@ class ExtensionRuntime(private val context: Context, private val root: Path) {
 
     fun loadInstalledSources(lang: String? = null): List<CatalogueSource> {
         val langFilter = languageFilter(lang)
-        return readInstalled().flatMap { installed -> loadSourcesFromApk(Path(installed.jarPath), installed.sourceClasses) }
+        return readInstalled().flatMap { installed -> loadSourcesFromApk(Path(installed.jarPath), installed.sourceClasses, installed.pkg) }
             .filter { source -> languageMatches(source.lang, langFilter) }
     }
 
-    private fun loadSourcesFromApk(apkPath: Path, classNames: List<String>): List<CatalogueSource> {
-        return loadSourcesFromApkDetailed(apkPath, classNames).sources
+    private fun loadSourcesFromApk(apkPath: Path, classNames: List<String>, pkgName: String? = null): List<CatalogueSource> {
+        return loadSourcesFromApkDetailed(apkPath, classNames, pkgName).sources
     }
 
-    private fun loadSourcesFromApkDetailed(apkPath: Path, classNames: List<String>): LoadedSources {
+    private fun loadSourcesFromApkDetailed(apkPath: Path, classNames: List<String>, pkgName: String? = null): LoadedSources {
         val sources = mutableListOf<CatalogueSource>()
         val errors = mutableListOf<SourceLoadError>()
         classNames.forEach { className ->
             try {
-                val instance = PackageTools.loadExtensionClass(context, apkPath, className)
+                val instance = PackageTools.loadExtensionClass(context, apkPath, className, pkgName)
                 when (instance) {
                     is CatalogueSource -> sources += instance
                     is Source -> sources += listOf(instance).filterIsInstance<CatalogueSource>()
@@ -616,11 +616,13 @@ class ExtensionRuntime(private val context: Context, private val root: Path) {
                     else -> errors += SourceLoadError(className, "UnknownType", "Unknown source class type ${instance.javaClass.name}")
                 }
             } catch (error: Throwable) {
+                android.util.Log.e("watchAny-ExtensionRuntime", "Failed to load extension class $className for $pkgName: ${error.message}", error)
                 errors += SourceLoadError.from(className, error)
             }
         }
         return LoadedSources(sources, errors)
     }
+
 
     private fun languageFilter(lang: String?): String? {
         val value = lang?.trim()?.lowercase()?.takeIf { it.isNotBlank() }
@@ -659,7 +661,8 @@ class ExtensionRuntime(private val context: Context, private val root: Path) {
                                 .map { it.trim() }
                                 .filter { it.isNotBlank() }
                                 .map { if (it.startsWith('.')) meta.pkgName + it else it }
-                            val loaded = loadSourcesFromApkDetailed(apkPath, classNames)
+                            val loaded = loadSourcesFromApkDetailed(apkPath, classNames, pkgName)
+
                             val sources = loaded.sources.map { InstalledSource(it.id, it.lang, it.name) }
                             systemList.add(InstalledExtension(
                                 name = meta.label.ifBlank { pkgName },

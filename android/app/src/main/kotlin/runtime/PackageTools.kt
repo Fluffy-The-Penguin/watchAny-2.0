@@ -93,22 +93,36 @@ object PackageTools {
         return null
     }
 
-    fun loadExtensionClass(context: Context, apkPath: Path, className: String): Any {
-        val apkFile = apkPath.toFile()
-        if (apkFile.exists()) {
-            apkFile.setReadOnly()
+    fun loadExtensionClass(context: Context, apkPath: Path, className: String, pkgName: String? = null): Any {
+        val systemLoader = if (!pkgName.isNullOrBlank()) {
+            runCatching {
+                val packageContext = context.createPackageContext(
+                    pkgName,
+                    Context.CONTEXT_INCLUDE_CODE or Context.CONTEXT_IGNORE_SECURITY
+                )
+                packageContext.classLoader
+            }.getOrNull()
+        } else null
+
+        val loader = systemLoader ?: run {
+            val apkFile = apkPath.toFile()
+            if (apkFile.exists()) {
+                apkFile.setReadOnly()
+            }
+            dexLoaders.getOrPut(apkFile.absolutePath) {
+                DexClassLoader(
+                    apkFile.absolutePath,
+                    context.codeCacheDir.absolutePath,
+                    null,
+                    PackageTools::class.java.classLoader
+                )
+            }
         }
-        val loader = dexLoaders.getOrPut(apkFile.absolutePath) {
-            DexClassLoader(
-                apkFile.absolutePath,
-                context.codeCacheDir.absolutePath,
-                null,
-                PackageTools::class.java.classLoader
-            )
-        }
+
         val clazz = loader.loadClass(className)
         return clazz.getDeclaredConstructor().newInstance()
     }
+
 
     private fun sha256(bytes: ByteArray): String {
         return MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }

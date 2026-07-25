@@ -69,7 +69,8 @@ class UpdateService extends ChangeNotifier {
   factory UpdateService() => _instance;
   UpdateService._internal();
 
-  static const String currentVersion = '2.0.89';
+  static const String currentVersion = '2.0.90';
+
 
 
 
