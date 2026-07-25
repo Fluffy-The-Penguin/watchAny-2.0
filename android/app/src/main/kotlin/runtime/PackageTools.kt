@@ -94,24 +94,61 @@ object PackageTools {
     }
 
     fun loadExtensionClass(context: Context, apkPath: Path, className: String, pkgName: String? = null): Any {
-        val systemLoader = if (!pkgName.isNullOrBlank()) {
-            runCatching {
-                val packageContext = context.createPackageContext(
-                    pkgName,
-                    Context.CONTEXT_INCLUDE_CODE or Context.CONTEXT_IGNORE_SECURITY
-                )
-                packageContext.classLoader
-            }.getOrNull()
-        } else null
+        val loader: ClassLoader = run {
+            // 1. Try Mihon's primary method: createPackageContext
+            if (!pkgName.isNullOrBlank()) {
+                val sysLoader = runCatching {
+                    val packageContext = context.createPackageContext(
+                        pkgName,
+                        Context.CONTEXT_INCLUDE_CODE or Context.CONTEXT_IGNORE_SECURITY
+                    )
+                    packageContext.classLoader
+                }.getOrNull()
 
-        val loader = systemLoader ?: run {
-            val apkFile = apkPath.toFile()
-            if (apkFile.exists()) {
-                apkFile.setReadOnly()
+                if (sysLoader != null) {
+                    val testClass = runCatching { sysLoader.loadClass(className) }.getOrNull()
+                    if (testClass != null) return@run sysLoader
+                }
             }
-            dexLoaders.getOrPut(apkFile.absolutePath) {
+
+            // 2. Try Mihon's secondary method: PathClassLoader on applicationInfo.sourceDir
+            if (!pkgName.isNullOrBlank()) {
+                val pathLoader = runCatching {
+                    val appInfo = context.packageManager.getApplicationInfo(pkgName, 0)
+                    dalvik.system.PathClassLoader(appInfo.sourceDir, PackageTools::class.java.classLoader)
+                }.getOrNull()
+
+                if (pathLoader != null) {
+                    val testClass = runCatching { pathLoader.loadClass(className) }.getOrNull()
+                    if (testClass != null) return@run pathLoader
+                }
+            }
+
+            // 3. Fallback: DexClassLoader on cached copy inside codeCacheDir
+            val targetApk = if (!pkgName.isNullOrBlank()) {
+                val safePkg = pkgName.replace(Regex("[^A-Za-z0-9_]"), "_")
+                val cachedFile = File(context.codeCacheDir, "ext_$safePkg.apk")
+                runCatching {
+                    val appInfo = context.packageManager.getApplicationInfo(pkgName, 0)
+                    val sourceFile = File(appInfo.sourceDir)
+                    if (!cachedFile.exists() || cachedFile.length() != sourceFile.length()) {
+                        sourceFile.inputStream().use { input ->
+                            cachedFile.outputStream().use { output -> input.copyTo(output) }
+                        }
+                    }
+                }
+                if (cachedFile.exists() && cachedFile.length() > 0L) cachedFile else apkPath.toFile()
+            } else {
+                apkPath.toFile()
+            }
+
+            if (targetApk.exists()) {
+                targetApk.setReadOnly()
+            }
+
+            dexLoaders.getOrPut(targetApk.absolutePath) {
                 DexClassLoader(
-                    apkFile.absolutePath,
+                    targetApk.absolutePath,
                     context.codeCacheDir.absolutePath,
                     null,
                     PackageTools::class.java.classLoader
@@ -122,6 +159,8 @@ object PackageTools {
         val clazz = loader.loadClass(className)
         return clazz.getDeclaredConstructor().newInstance()
     }
+
+
 
 
     private fun sha256(bytes: ByteArray): String {
