@@ -44,12 +44,9 @@ suspend fun <T> Observable<T>.awaitSingle(): T = suspendCancellableCoroutine { c
 
 
 
-fun Response.asJsoup(html: String? = null): Document {
-    val bodyText = html ?: body.string()
-    return Jsoup.parse(bodyText, request.url.toString())
-}
 
 suspend fun <T> withIOContext(block: suspend () -> T): T = withContext(Dispatchers.IO) { block() }
+
 
 suspend fun <T> Observable<T>.awaitFirst(): T = suspendCoroutine { continuation ->
     var resumed = false

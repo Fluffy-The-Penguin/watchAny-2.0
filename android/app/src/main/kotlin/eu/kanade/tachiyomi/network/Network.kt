@@ -24,6 +24,8 @@ import javax.net.ssl.X509TrustManager
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
+import eu.kanade.tachiyomi.network.interceptor.UncaughtExceptionInterceptor
+
 class NetworkHelper {
     val client: OkHttpClient = unsafeClient()
 
@@ -74,7 +76,9 @@ class NetworkHelper {
             val sslContext = SSLContext.getInstance("TLS")
             sslContext.init(null, arrayOf(trustManager), SecureRandom())
             return OkHttpClient.Builder()
+                .addInterceptor(UncaughtExceptionInterceptor())
                 .cookieJar(MemoryCookieJar())
+
                 .sslSocketFactory(sslContext.socketFactory, trustManager)
                 .hostnameVerifier { _, _ -> true }
                 .followRedirects(true)
