@@ -35,6 +35,36 @@ class NetworkHelper {
     companion object {
         const val DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 
+        private class MemoryCookieJar : okhttp3.CookieJar {
+            private val store = java.util.concurrent.ConcurrentHashMap<String, MutableList<okhttp3.Cookie>>()
+
+            override fun saveFromResponse(url: okhttp3.HttpUrl, cookies: List<okhttp3.Cookie>) {
+                val host = url.host
+                val existing = store.getOrPut(host) { mutableListOf() }
+                synchronized(existing) {
+                    cookies.forEach { cookie ->
+                        existing.removeAll { it.name == cookie.name }
+                        existing.add(cookie)
+                    }
+                }
+            }
+
+            override fun loadForRequest(url: okhttp3.HttpUrl): List<okhttp3.Cookie> {
+                val host = url.host
+                val now = System.currentTimeMillis()
+                val result = mutableListOf<okhttp3.Cookie>()
+                store.entries.forEach { (domain, cookies) ->
+                    if (host == domain || host.endsWith(".$domain")) {
+                        synchronized(cookies) {
+                            cookies.removeAll { it.expiresAt < now }
+                            result.addAll(cookies)
+                        }
+                    }
+                }
+                return result
+            }
+        }
+
         private fun unsafeClient(): OkHttpClient {
             val trustManager = object : X509TrustManager {
                 override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) {}
@@ -44,16 +74,26 @@ class NetworkHelper {
             val sslContext = SSLContext.getInstance("TLS")
             sslContext.init(null, arrayOf(trustManager), SecureRandom())
             return OkHttpClient.Builder()
+                .cookieJar(MemoryCookieJar())
                 .sslSocketFactory(sslContext.socketFactory, trustManager)
                 .hostnameVerifier { _, _ -> true }
                 .followRedirects(true)
                 .followSslRedirects(true)
                 .callTimeout(45, TimeUnit.SECONDS)
                 .addInterceptor { chain ->
-                    val request = chain.request()
+                    val original = chain.request()
+                    val builder = original.newBuilder()
+                    if (original.header("User-Agent").isNullOrBlank()) {
+                        builder.header("User-Agent", DEFAULT_USER_AGENT)
+                    }
+                    if (original.header("Accept-Language").isNullOrBlank()) {
+                        builder.header("Accept-Language", "en-US,en;q=0.9")
+                    }
+                    val request = builder.build()
                     val response = chain.proceed(request)
                     val host = request.url.host.lowercase(java.util.Locale.US)
                     if (host.contains("flamecomics") && response.isSuccessful) {
+
                         val body = response.body
                         if (body != null) {
                             var bodyString: String? = null
