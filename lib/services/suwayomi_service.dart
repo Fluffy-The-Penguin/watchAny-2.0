@@ -468,7 +468,33 @@ class SuwayomiService {
     try {
       final id = extId ?? pkgName;
 
-      // 1. Try local server install endpoint first (Native Kotlin LocalWebServer / Suwayomi REST)
+      // 1. On Android, install system-wide via native PackageInstaller Intent so both watchAny and Mihon see it
+      if (!kIsWeb && Platform.isAndroid) {
+        try {
+          final String downloadUrl = apkUrl ?? 'https://raw.githubusercontent.com/keiyoushi/extensions/repo/apk/$pkgName.apk';
+          final tempDir = await getTemporaryDirectory();
+          final targetFile = File('${tempDir.path}/$pkgName.apk');
+
+          final resp = await http.get(Uri.parse(downloadUrl)).timeout(const Duration(seconds: 60));
+          if (resp.statusCode == 200) {
+            await targetFile.writeAsBytes(resp.bodyBytes);
+            const channel = MethodChannel('com.example.watch_any/native_path');
+            final result = await channel.invokeMethod('installApk', {'filePath': targetFile.path});
+
+            // Also inform local server to scan
+            try {
+              await http.get(Uri.parse('$_baseUrl/api/install?pkg=$pkgName')).timeout(const Duration(seconds: 5));
+            } catch (_) {}
+
+            changeNotifier.notifyListeners();
+            return true;
+          }
+        } catch (e) {
+          developer.log('Android native APK installer error: $e', name: 'SuwayomiService');
+        }
+      }
+
+      // 2. Desktop (Windows/Mac/Linux) fallback to local server internal runtime
       try {
         final response = await http.get(
           Uri.parse('$_baseUrl/api/install?pkg=$pkgName'),
@@ -482,6 +508,7 @@ class SuwayomiService {
           }
         }
       } catch (_) {}
+
 
       // 2. Try REST API v1 POST pkgName
       try {
