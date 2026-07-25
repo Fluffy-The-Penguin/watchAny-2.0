@@ -1,42 +1,43 @@
-@file:JvmName("JsoupExtensionsKt")
-
 package eu.kanade.tachiyomi.util
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import okhttp3.Response
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import rx.Observable
+import rx.Subscriber
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.coroutines.suspendCoroutine
 
-suspend fun <T> Observable<T>.awaitSingle(): T = suspendCoroutine { continuation ->
-    var isResumed = false
-    var hasValue = false
-    subscribe(
-        { value ->
-            if (!isResumed) {
-                isResumed = true
-                hasValue = true
+
+suspend fun <T> Observable<T>.awaitSingle(): T = suspendCancellableCoroutine { continuation ->
+    val subscriber = object : Subscriber<T>() {
+        override fun onNext(value: T) {
+            if (continuation.isActive) {
                 continuation.resume(value)
             }
-        },
-        { error ->
-            if (!isResumed) {
-                isResumed = true
+        }
+
+        override fun onError(error: Throwable) {
+            if (continuation.isActive) {
                 continuation.resumeWithException(error)
             }
-        },
-        {
-            if (!isResumed && !hasValue) {
-                isResumed = true
-                continuation.resumeWithException(NoSuchElementException("Observable completed empty"))
+        }
+
+        override fun onCompleted() {
+            if (continuation.isActive && !isUnsubscribed) {
+                continuation.resumeWithException(NoSuchElementException("Observable completed without emitting a value"))
             }
         }
-    )
+    }
+
+    continuation.invokeOnCancellation { subscriber.unsubscribe() }
+    subscribe(subscriber)
 }
+
 
 
 fun Response.asJsoup(html: String? = null): Document {
