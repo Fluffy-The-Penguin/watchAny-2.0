@@ -2,10 +2,13 @@ import 'dart:convert';
 import 'dart:developer' as developer;
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'suwayomi_manager.dart';
+
 
 
 class SuwayomiService {
@@ -240,6 +243,10 @@ class SuwayomiService {
       for (var ext in installedList) {
         final String pkg = ext['pkg']?.toString() ?? '';
         if (pkg.isEmpty) continue;
+        final String iconName = ext['icon']?.toString() ?? 'icon/$pkg.png';
+        final String iconCdn = 'https://raw.githubusercontent.com/keiyoushi/extensions/repo/$iconName';
+        final String apkName = ext['apk']?.toString() ?? '$pkg.apk';
+        final String apkUrl = ext['apkUrl']?.toString() ?? 'https://raw.githubusercontent.com/keiyoushi/extensions/repo/apk/$apkName';
         combined[pkg] = {
           'id': pkg,
           'name': ext['name'] ?? '',
@@ -249,18 +256,28 @@ class SuwayomiService {
           'hasUpdate': ext['hasUpdate'] == true || ext['hasUpdate'] == 1,
           'lang': ext['lang'] ?? 'en',
           'nsfw': (ext['nsfw'] ?? 0) == 1,
+          'apkUrl': apkUrl,
+          'iconUrl': ext['iconUrl']?.toString() ?? iconCdn,
         };
       }
 
       for (var ext in listExts) {
         final String pkg = ext['pkg']?.toString() ?? '';
         if (pkg.isEmpty) continue;
+        final String iconName = ext['icon']?.toString() ?? 'icon/$pkg.png';
+        final String iconCdn = 'https://raw.githubusercontent.com/keiyoushi/extensions/repo/$iconName';
+        final String apkName = ext['apk']?.toString() ?? '$pkg.apk';
+        final String apkUrl = ext['apkUrl']?.toString() ?? 'https://raw.githubusercontent.com/keiyoushi/extensions/repo/apk/$apkName';
         if (combined.containsKey(pkg)) {
           final instVer = combined[pkg]!['versionName']?.toString() ?? '';
           final availVer = ext['version']?.toString() ?? '';
           if (availVer.isNotEmpty && instVer.isNotEmpty && availVer != instVer) {
             combined[pkg]!['hasUpdate'] = true;
             combined[pkg]!['availableVersion'] = availVer;
+          }
+          combined[pkg]!['apkUrl'] = apkUrl;
+          if (combined[pkg]!['iconUrl'] == null || combined[pkg]!['iconUrl'].toString().isEmpty) {
+            combined[pkg]!['iconUrl'] = iconCdn;
           }
           continue;
         }
@@ -273,8 +290,11 @@ class SuwayomiService {
           'hasUpdate': false,
           'lang': ext['lang'] ?? 'en',
           'nsfw': (ext['nsfw'] ?? 0) == 1,
+          'apkUrl': apkUrl,
+          'iconUrl': ext['iconUrl']?.toString() ?? iconCdn,
         };
       }
+
 
       if (combined.isNotEmpty) {
         return combined.values.toList();
@@ -365,7 +385,31 @@ class SuwayomiService {
     try {
       final id = extId ?? pkgName;
 
-      // 1. Try GraphQL installExtension mutation by pkgName
+      // 1. Try local server install endpoint first (Native Kotlin LocalWebServer / Suwayomi REST)
+      try {
+        final response = await http.get(
+          Uri.parse('$_baseUrl/api/install?pkg=$pkgName'),
+        ).timeout(const Duration(seconds: 45));
+
+        if (response.statusCode == 200) {
+          final decoded = jsonDecode(response.body);
+          if (decoded['ok'] == true) {
+            changeNotifier.notifyListeners();
+            return true;
+          }
+        }
+      } catch (_) {}
+
+      // 2. Try REST API v1 POST pkgName
+      try {
+        final v1Resp = await http.post(Uri.parse('$_baseUrl/api/v1/extension/install/$pkgName')).timeout(const Duration(seconds: 15));
+        if (v1Resp.statusCode == 200) {
+          changeNotifier.notifyListeners();
+          return true;
+        }
+      } catch (_) {}
+
+      // 3. Try GraphQL installExtension mutation by pkgName
       try {
         const gqlQuery = '''
           mutation InstallExt(\$pkgName: String!) {
@@ -386,93 +430,25 @@ class SuwayomiService {
         developer.log('GraphQL installExtension by pkgName failed: $e', name: 'SuwayomiService');
       }
 
-      // 2. Try GraphQL installExtension mutation by id
-      try {
-        const gqlQuery = '''
-          mutation InstallExt(\$id: String!) {
-            installExtension(input: { id: \$id }) {
-              extension {
-                pkgName
-                isInstalled
-              }
-            }
-          }
-        ''';
-        final data = await _postGraphQL(gqlQuery, {'id': id});
-        if (data != null && data['installExtension'] != null) {
-          changeNotifier.notifyListeners();
-          return true;
-        }
-      } catch (e) {
-        developer.log('GraphQL installExtension by id failed: $e', name: 'SuwayomiService');
-      }
-
-      // 3. Try GraphQL updateExtension with patch: { isInstalled: true }
-      try {
-        const gqlQuery = '''
-          mutation InstallExt(\$id: String!) {
-            updateExtension(input: { id: \$id, patch: { isInstalled: true } }) {
-              extension {
-                pkgName
-                isInstalled
-              }
-            }
-          }
-        ''';
-        final data = await _postGraphQL(gqlQuery, {'id': id});
-        if (data != null && data['updateExtension'] != null) {
-          changeNotifier.notifyListeners();
-          return true;
-        }
-      } catch (e) {
-        developer.log('GraphQL updateExtension isInstalled failed: $e', name: 'SuwayomiService');
-      }
-
-      // 4. Try REST API v1 POST pkgName
-      try {
-        final v1Resp = await http.post(Uri.parse('$_baseUrl/api/v1/extension/install/$pkgName')).timeout(const Duration(seconds: 45));
-        if (v1Resp.statusCode == 200) {
-          changeNotifier.notifyListeners();
-          return true;
-        }
-      } catch (_) {}
-
-      // 5. Try REST API v1 POST id
-      try {
-        final v1RespId = await http.post(Uri.parse('$_baseUrl/api/v1/extension/install/$id')).timeout(const Duration(seconds: 45));
-        if (v1RespId.statusCode == 200) {
-          changeNotifier.notifyListeners();
-          return true;
-        }
-      } catch (_) {}
-
-      // 6. Legacy REST fallback
-      try {
-        final response = await http.get(
-          Uri.parse('$_baseUrl/api/install?pkg=$pkgName'),
-        ).timeout(const Duration(seconds: 15));
-
-        if (response.statusCode == 200) {
-          final decoded = jsonDecode(response.body);
-          if (decoded['ok'] == true) {
-            changeNotifier.notifyListeners();
-            return true;
-          }
-        }
-      } catch (_) {}
-
-      // 7. Android fallback: launch direct APK download/installer link via url_launcher when local server install fails
-      if (!kIsWeb && (Platform.isAndroid || !await SuwayomiManager.isSuwayomiRunning(port))) {
+      // 4. Android Native PackageInstaller Intent (Mihon method: download APK to cache & open PackageInstaller)
+      if (!kIsWeb && Platform.isAndroid) {
         try {
-          final String targetUrl = apkUrl ?? 'https://raw.githubusercontent.com/keiyoushi/extensions/repo/apk/$pkgName.apk';
-          final Uri uri = Uri.parse(targetUrl);
-          if (await canLaunchUrl(uri)) {
-            await launchUrl(uri, mode: LaunchMode.externalApplication);
-            changeNotifier.notifyListeners();
-            return true;
+          final String downloadUrl = apkUrl ?? 'https://raw.githubusercontent.com/keiyoushi/extensions/repo/apk/$pkgName.apk';
+          final tempDir = await getTemporaryDirectory();
+          final targetFile = File('${tempDir.path}/$pkgName.apk');
+
+          final resp = await http.get(Uri.parse(downloadUrl)).timeout(const Duration(seconds: 60));
+          if (resp.statusCode == 200) {
+            await targetFile.writeAsBytes(resp.bodyBytes);
+            const channel = MethodChannel('com.example.watch_any/native_path');
+            final result = await channel.invokeMethod('installApk', {'filePath': targetFile.path});
+            if (result == true) {
+              changeNotifier.notifyListeners();
+              return true;
+            }
           }
         } catch (e) {
-          developer.log('Android APK installer launch error: $e', name: 'SuwayomiService');
+          developer.log('Android native APK installer error: $e', name: 'SuwayomiService');
         }
       }
 
@@ -482,6 +458,7 @@ class SuwayomiService {
       return false;
     }
   }
+
 
 
   // Uninstall extension
