@@ -25,8 +25,9 @@ object PackageTools {
     const val METADATA_SOURCE_CLASS = "tachiyomi.extension.class"
     const val METADATA_SOURCE_FACTORY = "tachiyomi.extension.factory"
     const val METADATA_NSFW = "tachiyomi.extension.nsfw"
-    const val LIB_VERSION_MIN = 1.3
-    const val LIB_VERSION_MAX = 1.5
+    const val LIB_VERSION_MIN = 1.0
+    const val LIB_VERSION_MAX = 10.0
+
 
     private val dexLoaders = mutableMapOf<String, DexClassLoader>()
 

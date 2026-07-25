@@ -550,9 +550,12 @@ class ExtensionRuntime(private val context: Context, private val root: Path) {
         val metadata = PackageTools.getPackageMetadata(apkPath)
         check(metadata.features.contains(PackageTools.EXTENSION_FEATURE)) { "APK is not a Tachiyomi extension" }
         val libVersion = metadata.versionName.substringBeforeLast('.').toDoubleOrNull() ?: 0.0
-        check(libVersion in PackageTools.LIB_VERSION_MIN..PackageTools.LIB_VERSION_MAX) { "Unsupported extension lib version: $libVersion" }
+        if (libVersion > 0.0 && (libVersion < PackageTools.LIB_VERSION_MIN || libVersion > PackageTools.LIB_VERSION_MAX)) {
+            android.util.Log.w("watchAny-ExtensionRuntime", "Extension lib version $libVersion outside normal range, attempting to load anyway.")
+        }
         
         val iconPath = PackageTools.extractIcon(apkPath, iconDir)?.toAbsolutePath()?.toString()
+
 
         val classNames = metadata.sourceClasses.flatMap { raw -> raw.split(';') }
             .map { it.trim() }
@@ -631,9 +634,60 @@ class ExtensionRuntime(private val context: Context, private val root: Path) {
     }
 
     private fun readInstalled(): List<InstalledExtension> {
-        if (!installedFile.exists()) return emptyList()
-        return json.decodeFromString(installedFile.readText())
+        val fileList = if (installedFile.exists()) {
+            try { json.decodeFromString<List<InstalledExtension>>(installedFile.readText()) } catch (_: Throwable) { emptyList() }
+        } else emptyList()
+
+        val systemList = mutableListOf<InstalledExtension>()
+        try {
+            val pm = context.packageManager
+            val packages = pm.getInstalledPackages(0)
+            for (pkg in packages) {
+                val pkgName = pkg.packageName
+                if (pkgName.startsWith("eu.kanade.tachiyomi.extension") || pkgName.startsWith("sound.tachiyomi.extension")) {
+                    if (fileList.none { it.pkg == pkgName }) {
+                        try {
+                            val appInfo = pkg.applicationInfo ?: continue
+                            val sourceDir = appInfo.sourceDir ?: continue
+                            val apkPath = Path(sourceDir)
+
+                            val meta = PackageTools.getPackageMetadata(apkPath)
+                            val classNames = meta.sourceClasses.flatMap { raw -> raw.split(';') }
+                                .map { it.trim() }
+                                .filter { it.isNotBlank() }
+                                .map { if (it.startsWith('.')) meta.pkgName + it else it }
+                            val loaded = loadSourcesFromApkDetailed(apkPath, classNames)
+                            val sources = loaded.sources.map { InstalledSource(it.id, it.lang, it.name) }
+                            systemList.add(InstalledExtension(
+                                name = meta.label.ifBlank { pkgName },
+                                pkg = pkgName,
+                                repoId = "system",
+                                repoName = "System Installed",
+                                repoIndexUrl = "",
+                                repoApkBaseUrl = "",
+                                apk = "$pkgName.apk",
+                                version = pkg.versionName ?: "1.0",
+                                code = pkg.versionCode.toLong(),
+                                nsfw = meta.nsfw,
+                                jarPath = apkPath.toString(),
+                                iconPath = null,
+                                sourceClasses = classNames,
+                                sources = sources,
+                                sourceLoadErrors = loaded.errors
+                            ))
+                        } catch (e: Throwable) {
+                            android.util.Log.e("watchAny-ExtensionRuntime", "Error scanning system extension package $pkgName: ${e.message}")
+                        }
+                    }
+                }
+            }
+        } catch (e: Throwable) {
+            android.util.Log.e("watchAny-ExtensionRuntime", "Error reading system installed packages: ${e.message}")
+        }
+
+        return fileList + systemList
     }
+
 
     private fun writeInstalled(installed: List<InstalledExtension>) {
         root.createDirectories()
