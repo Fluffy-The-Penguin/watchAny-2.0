@@ -13,7 +13,9 @@ import eu.kanade.tachiyomi.source.online.HttpSource
 import eu.kanade.tachiyomi.util.asJsoup
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.NetworkHelper
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
+
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
@@ -235,7 +237,7 @@ class LocalWebServer(private val context: Context, private val runtime: Extensio
                 return mangaFireSearch(source, query, pageNumber, vrf)
             }
         }
-        val page = runBlocking { withTimeout(SOURCE_REQUEST_TIMEOUT_MS) { source.getSearchManga(pageNumber, query, filters) } }
+        val page = runBlocking(Dispatchers.IO) { withTimeout(SOURCE_REQUEST_TIMEOUT_MS) { source.getSearchManga(pageNumber, query, filters) } }
         return mangaPageJson(source, page, "search")
     }
 
@@ -409,7 +411,7 @@ class LocalWebServer(private val context: Context, private val runtime: Extensio
 
     private fun popular(sourceId: String, pageNumber: Int): JsonElement {
         val source = source(sourceId)
-        val page = runBlocking { withTimeout(SOURCE_REQUEST_TIMEOUT_MS) { source.getPopularManga(pageNumber) } }
+        val page = runBlocking(Dispatchers.IO) { withTimeout(SOURCE_REQUEST_TIMEOUT_MS) { source.getPopularManga(pageNumber) } }
         return mangaPageJson(source, page, "popular")
     }
 
@@ -422,7 +424,7 @@ class LocalWebServer(private val context: Context, private val runtime: Extensio
     private fun latest(sourceId: String, pageNumber: Int): JsonElement {
         val source = source(sourceId)
         check(source.supportsLatest) { "Source ${source.name} does not support latest updates" }
-        val page = runBlocking { withTimeout(SOURCE_REQUEST_TIMEOUT_MS) { source.getLatestUpdates(pageNumber) } }
+        val page = runBlocking(Dispatchers.IO) { withTimeout(SOURCE_REQUEST_TIMEOUT_MS) { source.getLatestUpdates(pageNumber) } }
         return mangaPageJson(source, page, "latest")
     }
 
@@ -430,7 +432,7 @@ class LocalWebServer(private val context: Context, private val runtime: Extensio
         val source = source(sourceId)
         val query = session.query()["query"]?.ifBlank { session.query()["q"] }.orEmpty()
         val filters = filterList(source, session.query()["filters"])
-        val page = runBlocking { withTimeout(SOURCE_REQUEST_TIMEOUT_MS) { source.getSearchManga(pageNumber, query, filters) } }
+        val page = runBlocking(Dispatchers.IO) { withTimeout(SOURCE_REQUEST_TIMEOUT_MS) { source.getSearchManga(pageNumber, query, filters) } }
         return mangaPageJson(source, page, "search")
     }
 
@@ -464,7 +466,7 @@ class LocalWebServer(private val context: Context, private val runtime: Extensio
             it.title = title
             session.query()["thumbnailUrl"]?.takeIf { value -> value.isNotBlank() }?.let { value -> it.thumbnail_url = value }
         }
-        val details = runBlocking { withTimeout(SOURCE_REQUEST_TIMEOUT_MS) { source.getMangaDetails(manga) } }
+        val details = runBlocking(Dispatchers.IO) { withTimeout(SOURCE_REQUEST_TIMEOUT_MS) { source.getMangaDetails(manga) } }
         if (runCatching { details.url }.getOrNull().isNullOrBlank()) details.url = mangaUrl
         if (runCatching { details.title }.getOrNull().isNullOrBlank()) details.title = title
         return mangaDetailJson(source, details)
@@ -497,7 +499,7 @@ class LocalWebServer(private val context: Context, private val runtime: Extensio
             it.url = mangaUrl
             it.title = title
         }
-        val chapters = runBlocking { source.getChapterList(manga) }
+        val chapters = runBlocking(Dispatchers.IO) { source.getChapterList(manga) }
         return buildJsonObject {
             put("sourceId", source.id.toString())
             put("mangaUrl", mangaUrl)
@@ -524,7 +526,7 @@ class LocalWebServer(private val context: Context, private val runtime: Extensio
             it.url = chapterUrl
             it.name = "Runtime Chapter"
         }
-        val pages = runBlocking { source.getPageList(chapter) }
+        val pages = runBlocking(Dispatchers.IO) { source.getPageList(chapter) }
         return buildJsonObject {
             put("sourceId", source.id.toString())
             put("chapterUrl", chapterUrl)
