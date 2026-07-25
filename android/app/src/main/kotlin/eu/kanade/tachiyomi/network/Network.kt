@@ -33,7 +33,7 @@ class NetworkHelper {
     fun defaultUserAgentProvider(): String = defaultUserAgentProvider.invoke()
 
     companion object {
-        const val DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+        const val DEFAULT_USER_AGENT = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36"
 
         private class MemoryCookieJar : okhttp3.CookieJar {
             private val store = java.util.concurrent.ConcurrentHashMap<String, MutableList<okhttp3.Cookie>>()
@@ -83,17 +83,25 @@ class NetworkHelper {
                 .addInterceptor { chain ->
                     val original = chain.request()
                     val builder = original.newBuilder()
-                    if (original.header("User-Agent").isNullOrBlank()) {
+                    if (original.header("User-Agent").isNullOrBlank() || original.header("User-Agent")?.contains("Windows") == true) {
                         builder.header("User-Agent", DEFAULT_USER_AGENT)
                     }
                     if (original.header("Accept-Language").isNullOrBlank()) {
                         builder.header("Accept-Language", "en-US,en;q=0.9")
                     }
+                    if (original.header("Sec-Ch-Ua").isNullOrBlank()) {
+                        builder.header("Sec-Ch-Ua", "\"Chromium\";v=\"125\", \"Not.A/Brand\";v=\"24\", \"Google Chrome\";v=\"125\"")
+                    }
+                    if (original.header("Sec-Ch-Ua-Mobile").isNullOrBlank()) {
+                        builder.header("Sec-Ch-Ua-Mobile", "?1")
+                    }
+                    if (original.header("Sec-Ch-Ua-Platform").isNullOrBlank()) {
+                        builder.header("Sec-Ch-Ua-Platform", "\"Android\"")
+                    }
                     val request = builder.build()
                     val response = chain.proceed(request)
                     val host = request.url.host.lowercase(java.util.Locale.US)
-                    if (host.contains("flamecomics") && response.isSuccessful) {
-
+                    if ((host.contains("flamecomics") || host.contains("asura")) && response.isSuccessful) {
                         val body = response.body
                         if (body != null) {
                             var bodyString: String? = null
@@ -136,6 +144,7 @@ class NetworkHelper {
                 }
                 .build()
         }
+
 
         private fun sanitizeJson(json: Any) {
             when (json) {
