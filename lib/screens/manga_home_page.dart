@@ -1505,6 +1505,19 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
             }).toList();
           }()
         ]
+        else if (_selectedExtensionName != "Global" && _catalogError != null)
+          SliverToBoxAdapter(
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 64.0, horizontal: 24.0),
+                child: SelectableText(
+                  'Error loading extension feed:\n$_catalogError',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.redAccent, fontFamily: 'Outfit', fontSize: 14),
+                ),
+              ),
+            ),
+          )
         else if (_selectedExtensionName != "Global" && _catalogManga.isEmpty)
           const SliverToBoxAdapter(
             child: Center(
@@ -1517,6 +1530,7 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
               ),
             ),
           )
+
         else if (_selectedExtensionName != "Global") ...[
           // ── Manga grid — only visible items rendered ──────────────
           SliverPadding(

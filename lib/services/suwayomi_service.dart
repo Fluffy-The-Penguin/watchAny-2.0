@@ -866,11 +866,10 @@ class SuwayomiService {
           developer.log('GraphQL fetchSourceManga failed: $e', name: 'SuwayomiService');
         }
       }
-
+      String? lastError;
       // 2. Try v1 REST API — GET popular/latest, POST search
       try {
         if (query.isNotEmpty) {
-          // v1 REST search uses POST with JSON body
           final postUrl = '$_baseUrl/api/v1/source/$sourceId/search/$page';
           final postResp = await http.post(
             Uri.parse(postUrl),
@@ -879,14 +878,13 @@ class SuwayomiService {
           ).timeout(const Duration(seconds: 20));
           if (postResp.statusCode == 200 && !postResp.body.trimLeft().startsWith('<')) {
             final v1Data = await _fastJsonDecode(postResp.body);
-            return _mapV1Mangas(v1Data, sourceId);
-          }
-          // Also try GET format
-          final getUrl = '$_baseUrl/api/v1/source/$sourceId/search/$page?query=${Uri.encodeComponent(query)}';
-          final getResp = await http.get(Uri.parse(getUrl)).timeout(const Duration(seconds: 20));
-          if (getResp.statusCode == 200 && !getResp.body.trimLeft().startsWith('<')) {
-            final v1Data = await _fastJsonDecode(getResp.body);
-            return _mapV1Mangas(v1Data, sourceId);
+            if (v1Data is Map && v1Data['ok'] == false && v1Data['error'] != null) {
+              lastError = v1Data['error'].toString();
+            } else {
+              return _mapV1Mangas(v1Data, sourceId);
+            }
+          } else {
+            lastError = 'HTTP ${postResp.statusCode}: ${postResp.body}';
           }
         } else {
           final v1UrlStr = latest
@@ -895,13 +893,17 @@ class SuwayomiService {
           final v1Resp = await http.get(Uri.parse(v1UrlStr)).timeout(const Duration(seconds: 20));
           if (v1Resp.statusCode == 200 && !v1Resp.body.trimLeft().startsWith('<')) {
             final v1Data = await _fastJsonDecode(v1Resp.body);
-            return _mapV1Mangas(v1Data, sourceId);
+            if (v1Data is Map && v1Data['ok'] == false && v1Data['error'] != null) {
+              lastError = v1Data['error'].toString();
+            } else {
+              return _mapV1Mangas(v1Data, sourceId);
+            }
+          } else {
+            lastError = 'HTTP ${v1Resp.statusCode}: ${v1Resp.body}';
           }
         }
-
-
       } catch (e) {
-        developer.log('v1 fetchSourceManga failed: $e', name: 'SuwayomiService');
+        lastError = e.toString();
       }
 
       // 3. Legacy API fallback — guard against HTML responses
@@ -933,20 +935,27 @@ class SuwayomiService {
               final proxiedCover = coverUrl.isNotEmpty
                   ? '$_baseUrl/api/image?url=${Uri.encodeComponent(coverUrl)}'
                   : '';
-              mapped.add({'id': mangaId, 'title': title, 'thumbnailUrl': proxiedCover, 'url': url});
+              mapped.add({
+                'id': mangaId,
+                'title': title,
+                'thumbnailUrl': proxiedCover,
+                'url': url,
+              });
             }
             return mapped;
           }
         }
-
       } catch (e) {
-        developer.log('Legacy fetchSourceManga failed: $e', name: 'SuwayomiService');
+        lastError = e.toString();
       }
 
+      if (lastError != null && lastError.isNotEmpty) {
+        throw Exception(lastError);
+      }
       return [];
     } catch (e, stack) {
       developer.log('fetchSourceManga Error', name: 'SuwayomiService', error: e, stackTrace: stack);
-      return [];
+      rethrow;
     }
   }
 
