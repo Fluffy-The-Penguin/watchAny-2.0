@@ -387,8 +387,61 @@ class ExtensionService extends ChangeNotifier {
       }
       _isInitialized = true;
       notifyListeners();
+      unawaited(ensureExtensionCodesLoaded());
     } catch (e) {
       debugPrint('Error initializing ExtensionService: $e');
+    }
+  }
+
+  Future<void> ensureExtensionCodesLoaded() async {
+    bool changed = false;
+    for (int i = 0; i < extensions.length; i++) {
+      final ext = extensions[i];
+      if ((ext.cachedCode == null || ext.cachedCode!.isEmpty) && ext.codeUrl.isNotEmpty) {
+        try {
+          final response = await http.get(Uri.parse(ext.codeUrl)).timeout(const Duration(seconds: 12));
+          if (response.statusCode == 200 && response.body.isNotEmpty) {
+            ext.cachedCode = response.body;
+            changed = true;
+          }
+        } catch (e) {
+          debugPrint('[ExtensionService] Failed to load code for ${ext.name}: $e');
+        }
+      }
+    }
+    if (changed) {
+      await save();
+    }
+  }
+
+  Future<void> importCloudData({List<dynamic>? reposJson, List<dynamic>? extensionsJson}) async {
+    await init();
+    bool changed = false;
+
+    if (reposJson != null && reposJson.isNotEmpty) {
+      final cloudRepos = reposJson.map((r) => ExtensionRepo.fromJson(Map<String, dynamic>.from(r))).toList();
+      for (final cr in cloudRepos) {
+        if (cr.url.isNotEmpty && !repos.any((r) => r.url.toLowerCase() == cr.url.toLowerCase())) {
+          repos.add(cr);
+          changed = true;
+        }
+      }
+    }
+
+    if (extensionsJson != null && extensionsJson.isNotEmpty) {
+      final cloudExts = extensionsJson.map((e) => Extension.fromJson(Map<String, dynamic>.from(e))).toList();
+      for (final ce in cloudExts) {
+        if (ce.id.isNotEmpty && !extensions.any((e) => e.id == ce.id)) {
+          extensions.add(ce);
+          changed = true;
+        }
+      }
+    }
+
+    if (changed) {
+      await save();
+      await ensureExtensionCodesLoaded();
+      unawaited(checkForUpdates());
     }
   }
 

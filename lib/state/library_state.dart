@@ -279,17 +279,31 @@ class LibraryState extends ChangeNotifier {
     // Load everything synchronously from SQLite into memory for runtime backwards compatibility
     try {
       final allItems = await _db.select(_db.libraryItems).get();
-      _items = allItems.map((item) => LibraryItem(
-        id: item.id,
-        mode: item.mode,
-        format: item.format,
-        addedAt: item.addedAt,
-        libraryStatus: item.libraryStatus,
-        rating: item.rating,
-        watchedEpisodes: item.watchedEpisodes,
-        totalEpisodes: item.totalEpisodes,
-        categoryIds: (jsonDecode(item.categoryIds) as List).map((c) => c.toString()).toList(),
-      )).toList();
+      _items = allItems.map((item) {
+        List<String> parsedCategories = [];
+        try {
+          final decoded = jsonDecode(item.categoryIds);
+          if (decoded is List) {
+            parsedCategories = decoded.map((c) => c.toString()).toList();
+          }
+        } catch (_) {
+          if (item.categoryIds.isNotEmpty) {
+            parsedCategories = item.categoryIds.split(',').where((c) => c.isNotEmpty).toList();
+          }
+        }
+
+        return LibraryItem(
+          id: item.id,
+          mode: item.mode,
+          format: item.format,
+          addedAt: item.addedAt,
+          libraryStatus: item.libraryStatus,
+          rating: item.rating,
+          watchedEpisodes: item.watchedEpisodes,
+          totalEpisodes: item.totalEpisodes,
+          categoryIds: parsedCategories,
+        );
+      }).toList();
     } catch (e) {
       debugPrint('Failed to load library items from SQLite: $e');
     }
@@ -579,6 +593,130 @@ class LibraryState extends ChangeNotifier {
 
     notifyListeners();
     return importedCount;
+  }
+
+  Future<void> importLibraryData({
+    List<dynamic>? itemsJson,
+    List<dynamic>? categoriesJson,
+    Map<String, dynamic>? mangaCacheJson,
+    Map<String, dynamic>? animeCacheJson,
+    Map<String, dynamic>? movieCacheJson,
+  }) async {
+    try {
+      if (categoriesJson != null) {
+        for (var c in categoriesJson) {
+          if (c is Map) {
+            final cat = LibraryCategory.fromJson(Map<String, dynamic>.from(c));
+            final idx = _categories.indexWhere((x) => x.id == cat.id);
+            if (idx != -1) {
+              _categories[idx] = cat;
+            } else {
+              _categories.add(cat);
+            }
+            await _db.into(_db.libraryCategories).insertOnConflictUpdate(
+              db.LibraryCategoriesCompanion.insert(
+                id: cat.id,
+                name: cat.name,
+                mode: cat.mode,
+              ),
+            );
+          }
+        }
+      }
+
+      if (itemsJson != null) {
+        final List<LibraryItem> importedItems = [];
+        for (var i in itemsJson) {
+          if (i is Map) {
+            importedItems.add(LibraryItem.fromJson(Map<String, dynamic>.from(i)));
+          }
+        }
+        if (importedItems.isNotEmpty) {
+          for (var item in importedItems) {
+            final idx = _items.indexWhere((x) => x.id == item.id && x.mode == item.mode);
+            if (idx != -1) {
+              _items[idx] = item;
+            } else {
+              _items.add(item);
+            }
+            await _db.into(_db.libraryItems).insertOnConflictUpdate(
+              db.LibraryItemsCompanion.insert(
+                id: item.id,
+                mode: item.mode,
+                format: item.format,
+                addedAt: item.addedAt,
+                libraryStatus: item.libraryStatus,
+                rating: item.rating,
+                watchedEpisodes: item.watchedEpisodes,
+                totalEpisodes: drift.Value(item.totalEpisodes),
+                categoryIds: jsonEncode(item.categoryIds),
+              ),
+            );
+          }
+        }
+      }
+
+      if (mangaCacheJson != null) {
+        for (var entry in mangaCacheJson.entries) {
+          final intId = int.tryParse(entry.key.toString());
+          if (intId != null && entry.value is Map) {
+            final cache = Map<String, dynamic>.from(entry.value);
+            _mangaCache[intId] = cache;
+            await _db.into(_db.mediaCaches).insertOnConflictUpdate(
+              db.MediaCachesCompanion.insert(
+                id: intId,
+                mode: 'manga',
+                title: cache['title']?.toString() ?? 'Untitled',
+                coverImage: cache['thumbnailUrl']?.toString() ?? cache['coverImage']?.toString() ?? '',
+                extraData: drift.Value(jsonEncode(cache)),
+              ),
+            );
+          }
+        }
+      }
+
+      if (animeCacheJson != null) {
+        for (var entry in animeCacheJson.entries) {
+          final intId = int.tryParse(entry.key.toString());
+          if (intId != null && entry.value is Map) {
+            final cache = Map<String, dynamic>.from(entry.value);
+            _animeCache[intId] = cache;
+            await _db.into(_db.mediaCaches).insertOnConflictUpdate(
+              db.MediaCachesCompanion.insert(
+                id: intId,
+                mode: 'anime',
+                title: cache['title']?['userPreferred']?.toString() ?? cache['title']?.toString() ?? 'Untitled',
+                coverImage: cache['coverImage']?['large']?.toString() ?? cache['thumbnailUrl']?.toString() ?? '',
+                extraData: drift.Value(jsonEncode(cache)),
+              ),
+            );
+          }
+        }
+      }
+
+      if (movieCacheJson != null) {
+        for (var entry in movieCacheJson.entries) {
+          final intId = int.tryParse(entry.key.toString());
+          if (intId != null && entry.value is Map) {
+            final cache = Map<String, dynamic>.from(entry.value);
+            _movieCache[intId] = cache;
+            await _db.into(_db.mediaCaches).insertOnConflictUpdate(
+              db.MediaCachesCompanion.insert(
+                id: intId,
+                mode: 'movies',
+                title: cache['title']?.toString() ?? cache['name']?.toString() ?? 'Untitled',
+                coverImage: cache['poster_path']?.toString() ?? cache['thumbnailUrl']?.toString() ?? '',
+                extraData: drift.Value(jsonEncode(cache)),
+              ),
+            );
+          }
+        }
+      }
+
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Failed to import cloud library data: $e');
+    }
   }
 
   Future<void> removeItem(int id, String mode) async {

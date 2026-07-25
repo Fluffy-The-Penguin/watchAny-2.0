@@ -60,7 +60,7 @@ class AppSettings extends ChangeNotifier {
 
   // Section management
   Set<String> _enabledModes = {'anime', 'manga', 'movies'};
-  bool _setupCompleted = false;
+  bool _setupCompleted = true;
 
   bool get smoothScrollEnabled => _smoothScrollEnabled;
   String get torrServerUrl => _torrServerUrl;
@@ -219,6 +219,9 @@ class AppSettings extends ChangeNotifier {
     final List<String>? savedModes = prefs.getStringList('enabled_modes');
     if (savedModes != null && savedModes.isNotEmpty) {
       _enabledModes = savedModes.toSet();
+    } else {
+      _enabledModes = {'anime', 'manga', 'movies'};
+      await prefs.setStringList('enabled_modes', _enabledModes.toList());
     }
     _setupCompleted = (prefs.getBool('setup_completed') ?? false) || (savedModes != null && savedModes.isNotEmpty);
 

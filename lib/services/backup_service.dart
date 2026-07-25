@@ -18,7 +18,7 @@ class BackupService {
 
   void backupAllDebounced() {
     _debounceTimer?.cancel();
-    _debounceTimer = Timer(const Duration(seconds: 5), () {
+    _debounceTimer = Timer(const Duration(seconds: 30), () {
       backupAll();
     });
   }

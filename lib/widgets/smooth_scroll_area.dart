@@ -47,90 +47,41 @@ class SmoothScrollPosition extends ScrollPositionWithSingleContext {
   });
 
   double? _targetPixels;
-  Ticker? _ticker;
-  double _lastElapsedSeconds = 0.0;
 
   @override
   void pointerScroll(double delta) {
     if (!AppSettings().smoothScrollEnabled) {
-      // Smooth scroll disabled - fall back to the default jumpTo behaviour.
       super.pointerScroll(delta);
       return;
     }
 
     if (!hasPixels) return;
 
-    // Sync target with actual pixels if we aren't currently smooth-scrolling
-    if (_ticker == null || !_ticker!.isActive || _targetPixels == null) {
+    if (_targetPixels == null || (pixels - _targetPixels!).abs() > 300) {
       _targetPixels = pixels;
     }
 
-    // Accumulate the delta onto our target pixels for a smooth progressive scroll.
     _targetPixels = clampDouble(
-      _targetPixels! + delta * 2.0,
+      _targetPixels! + delta * 1.2,
       minScrollExtent,
       maxScrollExtent,
     );
 
-    _startTicker();
-  }
-
-  void _startTicker() {
-    _lastElapsedSeconds = 0.0;
-
-    _ticker ??= context.vsync.createTicker((Duration elapsed) {
-      if (!hasPixels || _targetPixels == null) {
-        if (_ticker != null && _ticker!.isActive) {
-          _ticker!.stop();
-        }
-        return;
-      }
-
-      final double elapsedSeconds = elapsed.inMicroseconds / 1000000.0;
-      final double dt = elapsedSeconds - _lastElapsedSeconds;
-      _lastElapsedSeconds = elapsedSeconds;
-
-      if (dt <= 0.0) return;
-
-      final double current = pixels;
-      final double target = _targetPixels!;
-
-      // Frame-rate independent exponential decay
-      final double lerpFactor = 1.0 - math.exp(-14.0 * dt);
-      final double next = current + (target - current) * lerpFactor;
-
-      // Snap to target if very close to prevent micro-movements
-      if ((next - target).abs() < 0.5) {
-        jumpTo(target);
-        if (_ticker != null && _ticker!.isActive) {
-          _ticker!.stop();
-        }
-      } else {
-        jumpTo(next);
-      }
-    });
-
-    if (!_ticker!.isActive) {
-      _ticker!.start();
+    if (_targetPixels != pixels) {
+      animateTo(
+        _targetPixels!,
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOutCubic,
+      );
     }
   }
 
   @override
   void beginActivity(ScrollActivity? newActivity) {
-    // If the user starts dragging (scrollbar, touch) or flinging, stop smooth scroll
     if (newActivity != null && newActivity.isScrolling) {
-      if (_ticker != null && _ticker!.isActive) {
-        _ticker!.stop();
-      }
       _targetPixels = null;
     }
     super.beginActivity(newActivity);
-  }
-
-  @override
-  void dispose() {
-    _ticker?.dispose();
-    super.dispose();
   }
 }
 

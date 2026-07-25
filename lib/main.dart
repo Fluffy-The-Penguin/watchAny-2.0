@@ -17,6 +17,7 @@ import 'state/anilist_auth_state.dart';
 import 'state/player_state.dart' as ps;
 import 'services/log_service.dart';
 import 'services/video_proxy_service.dart';
+import 'services/cloud_sync_service.dart';
 import 'screens/shell_layout.dart';
 import 'screens/setup_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -157,34 +158,42 @@ class _MyAppState extends State<MyApp> with WindowListener, WidgetsBindingObserv
       AppSettings().init(),
       AnilistAuthState().init(),
       LibraryState().init(),
-      DownloadService().init(),
-      NotificationService().initLocalNotifications(),
     ]);
+
+    // Initialize NavigationState with the loaded AppSettings
+    NavigationState().init();
 
     if (LibraryState().items.isEmpty) {
       await BackupService().restoreAll();
-      // If restore added items, reload the library state from the DB
       if (LibraryState().items.isEmpty) {
         await LibraryState().init();
       }
     }
 
-    // Initialize NavigationState with the loaded AppSettings
-    NavigationState().init();
+    // Deferred non-critical background services initialization (non-blocking)
+    Future.microtask(() async {
+      await Future.wait([
+        DownloadService().init(),
+        CloudSyncService().init(),
+        NotificationService().initLocalNotifications(),
+      ]);
 
-    // 3. Register change listeners for debounced background exports
-    AppSettings().addListener(() {
-      BackupService().backupAllDebounced();
+      // Register change listeners for debounced background exports & cloud sync
+      AppSettings().addListener(() {
+        BackupService().backupAllDebounced();
+        CloudSyncService().triggerDebouncedSync();
+      });
+      LibraryState().addListener(() {
+        BackupService().backupAllDebounced();
+        CloudSyncService().triggerDebouncedSync();
+      });
+
+      // Initialize ExtensionService early to load local extensions in the background
+      ExtensionService().init();
+
+      // Register WorkManager background synchronization for Android devices
+      AndroidBackgroundSync().init();
     });
-    LibraryState().addListener(() {
-      BackupService().backupAllDebounced();
-    });
-
-    // 4. Initialize ExtensionService early to load local extensions in the background
-    ExtensionService().init();
-
-    // 5. Register WorkManager background synchronization for Android devices
-    AndroidBackgroundSync().init();
   }
 
   @override
@@ -339,19 +348,10 @@ class _MyAppState extends State<MyApp> with WindowListener, WidgetsBindingObserv
                   }
                 },
               )
-            : (_showSetup || !AppSettings().setupCompleted)
-                ? SetupScreen(
-                    key: const ValueKey('setup'),
-                    onSetupComplete: () {
-                      setState(() => _showSetup = false);
-                      // Re-sync TorrServer after setup
-                      _handleNavigationModeChange();
-                    },
-                  )
-                : ShellLayout(
-                    key: const ValueKey('shell'),
-                    navigationState: _navigationState,
-                  ),
+            : ShellLayout(
+                key: const ValueKey('shell'),
+                navigationState: _navigationState,
+              ),
       ),
     );
   }
