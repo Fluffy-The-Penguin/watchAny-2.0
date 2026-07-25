@@ -67,10 +67,11 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
 
   String _getCleanName(String name) {
     return name
-        .replaceFirst('Tachiyomi: ', '')
-        .replaceFirst('Keiyoushi: ', '')
+        .replaceFirst(RegExp(r'^(Tachiyomi|Keiyoushi):\s*'), '')
+        .replaceFirst(RegExp(r'\s*\([A-Za-z0-9_-]+\)$'), '')
         .trim();
   }
+
 
   bool _isLanguageEnabled(String extName, String lang) {
     if (_prefs == null) return true;
@@ -243,7 +244,9 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
     try {
       // Seed external repos in background asynchronously so dropdown displays instantly
       unawaited(_suwayomiService.seedExternalRepositories().catchError((_) {}));
-      final list = await _suwayomiService.getSources();
+      _suwayomiService.clearSourcesCache();
+      final list = await _suwayomiService.getSources(forceRefresh: true);
+
       if (mounted) {
         setState(() {
           _sources = list;

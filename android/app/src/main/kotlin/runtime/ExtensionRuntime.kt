@@ -640,58 +640,54 @@ class ExtensionRuntime(private val context: Context, private val root: Path) {
     @Volatile
     private var isScanningSystemPackages: Boolean = false
 
-    private fun scanSystemPackagesInBackground() {
-        if (isScanningSystemPackages) return
-        isScanningSystemPackages = true
-        java.util.concurrent.Executors.newSingleThreadExecutor().execute {
-            try {
-                val pm = context.packageManager
-                val packages = pm.getInstalledPackages(0)
-                val systemList = mutableListOf<InstalledExtension>()
-                for (pkg in packages) {
-                    val pkgName = pkg.packageName
-                    if (pkgName.startsWith("eu.kanade.tachiyomi.extension") || pkgName.startsWith("sound.tachiyomi.extension")) {
-                        try {
-                            val appInfo = pkg.applicationInfo ?: continue
-                            val sourceDir = appInfo.sourceDir ?: continue
-                            val apkPath = Path(sourceDir)
+    private fun scanSystemPackagesSync(): List<InstalledExtension> {
+        return try {
+            val pm = context.packageManager
+            val packages = pm.getInstalledPackages(0)
+            val systemList = mutableListOf<InstalledExtension>()
+            for (pkg in packages) {
+                val pkgName = pkg.packageName
+                if (pkgName.startsWith("eu.kanade.tachiyomi.extension") || pkgName.startsWith("sound.tachiyomi.extension")) {
+                    try {
+                        val appInfo = pkg.applicationInfo ?: continue
+                        val sourceDir = appInfo.sourceDir ?: continue
+                        val apkPath = Path(sourceDir)
 
-                            val meta = PackageTools.getPackageMetadata(apkPath)
-                            val classNames = meta.sourceClasses.flatMap { raw -> raw.split(';') }
-                                .map { it.trim() }
-                                .filter { it.isNotBlank() }
-                                .map { if (it.startsWith('.')) meta.pkgName + it else it }
-                            val loaded = loadSourcesFromApkDetailed(apkPath, classNames, pkgName)
+                        val meta = PackageTools.getPackageMetadata(apkPath)
+                        val classNames = meta.sourceClasses.flatMap { raw -> raw.split(';') }
+                            .map { it.trim() }
+                            .filter { it.isNotBlank() }
+                            .map { if (it.startsWith('.')) meta.pkgName + it else it }
+                        val loaded = loadSourcesFromApkDetailed(apkPath, classNames, pkgName)
 
-                            val sources = loaded.sources.map { InstalledSource(it.id, it.lang, it.name) }
-                            systemList.add(InstalledExtension(
-                                name = meta.label.ifBlank { pkgName },
-                                pkg = pkgName,
-                                repoId = "system",
-                                repoName = "System Installed",
-                                repoIndexUrl = "",
-                                repoApkBaseUrl = "",
-                                apk = "$pkgName.apk",
-                                version = pkg.versionName ?: "1.0",
-                                code = pkg.versionCode.toLong(),
-                                nsfw = meta.nsfw,
-                                jarPath = apkPath.toString(),
-                                iconPath = null,
-                                sourceClasses = classNames,
-                                sources = sources,
-                                sourceLoadErrors = loaded.errors
-                            ))
-                        } catch (e: Throwable) {
-                            android.util.Log.e("watchAny-ExtensionRuntime", "Error scanning system extension package $pkgName: ${e.message}")
-                        }
+                        val sources = loaded.sources.map { InstalledSource(it.id, it.lang, it.name) }
+                        systemList.add(InstalledExtension(
+                            name = meta.label.ifBlank { pkgName },
+                            pkg = pkgName,
+                            repoId = "system",
+                            repoName = "System Installed",
+                            repoIndexUrl = "",
+                            repoApkBaseUrl = "",
+                            apk = "$pkgName.apk",
+                            version = pkg.versionName ?: "1.0",
+                            code = pkg.versionCode.toLong(),
+                            nsfw = meta.nsfw,
+                            jarPath = apkPath.toString(),
+                            iconPath = null,
+                            sourceClasses = classNames,
+                            sources = sources,
+                            sourceLoadErrors = loaded.errors
+                        ))
+                    } catch (e: Throwable) {
+                        android.util.Log.e("watchAny-ExtensionRuntime", "Error scanning system extension package $pkgName: ${e.message}")
                     }
                 }
-                cachedSystemExtensions = systemList
-            } catch (e: Throwable) {
-                android.util.Log.e("watchAny-ExtensionRuntime", "Error reading system installed packages: ${e.message}")
-            } finally {
-                isScanningSystemPackages = false
             }
+            cachedSystemExtensions = systemList
+            systemList
+        } catch (e: Throwable) {
+            android.util.Log.e("watchAny-ExtensionRuntime", "Error reading system installed packages: ${e.message}")
+            emptyList()
         }
     }
 
@@ -700,13 +696,14 @@ class ExtensionRuntime(private val context: Context, private val root: Path) {
             try { json.decodeFromString<List<InstalledExtension>>(installedFile.readText()) } catch (_: Throwable) { emptyList() }
         } else emptyList()
 
-        if (cachedSystemExtensions.isEmpty() && !isScanningSystemPackages) {
-            scanSystemPackagesInBackground()
+        if (cachedSystemExtensions.isEmpty()) {
+            scanSystemPackagesSync()
         }
 
         val filteredSystem = cachedSystemExtensions.filter { sys -> fileList.none { it.pkg == sys.pkg } }
         return fileList + filteredSystem
     }
+
 
 
 
