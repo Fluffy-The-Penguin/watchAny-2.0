@@ -58,7 +58,22 @@ class LocalWebServer(private val context: Context, private val runtime: Extensio
     }
 
     private fun route(session: IHTTPSession): Response {
-        return when (session.uri) {
+        val uri = session.uri
+        if (uri.startsWith("/api/v1/source/")) {
+            val parts = uri.removePrefix("/api/v1/source/").split("/")
+            if (parts.size >= 3) {
+                val sourceId = parts[0]
+                val action = parts[1]
+                val page = parts[2].toIntOrNull() ?: 1
+                return when (action) {
+                    "popular" -> api { popular(sourceId, page) }
+                    "latest" -> api { latest(sourceId, page) }
+                    "search" -> api { search(sourceId, page, session) }
+                    else -> sendText(404, "text/plain; charset=utf-8", "Not found")
+                }
+            }
+        }
+        return when (uri) {
             "/", "/index.html" -> sendText(200, "text/html; charset=utf-8", "<html><body>Manga Engine Natively running on Android</body></html>")
             "/api/health" -> api { buildJsonObject { put("status", "ok") } }
             "/api/repos" -> api { repos() }
@@ -92,6 +107,7 @@ class LocalWebServer(private val context: Context, private val runtime: Extensio
             else -> sendText(404, "text/plain; charset=utf-8", "Not found")
         }
     }
+
 
     private fun api(block: () -> JsonElement): Response {
         return try {
@@ -388,17 +404,36 @@ class LocalWebServer(private val context: Context, private val runtime: Extensio
     private fun popular(session: IHTTPSession): JsonElement {
         val source = source(session.requiredQuery("sourceId"))
         val pageNumber = session.query()["page"]?.toIntOrNull() ?: 1
+        return popular(source.id.toString(), pageNumber)
+    }
+
+    private fun popular(sourceId: String, pageNumber: Int): JsonElement {
+        val source = source(sourceId)
         val page = runBlocking { withTimeout(SOURCE_REQUEST_TIMEOUT_MS) { source.getPopularManga(pageNumber) } }
         return mangaPageJson(source, page, "popular")
     }
 
     private fun latest(session: IHTTPSession): JsonElement {
         val source = source(session.requiredQuery("sourceId"))
-        check(source.supportsLatest) { "Source ${source.name} does not support latest updates" }
         val pageNumber = session.query()["page"]?.toIntOrNull() ?: 1
+        return latest(source.id.toString(), pageNumber)
+    }
+
+    private fun latest(sourceId: String, pageNumber: Int): JsonElement {
+        val source = source(sourceId)
+        check(source.supportsLatest) { "Source ${source.name} does not support latest updates" }
         val page = runBlocking { withTimeout(SOURCE_REQUEST_TIMEOUT_MS) { source.getLatestUpdates(pageNumber) } }
         return mangaPageJson(source, page, "latest")
     }
+
+    private fun search(sourceId: String, pageNumber: Int, session: IHTTPSession): JsonElement {
+        val source = source(sourceId)
+        val query = session.query()["query"]?.ifBlank { session.query()["q"] }.orEmpty()
+        val filters = filterList(source, session.query()["filters"])
+        val page = runBlocking { withTimeout(SOURCE_REQUEST_TIMEOUT_MS) { source.getSearchManga(pageNumber, query, filters) } }
+        return mangaPageJson(source, page, "search")
+    }
+
 
     private fun mangaPageJson(source: CatalogueSource, page: MangasPage, kind: String): JsonElement {
         return buildJsonObject {

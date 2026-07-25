@@ -948,7 +948,7 @@ class SuwayomiService {
   }
 
   List<dynamic> _mapV1Mangas(dynamic v1Data, String sourceId) {
-    final list = v1Data['mangaList'] as List? ?? [];
+    final list = (v1Data['mangaList'] ?? v1Data['mangas']) as List? ?? [];
     final mapped = <dynamic>[];
     for (var manga in list) {
       final String url = manga['url'] ?? '';
@@ -961,12 +961,13 @@ class SuwayomiService {
       final proxiedCover = coverUrl.isNotEmpty
           ? (coverUrl.startsWith('/')
               ? '$_baseUrl$coverUrl'
-              : '$_baseUrl/api/v1/source/$sourceId/cover?url=${Uri.encodeComponent(coverUrl)}')
+              : '$_baseUrl/api/image?url=${Uri.encodeComponent(coverUrl)}')
           : '';
       mapped.add({'id': mangaId, 'title': title, 'thumbnailUrl': proxiedCover, 'url': url});
     }
     return mapped;
   }
+
 
 
 
