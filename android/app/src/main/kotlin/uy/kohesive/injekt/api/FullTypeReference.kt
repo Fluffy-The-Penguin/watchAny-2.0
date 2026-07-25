@@ -47,21 +47,28 @@ interface InjektFactory {
 }
 
 open class InjektScope : InjektFactory {
-    private val instances = linkedMapOf<Class<*>, Any>()
-    private val keyedInstances = linkedMapOf<Pair<Class<*>, Any>, Any>()
+    private val instances = linkedMapOf<String, Any>()
+    private val keyedInstances = linkedMapOf<Pair<String, Any>, Any>()
 
     fun clear() = instances.clear()
 
     fun <T : Any> register(type: Class<T>, instance: T) {
-        instances[type] = instance
+        instances[type.name] = instance
     }
 
+    @Suppress("UNCHECKED_CAST")
     fun <T : Any> get(type: Class<T>): T {
-        instances[type]?.let { return type.cast(it) }
+        val name = type.name
+        instances[name]?.let { return it as T }
+        instances.entries.firstOrNull { (k, v) -> 
+            k == name || k.endsWith(type.simpleName) || type.isInstance(v) || v.javaClass.name.endsWith(type.simpleName) 
+        }?.let { return it.value as T }
+
         val created = type.getDeclaredConstructor().newInstance()
-        instances[type] = created
+        instances[name] = created
         return created
     }
+
 
     @Suppress("UNCHECKED_CAST")
     fun <R : Any> get(forType: TypeReference<R>): R = get(forType.type.erasedType() as Class<R>)
@@ -76,19 +83,31 @@ open class InjektScope : InjektFactory {
     override fun <R : Any> getInstanceOrElse(forType: Type, default: () -> R): R = getInstanceOrNull(forType) ?: default()
 
     @Suppress("UNCHECKED_CAST")
-    override fun <R : Any> getInstanceOrNull(forType: Type): R? = instances[forType.erasedType()] as? R
+    override fun <R : Any> getInstanceOrNull(forType: Type): R? {
+        val type = forType.erasedType()
+        val name = type.name
+        instances[name]?.let { return it as R }
+        return instances.entries.firstOrNull { (k, v) -> 
+            k == name || k.endsWith(type.simpleName) || type.isInstance(v) || v.javaClass.name.endsWith(type.simpleName)
+        }?.value as? R
+    }
+
 
     @Suppress("UNCHECKED_CAST")
     override fun <R : Any, K : Any> getKeyedInstance(forType: Type, key: K): R {
-        val type = forType.erasedType()
-        return keyedInstances.getOrPut(type to key) { get(type) } as R
+        val name = forType.erasedType().name
+        return keyedInstances.getOrPut(name to (key as Any)) { get(forType.erasedType() as Class<Any>) } as R
     }
 
     override fun <R : Any, K : Any> getKeyedInstanceOrElse(forType: Type, key: K, default: R): R = getKeyedInstanceOrNull(forType, key) ?: default
     override fun <R : Any, K : Any> getKeyedInstanceOrElse(forType: Type, key: K, default: () -> R): R = getKeyedInstanceOrNull(forType, key) ?: default()
 
     @Suppress("UNCHECKED_CAST")
-    override fun <R : Any, K : Any> getKeyedInstanceOrNull(forType: Type, key: K): R? = keyedInstances[forType.erasedType() to key] as? R
+    override fun <R : Any, K : Any> getKeyedInstanceOrNull(forType: Type, key: K): R? {
+        val name = forType.erasedType().name
+        return keyedInstances[name to (key as Any)] as? R
+    }
+
 
     override fun <R : Any> getLogger(expectedLoggerType: Type, byName: String): R = getInstance(expectedLoggerType)
     override fun <R : Any, T : Any> getLogger(expectedLoggerType: Type, forClass: Class<T>): R = getInstance(expectedLoggerType)
