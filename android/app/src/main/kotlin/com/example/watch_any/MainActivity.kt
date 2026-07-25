@@ -85,22 +85,29 @@ class MainActivity : FlutterActivity() {
             val networkHelper = NetworkHelper()
             Injekt.register(NetworkHelper::class.java, networkHelper)
             Injekt.register(OkHttpClient::class.java, networkHelper.client)
-            // Read port from SharedPreferences
-            val prefs = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
-            val portLong = runCatching { prefs.getLong("flutter.manga_server_port", 4567L) }
-                .getOrElse { 
-                    runCatching { prefs.getInt("flutter.manga_server_port", 4567).toLong() }
-                        .getOrDefault(4567L) 
-                }
-            val port = portLong.toInt()
+            // Start Manga extension server asynchronously in background thread so app startup is instant
+            java.util.concurrent.Executors.newSingleThreadExecutor().execute {
+                try {
+                    val prefs = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+                    val portLong = runCatching { prefs.getLong("flutter.manga_server_port", 4567L) }
+                        .getOrElse { 
+                            runCatching { prefs.getInt("flutter.manga_server_port", 4567).toLong() }
+                                .getOrDefault(4567L) 
+                        }
+                    val port = portLong.toInt()
 
-            val rootPath = File(filesDir, "manga_runtime").toPath()
-            val runtime = ExtensionRuntime(this, rootPath)
-            
-            webServer = LocalWebServer(this, runtime, port).apply {
-                start()
+                    val rootPath = File(filesDir, "manga_runtime").toPath()
+                    val runtime = ExtensionRuntime(this, rootPath)
+                    
+                    webServer = LocalWebServer(this, runtime, port).apply {
+                        start()
+                    }
+                    android.util.Log.d("watchAny-MainActivity", "Manga extension server started successfully on port $port")
+                } catch (e: Exception) {
+                    android.util.Log.e("watchAny-MainActivity", "Failed to start Manga extension server: ${e.message}", e)
+                }
             }
-            android.util.Log.d("watchAny-MainActivity", "Manga extension server started successfully on port $port")
+
         } catch (e: Exception) {
             android.util.Log.e("watchAny-MainActivity", "Failed to start Manga extension server: ${e.message}", e)
         }

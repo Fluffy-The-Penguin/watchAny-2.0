@@ -875,7 +875,7 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
     final double? progress = _pageLoader?.getProgress(index);
 
     return LayoutBuilder(
-      key: ValueKey('page_$index'),
+      key: ValueKey('page_${_currentChapterId}_$index'),
       builder: (context, constraints) {
         final w = constraints.maxWidth.isFinite ? constraints.maxWidth : MediaQuery.of(context).size.width;
         final dims = _pageLoader?.pageDimensions[index];
@@ -886,10 +886,10 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
         if (localPath != null) {
           content = Image.file(
             File(localPath),
-            key: ValueKey(localPath),
+            key: ValueKey('file_${_currentChapterId}_${index}_$localPath'),
             fit: isWebtoon ? BoxFit.fitWidth : BoxFit.contain,
             width: isWebtoon ? double.infinity : null,
-            gaplessPlayback: true,
+            gaplessPlayback: false,
             filterQuality: FilterQuality.low,
             frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
               if (wasSynchronouslyLoaded || frame != null) {
@@ -906,6 +906,7 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
             errorBuilder: (context, error, stackTrace) => _buildPageError(index),
           );
         }
+
  else {
           // Shimmer placeholder
           content = _MihonPagePlaceholder(
@@ -1152,6 +1153,7 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
         },
         itemBuilder: (context, index) {
           return _ZoomablePageImage(
+            key: ValueKey('zoom_${_currentChapterId}_$index'),
             onZoomChanged: (zoomed) {
               setState(() {
                 _isPageZoomed = zoomed;
@@ -1164,6 +1166,7 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
             ),
           );
         },
+
       );
     }
   }
@@ -1627,7 +1630,8 @@ class MangaPageLoader {
 class _ZoomablePageImage extends StatefulWidget {
   final Widget child;
   final ValueChanged<bool>? onZoomChanged;
-  const _ZoomablePageImage({required this.child, this.onZoomChanged});
+  const _ZoomablePageImage({super.key, required this.child, this.onZoomChanged});
+
 
   @override
   State<_ZoomablePageImage> createState() => _ZoomablePageImageState();

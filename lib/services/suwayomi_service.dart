@@ -152,7 +152,88 @@ class SuwayomiService {
   // Fetch all extensions (installed AND available in store)
   Future<List<dynamic>> getExtensions() async {
     try {
-      // 1. Try GraphQL extensions query
+      // 1. Local Native Server API (/api/installed & /api/list)
+      try {
+        final responses = await Future.wait([
+          http.get(Uri.parse('$_baseUrl/api/installed')).timeout(const Duration(seconds: 15)),
+          http.get(Uri.parse('$_baseUrl/api/list')).timeout(const Duration(seconds: 15)),
+        ]);
+
+
+        final instResp = responses[0];
+        final listResp = responses[1];
+
+        if (instResp.statusCode == 200 && listResp.statusCode == 200) {
+          final installedData = await _fastJsonDecode(instResp.body);
+          final listData = await _fastJsonDecode(listResp.body);
+
+          final installedList = installedData['data'] as List? ?? [];
+          final listExts = listData['data'] as List? ?? [];
+
+          final Map<String, Map<String, dynamic>> combined = {};
+
+          for (var ext in installedList) {
+            final String pkg = ext['pkg']?.toString() ?? '';
+            if (pkg.isEmpty) continue;
+            final String iconName = ext['icon']?.toString() ?? 'icon/$pkg.png';
+            final String iconCdn = 'https://raw.githubusercontent.com/keiyoushi/extensions/repo/$iconName';
+            final String apkName = ext['apk']?.toString() ?? '$pkg.apk';
+            final String apkUrl = ext['apkUrl']?.toString() ?? 'https://raw.githubusercontent.com/keiyoushi/extensions/repo/apk/$apkName';
+            combined[pkg] = {
+              'id': pkg,
+              'name': ext['name'] ?? '',
+              'pkgName': pkg,
+              'versionName': ext['version'] ?? '',
+              'isInstalled': true,
+              'hasUpdate': ext['hasUpdate'] == true || ext['hasUpdate'] == 1,
+              'lang': ext['lang'] ?? 'en',
+              'nsfw': (ext['nsfw'] ?? 0) == 1,
+              'apkUrl': apkUrl,
+              'iconUrl': ext['iconUrl']?.toString() ?? iconCdn,
+            };
+          }
+
+          for (var ext in listExts) {
+            final String pkg = ext['pkg']?.toString() ?? '';
+            if (pkg.isEmpty) continue;
+            final String iconName = ext['icon']?.toString() ?? 'icon/$pkg.png';
+            final String iconCdn = 'https://raw.githubusercontent.com/keiyoushi/extensions/repo/$iconName';
+            final String apkName = ext['apk']?.toString() ?? '$pkg.apk';
+            final String apkUrl = ext['apkUrl']?.toString() ?? 'https://raw.githubusercontent.com/keiyoushi/extensions/repo/apk/$apkName';
+            if (combined.containsKey(pkg)) {
+              final instVer = combined[pkg]!['versionName']?.toString() ?? '';
+              final availVer = ext['version']?.toString() ?? '';
+              if (availVer.isNotEmpty && instVer.isNotEmpty && availVer != instVer) {
+                combined[pkg]!['hasUpdate'] = true;
+                combined[pkg]!['availableVersion'] = availVer;
+              }
+              combined[pkg]!['apkUrl'] = apkUrl;
+              if (combined[pkg]!['iconUrl'] == null || combined[pkg]!['iconUrl'].toString().isEmpty) {
+                combined[pkg]!['iconUrl'] = iconCdn;
+              }
+              continue;
+            }
+            combined[pkg] = {
+              'id': pkg,
+              'name': ext['name'] ?? '',
+              'pkgName': pkg,
+              'versionName': ext['version'] ?? '',
+              'isInstalled': false,
+              'hasUpdate': false,
+              'lang': ext['lang'] ?? 'en',
+              'nsfw': (ext['nsfw'] ?? 0) == 1,
+              'apkUrl': apkUrl,
+              'iconUrl': ext['iconUrl']?.toString() ?? iconCdn,
+            };
+          }
+
+          if (combined.isNotEmpty) {
+            return combined.values.toList();
+          }
+        }
+      } catch (_) {}
+
+      // 2. Try GraphQL extensions query
       const gqlQuery = '''
         query {
           extensions {
@@ -190,10 +271,10 @@ class SuwayomiService {
             }).toList();
           }
         }
-
       } catch (e) {
-        developer.log('GraphQL extensions query failed, using REST fallback: $e', name: 'SuwayomiService');
+        developer.log('GraphQL extensions query failed: $e', name: 'SuwayomiService');
       }
+
 
       // 2. REST API v1 fallback
       try {

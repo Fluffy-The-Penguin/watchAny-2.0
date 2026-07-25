@@ -29,7 +29,7 @@ class SuwayomiManager {
     try {
       final response = await http.get(
         Uri.parse('http://${SuwayomiService.host}:$port/api/v1/settings'),
-      ).timeout(const Duration(milliseconds: 600));
+      ).timeout(const Duration(seconds: 4));
       if (response.statusCode == 200) {
         return true;
       }
@@ -37,13 +37,14 @@ class SuwayomiManager {
     try {
       final response2 = await http.get(
         Uri.parse('http://${SuwayomiService.host}:$port/api/health'),
-      ).timeout(const Duration(milliseconds: 600));
+      ).timeout(const Duration(seconds: 4));
       if (response2.statusCode == 200) {
         return true;
       }
     } catch (_) {}
     return false;
   }
+
 
   static Future<int> _findAvailablePort(int startPort) async {
     int port = startPort;
