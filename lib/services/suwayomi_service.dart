@@ -679,7 +679,31 @@ class SuwayomiService {
       return _cachedSources!;
     }
     try {
-      // 0. Extract sources from installed extensions directly
+      // 1. Try local server GET /api/sources first (returns exact native sources with 64-bit IDs)
+      try {
+        final response = await http.get(Uri.parse('$_baseUrl/api/sources')).timeout(const Duration(seconds: 10));
+        if (response.statusCode == 200) {
+          final decoded = jsonDecode(response.body);
+          if (decoded['ok'] == true && decoded['data'] is List) {
+            final list = decoded['data'] as List;
+            if (list.isNotEmpty) {
+              final mapped = list.map((source) => {
+                'id': source['id']?.toString() ?? '',
+                'name': source['name'] ?? '',
+                'lang': source['lang'] ?? 'en',
+                'isNsfw': false,
+                'supportsLatest': source['supportsLatest'] ?? true,
+              }).toList();
+              _cachedSources = mapped;
+              return mapped;
+            }
+          }
+        }
+      } catch (e) {
+        developer.log('GET /api/sources failed: $e', name: 'SuwayomiService');
+      }
+
+      // 2. Extract sources from installed extensions fallback
       try {
         final extensions = await getExtensions();
         final installedSources = <Map<String, dynamic>>[];
@@ -721,7 +745,7 @@ class SuwayomiService {
         developer.log('Extract sources from installed extensions failed: $e', name: 'SuwayomiService');
       }
 
-      // 1. Try GraphQL sources query
+      // 3. Try GraphQL sources query
 
       try {
         const gqlQuery = '''
@@ -754,7 +778,7 @@ class SuwayomiService {
         }
       } catch (_) {}
 
-      // 2. REST API v1 fallback
+      // 4. REST API v1 fallback
       try {
         final v1Resp = await http.get(Uri.parse('$_baseUrl/api/v1/source/list')).timeout(const Duration(seconds: 10));
         if (v1Resp.statusCode == 200) {
@@ -773,28 +797,6 @@ class SuwayomiService {
         }
       } catch (_) {}
 
-      // 3. Legacy REST fallback
-      final response = await http.get(
-        Uri.parse('$_baseUrl/api/sources'),
-      ).timeout(const Duration(seconds: 10)).catchError((e) {
-        throw Exception('Network request failed: $e');
-      });
-
-      _checkResponse(response);
-
-      final decoded = jsonDecode(response.body);
-      if (decoded['ok'] == true) {
-        final list = decoded['data'] as List? ?? [];
-        final mapped = list.map((source) => {
-          'id': source['id']?.toString() ?? '',
-          'name': source['name'] ?? '',
-          'lang': source['lang'] ?? 'en',
-          'isNsfw': false,
-          'supportsLatest': source['supportsLatest'] ?? true,
-        }).toList();
-        _cachedSources = mapped;
-        return mapped;
-      }
       return [];
     } catch (e, stack) {
       developer.log('getSources Error', name: 'SuwayomiService', error: e, stackTrace: stack);
