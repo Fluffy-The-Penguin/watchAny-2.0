@@ -259,10 +259,10 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
           distinctExtensionNames.sort();
 
           if (_selectedExtensionName == null) {
-            _selectedExtensionName = "Global";
+            _selectedExtensionName = distinctExtensionNames.isNotEmpty ? distinctExtensionNames.first : "Global";
           }
 
-          if (_selectedExtensionName != "Global" && _selectedExtensionName != null) {
+          if (_selectedExtensionName != "Global") {
             final extSources = _sources.where((s) => _getCleanName(s['name']?.toString() ?? '') == _selectedExtensionName).toList();
             final enabled = extSources.where((s) => _isLanguageEnabled(_selectedExtensionName!, s['lang']?.toString() ?? 'en')).toList();
             final target = enabled.isNotEmpty ? enabled : extSources;
@@ -276,6 +276,7 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
           }
 
           _loadCatalog();
+
         });
 
         if (list.isEmpty) {
