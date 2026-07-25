@@ -654,7 +654,9 @@ class ExtensionRuntime(private val context: Context, private val root: Path) {
     private fun scanSystemPackagesSync(): List<InstalledExtension> {
         return try {
             val pm = context.packageManager
-            val flags = android.content.pm.PackageManager.GET_META_DATA
+            @Suppress("DEPRECATION")
+            val flags = android.content.pm.PackageManager.GET_CONFIGURATIONS or
+                android.content.pm.PackageManager.GET_META_DATA
             val packages = pm.getInstalledPackages(flags)
             val systemList = mutableListOf<InstalledExtension>()
             for (pkg in packages) {
@@ -662,7 +664,9 @@ class ExtensionRuntime(private val context: Context, private val root: Path) {
                 val appInfo = pkg.applicationInfo ?: continue
                 val metaData = appInfo.metaData
 
-                val isExtension = pkgName.startsWith("eu.kanade.tachiyomi.extension") ||
+                val hasExtensionFeature = pkg.reqFeatures?.any { it.name == "tachiyomi.extension" } == true
+                val isExtension = hasExtensionFeature ||
+                        pkgName.startsWith("eu.kanade.tachiyomi.extension") ||
                         pkgName.startsWith("sound.tachiyomi.extension") ||
                         pkgName.contains(".extension.") ||
                         pkgName.contains("extension", ignoreCase = true) ||
@@ -672,6 +676,7 @@ class ExtensionRuntime(private val context: Context, private val root: Path) {
                         (metaData != null && metaData.keySet().any { it.contains("extension", ignoreCase = true) || it.contains("tachiyomi", ignoreCase = true) })
 
                 if (!isExtension) continue
+
 
                 try {
                     val label = runCatching { pm.getApplicationLabel(appInfo).toString() }.getOrDefault(pkgName)
