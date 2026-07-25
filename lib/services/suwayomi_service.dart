@@ -190,7 +190,9 @@ class SuwayomiService {
               'nsfw': (ext['nsfw'] ?? 0) == 1,
               'apkUrl': apkUrl,
               'iconUrl': ext['iconUrl']?.toString() ?? iconCdn,
+              'sources': ext['sources'] ?? [],
             };
+
           }
 
           for (var ext in listExts) {
@@ -677,7 +679,36 @@ class SuwayomiService {
       return _cachedSources!;
     }
     try {
+      // 0. Extract sources from installed extensions directly
+      try {
+        final extensions = await getExtensions();
+        final installedSources = <Map<String, dynamic>>[];
+        for (var ext in extensions) {
+          if (ext['isInstalled'] != true) continue;
+          final sources = ext['sources'] as List? ?? [];
+          for (var src in sources) {
+            final String id = src['id']?.toString() ?? '';
+            if (id.isEmpty) continue;
+            installedSources.add({
+              'id': id,
+              'name': src['name'] ?? ext['name'] ?? '',
+              'lang': src['lang'] ?? ext['lang'] ?? 'en',
+              'isNsfw': ext['nsfw'] == true,
+              'supportsLatest': src['supportsLatest'] ?? true,
+              'pkg': ext['pkgName'] ?? '',
+            });
+          }
+        }
+        if (installedSources.isNotEmpty) {
+          _cachedSources = installedSources;
+          return installedSources;
+        }
+      } catch (e) {
+        developer.log('Extract sources from installed extensions failed: $e', name: 'SuwayomiService');
+      }
+
       // 1. Try GraphQL sources query
+
       try {
         const gqlQuery = '''
           query {
