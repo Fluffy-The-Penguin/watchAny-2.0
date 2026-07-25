@@ -210,7 +210,7 @@ class LocalWebServer(private val context: Context, private val runtime: Extensio
     }
 
     private fun search(session: IHTTPSession): JsonElement {
-        val source = source(session.requiredQuery("sourceId").toLong())
+        val source = source(session.requiredQuery("sourceId"))
         val query = session.query()["q"].orEmpty()
         val pageNumber = session.query()["page"]?.toIntOrNull() ?: 1
         val filters = filterList(source, session.query()["filters"])
@@ -224,7 +224,7 @@ class LocalWebServer(private val context: Context, private val runtime: Extensio
     }
 
     private fun filters(session: IHTTPSession): JsonElement {
-        val source = source(session.requiredQuery("sourceId").toLong())
+        val source = source(session.requiredQuery("sourceId"))
         val loadDynamic = session.query()["dynamic"]?.toBooleanStrictOrNull() ?: false
         val filterList = if (loadDynamic) dynamicFilterList(source) else safeFilterList(source, 2500) ?: FilterList()
         return buildJsonObject {
@@ -386,14 +386,14 @@ class LocalWebServer(private val context: Context, private val runtime: Extensio
     }
 
     private fun popular(session: IHTTPSession): JsonElement {
-        val source = source(session.requiredQuery("sourceId").toLong())
+        val source = source(session.requiredQuery("sourceId"))
         val pageNumber = session.query()["page"]?.toIntOrNull() ?: 1
         val page = runBlocking { withTimeout(SOURCE_REQUEST_TIMEOUT_MS) { source.getPopularManga(pageNumber) } }
         return mangaPageJson(source, page, "popular")
     }
 
     private fun latest(session: IHTTPSession): JsonElement {
-        val source = source(session.requiredQuery("sourceId").toLong())
+        val source = source(session.requiredQuery("sourceId"))
         check(source.supportsLatest) { "Source ${source.name} does not support latest updates" }
         val pageNumber = session.query()["page"]?.toIntOrNull() ?: 1
         val page = runBlocking { withTimeout(SOURCE_REQUEST_TIMEOUT_MS) { source.getLatestUpdates(pageNumber) } }
@@ -421,7 +421,7 @@ class LocalWebServer(private val context: Context, private val runtime: Extensio
     }
 
     private fun mangaDetails(session: IHTTPSession): JsonElement {
-        val source = source(session.requiredQuery("sourceId").toLong())
+        val source = source(session.requiredQuery("sourceId"))
         val mangaUrl = session.requiredQuery("url")
         val title = session.query()["title"].orEmpty().ifBlank { "Runtime Manga" }
         val manga = SManga.create().also {
@@ -455,7 +455,7 @@ class LocalWebServer(private val context: Context, private val runtime: Extensio
     }
 
     private fun chapters(session: IHTTPSession): JsonElement {
-        val source = source(session.requiredQuery("sourceId").toLong())
+        val source = source(session.requiredQuery("sourceId"))
         val mangaUrl = session.requiredQuery("url")
         val title = session.query()["title"].orEmpty().ifBlank { "Runtime Manga" }
         val manga = SManga.create().also {
@@ -483,7 +483,7 @@ class LocalWebServer(private val context: Context, private val runtime: Extensio
     }
 
     private fun pages(session: IHTTPSession): JsonElement {
-        val source = source(session.requiredQuery("sourceId").toLong())
+        val source = source(session.requiredQuery("sourceId"))
         val chapterUrl = session.requiredQuery("url")
         val chapter = SChapter.create().also {
             it.url = chapterUrl
@@ -506,17 +506,29 @@ class LocalWebServer(private val context: Context, private val runtime: Extensio
         }
     }
 
-    private fun source(sourceId: Long): CatalogueSource {
-        val now = System.currentTimeMillis()
-        synchronized(sourceCache) {
-            sourceCache[sourceId]?.takeIf { now - it.loadedAt < 15 * 60 * 1000 }?.let { return it.source }
+    private fun source(sourceIdStr: String): CatalogueSource {
+        val numericId = sourceIdStr.toLongOrNull()
+        if (numericId != null) {
+            val now = System.currentTimeMillis()
+            synchronized(sourceCache) {
+                sourceCache[numericId]?.takeIf { now - it.loadedAt < 15 * 60 * 1000 }?.let { return it.source }
+            }
+            val sources = runtime.loadInstalledSources()
+            val match = sources.firstOrNull { it.id == numericId }
+            if (match != null) {
+                synchronized(sourceCache) { sourceCache[numericId] = CachedSource(match, now) }
+                return match
+            }
         }
-        val runtimeSource = runtime.loadInstalledSources().firstOrNull { it.id == sourceId } ?: error("Catalogue source not found: $sourceId")
-        synchronized(sourceCache) {
-            sourceCache[sourceId] = CachedSource(runtimeSource, now)
-        }
-        return runtimeSource
+        val sources = runtime.loadInstalledSources()
+        val fallbackMatch = sources.firstOrNull { src ->
+            src.id.toString() == sourceIdStr ||
+            src.javaClass.name.contains(sourceIdStr, ignoreCase = true) ||
+            src.name.replace(" ", "").equals(sourceIdStr.replace(" ", ""), ignoreCase = true)
+        } ?: error("Catalogue source not found for ID/pkg: $sourceIdStr")
+        return fallbackMatch
     }
+
 
     private data class CachedSource(val source: CatalogueSource, val loadedAt: Long)
 

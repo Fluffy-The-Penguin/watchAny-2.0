@@ -884,8 +884,12 @@ class SuwayomiService {
                 : '$_baseUrl/api/popular?sourceId=$sourceId&page=$page';
 
         final response = await http.get(Uri.parse(urlStr)).timeout(const Duration(seconds: 20));
-        if (response.statusCode == 200 && !response.body.trimLeft().startsWith('<')) {
-          final decoded = jsonDecode(response.body);
+        final bodyStr = response.body.trimLeft();
+        if (bodyStr.startsWith('{')) {
+          final decoded = jsonDecode(bodyStr);
+          if (decoded['ok'] == false && decoded['error'] != null) {
+            throw Exception(decoded['error'].toString());
+          }
           if (decoded['ok'] == true && decoded['data']?['mangas'] != null) {
             final list = decoded['data']['mangas'] as List;
             final mapped = <dynamic>[];
@@ -905,6 +909,7 @@ class SuwayomiService {
             return mapped;
           }
         }
+
       } catch (e) {
         developer.log('Legacy fetchSourceManga failed: $e', name: 'SuwayomiService');
       }
