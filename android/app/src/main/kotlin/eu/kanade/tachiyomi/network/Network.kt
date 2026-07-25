@@ -84,37 +84,10 @@ class NetworkHelper {
                     val original = chain.request()
                     val builder = original.newBuilder()
 
-                    builder.header("User-Agent", DEFAULT_USER_AGENT)
-                    if (original.header("Accept").isNullOrBlank()) {
-                        builder.header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7")
+                    if (original.header("User-Agent").isNullOrBlank()) {
+                        builder.header("User-Agent", DEFAULT_USER_AGENT)
                     }
-                    if (original.header("Accept-Language").isNullOrBlank()) {
-                        builder.header("Accept-Language", "en-US,en;q=0.9")
-                    }
-                    if (original.header("Sec-Ch-Ua").isNullOrBlank()) {
-                        builder.header("Sec-Ch-Ua", "\"Chromium\";v=\"125\", \"Not.A/Brand\";v=\"24\", \"Google Chrome\";v=\"125\"")
-                    }
-                    if (original.header("Sec-Ch-Ua-Mobile").isNullOrBlank()) {
-                        builder.header("Sec-Ch-Ua-Mobile", "?1")
-                    }
-                    if (original.header("Sec-Ch-Ua-Platform").isNullOrBlank()) {
-                        builder.header("Sec-Ch-Ua-Platform", "\"Android\"")
-                    }
-                    if (original.header("Sec-Fetch-Dest").isNullOrBlank()) {
-                        builder.header("Sec-Fetch-Dest", "document")
-                    }
-                    if (original.header("Sec-Fetch-Mode").isNullOrBlank()) {
-                        builder.header("Sec-Fetch-Mode", "navigate")
-                    }
-                    if (original.header("Sec-Fetch-Site").isNullOrBlank()) {
-                        builder.header("Sec-Fetch-Site", "none")
-                    }
-                    if (original.header("Sec-Fetch-User").isNullOrBlank()) {
-                        builder.header("Sec-Fetch-User", "?1")
-                    }
-                    if (original.header("Upgrade-Insecure-Requests").isNullOrBlank()) {
-                        builder.header("Upgrade-Insecure-Requests", "1")
-                    }
+
 
                     val request = builder.build()
                     val response = chain.proceed(request)
