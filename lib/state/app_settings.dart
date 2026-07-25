@@ -168,8 +168,10 @@ class AppSettings extends ChangeNotifier {
     // Load Storage Settings
     final bool isMobileDevice = !kIsWeb && (Platform.isAndroid || Platform.isIOS);
     final double defaultLimitGB = isMobileDevice ? 5.0 : 10.0;
-    _downloadsLimitGB = prefs.getDouble('downloads_limit_gb') ?? defaultLimitGB;
-    _cacheLimitGB = prefs.getDouble('cache_limit_gb') ?? defaultLimitGB;
+    final rawDownloadsLimit = prefs.get('downloads_limit_gb');
+    _downloadsLimitGB = rawDownloadsLimit is num ? rawDownloadsLimit.toDouble() : defaultLimitGB;
+    final rawCacheLimit = prefs.get('cache_limit_gb');
+    _cacheLimitGB = rawCacheLimit is num ? rawCacheLimit.toDouble() : defaultLimitGB;
     _cachePath = prefs.getString('cache_path') ?? '';
     _autoManageStorage = prefs.getBool('auto_manage_storage') ?? false;
 
@@ -189,21 +191,28 @@ class AppSettings extends ChangeNotifier {
       _subtitlesBgOpacity = alpha;
     } else {
       _subtitlesBgColor = rawBgColor;
-      _subtitlesBgOpacity = prefs.getDouble('subtitles_bg_opacity') ?? 0.5;
+      final rawBgOpacity = prefs.get('subtitles_bg_opacity');
+      _subtitlesBgOpacity = rawBgOpacity is num ? rawBgOpacity.toDouble() : 0.5;
     }
     
     _subtitlesFontFamily = prefs.getString('subtitles_font_family') ?? 'Outfit';
-    _subtitlesFontSize = prefs.getDouble('subtitles_font_size') ?? 16.0;
+    final rawFontSize = prefs.get('subtitles_font_size');
+    _subtitlesFontSize = rawFontSize is num ? rawFontSize.toDouble() : 16.0;
     _subtitlesBold = prefs.getBool('subtitles_bold') ?? false;
     _subtitlesItalic = prefs.getBool('subtitles_italic') ?? false;
-    _subtitlesPositionOffset = prefs.getDouble('subtitles_position_offset') ?? 24.0;
-    _subtitlesXOffset = prefs.getDouble('subtitles_x_offset') ?? 0.0;
+    final rawPosOffset = prefs.get('subtitles_position_offset');
+    _subtitlesPositionOffset = rawPosOffset is num ? rawPosOffset.toDouble() : 24.0;
+    final rawXOffset = prefs.get('subtitles_x_offset');
+    _subtitlesXOffset = rawXOffset is num ? rawXOffset.toDouble() : 0.0;
     _subtitlesTextColor = prefs.getInt('subtitles_text_color') ?? 0xFFFFFFFF;
     _subtitlesShadowEnabled = prefs.getBool('subtitles_shadow_enabled') ?? true;
     _subtitlesShadowColor = prefs.getInt('subtitles_shadow_color') ?? 0xFF000000;
-    _subtitlesShadowOpacity = prefs.getDouble('subtitles_shadow_opacity') ?? 0.8;
-    _subtitlesShadowBlurRadius = prefs.getDouble('subtitles_shadow_blur_radius') ?? 0.0;
-    _subtitlesShadowOffset = prefs.getDouble('subtitles_shadow_offset') ?? 1.5;
+    final rawShadowOpacity = prefs.get('subtitles_shadow_opacity');
+    _subtitlesShadowOpacity = rawShadowOpacity is num ? rawShadowOpacity.toDouble() : 0.8;
+    final rawShadowBlur = prefs.get('subtitles_shadow_blur_radius');
+    _subtitlesShadowBlurRadius = rawShadowBlur is num ? rawShadowBlur.toDouble() : 0.0;
+    final rawShadowOffset = prefs.get('subtitles_shadow_offset');
+    _subtitlesShadowOffset = rawShadowOffset is num ? rawShadowOffset.toDouble() : 1.5;
     _customSubtitlePresets = prefs.getStringList('custom_subtitle_presets') ?? [];
 
     // Section management
@@ -211,7 +220,7 @@ class AppSettings extends ChangeNotifier {
     if (savedModes != null && savedModes.isNotEmpty) {
       _enabledModes = savedModes.toSet();
     }
-    _setupCompleted = prefs.getBool('setup_completed') ?? false;
+    _setupCompleted = (prefs.getBool('setup_completed') ?? false) || (savedModes != null && savedModes.isNotEmpty);
 
     notifyListeners();
   }
@@ -708,6 +717,7 @@ class AppSettings extends ChangeNotifier {
 
   Future<void> completeSetup() async {
     _setupCompleted = true;
+    notifyListeners();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('setup_completed', true);
   }

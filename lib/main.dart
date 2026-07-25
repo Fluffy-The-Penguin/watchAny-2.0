@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:media_kit/media_kit.dart';
 import 'services/torrserver_manager.dart';
+import 'services/suwayomi_manager.dart';
 import 'services/extension_service.dart';
 import 'services/download_service.dart';
 import 'services/backup_service.dart';
@@ -35,7 +36,7 @@ class MyCustomScrollBehavior extends MaterialScrollBehavior {
 
   @override
   ScrollPhysics getScrollPhysics(BuildContext context) {
-    return const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics());
+    return const ClampingScrollPhysics(parent: AlwaysScrollableScrollPhysics());
   }
 }
 
@@ -145,8 +146,10 @@ class _MyAppState extends State<MyApp> with WindowListener, WidgetsBindingObserv
   Future<void> _initializeApp() async {
     // 1. Initial SharedPreferences load
     final prefs = await SharedPreferences.getInstance();
-    _savedWidth = prefs.getDouble('window_width') ?? 1280.0;
-    _savedHeight = prefs.getDouble('window_height') ?? 720.0;
+    final rawWidth = prefs.get('window_width');
+    _savedWidth = rawWidth is num ? rawWidth.toDouble() : 1280.0;
+    final rawHeight = prefs.get('window_height');
+    _savedHeight = rawHeight is num ? rawHeight.toDouble() : 720.0;
     // Restore backups ONLY on a fresh install (empty library).
     // LibraryState is initialized first so we can read its in-memory item
     // count — no second DB connection needed.
@@ -226,15 +229,18 @@ class _MyAppState extends State<MyApp> with WindowListener, WidgetsBindingObserv
       try {
         await windowManager.hide();
       } catch (_) {}
-      // Dispose the media player BEFORE destroying the window to prevent
-      // native mpv null-dereference crash (0x10 offset access after destroy).
+      // Dispose media player and stop background server processes BEFORE exiting
       try {
         ps.PlayerState().stopPlayback();
       } catch (_) {}
-      await TorrServerManager.stop();
       try {
-        await windowManager.destroy();
+        await SuwayomiManager.stop();
       } catch (_) {}
+      try {
+        await TorrServerManager.stop();
+      } catch (_) {}
+      // Terminate process cleanly to prevent Win32 C++ HWND null-pointer (0x10) crash
+      exit(0);
     }
   }
 

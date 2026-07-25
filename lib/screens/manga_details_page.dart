@@ -30,12 +30,33 @@ class _MangaDetailsPageState extends State<MangaDetailsPage> {
 
   Map<String, dynamic>? _details;
   List<dynamic> _chapters = [];
+  dynamic _continueChapter;
   int get _parsedMangaId => int.tryParse(widget.mangaId) ?? 0;
+
+  void _updateContinueChapter() {
+    if (LibraryState().isSaved(_parsedMangaId, 'manga') && _chapters.isNotEmpty) {
+      final readIds = LibraryState().getReadChapterIds(_parsedMangaId).toSet();
+      for (int i = _chapters.length - 1; i >= 0; i--) {
+        final chId = _chapters[i]['id']?.toString() ?? '';
+        if (!readIds.contains(chId)) {
+          _continueChapter = _chapters[i];
+          return;
+        }
+      }
+      _continueChapter = _chapters.first;
+    } else {
+      _continueChapter = null;
+    }
+  }
 
   @override
   void initState() {
     super.initState();
-    _loadMangaDetails();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _loadMangaDetails();
+      }
+    });
   }
 
   Future<void> _loadMangaDetails() async {
@@ -50,38 +71,21 @@ class _MangaDetailsPageState extends State<MangaDetailsPage> {
     }
 
     try {
-      Map<String, dynamic>? info;
-      try {
-        info = await _suwayomiService.getMangaDetails(_parsedMangaId);
-      } catch (detailsError) {
-        // Fallback: If details endpoint crashed (e.g. Kotlin serialization error), try to fetch chapters anyway.
-        try {
-          final chaps = await _suwayomiService.getChapters(_parsedMangaId);
-          final fallbackDetails = {
-            'title': 'Manga Reader',
-            'thumbnailUrl': '',
-            'author': 'Unknown',
-            'artist': 'Unknown',
-            'description': 'Details could not be loaded from source because of API serialization changes: ${detailsError.toString().replaceFirst('Exception: ', '')}.\n\nYou can still access and read all chapters below.',
-            'genres': <String>[],
-            'status': 0,
-          };
-          if (mounted) {
-            setState(() {
-              _details = fallbackDetails;
-              _chapters = chaps;
-              _isLoading = false;
-              _errorMessage = null;
-            });
-          }
-          return;
-        } catch (_) {
-          // If chapters also fail, rethrow the original details error to be handled by the outer catch.
-          rethrow;
-        }
-      }
+      // 1. Concurrently fetch details AND chapters in background
+      final results = await Future.wait([
+        _suwayomiService.getMangaDetails(_parsedMangaId).catchError((_) => null),
+        _suwayomiService.getChapters(_parsedMangaId).catchError((_) => <dynamic>[]),
+      ]);
 
-      if (info == null) {
+      final Map<String, dynamic>? info = results[0] as Map<String, dynamic>?;
+      final List<dynamic> chaps = results[1] as List<dynamic>;
+
+      // Check cached fallback if network fetch was partial
+      final cachedData = LibraryState().mangaCache[_parsedMangaId];
+      final finalInfo = info ?? (cachedData != null ? Map<String, dynamic>.from(cachedData) : null);
+      final finalChaps = chaps.isNotEmpty ? chaps : ((cachedData?['cachedChapters'] as List?) ?? []);
+
+      if (finalInfo == null && finalChaps.isEmpty) {
         final pathInfo = await _suwayomiService.getMangaPath(_parsedMangaId);
         String msg = "Error loading manga details. Please verify your extension is installed.";
         if (pathInfo != null) {
@@ -97,6 +101,7 @@ class _MangaDetailsPageState extends State<MangaDetailsPage> {
             '6608552103444641979': 'ReadMng',
             '4934091395535313936': 'Mangakakalot',
             '4397756184514589920': 'Asura Scans',
+            '6247824327199706550': 'Asura Scans',
             '8531542650987673943': 'Flame Comics',
             '8934524458823724892': 'MangaReader',
             '6188448937664687595': 'Bato.to',
@@ -122,38 +127,40 @@ class _MangaDetailsPageState extends State<MangaDetailsPage> {
         return;
       }
 
-      final chaps = await _suwayomiService.getChapters(_parsedMangaId);
-      
+      final Map<String, dynamic> resolvedDetails = finalInfo ?? {
+        'title': 'Manga Details',
+        'thumbnailUrl': '',
+        'author': 'Unknown',
+        'artist': 'Unknown',
+        'description': 'Details could not be fully resolved from source, but chapters are available below.',
+        'genres': <String>[],
+        'status': 0,
+      };
+
       if (LibraryState().isSaved(_parsedMangaId, 'manga')) {
-        info['cachedChapters'] = chaps;
-        LibraryState().updateMangaCache(_parsedMangaId, info);
+        resolvedDetails['cachedChapters'] = finalChaps;
+        LibraryState().updateMangaCache(_parsedMangaId, resolvedDetails);
       }
-      
+
+      _details = resolvedDetails;
+      _chapters = finalChaps;
+      _updateContinueChapter();
+
+      // Purposeful micro-delay to let the layout engine settle before revealing the page
+      await Future.delayed(const Duration(milliseconds: 150));
+
       if (mounted) {
         setState(() {
-          _details = info;
-          _chapters = chaps;
           _isLoading = false;
+          _errorMessage = null;
         });
       }
     } catch (e) {
-      final cached = LibraryState().mangaCache[_parsedMangaId];
-      if (cached != null) {
-        if (mounted) {
-          setState(() {
-            _details = cached;
-            _chapters = cached['cachedChapters'] as List<dynamic>? ?? [];
-            _isLoading = false;
-            _errorMessage = null;
-          });
-        }
-      } else {
-        if (mounted) {
-          setState(() {
-            _errorMessage = e.toString().replaceFirst('Exception: ', '');
-            _isLoading = false;
-          });
-        }
+      if (mounted) {
+        setState(() {
+          _errorMessage = e.toString().replaceFirst('Exception: ', '');
+          _isLoading = false;
+        });
       }
     }
   }
@@ -268,18 +275,8 @@ class _MangaDetailsPageState extends State<MangaDetailsPage> {
     final double screenWidth = MediaQuery.of(context).size.width;
     final bool isMobile = screenWidth < 650;
 
-    // Find the next unread chapter for Continue Reading button
-    dynamic continueChapter;
+    dynamic continueChapter = _continueChapter;
     if (inLibrary && _chapters.isNotEmpty) {
-      final readIds = LibraryState().getReadChapterIds(_parsedMangaId).toSet();
-      // chapters are ordered newest first — find last unread from the end
-      for (int i = _chapters.length - 1; i >= 0; i--) {
-        final chId = _chapters[i]['id']?.toString() ?? '';
-        if (!readIds.contains(chId)) {
-          continueChapter = _chapters[i];
-          break;
-        }
-      }
       continueChapter ??= _chapters.last;
     }
 
@@ -521,18 +518,24 @@ class _MangaDetailsPageState extends State<MangaDetailsPage> {
                     // â”€â”€ Chapter list â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 24.0),
-                      child: _MangaChaptersSection(
-                        chapters: _chapters,
-                        mangaId: _parsedMangaId,
-                        title: title,
-                        inLibrary: inLibrary,
-                        libraryItem: libraryItem,
-                        navigationState: widget.navigationState,
-                        onSetChapterReadStatus: (chapterId, read) async {
-                          await libraryState.setChapterReadStatus(_parsedMangaId, chapterId, read);
-                          setState(() {});
-                        },
-                        onUpdated: () => setState(() {}),
+                      child: RepaintBoundary(
+                        child: _MangaChaptersSection(
+                          chapters: _chapters,
+                          mangaId: _parsedMangaId,
+                          title: title,
+                          inLibrary: inLibrary,
+                          libraryItem: libraryItem,
+                          navigationState: widget.navigationState,
+                          onSetChapterReadStatus: (chapterId, read) async {
+                            await libraryState.setChapterReadStatus(_parsedMangaId, chapterId, read);
+                            _updateContinueChapter();
+                            setState(() {});
+                          },
+                          onUpdated: () {
+                            _updateContinueChapter();
+                            setState(() {});
+                          },
+                        ),
                       ),
                     ),
                   ],
@@ -587,8 +590,8 @@ class _MangaDetailsPageState extends State<MangaDetailsPage> {
                 );
                 // Push reader page directly so navigation actually happens
                 Navigator.of(context, rootNavigator: true).push(
-                  MaterialPageRoute(
-                    builder: (context) => MangaReaderPage(
+                  PageRouteBuilder(
+                    pageBuilder: (context, animation, secondaryAnimation) => MangaReaderPage(
                       chapterId: chId,
                       chapterNumber: chNum,
                       mangaId: widget.mangaId.toString(),
@@ -596,6 +599,14 @@ class _MangaDetailsPageState extends State<MangaDetailsPage> {
                       chapters: _chapters,
                       navigationState: widget.navigationState,
                     ),
+                    transitionsBuilder: (context, animation, secondaryAnimation, child) {
+                      return SlideTransition(
+                        position: Tween<Offset>(begin: const Offset(1.0, 0.0), end: Offset.zero).animate(
+                          CurvedAnimation(parent: animation, curve: Curves.easeOutCubic),
+                        ),
+                        child: child,
+                      );
+                    },
                   ),
                 ).then((_) {
                   setState(() {});
@@ -1234,6 +1245,41 @@ class _MangaChaptersSectionState extends State<_MangaChaptersSection> {
     );
   }
 
+  String _formatChapterDate(dynamic uploadDate) {
+    if (uploadDate == null) return '';
+    try {
+      DateTime? dt;
+      if (uploadDate is int) {
+        if (uploadDate > 0) {
+          dt = DateTime.fromMillisecondsSinceEpoch(uploadDate);
+        }
+      } else if (uploadDate is String) {
+        dt = DateTime.tryParse(uploadDate);
+        if (dt == null && int.tryParse(uploadDate) != null) {
+          dt = DateTime.fromMillisecondsSinceEpoch(int.parse(uploadDate));
+        }
+      }
+
+      if (dt == null) return '';
+
+      final now = DateTime.now();
+      final difference = now.difference(dt);
+
+      if (difference.inMinutes < 60) {
+        return '${difference.inMinutes.clamp(1, 60)}m ago';
+      } else if (difference.inHours < 24) {
+        return '${difference.inHours}h ago';
+      } else if (difference.inDays < 7) {
+        return '${difference.inDays}d ago';
+      } else {
+        final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        return '${months[dt.month - 1]} ${dt.day}, ${dt.year}';
+      }
+    } catch (_) {
+      return '';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final libraryState = LibraryState();
@@ -1329,7 +1375,7 @@ class _MangaChaptersSectionState extends State<_MangaChaptersSection> {
           padding: const EdgeInsets.symmetric(horizontal: 24.0),
           child: SingleChildScrollView(
             scrollDirection: Axis.horizontal,
-            physics: const BouncingScrollPhysics(),
+            physics: const ClampingScrollPhysics(),
             child: Row(
               children: [
                 _buildChapterFilterChip('ALL', 'All Chapters'),
@@ -1384,8 +1430,13 @@ class _MangaChaptersSectionState extends State<_MangaChaptersSection> {
             final String chId = chapter['id']?.toString() ?? '';
             final double? chNum = double.tryParse(chapter['chapterNumber']?.toString() ?? '');
             final bool isRead = readChapterIds.contains(chId);
-
+            final String scanlator = (chapter['scanlator'] ?? '').toString().trim();
+            final String dateStr = _formatChapterDate(chapter['uploadDate'] ?? chapter['dateUpload']);
             final int currentChapterIdx = _parseMangaChapterNumber(chapter);
+
+            final List<String> metaParts = [];
+            if (dateStr.isNotEmpty) metaParts.add(dateStr);
+            if (scanlator.isNotEmpty) metaParts.add(scanlator);
 
             return Container(
               margin: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 4.0),
@@ -1401,10 +1452,23 @@ class _MangaChaptersSectionState extends State<_MangaChaptersSection> {
                   style: TextStyle(
                     color: isRead ? Colors.white38 : Colors.white,
                     fontSize: 13.5,
-                    fontWeight: FontWeight.bold,
+                    fontWeight: FontWeight.w600,
                     fontFamily: 'Outfit',
                   ),
                 ),
+                subtitle: metaParts.isNotEmpty
+                    ? Padding(
+                        padding: const EdgeInsets.only(top: 3.0),
+                        child: Text(
+                          metaParts.join(' • '),
+                          style: const TextStyle(
+                            color: Colors.white38,
+                            fontSize: 11.5,
+                            fontFamily: 'Outfit',
+                          ),
+                        ),
+                      )
+                    : null,
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -1508,8 +1572,8 @@ class _MangaChaptersSectionState extends State<_MangaChaptersSection> {
                 onTap: () {
                   if (chId.isNotEmpty) {
                     Navigator.of(context, rootNavigator: true).push(
-                      MaterialPageRoute(
-                        builder: (context) => MangaReaderPage(
+                      PageRouteBuilder(
+                        pageBuilder: (context, animation, secondaryAnimation) => MangaReaderPage(
                           chapterId: chId,
                           chapterNumber: currentChapterIdx,
                           mangaId: widget.mangaId.toString(),
@@ -1517,6 +1581,14 @@ class _MangaChaptersSectionState extends State<_MangaChaptersSection> {
                           chapters: widget.chapters,
                           navigationState: widget.navigationState,
                         ),
+                        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+                          return SlideTransition(
+                            position: Tween<Offset>(begin: const Offset(1.0, 0.0), end: Offset.zero).animate(
+                              CurvedAnimation(parent: animation, curve: Curves.easeOutCubic),
+                            ),
+                            child: child,
+                          );
+                        },
                       ),
                     ).then((_) {
                       setState(() {});

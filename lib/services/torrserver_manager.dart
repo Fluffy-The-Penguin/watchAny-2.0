@@ -148,12 +148,12 @@ class TorrServerManager {
 
       lastStartupError = null; // Clear old error
 
-      _process!.stdout.transform(utf8.decoder).listen((data) {
+      _process!.stdout.transform(const Utf8Decoder(allowMalformed: true)).listen((data) {
         developer.log(data.trim(), name: 'TorrServer-STDOUT');
       });
 
       final StringBuffer errorBuffer = StringBuffer();
-      _process!.stderr.transform(utf8.decoder).listen((data) {
+      _process!.stderr.transform(const Utf8Decoder(allowMalformed: true)).listen((data) {
         developer.log(data.trim(), name: 'TorrServer-STDERR');
         errorBuffer.write(data);
         lastStartupError = errorBuffer.toString();
@@ -198,12 +198,12 @@ class TorrServerManager {
     _process = await Process.start(exePath, ['-p', '$_port', '-d', appDir.path]);
     
     // Log stdout and stderr
-    _process!.stdout.transform(utf8.decoder).listen((data) {
-      developer.log(data.trim(), name: 'TorrServer-STDOUT');
-    });
-    _process!.stderr.transform(utf8.decoder).listen((data) {
-      developer.log(data.trim(), name: 'TorrServer-STDERR');
-    });
+      _process!.stdout.transform(const Utf8Decoder(allowMalformed: true)).listen((data) {
+        developer.log(data.trim(), name: 'TorrServer-stdout');
+      });
+      _process!.stderr.transform(const Utf8Decoder(allowMalformed: true)).listen((data) {
+        developer.log(data.trim(), name: 'TorrServer-stderr');
+      });
 
     _log('TorrServer started successfully!');
     _applySettings(_port);

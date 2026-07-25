@@ -153,39 +153,23 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
     }
   }
 
+  SharedPreferences? _prefs;
+
   void _saveCurrentPage(int index) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt('manga_chapter_page_$_currentChapterId', index);
+    _prefs ??= await SharedPreferences.getInstance();
+    await _prefs?.setInt('manga_chapter_page_$_currentChapterId', index);
   }
 
   void _updatePageIndex(int index, {bool jump = false}) {
-    if (index < 0 || index > _pageUrls.length) return;
+    if (index < 0 || index >= _pageUrls.length) return;
+    if (_currentPageIndex == index && !jump) return;
+    
     setState(() {
       _currentPageIndex = index;
     });
     
-    if (index < _pageUrls.length) {
-      _pageLoader?.setPriorityIndex(index);
-      _saveCurrentPage(index);
-
-      // Precache next and previous pages for butter smooth swiping
-      if (mounted) {
-        final nextIdx = index + 1;
-        if (nextIdx < _pageUrls.length) {
-          final nextPath = _pageLoader?.localPaths[nextIdx];
-          if (nextPath != null) {
-            precacheImage(FileImage(File(nextPath)), context);
-          }
-        }
-        final prevIdx = index - 1;
-        if (prevIdx >= 0) {
-          final prevPath = _pageLoader?.localPaths[prevIdx];
-          if (prevPath != null) {
-            precacheImage(FileImage(File(prevPath)), context);
-          }
-        }
-      }
-    }
+    _pageLoader?.setPriorityIndex(index);
+    _saveCurrentPage(index);
 
     if (jump && _readingFormat != 'webtoon' && _pageController.hasClients) {
       if (_readingFormat == 'paging_double') {
@@ -199,6 +183,7 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
       }
     }
   }
+
 
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
@@ -257,7 +242,7 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
         }
       }
 
-      final urls = localUrls ?? await _suwayomiService.getChapterPages(parsedId);
+      final urls = localUrls ?? await _suwayomiService.getChapterPages(parsedId, mangaId: parsedMangaId);
       if (urls.isEmpty) {
         throw Exception("Failed to retrieve pages for this chapter. The source may be down or rate-limiting.");
       }
@@ -890,6 +875,7 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
     final double? progress = _pageLoader?.getProgress(index);
 
     return LayoutBuilder(
+      key: ValueKey('page_$index'),
       builder: (context, constraints) {
         final w = constraints.maxWidth.isFinite ? constraints.maxWidth : MediaQuery.of(context).size.width;
         final dims = _pageLoader?.pageDimensions[index];
@@ -903,6 +889,8 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
             key: ValueKey(localPath),
             fit: isWebtoon ? BoxFit.fitWidth : BoxFit.contain,
             width: isWebtoon ? double.infinity : null,
+            gaplessPlayback: true,
+            filterQuality: FilterQuality.low,
             frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
               if (wasSynchronouslyLoaded || frame != null) {
                 return child;
@@ -917,7 +905,8 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
             },
             errorBuilder: (context, error, stackTrace) => _buildPageError(index),
           );
-        } else {
+        }
+ else {
           // Shimmer placeholder
           content = _MihonPagePlaceholder(
             width: w,
@@ -929,6 +918,7 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
         }
 
         return SizedBox(
+          key: ValueKey('sizedbox_$index'),
           width: w,
           height: h,
           child: content,
@@ -936,6 +926,7 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
       },
     );
   }
+
 
   Widget _buildPageError(int index) {
     return Container(
@@ -1179,24 +1170,30 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
 
   Widget _buildTopOverlay() {
     return Container(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          colors: [Colors.black87, Colors.transparent],
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-        ),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0F0F11).withValues(alpha: 0.95),
+        boxShadow: const [
+          BoxShadow(color: Colors.black54, blurRadius: 8.0, offset: Offset(0, 2)),
+        ],
       ),
-      padding: const EdgeInsets.only(left: 20.0, right: 20.0, top: 40.0, bottom: 20.0),
+      padding: EdgeInsets.only(
+        left: 16.0,
+        right: 16.0,
+        top: MediaQuery.of(context).padding.top + 8.0,
+        bottom: 12.0,
+      ),
       child: Row(
         children: [
           IconButton(
-            icon: const Icon(Icons.close, color: Colors.white, size: 28.0),
+            icon: const Icon(Icons.arrow_back, color: Colors.white, size: 24.0),
+            tooltip: 'Back to details',
             onPressed: () => Navigator.pop(context),
           ),
-          const SizedBox(width: 12.0),
+          const SizedBox(width: 8.0),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
                   widget.mangaTitle,
@@ -1444,20 +1441,15 @@ class MangaPageLoader {
     if (urls.isEmpty) return -1;
     final int safePriority = _priorityIndex.clamp(0, urls.length - 1);
     
-    // 1. Check if the priority index itself needs download, is not already in-flight
-    if (localPaths[safePriority] == null && _failedCounts[safePriority] < 3 && !_downloading[safePriority]) {
-      return safePriority;
-    }
-    
-    // 2. Prioritize downloading all subsequent pages forward from the current page in sequence
-    for (int idx = safePriority + 1; idx < urls.length; idx++) {
+    // 1. Always ensure any un-downloaded pages from Page 0 up to current viewport (safePriority) are fetched first in order
+    for (int idx = 0; idx <= safePriority; idx++) {
       if (localPaths[idx] == null && _failedCounts[idx] < 3 && !_downloading[idx]) {
         return idx;
       }
     }
     
-    // 3. Fallback to downloading previous pages backward from the current page (in case of scroll back)
-    for (int idx = safePriority - 1; idx >= 0; idx--) {
+    // 2. Download forward in sequence from current viewport to end of chapter
+    for (int idx = safePriority + 1; idx < urls.length; idx++) {
       if (localPaths[idx] == null && _failedCounts[idx] < 3 && !_downloading[idx]) {
         return idx;
       }

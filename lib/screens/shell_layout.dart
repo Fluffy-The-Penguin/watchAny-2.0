@@ -789,14 +789,18 @@ class _LazyPageStackState extends State<_LazyPageStack> {
     // Mark the current (mode, page) as visited so it gets built
     _builtKeys.add(_key(currentMode, pageIndex));
 
-    // Only build stacks for enabled modes — disabled modes get zero cost
-    return IndexedStack(
-      key: const ValueKey('outer_indexed_stack'),
-      index: modeIndex,
-      children: enabledModes.map((mode) {
-        final isActive = mode == currentMode;
-        return _buildModeStack(mode, isActive ? pageIndex : null);
-      }).toList(),
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 200),
+      switchInCurve: Curves.easeOutCubic,
+      switchOutCurve: Curves.easeInCubic,
+      child: IndexedStack(
+        key: ValueKey('outer_indexed_stack_${currentMode.name}_$pageIndex'),
+        index: modeIndex,
+        children: enabledModes.map((mode) {
+          final isActive = mode == currentMode;
+          return _buildModeStack(mode, isActive ? pageIndex : null);
+        }).toList(),
+      ),
     );
   }
 

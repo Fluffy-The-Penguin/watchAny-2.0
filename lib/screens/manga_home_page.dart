@@ -38,12 +38,15 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
   bool _loadingExtensions = false;
   String _extensionsSearchQuery = "";
   String? _extensionsError;
+  final Set<String> _updatingPkgs = {};
   
   // Catalog tab state
   List<dynamic> _sources = [];
   String? _selectedSourceId;
   List<dynamic> _catalogManga = [];
   bool _loadingCatalog = false;
+  bool _loadingMoreCatalog = false;
+  bool _hasMoreCatalog = true;
   int _currentPage = 1;
   String _catalogSearchQuery = "";
   String? _catalogError;
@@ -188,13 +191,14 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
     }
   }
 
-  // Load Extensions from Suwayomi
+  // Load Extensions from Suwayomi (or online fallback)
   Future<void> _loadExtensions() async {
-    if (!await SuwayomiManager.isSuwayomiRunning(SuwayomiService.port)) {
-      SuwayomiManager.statusNotifier.value = "Error: Could not connect to Suwayomi server at http://${SuwayomiService.host}:${SuwayomiService.port}";
-      return;
+    final bool isRunning = await SuwayomiManager.isSuwayomiRunning(SuwayomiService.port);
+    if (isRunning) {
+      SuwayomiManager.statusNotifier.value = "Manga engine running";
+    } else {
+      SuwayomiManager.statusNotifier.value = "Manga engine ready";
     }
-    SuwayomiManager.statusNotifier.value = "Manga engine running";
     if (mounted) {
       setState(() {
         _loadingExtensions = true;
@@ -202,45 +206,15 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
       });
     }
     try {
-      await _suwayomiService.seedExternalRepositories();
+      if (isRunning) {
+        await _suwayomiService.seedExternalRepositories();
+      }
       final list = await _suwayomiService.getExtensions();
       if (mounted) {
         setState(() {
           _extensions = list;
           _loadingExtensions = false;
         });
-
-        if (list.isEmpty) {
-          Future.microtask(() async {
-            if (!mounted) return;
-            String extraInfo = '';
-            try {
-              final reposUrl = Uri.parse('http://${SuwayomiService.host}:${SuwayomiService.port}/api/repos');
-              final reposResp = await http.get(reposUrl).timeout(const Duration(seconds: 5));
-              if (reposResp.statusCode == 200) {
-                final data = jsonDecode(reposResp.body);
-                final reposList = data['data'] as List?;
-                if (reposList != null && reposList.isNotEmpty) {
-                  final firstRepo = reposList.first;
-                  final lastError = firstRepo['lastError'];
-                  if (lastError != null) {
-                    extraInfo = ' | Repo Error: $lastError';
-                  } else {
-                    extraInfo = ' | Repo Exts: ${firstRepo['extensionCount']}';
-                  }
-                } else {
-                  extraInfo = ' | No repos registered on server';
-                }
-              }
-            } catch (e) {
-              extraInfo = ' | Failed to fetch repos: $e';
-            }
-
-            if (mounted && _isActive) {
-              NotificationService().show(context, 'Manga: Fetched ${list.length} extensions$extraInfo');
-            }
-          });
-        }
       }
     } catch (e) {
       if (mounted) {
@@ -254,18 +228,21 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
 
   // Load Sources from Suwayomi
   Future<void> _loadSources() async {
-    if (!await SuwayomiManager.isSuwayomiRunning(SuwayomiService.port)) {
-      SuwayomiManager.statusNotifier.value = "Error: Could not connect to Suwayomi server at http://${SuwayomiService.host}:${SuwayomiService.port}";
-      return;
+    final bool isRunning = await SuwayomiManager.isSuwayomiRunning(SuwayomiService.port);
+    if (isRunning) {
+      SuwayomiManager.statusNotifier.value = "Manga engine running";
+    } else {
+      SuwayomiManager.statusNotifier.value = "Manga engine ready";
     }
-    SuwayomiManager.statusNotifier.value = "Manga engine running";
     if (mounted) {
+
       setState(() {
         _catalogError = null;
       });
     }
     try {
-      await _suwayomiService.seedExternalRepositories();
+      // Seed external repos in background asynchronously so dropdown displays instantly
+      unawaited(_suwayomiService.seedExternalRepositories().catchError((_) {}));
       final list = await _suwayomiService.getSources();
       if (mounted) {
         setState(() {
@@ -354,6 +331,7 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
         _catalogError = null;
         if (resetPage) {
           _currentPage = 1;
+          _hasMoreCatalog = true;
         }
       });
     }
@@ -367,14 +345,54 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
       if (mounted) {
         setState(() {
           _catalogManga = manga;
+          _hasMoreCatalog = manga.length >= 20;
           _loadingCatalog = false;
         });
       }
     } catch (e) {
+
       if (mounted) {
         setState(() {
           _catalogError = e.toString().replaceFirst('Exception: ', '');
           _loadingCatalog = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _loadMoreCatalog() async {
+    if (_loadingMoreCatalog || !_hasMoreCatalog || _selectedSourceId == null || _selectedExtensionName == "Global") return;
+
+    if (mounted) {
+      setState(() {
+        _loadingMoreCatalog = true;
+      });
+    }
+
+    try {
+      final nextPage = _currentPage + 1;
+      final newManga = await _suwayomiService.fetchSourceManga(
+        sourceId: _selectedSourceId!,
+        page: nextPage,
+        query: _catalogSearchQuery,
+      );
+
+      if (mounted) {
+        setState(() {
+          _currentPage = nextPage;
+          if (newManga.isEmpty) {
+            _hasMoreCatalog = false;
+          } else {
+            _catalogManga.addAll(newManga);
+            _hasMoreCatalog = newManga.length >= 20;
+          }
+          _loadingMoreCatalog = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _loadingMoreCatalog = false;
         });
       }
     }
@@ -570,18 +588,20 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
   }
 
   Future<void> _toggleExtensionInstall(Map<String, dynamic> ext) async {
-    final String pkgName = ext['pkgName'];
+    final String pkgName = ext['pkgName'] ?? '';
+    final String? extId = ext['id']?.toString();
+    final String? apkUrl = ext['apkUrl']?.toString();
     final bool isInstalled = ext['isInstalled'] ?? false;
-    final String name = ext['name']?.toString().replaceFirst('Tachiyomi: ', '') ?? 'Extension';
+    final String name = ext['name']?.toString().replaceFirst('Tachiyomi: ', '').replaceFirst('Keiyoushi: ', '') ?? 'Extension';
     
     if (mounted) setState(() => _loadingExtensions = true);
     
     try {
       bool success;
       if (isInstalled) {
-        success = await _suwayomiService.uninstallExtension(pkgName);
+        success = await _suwayomiService.uninstallExtension(pkgName, extId: extId);
       } else {
-        success = await _suwayomiService.installExtension(pkgName);
+        success = await _suwayomiService.installExtension(pkgName, extId: extId, apkUrl: apkUrl);
       }
       
       if (mounted) {
@@ -593,11 +613,48 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
       }
       
       await _loadExtensions();
+      _suwayomiService.clearSourcesCache();
       await _loadSources();
     } catch (e) {
       if (mounted) {
         NotificationService().show(context, 'Error toggling extension: $e');
         setState(() => _loadingExtensions = false);
+      }
+    }
+  }
+
+  Future<void> _updateExtension(Map<String, dynamic> ext) async {
+    final String pkgName = ext['pkgName'] ?? '';
+    final String? extId = ext['id']?.toString();
+    final String name = ext['name']?.toString().replaceFirst('Tachiyomi: ', '').replaceFirst('Keiyoushi: ', '') ?? 'Extension';
+
+    if (mounted) {
+      setState(() {
+        _updatingPkgs.add(pkgName);
+      });
+    }
+
+    try {
+      final success = await _suwayomiService.updateExtension(pkgName, extId: extId);
+      if (mounted) {
+        if (success) {
+          NotificationService().show(context, 'Successfully updated $name');
+        } else {
+          NotificationService().show(context, 'Failed to update $name. Please try again.');
+        }
+      }
+      _suwayomiService.clearSourcesCache();
+      await _loadExtensions();
+      await _loadSources();
+    } catch (e) {
+      if (mounted) {
+        NotificationService().show(context, 'Error updating $name: $e');
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _updatingPkgs.remove(pkgName);
+        });
       }
     }
   }
@@ -1015,8 +1072,15 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
       _selectedSourceId = displayedSources.first['id']?.toString();
     }
 
-    return CustomScrollView(
-      slivers: [
+    return NotificationListener<ScrollNotification>(
+      onNotification: (ScrollNotification scrollInfo) {
+        if (scrollInfo.metrics.pixels >= scrollInfo.metrics.maxScrollExtent - 400) {
+          _loadMoreCatalog();
+        }
+        return false;
+      },
+      child: CustomScrollView(
+        slivers: [
         // â”€â”€ Header: dropdowns + search â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         SliverToBoxAdapter(
           child: Padding(
@@ -1533,52 +1597,21 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
             ),
           ),
 
-          // ── Pagination controls ───────────────────────────────────
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(24.0, 32.0, 24.0, 32.0),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  ElevatedButton(
-                    onPressed: _currentPage > 1
-                        ? () {
-                            setState(() => _currentPage--);
-                            _loadCatalog();
-                          }
-                        : null,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.white12,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6.0)),
-                    ),
-                    child: const Text('Previous'),
+          if (_loadingMoreCatalog)
+            const SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.symmetric(vertical: 32.0),
+                child: Center(
+                  child: CircularProgressIndicator(
+                    valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFFF9F1C)),
                   ),
-                  const SizedBox(width: 16.0),
-                  Text(
-                    'Page $_currentPage',
-                    style: const TextStyle(color: Colors.white70, fontFamily: 'Outfit', fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(width: 16.0),
-                  ElevatedButton(
-                    onPressed: () {
-                      setState(() => _currentPage++);
-                      _loadCatalog();
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.white12,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6.0)),
-                    ),
-                    child: const Text('Next'),
-                  ),
-                ],
+                ),
               ),
             ),
-          ),
         ],
       ],
-    );
+    ),
+  );
   }
 
 
@@ -1586,50 +1619,91 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
 
 
   Widget _buildExtensionTile(Map<String, dynamic> ext) {
-    final String name = ext['name']?.toString().replaceFirst('Tachiyomi: ', '') ?? 'Unknown Source';
+    final String name = ext['name']?.toString().replaceFirst('Tachiyomi: ', '').replaceFirst('Keiyoushi: ', '') ?? 'Unknown Source';
     final String lang = ext['lang']?.toString().toUpperCase() ?? 'ALL';
+    final String version = ext['versionName']?.toString() ?? '';
+    final String availVer = ext['availableVersion']?.toString() ?? '';
     final bool isInstalled = ext['isInstalled'] ?? false;
-    final bool isNsfw = (ext['nsfw'] ?? 0) == 1;
+    final bool hasUpdate = ext['hasUpdate'] ?? false;
+    final bool isNsfw = (ext['nsfw'] ?? 0) == 1 || ext['nsfw'] == true;
+    final String pkgName = ext['pkgName']?.toString() ?? '';
+    final bool isUpdating = _updatingPkgs.contains(pkgName);
+    // Build icon URL: prepend base host URL for relative paths
+    final String baseHostUrl = 'http://${SuwayomiService.host}:${SuwayomiService.port}';
+    final String serverIconUrl = '$baseHostUrl/api/v1/extension/icon/$pkgName';
+    final String rawIconUrl = ext['iconUrl']?.toString() ?? '';
+    final String dataIconUrl = rawIconUrl.isNotEmpty
+        ? (rawIconUrl.startsWith('http')
+            ? rawIconUrl
+            : (rawIconUrl.startsWith('/')
+                ? '$baseHostUrl$rawIconUrl'
+                : '$baseHostUrl/$rawIconUrl'))
+        : serverIconUrl;
+    final String iconUrl = dataIconUrl;
+
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10.0),
       decoration: BoxDecoration(
         color: const Color(0xFF0F0F11),
         borderRadius: BorderRadius.circular(8.0),
-        border: Border.all(color: Colors.white10),
+        border: Border.all(color: hasUpdate ? Colors.amber.withValues(alpha: 0.4) : Colors.white10),
       ),
       child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 6.0),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 4.0),
         leading: ClipRRect(
-          borderRadius: BorderRadius.circular(6.0),
+          borderRadius: BorderRadius.circular(8.0),
           child: Container(
-            width: 40.0,
-            height: 40.0,
+            width: 42.0,
+            height: 42.0,
             color: Colors.white.withValues(alpha: 0.05),
             child: CachedNetworkImage(
-              imageUrl: 'http://${SuwayomiService.host}:${SuwayomiService.port}/api/installed/icon?pkgName=${ext['pkgName']}',
-              width: 40.0,
-              height: 40.0,
+              imageUrl: iconUrl,
+              width: 42.0,
+              height: 42.0,
               fit: BoxFit.cover,
               placeholder: (context, url) => const Center(
                 child: Icon(Icons.extension_outlined, color: Colors.white24, size: 20.0),
               ),
-              errorWidget: (context, url, error) => const Center(
-                child: Icon(Icons.extension_outlined, color: Colors.white24, size: 20.0),
-              ),
+              errorWidget: (context, url, error) => dataIconUrl.isNotEmpty && iconUrl != dataIconUrl
+                  ? CachedNetworkImage(
+                      imageUrl: dataIconUrl,
+                      width: 42.0,
+                      height: 42.0,
+                      fit: BoxFit.cover,
+                      errorWidget: (_, __, ___) => const Center(
+                        child: Icon(Icons.extension_outlined, color: Colors.white24, size: 20.0),
+                      ),
+                    )
+                  : const Center(
+                      child: Icon(Icons.extension_outlined, color: Colors.white24, size: 20.0),
+                    ),
             ),
           ),
         ),
-        title: Row(
+        title: Wrap(
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 6.0,
+          runSpacing: 2.0,
           children: [
-            Flexible(
-              child: Text(
-                name,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
-              ),
+            Text(
+              name,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontFamily: 'Outfit', fontSize: 14.0),
             ),
-            const SizedBox(width: 8.0),
+            if (hasUpdate)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6.0, vertical: 2.0),
+                decoration: BoxDecoration(
+                  color: Colors.amber.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(4.0),
+                  border: Border.all(color: Colors.amber.withValues(alpha: 0.4)),
+                ),
+                child: Text(
+                  availVer.isNotEmpty ? 'UPDATE v$availVer' : 'UPDATE',
+                  style: const TextStyle(color: Colors.amber, fontSize: 8.5, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                ),
+              ),
             if (isNsfw)
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 4.0, vertical: 1.0),
@@ -1644,38 +1718,83 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
               ),
           ],
         ),
+
         subtitle: Text(
-          'Language: $lang',
+          version.isNotEmpty ? 'v$version • $lang' : 'Language: $lang',
           style: const TextStyle(color: Colors.white38, fontSize: 12.0, fontFamily: 'Outfit'),
         ),
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (isInstalled) ...[
+            if (isInstalled && !hasUpdate)
               IconButton(
-                icon: const Icon(Icons.settings_outlined, color: Color(0xFFFF9F1C)),
+                icon: const Icon(Icons.settings_outlined, color: Color(0xFFFF9F1C), size: 20.0),
                 tooltip: 'Configure languages',
+                visualDensity: VisualDensity.compact,
+                padding: const EdgeInsets.all(6.0),
+                constraints: const BoxConstraints(),
                 onPressed: () => _showConfigureLanguagesDialog(ext),
               ),
-              const SizedBox(width: 8.0),
+            if (hasUpdate) ...[
+              const SizedBox(width: 4.0),
+              SizedBox(
+                height: 32.0,
+                child: ElevatedButton.icon(
+                  onPressed: isUpdating ? null : () => _updateExtension(ext),
+                  icon: isUpdating
+                      ? const SizedBox(
+                          width: 12,
+                          height: 12,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+                        )
+                      : const Icon(Icons.system_update_alt, size: 14, color: Colors.black),
+                  label: Text(
+                    isUpdating ? 'Updating...' : 'Update',
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12.0),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.amber,
+                    foregroundColor: Colors.black,
+                    padding: const EdgeInsets.symmetric(horizontal: 10.0),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6.0)),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 4.0),
             ],
-            ElevatedButton(
-              onPressed: () => _toggleExtensionInstall(ext),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: isInstalled ? Colors.redAccent : const Color(0xFFFF9F1C),
-                foregroundColor: Colors.black,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6.0)),
+            const SizedBox(width: 4.0),
+            if (isInstalled)
+              IconButton(
+                icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20.0),
+                tooltip: 'Uninstall',
+                visualDensity: VisualDensity.compact,
+                padding: const EdgeInsets.all(6.0),
+                constraints: const BoxConstraints(),
+                onPressed: () => _toggleExtensionInstall(ext),
+              )
+            else
+              SizedBox(
+                height: 32.0,
+                child: ElevatedButton(
+                  onPressed: () => _toggleExtensionInstall(ext),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFFF9F1C),
+                    foregroundColor: Colors.black,
+                    padding: const EdgeInsets.symmetric(horizontal: 12.0),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6.0)),
+                  ),
+                  child: const Text(
+                    'Install',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12.0),
+                  ),
+                ),
               ),
-              child: Text(
-                isInstalled ? 'Uninstall' : 'Install',
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-            ),
           ],
         ),
       ),
     );
   }
+
 
   void _showConfigureLanguagesDialog(Map<String, dynamic> ext) {
     final extName = ext['name']?.toString() ?? '';
@@ -1837,38 +1956,58 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
       return name.contains(_extensionsSearchQuery.toLowerCase());
     }).toList();
 
-    final installed = filtered.where((ext) => ext['isInstalled'] == true).toList();
+    final updates = filtered.where((ext) => ext['isInstalled'] == true && ext['hasUpdate'] == true).toList();
+    final installed = filtered.where((ext) => ext['isInstalled'] == true && ext['hasUpdate'] != true).toList();
     final available = filtered.where((ext) => ext['isInstalled'] != true).toList();
 
     return Column(
       children: [
-        // Extensions Search Bar
+        // Extensions Search Bar + Check for updates button
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
-          child: Container(
-            height: 42.0,
-            decoration: BoxDecoration(
-              color: const Color(0xFF0F0F11),
-              borderRadius: BorderRadius.circular(8.0),
-              border: Border.all(color: Colors.white10),
-            ),
-            child: TextField(
-              style: const TextStyle(color: Colors.white, fontFamily: 'Outfit', fontSize: 14.0),
-              decoration: const InputDecoration(
-                hintText: 'Search extensions...',
-                hintStyle: TextStyle(color: Colors.white30),
-                prefixIcon: Icon(Icons.search, color: Colors.white30, size: 18),
-                border: InputBorder.none,
-                contentPadding: EdgeInsets.symmetric(vertical: 10.0),
+          child: Row(
+            children: [
+              Expanded(
+                child: Container(
+                  height: 42.0,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF0F0F11),
+                    borderRadius: BorderRadius.circular(8.0),
+                    border: Border.all(color: Colors.white10),
+                  ),
+                  child: TextField(
+                    style: const TextStyle(color: Colors.white, fontFamily: 'Outfit', fontSize: 14.0),
+                    decoration: const InputDecoration(
+                      hintText: 'Search extensions...',
+                      hintStyle: TextStyle(color: Colors.white30),
+                      prefixIcon: Icon(Icons.search, color: Colors.white30, size: 18),
+                      border: InputBorder.none,
+                      contentPadding: EdgeInsets.symmetric(vertical: 10.0),
+                    ),
+                    onChanged: (value) {
+                      setState(() => _extensionsSearchQuery = value.trim());
+                    },
+                  ),
+                ),
               ),
-              onChanged: (value) {
-                setState(() => _extensionsSearchQuery = value.trim());
-              },
-            ),
+              const SizedBox(width: 12.0),
+              IconButton(
+                icon: const Icon(Icons.refresh, color: Color(0xFFFF9F1C)),
+                tooltip: 'Check for extension updates',
+                onPressed: () async {
+                  NotificationService().show(context, 'Checking extension updates...');
+                  await _suwayomiService.fetchExtensionsIndex();
+                  await _loadExtensions();
+                  if (mounted) {
+                    NotificationService().show(context, 'Extension repositories updated!');
+                  }
+                },
+              ),
+            ],
           ),
         ),
 
-        // Extensions List (Installed + Available sections)
+        // Extensions List (Updates + Installed + Available sections)
         Expanded(
           child: _extensionsError != null
               ? Center(
@@ -1915,6 +2054,33 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
                     physics: physics,
                     padding: const EdgeInsets.symmetric(horizontal: 24.0),
                     children: [
+                      // Updates Available Section
+                      if (updates.isNotEmpty) ...[
+                        Row(
+                          children: [
+                            const Icon(Icons.system_update_alt, color: Colors.amber, size: 16.0),
+                            const SizedBox(width: 8.0),
+                            Text(
+                              'Updates Available (${updates.length})',
+                              style: const TextStyle(
+                                color: Colors.amber,
+                                fontSize: 14.0,
+                                fontWeight: FontWeight.bold,
+                                fontFamily: 'Outfit',
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12.0),
+                        ...updates.map((ext) => _buildExtensionTile(ext)),
+                        const SizedBox(height: 16.0),
+                        Container(
+                          height: 1.0,
+                          color: Colors.white.withValues(alpha: 0.06),
+                        ),
+                        const SizedBox(height: 16.0),
+                      ],
+
                       // Installed Section
                       if (installed.isNotEmpty) ...[
                         Row(
@@ -1965,7 +2131,7 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
                       ],
 
                       // Empty state
-                      if (installed.isEmpty && available.isEmpty)
+                      if (updates.isEmpty && installed.isEmpty && available.isEmpty)
                         const Padding(
                           padding: EdgeInsets.symmetric(vertical: 64.0),
                           child: Center(
