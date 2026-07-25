@@ -643,44 +643,76 @@ class ExtensionRuntime(private val context: Context, private val root: Path) {
     private fun scanSystemPackagesSync(): List<InstalledExtension> {
         return try {
             val pm = context.packageManager
-            val packages = pm.getInstalledPackages(0)
+            val flags = android.content.pm.PackageManager.GET_META_DATA
+            val packages = pm.getInstalledPackages(flags)
             val systemList = mutableListOf<InstalledExtension>()
             for (pkg in packages) {
                 val pkgName = pkg.packageName
-                if (pkgName.startsWith("eu.kanade.tachiyomi.extension") || pkgName.startsWith("sound.tachiyomi.extension")) {
-                    try {
-                        val appInfo = pkg.applicationInfo ?: continue
-                        val sourceDir = appInfo.sourceDir ?: continue
-                        val apkPath = Path(sourceDir)
+                val appInfo = pkg.applicationInfo ?: continue
+                val metaData = appInfo.metaData
 
-                        val meta = PackageTools.getPackageMetadata(apkPath)
-                        val classNames = meta.sourceClasses.flatMap { raw -> raw.split(';') }
-                            .map { it.trim() }
-                            .filter { it.isNotBlank() }
-                            .map { if (it.startsWith('.')) meta.pkgName + it else it }
-                        val loaded = loadSourcesFromApkDetailed(apkPath, classNames, pkgName)
+                val isExtension = pkgName.startsWith("eu.kanade.tachiyomi.extension") ||
+                        pkgName.startsWith("sound.tachiyomi.extension") ||
+                        pkgName.contains(".extension.") ||
+                        pkgName.contains("extension", ignoreCase = true) ||
+                        pkgName.startsWith("eu.kanade") ||
+                        pkgName.startsWith("org.tachiyomi") ||
+                        pkgName.startsWith("mihon") ||
+                        (metaData != null && metaData.keySet().any { it.contains("extension", ignoreCase = true) || it.contains("tachiyomi", ignoreCase = true) })
 
-                        val sources = loaded.sources.map { InstalledSource(it.id, it.lang, it.name) }
-                        systemList.add(InstalledExtension(
-                            name = meta.label.ifBlank { pkgName },
-                            pkg = pkgName,
-                            repoId = "system",
-                            repoName = "System Installed",
-                            repoIndexUrl = "",
-                            repoApkBaseUrl = "",
-                            apk = "$pkgName.apk",
-                            version = pkg.versionName ?: "1.0",
-                            code = pkg.versionCode.toLong(),
-                            nsfw = meta.nsfw,
-                            jarPath = apkPath.toString(),
-                            iconPath = null,
-                            sourceClasses = classNames,
-                            sources = sources,
-                            sourceLoadErrors = loaded.errors
-                        ))
-                    } catch (e: Throwable) {
-                        android.util.Log.e("watchAny-ExtensionRuntime", "Error scanning system extension package $pkgName: ${e.message}")
+                if (!isExtension) continue
+
+                try {
+                    val label = runCatching { pm.getApplicationLabel(appInfo).toString() }.getOrDefault(pkgName)
+                    val sourceClasses = mutableListOf<String>()
+
+                    if (metaData != null) {
+                        for (key in metaData.keySet()) {
+                            if (key.endsWith(".extension.class", ignoreCase = true) || key.endsWith(".extension.factory", ignoreCase = true)) {
+                                val valStr = metaData.get(key)?.toString() ?: ""
+                                sourceClasses.addAll(valStr.split(';', ',', ' ').map { it.trim() }.filter { it.isNotBlank() })
+                            }
+                        }
                     }
+
+
+                    val finalClasses = if (sourceClasses.isNotEmpty()) {
+                        sourceClasses.map { if (it.startsWith('.')) pkgName + it else it }
+                    } else {
+                        val sourceDir = appInfo.sourceDir ?: continue
+                        val meta = runCatching { PackageTools.getPackageMetadata(Path(sourceDir)) }.getOrNull()
+                        meta?.sourceClasses ?: emptyList()
+                    }
+
+                    if (finalClasses.isEmpty()) continue
+
+                    val sourceDir = appInfo.sourceDir ?: ""
+                    val apkPath = Path(sourceDir)
+                    val loaded = loadSourcesFromApkDetailed(apkPath, finalClasses, pkgName)
+                    val sources = loaded.sources.map { InstalledSource(it.id, it.lang, it.name) }
+
+                    val isNsfw = metaData?.getInt("tachiyomi.extension.nsfw", 0) == 1 ||
+                            metaData?.getString("tachiyomi.extension.nsfw") == "1"
+
+                    systemList.add(InstalledExtension(
+                        name = label.removePrefix("Tachiyomi: ").removePrefix("Keiyoushi: ").trim(),
+                        pkg = pkgName,
+                        repoId = "system",
+                        repoName = "System Installed",
+                        repoIndexUrl = "",
+                        repoApkBaseUrl = "",
+                        apk = "$pkgName.apk",
+                        version = pkg.versionName ?: "1.0",
+                        code = pkg.versionCode.toLong(),
+                        nsfw = isNsfw,
+                        jarPath = sourceDir,
+                        iconPath = null,
+                        sourceClasses = finalClasses,
+                        sources = sources,
+                        sourceLoadErrors = loaded.errors
+                    ))
+                } catch (e: Throwable) {
+                    android.util.Log.e("watchAny-ExtensionRuntime", "Error scanning system extension package $pkgName: ${e.message}")
                 }
             }
             cachedSystemExtensions = systemList
@@ -690,6 +722,7 @@ class ExtensionRuntime(private val context: Context, private val root: Path) {
             emptyList()
         }
     }
+
 
     private fun readInstalled(): List<InstalledExtension> {
         val fileList = if (installedFile.exists()) {

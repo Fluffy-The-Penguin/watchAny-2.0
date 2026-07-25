@@ -684,21 +684,35 @@ class SuwayomiService {
         final extensions = await getExtensions();
         final installedSources = <Map<String, dynamic>>[];
         for (var ext in extensions) {
-          if (ext['isInstalled'] != true) continue;
           final sources = ext['sources'] as List? ?? [];
-          for (var src in sources) {
-            final String id = src['id']?.toString() ?? '';
-            if (id.isEmpty) continue;
-            installedSources.add({
-              'id': id,
-              'name': src['name'] ?? ext['name'] ?? '',
-              'lang': src['lang'] ?? ext['lang'] ?? 'en',
-              'isNsfw': ext['nsfw'] == true,
-              'supportsLatest': src['supportsLatest'] ?? true,
-              'pkg': ext['pkgName'] ?? '',
-            });
+          if (sources.isNotEmpty) {
+            for (var src in sources) {
+              final String id = src['id']?.toString() ?? '';
+              if (id.isEmpty) continue;
+              installedSources.add({
+                'id': id,
+                'name': src['name'] ?? ext['name'] ?? '',
+                'lang': src['lang'] ?? ext['lang'] ?? 'en',
+                'isNsfw': ext['nsfw'] == true,
+                'supportsLatest': src['supportsLatest'] ?? true,
+                'pkg': ext['pkgName'] ?? ext['id'] ?? '',
+              });
+            }
+          } else if (ext['isInstalled'] == true) {
+            final String id = ext['id']?.toString() ?? ext['pkgName']?.toString() ?? '';
+            if (id.isNotEmpty) {
+              installedSources.add({
+                'id': id,
+                'name': ext['name'] ?? '',
+                'lang': ext['lang'] ?? 'en',
+                'isNsfw': ext['nsfw'] == true,
+                'supportsLatest': true,
+                'pkg': ext['pkgName'] ?? ext['id'] ?? '',
+              });
+            }
           }
         }
+
         if (installedSources.isNotEmpty) {
           _cachedSources = installedSources;
           return installedSources;
