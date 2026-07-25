@@ -609,12 +609,23 @@ class ExtensionRuntime(private val context: Context, private val root: Path) {
         classNames.forEach { className ->
             try {
                 val instance = PackageTools.loadExtensionClass(context, apkPath, className, pkgName)
-                when (instance) {
-                    is CatalogueSource -> sources += instance
-                    is Source -> sources += listOf(instance).filterIsInstance<CatalogueSource>()
-                    is SourceFactory -> sources += instance.createSources().filterIsInstance<CatalogueSource>()
-                    else -> errors += SourceLoadError(className, "UnknownType", "Unknown source class type ${instance.javaClass.name}")
+                when {
+                    instance is CatalogueSource -> sources += instance
+                    instance is Source -> sources += listOf(instance).filterIsInstance<CatalogueSource>()
+                    instance is SourceFactory -> sources += instance.createSources().filterIsInstance<CatalogueSource>()
+                    else -> {
+                        val createSourcesMethod = instance.javaClass.methods.firstOrNull { it.name == "createSources" }
+                        if (createSourcesMethod != null) {
+                            val created = createSourcesMethod.invoke(instance) as? List<*>
+                            created?.filterIsInstance<CatalogueSource>()?.let { sources += it }
+                        } else if (instance is CatalogueSource) {
+                            sources += instance
+                        } else {
+                            errors += SourceLoadError(className, "UnknownType", "Unknown source class type ${instance.javaClass.name}")
+                        }
+                    }
                 }
+
             } catch (error: Throwable) {
                 android.util.Log.e("watchAny-ExtensionRuntime", "Failed to load extension class $className for $pkgName: ${error.message}", error)
                 errors += SourceLoadError.from(className, error)

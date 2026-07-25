@@ -95,7 +95,20 @@ object PackageTools {
 
     fun loadExtensionClass(context: Context, apkPath: Path, className: String, pkgName: String? = null): Any {
         val loader: ClassLoader = run {
-            // 1. Try Mihon's primary method: createPackageContext
+            // 1. Primary method: PathClassLoader with host app parent ClassLoader (prevents ClassLoader mismatch)
+            if (!pkgName.isNullOrBlank()) {
+                val pathLoader = runCatching {
+                    val appInfo = context.packageManager.getApplicationInfo(pkgName, 0)
+                    dalvik.system.PathClassLoader(appInfo.sourceDir, PackageTools::class.java.classLoader)
+                }.getOrNull()
+
+                if (pathLoader != null) {
+                    val testClass = runCatching { pathLoader.loadClass(className) }.getOrNull()
+                    if (testClass != null) return@run pathLoader
+                }
+            }
+
+            // 2. Secondary method: createPackageContext
             if (!pkgName.isNullOrBlank()) {
                 val sysLoader = runCatching {
                     val packageContext = context.createPackageContext(
@@ -111,18 +124,6 @@ object PackageTools {
                 }
             }
 
-            // 2. Try Mihon's secondary method: PathClassLoader on applicationInfo.sourceDir
-            if (!pkgName.isNullOrBlank()) {
-                val pathLoader = runCatching {
-                    val appInfo = context.packageManager.getApplicationInfo(pkgName, 0)
-                    dalvik.system.PathClassLoader(appInfo.sourceDir, PackageTools::class.java.classLoader)
-                }.getOrNull()
-
-                if (pathLoader != null) {
-                    val testClass = runCatching { pathLoader.loadClass(className) }.getOrNull()
-                    if (testClass != null) return@run pathLoader
-                }
-            }
 
             // 3. Fallback: DexClassLoader on cached copy inside codeCacheDir
             val targetApk = if (!pkgName.isNullOrBlank()) {
