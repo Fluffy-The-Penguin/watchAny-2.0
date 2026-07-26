@@ -23,10 +23,6 @@ class ChildFirstPathClassLoader(
             } catch (_: ClassNotFoundException) {}
         }
 
-        if (c == null && name != null && name.startsWith("kotlinx.serialization.internal.GeneratedSerializer")) {
-            c = runCatching { parent.loadClass(name) }.getOrNull()
-        }
-
         if (c == null) {
             c = try {
                 findClass(name)
