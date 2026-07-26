@@ -18,14 +18,14 @@ interface CatalogueSource : Source {
     @Suppress("DEPRECATION")
     suspend fun getLatestUpdates(page: Int): MangasPage = fetchLatestUpdates(page).awaitSingle()
 
-    fun getFilterList(): FilterList
+    fun getFilterList(): FilterList = FilterList()
 
     @Deprecated("Use getPopularManga instead")
-    fun fetchPopularManga(page: Int): Observable<MangasPage> = throw IllegalStateException("Not used")
+    fun fetchPopularManga(page: Int): Observable<MangasPage> = throw UnsupportedOperationException()
 
     @Deprecated("Use getSearchManga instead")
-    fun fetchSearchManga(page: Int, query: String, filters: FilterList): Observable<MangasPage> = throw IllegalStateException("Not used")
+    fun fetchSearchManga(page: Int, query: String, filters: FilterList): Observable<MangasPage> = throw UnsupportedOperationException()
 
     @Deprecated("Use getLatestUpdates instead")
-    fun fetchLatestUpdates(page: Int): Observable<MangasPage> = throw IllegalStateException("Not used")
+    fun fetchLatestUpdates(page: Int): Observable<MangasPage> = throw UnsupportedOperationException()
 }
