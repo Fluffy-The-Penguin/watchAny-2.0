@@ -392,9 +392,47 @@ public class DynamicExtensionPatcher {
                         changed = true;
                     }
                 }
+            }
+        }
 
+        // ── 4. Inject typeParametersSerializers() into GeneratedSerializer classes ───
+        boolean implementsGeneratedSerializer = false;
+        if (cn.interfaces != null) {
+            for (String iface : cn.interfaces) {
+                if (iface.endsWith("GeneratedSerializer") || iface.contains("kotlinx/serialization/internal/GeneratedSerializer")) {
+                    implementsGeneratedSerializer = true;
+                    break;
+                }
+            }
+        }
+        if (implementsGeneratedSerializer) {
+            boolean hasTypeParams = false;
+            for (MethodNode mn : cn.methods) {
+                if ("typeParametersSerializers".equals(mn.name)) {
+                    hasTypeParams = true;
+                    break;
+                }
+            }
+            if (!hasTypeParams) {
+                MethodNode tps = new MethodNode(Opcodes.ACC_PUBLIC, "typeParametersSerializers", "()[Lkotlinx/serialization/KSerializer;", null, null);
+                InsnList il = tps.instructions;
+                il.add(new InsnNode(Opcodes.ICONST_0));
+                il.add(new TypeInsnNode(Opcodes.ANEWARRAY, "kotlinx/serialization/KSerializer"));
+                il.add(new InsnNode(Opcodes.ARETURN));
+                tps.instructions = il;
+                tps.maxStack = 1;
+                tps.maxLocals = 1;
+                cn.methods.add(tps);
+                changed = true;
+                System.out.println("Injected typeParametersSerializers() into GeneratedSerializer class " + cn.name);
+            }
+        }
 
-                // ── 5. Universal R8 NEW java/lang/Object fix ──────────────────────────────
+        // ── 5. Universal R8 NEW java/lang/Object fix ──────────────────────────────
+        for (MethodNode mn : cn.methods) {
+            InsnList insns = mn.instructions;
+            for (int i = 0; i < insns.size(); i++) {
+                AbstractInsnNode insn = insns.get(i);
                 // R8 optimizes `new CustomClass()` to `new java/lang/Object()` when CustomClass
                 // (e.g. Companion, Serializer, or Comparator) has no explicit constructor or fields.
                 // Fix: Replace NEW java/lang/Object with NEW TargetType AND update the

@@ -23,22 +23,6 @@ class ChildFirstPathClassLoader(
             } catch (_: ClassNotFoundException) {}
         }
 
-        // For host framework classes, prefer parent ClassLoader so singletons & type checks match 100%
-        if (c == null && name != null && (
-            name.startsWith("eu.kanade.tachiyomi.network.") ||
-            name.startsWith("eu.kanade.tachiyomi.source.") ||
-            name.startsWith("uy.kohesive.injekt.") ||
-            name.startsWith("okhttp3.") ||
-            name.startsWith("rx.") ||
-            name.startsWith("org.jsoup.") ||
-            name.startsWith("kotlin.") ||
-            name.startsWith("kotlinx.")
-        )) {
-            try {
-                c = parent.loadClass(name)
-            } catch (_: ClassNotFoundException) {}
-        }
-
         if (c == null) {
             c = try {
                 findClass(name)

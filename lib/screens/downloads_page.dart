@@ -5,6 +5,7 @@ import 'dart:math';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../services/download_service.dart';
+import '../services/manga_download_service.dart';
 import '../services/torrserver_service.dart';
 import '../models/torrent.dart';
 import '../state/player_state.dart';
@@ -29,9 +30,9 @@ class _DownloadsPageState extends State<DownloadsPage> {
 
   List<DownloadTask> get _tasks => DownloadService().tasks.where((t) {
     if (widget.mode == AppMode.movies) {
-      return t.isMovie == true;
+      return t.isMovie == true || (t.anilistId == null && t.mediaJson != null);
     } else if (widget.mode == AppMode.anime) {
-      return t.isMovie != true;
+      return t.anilistId != null || (t.isMovie != true && (t.mediaJson == null || (!t.mediaJson!.contains('"type":"series"') && !t.mediaJson!.contains('"type":"movie"'))));
     } else {
       return false;
     }
@@ -67,6 +68,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
 
     // Listen to download changes to auto-select task if none selected
     DownloadService().addListener(_onDownloadTasksChanged);
+    MangaDownloadService().addListener(_onDownloadTasksChanged);
     NavigationState().addListener(_onNavigationChanged);
 
     // Periodic stats polling
@@ -77,6 +79,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
   void dispose() {
     _statsTimer?.cancel();
     DownloadService().removeListener(_onDownloadTasksChanged);
+    MangaDownloadService().removeListener(_onDownloadTasksChanged);
     NavigationState().removeListener(_onNavigationChanged);
     _serverUrlController.dispose();
     _downloadPathController.dispose();
@@ -488,8 +491,12 @@ class _DownloadsPageState extends State<DownloadsPage> {
 
   // --- 1. LIBRARY TAB ---
   Widget _buildLibraryTab() {
+    if (widget.mode == AppMode.manga) {
+      return _buildMangaLibraryTab();
+    }
+
     return ListenableBuilder(
-      listenable: DownloadService(),
+      listenable: Listenable.merge([DownloadService(), MangaDownloadService()]),
       builder: (context, _) {
         final allTasks = _tasks;
         
@@ -775,6 +782,265 @@ class _DownloadsPageState extends State<DownloadsPage> {
           ],
         );
       },
+    );
+  }
+
+  Widget _buildMangaLibraryTab() {
+    return ListenableBuilder(
+      listenable: MangaDownloadService(),
+      builder: (context, _) {
+        final allTasks = MangaDownloadService().tasks;
+        List<MangaDownloadTask> tasks = allTasks;
+        if (_libraryFilter == 'ACTIVE') {
+          tasks = allTasks.where((t) => t.status == MangaDownloadStatus.downloading || t.status == MangaDownloadStatus.queued).toList();
+        } else if (_libraryFilter == 'COMPLETED') {
+          tasks = allTasks.where((t) => t.status == MangaDownloadStatus.completed).toList();
+        }
+        if (_searchQuery.isNotEmpty) {
+          tasks = tasks.where((t) => (t.mangaTitle + ' ' + t.chapterName).toLowerCase().contains(_searchQuery.toLowerCase())).toList();
+        }
+
+        return Column(
+          children: [
+            _buildMangaLibraryHeader(tasks, allTasks),
+            Expanded(
+              child: tasks.isEmpty
+                  ? _buildEmptyState()
+                  : ListView.builder(
+                      padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 8.0),
+                      itemCount: tasks.length,
+                      itemBuilder: (context, index) {
+                        final task = tasks[index];
+                        final double progress = task.progress;
+                        
+                        Color statusColor = Colors.white30;
+                        String statusName = 'Queued';
+                        if (task.status == MangaDownloadStatus.downloading) {
+                          statusColor = Colors.blueAccent;
+                          statusName = 'Downloading';
+                        } else if (task.status == MangaDownloadStatus.completed) {
+                          statusColor = Colors.green;
+                          statusName = 'Completed';
+                        } else if (task.status == MangaDownloadStatus.paused) {
+                          statusColor = Colors.white54;
+                          statusName = 'Paused';
+                        } else if (task.status == MangaDownloadStatus.failed) {
+                          statusColor = Colors.redAccent;
+                          statusName = 'Failed';
+                        }
+
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 10.0),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF0F0F11),
+                            borderRadius: BorderRadius.circular(12.0),
+                            border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.05),
+                              width: 1.0,
+                            ),
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: 36.0,
+                                  height: 52.0,
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withValues(alpha: 0.03),
+                                    borderRadius: BorderRadius.circular(6.0),
+                                  ),
+                                  child: const Icon(Icons.book_outlined, color: Colors.white38, size: 20),
+                                ),
+                                const SizedBox(width: 14.0),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          Expanded(
+                                            child: Text(
+                                              "${task.mangaTitle} — ${task.chapterName}",
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: const TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 13.5,
+                                                fontWeight: FontWeight.bold,
+                                                fontFamily: 'Outfit',
+                                              ),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 12.0),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 6.0, vertical: 2.0),
+                                            decoration: BoxDecoration(
+                                              color: statusColor.withValues(alpha: 0.12),
+                                              borderRadius: BorderRadius.circular(4.0),
+                                            ),
+                                            child: Text(
+                                              statusName.toUpperCase(),
+                                              style: TextStyle(
+                                                color: statusColor,
+                                                fontSize: 9.0,
+                                                fontWeight: FontWeight.bold,
+                                                fontFamily: 'Outfit',
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 8.0),
+                                      Container(
+                                        height: 4.0,
+                                        width: double.infinity,
+                                        decoration: BoxDecoration(
+                                          color: Colors.white.withValues(alpha: 0.04),
+                                          borderRadius: BorderRadius.circular(2.0),
+                                        ),
+                                        child: Align(
+                                          alignment: Alignment.centerLeft,
+                                          child: FractionallySizedBox(
+                                            widthFactor: progress.clamp(0.0, 1.0),
+                                            child: Container(
+                                              decoration: BoxDecoration(
+                                                color: statusColor,
+                                                borderRadius: BorderRadius.circular(2.0),
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 6.0),
+                                      Row(
+                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          Text(
+                                            "${task.downloadedPages} / ${task.totalPages} pages · ${(progress * 100).toStringAsFixed(0)}%",
+                                            style: const TextStyle(color: Colors.white38, fontSize: 10.5, fontFamily: 'Outfit'),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 16.0),
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    if (task.status == MangaDownloadStatus.downloading)
+                                      IconButton(
+                                        icon: const Icon(Icons.pause, color: Colors.white54, size: 18),
+                                        onPressed: () => MangaDownloadService().pause(task.id),
+                                      )
+                                    else if (task.status == MangaDownloadStatus.paused)
+                                      IconButton(
+                                        icon: const Icon(Icons.play_arrow, color: Colors.white54, size: 18),
+                                        onPressed: () => MangaDownloadService().resume(task.id),
+                                      ),
+                                    IconButton(
+                                      icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 18),
+                                      onPressed: () => MangaDownloadService().cancel(task.id),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildMangaLibraryHeader(List<MangaDownloadTask> tasks, List<MangaDownloadTask> allTasks) {
+    return Container(
+      padding: const EdgeInsets.all(20.0),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Manga Downloads',
+                    style: TextStyle(color: Colors.white, fontSize: 16.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                  ),
+                  const SizedBox(height: 2.0),
+                  Text(
+                    '${allTasks.length} total chapter downloads',
+                    style: const TextStyle(color: Colors.white38, fontSize: 11.0, fontFamily: 'Outfit'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 16.0),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _searchController,
+                  onChanged: (val) {
+                    setState(() {
+                      _searchQuery = val;
+                    });
+                  },
+                  style: const TextStyle(color: Colors.white, fontSize: 12.0, fontFamily: 'Outfit'),
+                  decoration: InputDecoration(
+                    hintText: 'Search downloaded manga...',
+                    hintStyle: const TextStyle(color: Colors.white30, fontSize: 12.0, fontFamily: 'Outfit'),
+                    prefixIcon: const Icon(Icons.search, color: Colors.white38, size: 16),
+                    filled: true,
+                    fillColor: const Color(0xFF0F0F11),
+                    contentPadding: const EdgeInsets.symmetric(vertical: 0.0),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8.0),
+                      borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.05)),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12.0),
+              Container(
+                decoration: BoxDecoration(
+                  color: const Color(0xFF0F0F11),
+                  borderRadius: BorderRadius.circular(8.0),
+                  border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: _libraryFilter,
+                    dropdownColor: const Color(0xFF0F0F11),
+                    style: const TextStyle(color: Colors.white70, fontSize: 11.5, fontFamily: 'Outfit'),
+                    items: const [
+                      DropdownMenuItem(value: 'ALL', child: Text('All Downloads')),
+                      DropdownMenuItem(value: 'ACTIVE', child: Text('Active')),
+                      DropdownMenuItem(value: 'COMPLETED', child: Text('Completed')),
+                    ],
+                    onChanged: (val) {
+                      if (val != null) {
+                        setState(() {
+                          _libraryFilter = val;
+                        });
+                      }
+                    },
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 
