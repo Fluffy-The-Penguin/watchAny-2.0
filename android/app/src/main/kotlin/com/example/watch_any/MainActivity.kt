@@ -57,10 +57,27 @@ class MainActivity : FlutterActivity() {
                     } else {
                         result.error("INVALID_ARGUMENT", "filePath argument is null", null)
                     }
+                } else if (call.method == "uninstallApk") {
+                    val pkgName = call.argument<String>("pkgName")
+                    if (!pkgName.isNullOrBlank()) {
+                        try {
+                            val intent = Intent(Intent.ACTION_DELETE).apply {
+                                data = Uri.parse("package:$pkgName")
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                            startActivity(intent)
+                            result.success(true)
+                        } catch (e: Exception) {
+                            result.error("UNINSTALL_FAILED", "Failed to start uninstall intent: ${e.message}", e.toString())
+                        }
+                    } else {
+                        result.error("INVALID_ARGUMENT", "pkgName argument is null", null)
+                    }
                 } else {
                     result.notImplemented()
                 }
             }
+
     }
     private var webServer: LocalWebServer? = null
 

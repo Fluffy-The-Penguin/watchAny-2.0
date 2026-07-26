@@ -148,13 +148,25 @@ class ExtensionRuntime(private val context: Context, private val root: Path) {
 
     fun uninstall(pkgName: String): Boolean {
         val installed = readInstalled()
-        val current = installed.singleOrNull { it.pkg == pkgName } ?: return false
         writeInstalled(installed.filterNot { it.pkg == pkgName })
-        runCatching { Files.deleteIfExists(apkDir.resolve(current.apk)) }
-        runCatching { Files.deleteIfExists(Path(current.jarPath)) }
-        current.iconPath?.let { icon -> runCatching { Files.deleteIfExists(Path(icon)) } }
+        val current = installed.singleOrNull { it.pkg == pkgName }
+        if (current != null) {
+            runCatching { Files.deleteIfExists(apkDir.resolve(current.apk)) }
+            runCatching { Files.deleteIfExists(Path(current.jarPath)) }
+            current.iconPath?.let { icon -> runCatching { Files.deleteIfExists(Path(icon)) } }
+        }
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
+            runCatching {
+                val intent = android.content.Intent(android.content.Intent.ACTION_DELETE).apply {
+                    data = android.net.Uri.parse("package:$pkgName")
+                    addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(intent)
+            }
+        }
         return true
     }
+
 
     fun checkCompatibility(query: String, limit: Int = 20, offset: Int = 0): List<CompatibilityResult> {
         return matchingExtensions(query, limit, offset).map { indexed ->

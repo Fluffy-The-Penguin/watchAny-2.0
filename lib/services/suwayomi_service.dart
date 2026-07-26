@@ -571,10 +571,19 @@ class SuwayomiService {
 
 
 
-  // Uninstall extension
   Future<bool> uninstallExtension(String pkgName, {String? extId}) async {
     try {
+      if (!kIsWeb && Platform.isAndroid) {
+        try {
+          const channel = MethodChannel('com.example.watch_any/native_path');
+          await channel.invokeMethod('uninstallApk', {'pkgName': pkgName});
+        } catch (e) {
+          developer.log('Android uninstallApk channel error: $e', name: 'SuwayomiService');
+        }
+      }
+
       final id = extId ?? pkgName;
+
 
       // 1. Try GraphQL uninstallExtension mutation by pkgName
       try {

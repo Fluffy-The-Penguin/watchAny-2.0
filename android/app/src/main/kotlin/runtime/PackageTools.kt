@@ -122,7 +122,7 @@ object PackageTools {
             if (!pkgName.isNullOrBlank()) {
                 val pathLoader = runCatching {
                     val appInfo = context.packageManager.getApplicationInfo(pkgName, 0)
-                    ExtensionClassLoader(appInfo.sourceDir, appInfo.nativeLibraryDir, PackageTools::class.java.classLoader)
+                    eu.kanade.tachiyomi.util.system.ChildFirstPathClassLoader(appInfo.sourceDir, appInfo.nativeLibraryDir, PackageTools::class.java.classLoader)
                 }.getOrNull()
 
                 if (pathLoader != null) {
@@ -131,8 +131,9 @@ object PackageTools {
                 }
             }
 
-            ExtensionClassLoader(apkPath.toAbsolutePath().toString(), null, PackageTools::class.java.classLoader)
+            eu.kanade.tachiyomi.util.system.ChildFirstPathClassLoader(apkPath.toAbsolutePath().toString(), null, PackageTools::class.java.classLoader)
         }
+
 
         val clazz = loader.loadClass(className)
 

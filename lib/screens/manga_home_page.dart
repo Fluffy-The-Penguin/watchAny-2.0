@@ -51,7 +51,9 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
   String _catalogSearchQuery = "";
   String? _catalogError;
   final TextEditingController _searchController = TextEditingController();
+  bool _isLatestFeed = false;
   bool _engineStarted = false;
+
   Map<String, List<dynamic>> _globalSearchResults = {};
   final Map<String, int> _globalSearchPages = {};
   final Map<String, bool> _globalSearchLoadingMore = {};
@@ -345,7 +347,9 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
         sourceId: _selectedSourceId!,
         page: _currentPage,
         query: _catalogSearchQuery,
+        latest: _isLatestFeed,
       );
+
       if (mounted) {
         setState(() {
           _catalogManga = manga;
@@ -444,7 +448,9 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
         sourceId: sourceId,
         page: 1,
         query: query,
+        latest: _isLatestFeed,
       ).then((list) {
+
         if (!mounted || _catalogSearchQuery != query) return;
         setState(() {
           _globalSearchResults[extName] = list;
@@ -1207,6 +1213,67 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
                       ),
                     );
 
+                    final Widget feedTypeToggle = Container(
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF0F0F11),
+                        borderRadius: BorderRadius.circular(8.0),
+                        border: Border.all(color: Colors.white10),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          InkWell(
+                            onTap: () {
+                              if (_isLatestFeed) {
+                                setState(() => _isLatestFeed = false);
+                                _loadCatalog(resetPage: true);
+                              }
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
+                              decoration: BoxDecoration(
+                                color: !_isLatestFeed ? const Color(0xFFFF9F1C) : Colors.transparent,
+                                borderRadius: BorderRadius.circular(7.0),
+                              ),
+                              child: Text(
+                                'Popular',
+                                style: TextStyle(
+                                  color: !_isLatestFeed ? Colors.black : Colors.white60,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  fontFamily: 'Outfit',
+                                ),
+                              ),
+                            ),
+                          ),
+                          InkWell(
+                            onTap: () {
+                              if (!_isLatestFeed) {
+                                setState(() => _isLatestFeed = true);
+                                _loadCatalog(resetPage: true);
+                              }
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
+                              decoration: BoxDecoration(
+                                color: _isLatestFeed ? const Color(0xFFFF9F1C) : Colors.transparent,
+                                borderRadius: BorderRadius.circular(7.0),
+                              ),
+                              child: Text(
+                                'Latest',
+                                style: TextStyle(
+                                  color: _isLatestFeed ? Colors.black : Colors.white60,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  fontFamily: 'Outfit',
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+
                     if (isMobile) {
                       return Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1218,6 +1285,8 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
                                 const SizedBox(width: 8.0),
                                 languageDropdown,
                               ],
+                              const SizedBox(width: 8.0),
+                              feedTypeToggle,
                             ],
                           ),
                           const SizedBox(height: 12.0),
@@ -1233,10 +1302,13 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
                           const SizedBox(width: 8.0),
                           languageDropdown,
                         ],
+                        const SizedBox(width: 8.0),
+                        feedTypeToggle,
                         const SizedBox(width: 12.0),
                         Expanded(child: searchInput),
                       ],
                     );
+
                   },
                 ),
 
