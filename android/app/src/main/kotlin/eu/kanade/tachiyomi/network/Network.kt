@@ -30,9 +30,11 @@ class NetworkHelper {
     val client: OkHttpClient = unsafeClient()
 
     val cloudflareClient: OkHttpClient = client
+    open val defaultClient: OkHttpClient get() = client
     val defaultUserAgentProvider: () -> String = { DEFAULT_USER_AGENT }
 
     fun defaultUserAgentProvider(): String = defaultUserAgentProvider.invoke()
+
 
     companion object {
         const val DEFAULT_USER_AGENT = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36"
