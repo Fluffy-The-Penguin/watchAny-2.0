@@ -25,11 +25,13 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 import eu.kanade.tachiyomi.network.interceptor.UncaughtExceptionInterceptor
+import eu.kanade.tachiyomi.network.interceptor.UserAgentInterceptor
+import eu.kanade.tachiyomi.network.interceptor.CloudflareInterceptor
 
-class NetworkHelper {
-    val client: OkHttpClient = unsafeClient()
+open class NetworkHelper {
+    open val client: OkHttpClient = unsafeClient()
 
-    val cloudflareClient: OkHttpClient = client
+    open val cloudflareClient: OkHttpClient get() = client
     open val defaultClient: OkHttpClient get() = client
     val defaultUserAgentProvider: () -> String = { DEFAULT_USER_AGENT }
 
@@ -79,6 +81,8 @@ class NetworkHelper {
             sslContext.init(null, arrayOf(trustManager), SecureRandom())
             return OkHttpClient.Builder()
                 .addInterceptor(UncaughtExceptionInterceptor())
+                .addInterceptor(UserAgentInterceptor())
+                .addInterceptor(CloudflareInterceptor())
                 .cookieJar(MemoryCookieJar())
 
                 .sslSocketFactory(sslContext.socketFactory, trustManager)
