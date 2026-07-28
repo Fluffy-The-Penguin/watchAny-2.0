@@ -7,25 +7,25 @@ import tachiyomi.core.common.util.lang.awaitSingle
 
 interface CatalogueSource : Source {
     override val lang: String
-    val supportsLatest: Boolean
+    override val supportsLatest: Boolean
 
     @Suppress("DEPRECATION")
-    suspend fun getPopularManga(page: Int): MangasPage = fetchPopularManga(page).awaitSingle()
+    override suspend fun getPopularManga(page: Int): MangasPage = fetchPopularManga(page).awaitSingle()
 
     @Suppress("DEPRECATION")
-    suspend fun getSearchManga(page: Int, query: String, filters: FilterList): MangasPage = fetchSearchManga(page, query, filters).awaitSingle()
+    override suspend fun getSearchManga(page: Int, query: String, filters: FilterList): MangasPage = fetchSearchManga(page, query, filters).awaitSingle()
 
     @Suppress("DEPRECATION")
-    suspend fun getLatestUpdates(page: Int): MangasPage = fetchLatestUpdates(page).awaitSingle()
+    override suspend fun getLatestUpdates(page: Int): MangasPage = fetchLatestUpdates(page).awaitSingle()
 
-    fun getFilterList(): FilterList = FilterList()
+    override fun getFilterList(): FilterList = FilterList()
 
     @Deprecated("Use getPopularManga instead")
-    fun fetchPopularManga(page: Int): Observable<MangasPage> = throw UnsupportedOperationException()
+    override fun fetchPopularManga(page: Int): Observable<MangasPage> = throw UnsupportedOperationException()
 
     @Deprecated("Use getSearchManga instead")
-    fun fetchSearchManga(page: Int, query: String, filters: FilterList): Observable<MangasPage> = throw UnsupportedOperationException()
+    override fun fetchSearchManga(page: Int, query: String, filters: FilterList): Observable<MangasPage> = throw UnsupportedOperationException()
 
     @Deprecated("Use getLatestUpdates instead")
-    fun fetchLatestUpdates(page: Int): Observable<MangasPage> = throw UnsupportedOperationException()
+    override fun fetchLatestUpdates(page: Int): Observable<MangasPage> = throw UnsupportedOperationException()
 }

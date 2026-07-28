@@ -64,9 +64,27 @@ open class InjektScope : InjektFactory {
             k == name || k.endsWith(type.simpleName) || type.isInstance(v) || v.javaClass.name.endsWith(type.simpleName) 
         }?.let { return it.value as T }
 
-        val created = type.getDeclaredConstructor().newInstance()
-        instances[name] = created
-        return created
+        val created = runCatching { type.getDeclaredConstructor().newInstance() }.getOrNull()
+        if (created != null) {
+            instances[name] = created
+            return created
+        }
+
+        val app = instances[android.app.Application::class.java.name] as? android.app.Application
+            ?: instances.values.filterIsInstance<android.app.Application>().firstOrNull()
+            ?: (instances.values.filterIsInstance<android.content.Context>().firstOrNull()?.applicationContext as? android.app.Application)
+
+        if (app != null) {
+            if (type == android.content.Context::class.java || type.isAssignableFrom(android.content.Context::class.java)) {
+                return app as T
+            }
+            if (type == android.content.SharedPreferences::class.java || type.simpleName.contains("Preference")) {
+                val prefs = app.getSharedPreferences("watchany_injekt_prefs", android.content.Context.MODE_PRIVATE)
+                return prefs as T
+            }
+        }
+
+        throw IllegalStateException("No registered instance found for ${type.name}")
     }
 
 

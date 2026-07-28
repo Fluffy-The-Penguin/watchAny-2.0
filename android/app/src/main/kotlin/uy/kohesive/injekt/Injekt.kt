@@ -8,8 +8,11 @@ import kotlin.reflect.KProperty
 @Volatile
 var Injekt: InjektScope = InjektScope()
 
-inline fun <reified T : Any> injectLazy(): Lazy<T> = lazy { Injekt.get(fullType<T>()) }
-inline fun <reified T : Any> injectValue(): Lazy<T> = lazyOf(Injekt.get(fullType<T>()))
+inline fun <reified T : Any> InjektScope.get(): T = get(T::class.java)
+inline fun <reified T : Any> InjektScope.get(key: Any): T = get(fullType<T>(), key)
+
+inline fun <reified T : Any> injectLazy(): Lazy<T> = lazy { Injekt.get(T::class.java) }
+inline fun <reified T : Any> injectValue(): Lazy<T> = lazyOf(Injekt.get(T::class.java))
 inline fun <reified T : Any> injectLazy(key: Any): Lazy<T> = lazy { Injekt.get(fullType<T>(), key) }
 inline fun <reified T : Any> injectValue(key: Any): Lazy<T> = lazyOf(Injekt.get(fullType<T>(), key))
 
