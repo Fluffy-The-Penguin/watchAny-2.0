@@ -151,6 +151,12 @@ open class NetworkHelper {
         private fun sanitizeJson(json: Any) {
             when (json) {
                 is org.json.JSONObject -> {
+                    if (json.has("pageProps")) {
+                        val pageProps = json.optJSONObject("pageProps")
+                        if (pageProps != null && pageProps.has("allSeries") && !pageProps.has("latestEntries")) {
+                            pageProps.put("latestEntries", pageProps.get("allSeries"))
+                        }
+                    }
                     val keys = json.keys()
                     val keyList = ArrayList<String>()
                     while (keys.hasNext()) {
