@@ -1,6 +1,6 @@
 [Setup]
 AppName=watchAny
-AppVersion=2.1.29
+AppVersion=2.1.30
 DefaultDirName={autopf}\watchAny
 DefaultGroupName=watchAny
 OutputDir=build\windows
