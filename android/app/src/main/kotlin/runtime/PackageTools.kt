@@ -122,7 +122,7 @@ object PackageTools {
             if (!pkgName.isNullOrBlank()) {
                 val pathLoader = runCatching {
                     val appInfo = context.packageManager.getApplicationInfo(pkgName, 0)
-                    eu.kanade.tachiyomi.util.system.ChildFirstPathClassLoader(appInfo.sourceDir, appInfo.nativeLibraryDir, PackageTools::class.java.classLoader)
+                    eu.kanade.tachiyomi.util.system.ChildFirstPathClassLoader(appInfo.sourceDir, appInfo.nativeLibraryDir, PackageTools::class.java.classLoader, context)
                 }.getOrNull()
 
                 if (pathLoader != null) {
@@ -131,7 +131,7 @@ object PackageTools {
                 }
             }
 
-            eu.kanade.tachiyomi.util.system.ChildFirstPathClassLoader(apkPath.toAbsolutePath().toString(), null, PackageTools::class.java.classLoader)
+            eu.kanade.tachiyomi.util.system.ChildFirstPathClassLoader(apkPath.toAbsolutePath().toString(), null, PackageTools::class.java.classLoader, context)
         }
 
 

@@ -1,8 +1,10 @@
 package eu.kanade.tachiyomi.util.system
 
+import android.content.Context
+import dalvik.system.DexClassLoader
 import dalvik.system.PathClassLoader
-import java.io.IOException
-import java.io.InputStream
+import java.io.File
+import java.io.FileOutputStream
 import java.net.URL
 import java.util.Enumeration
 
@@ -10,11 +12,37 @@ class ChildFirstPathClassLoader(
     dexPath: String,
     librarySearchPath: String?,
     parent: ClassLoader,
+    context: Context? = null
 ) : PathClassLoader(dexPath, librarySearchPath, parent) {
 
     private val systemClassLoader: ClassLoader? = getSystemClassLoader()
+    private var patchClassLoader: ClassLoader? = null
+
+    init {
+        if (context != null) {
+            try {
+                val dexFile = File(context.cacheDir, "generated_serializer.dex")
+                if (!dexFile.exists() || dexFile.length() == 0L) {
+                    context.assets.open("generated_serializer.dex").use { input ->
+                        FileOutputStream(dexFile).use { output ->
+                            input.copyTo(output)
+                        }
+                    }
+                }
+                patchClassLoader = DexClassLoader(dexFile.absolutePath, context.codeCacheDir.absolutePath, null, parent)
+            } catch (_: Throwable) {}
+        }
+    }
 
     override fun loadClass(name: String?, resolve: Boolean): Class<*> {
+        if (name == "kotlinx.serialization.internal.GeneratedSerializer" && patchClassLoader != null) {
+            runCatching {
+                val c = patchClassLoader!!.loadClass(name)
+                if (resolve) resolveClass(c)
+                return c
+            }
+        }
+
         var c = findLoadedClass(name)
 
         if (c == null && systemClassLoader != null) {
@@ -61,20 +89,6 @@ class ChildFirstPathClassLoader(
                 add(parentUrls.nextElement())
             }
         }
-
-        return object : Enumeration<URL> {
-            val iterator = urls.iterator()
-
-            override fun hasMoreElements() = iterator.hasNext()
-            override fun nextElement() = iterator.next()
-        }
-    }
-
-    override fun getResourceAsStream(name: String?): InputStream? {
-        return try {
-            getResource(name)?.openStream()
-        } catch (_: IOException) {
-            return null
-        }
+        return java.util.Collections.enumeration(urls)
     }
 }
