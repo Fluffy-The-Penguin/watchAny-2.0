@@ -573,16 +573,32 @@ class LocalWebServer(private val context: Context, private val runtime: Extensio
 
     private fun proxyImage(session: IHTTPSession): Response {
         val imageUrl = session.requiredQuery("url")
-        val referer = imageReferer(imageUrl, session.query()["referer"])
+        val sourceIdStr = session.query()["sourceId"]
+        val httpSource = if (!sourceIdStr.isNullOrBlank()) {
+            runCatching { source(sourceIdStr) as? HttpSource }.getOrNull()
+        } else null
+
+        val referer = imageReferer(imageUrl, session.query()["referer"] ?: httpSource?.headers?.get("Referer"))
         val origin = runCatching { URI(referer).let { "${it.scheme}://${it.host}" } }.getOrNull()
-        val request = Request.Builder()
+
+        val reqBuilder = Request.Builder()
             .url(imageUrl)
-            .header("User-Agent", NetworkHelper.DEFAULT_USER_AGENT)
+            .header("User-Agent", httpSource?.headers?.get("User-Agent") ?: NetworkHelper.DEFAULT_USER_AGENT)
             .header("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
             .header("Referer", referer)
-            .apply { if (origin != null) header("Origin", origin) }
-            .build()
-        imageClient.newCall(request).execute().use { response ->
+
+        if (origin != null) reqBuilder.header("Origin", origin)
+
+        httpSource?.headers?.let { headers ->
+            for ((name, value) in headers) {
+                if (!name.equals("User-Agent", true) && !name.equals("Referer", true) && !name.equals("Origin", true)) {
+                    reqBuilder.header(name, value)
+                }
+            }
+        }
+
+        val clientToUse = httpSource?.client ?: imageClient
+        clientToUse.newCall(reqBuilder.build()).execute().use { response ->
             if (!response.isSuccessful) error("Image request failed: HTTP ${response.code}")
             val bytes = response.body.bytes()
             return sendBytes(200, response.header("Content-Type") ?: "application/octet-stream", bytes)

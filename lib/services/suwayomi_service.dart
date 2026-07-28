@@ -1298,7 +1298,7 @@ class SuwayomiService {
           final String pageUrl = page['imageUrl'] ?? page['url'] ?? '';
           if (pageUrl.isEmpty) continue;
 
-          pages.add('$_baseUrl/api/image?url=${Uri.encodeComponent(pageUrl)}');
+          pages.add('$_baseUrl/api/image?url=${Uri.encodeComponent(pageUrl)}&sourceId=$sourceId');
         }
         return pages;
       }
