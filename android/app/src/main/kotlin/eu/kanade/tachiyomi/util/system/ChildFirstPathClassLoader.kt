@@ -35,11 +35,20 @@ class ChildFirstPathClassLoader(
     }
 
     override fun loadClass(name: String?, resolve: Boolean): Class<*> {
-        if (name == "kotlinx.serialization.internal.GeneratedSerializer" && patchClassLoader != null) {
-            runCatching {
-                val c = patchClassLoader!!.loadClass(name)
-                if (resolve) resolveClass(c)
-                return c
+        if (name != null && (
+            name.startsWith("kotlinx.serialization.") ||
+            name.startsWith("eu.kanade.tachiyomi.") ||
+            name.startsWith("tachiyomi.") ||
+            name.startsWith("uy.kohesive.injekt.") ||
+            name.startsWith("okhttp3.") ||
+            name.startsWith("rx.") ||
+            name.startsWith("org.jsoup.") ||
+            name.startsWith("kotlin.")
+        )) {
+            val parentClass = runCatching { parent.loadClass(name) }.getOrNull()
+            if (parentClass != null) {
+                if (resolve) resolveClass(parentClass)
+                return parentClass
             }
         }
 

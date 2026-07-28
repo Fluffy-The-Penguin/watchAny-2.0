@@ -91,6 +91,7 @@ class MainActivity : FlutterActivity() {
         }
         
         try {
+            runtime.PackageTools.injectDexAtStartup(applicationContext)
             // Register Application and Context in Injekt scope so dynamic extensions can access preferences
             Injekt.register(android.app.Application::class.java, application)
             Injekt.register(android.content.Context::class.java, applicationContext)

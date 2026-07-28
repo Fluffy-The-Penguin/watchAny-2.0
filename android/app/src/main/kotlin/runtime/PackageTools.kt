@@ -117,7 +117,68 @@ object PackageTools {
         return null
     }
 
+    private var isDexInjected = false
+
+    fun injectDexAtStartup(context: Context) {
+        if (isDexInjected) return
+        synchronized(this) {
+            if (isDexInjected) return
+            try {
+                val dexFile = File(context.cacheDir, "generated_serializer.dex")
+                if (!dexFile.exists() || dexFile.length() == 0L) {
+                    context.assets.open("generated_serializer.dex").use { input ->
+                        FileOutputStream(dexFile).use { output ->
+                            input.copyTo(output)
+                        }
+                    }
+                }
+                val patchClassLoader = DexClassLoader(
+                    dexFile.absolutePath,
+                    context.codeCacheDir.absolutePath,
+                    null,
+                    context.classLoader
+                )
+
+                val appClassLoader = context.classLoader
+                val getPathList = { cl: ClassLoader ->
+                    val field = dalvik.system.BaseDexClassLoader::class.java.getDeclaredField("pathList")
+                    field.isAccessible = true
+                    field.get(cl)
+                }
+                val getDexElements = { pathList: Any ->
+                    val field = pathList.javaClass.getDeclaredField("dexElements")
+                    field.isAccessible = true
+                    field.get(pathList) as Array<*>
+                }
+
+                val appPathList = getPathList(appClassLoader)
+                val patchPathList = getPathList(patchClassLoader)
+
+                val appElements = getDexElements(appPathList)
+                val patchElements = getDexElements(patchPathList)
+
+                val combinedElements = java.lang.reflect.Array.newInstance(
+                    appElements.javaClass.componentType,
+                    patchElements.size + appElements.size
+                ) as Array<Any?>
+
+                System.arraycopy(patchElements, 0, combinedElements, 0, patchElements.size)
+                System.arraycopy(appElements, 0, combinedElements, patchElements.size, appElements.size)
+
+                val dexElementsField = appPathList.javaClass.getDeclaredField("dexElements")
+                dexElementsField.isAccessible = true
+                dexElementsField.set(appPathList, combinedElements)
+
+                isDexInjected = true
+                android.util.Log.i("watchAny-PackageTools", "Successfully prepended generated_serializer.dex to AppClassLoader dexElements!")
+            } catch (e: Throwable) {
+                android.util.Log.e("watchAny-PackageTools", "Failed to inject generated_serializer.dex at startup: ${e.message}", e)
+            }
+        }
+    }
+
     fun loadExtensionClass(context: Context, apkPath: Path, className: String, pkgName: String? = null): Any {
+        injectDexAtStartup(context)
         val loader: ClassLoader = run {
             if (!pkgName.isNullOrBlank()) {
                 val pathLoader = runCatching {
