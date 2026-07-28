@@ -149,6 +149,7 @@ class ExtensionRuntime(private val context: Context, private val root: Path) {
     fun uninstall(pkgName: String): Boolean {
         val installed = readInstalled()
         writeInstalled(installed.filterNot { it.pkg == pkgName })
+        cachedSystemExtensions = cachedSystemExtensions.filterNot { it.pkg == pkgName }
         val current = installed.singleOrNull { it.pkg == pkgName }
         if (current != null) {
             runCatching { Files.deleteIfExists(apkDir.resolve(current.apk)) }

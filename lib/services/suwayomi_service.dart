@@ -674,7 +674,7 @@ class SuwayomiService {
 
         if (response.statusCode == 200) {
           final decoded = jsonDecode(response.body);
-          if (decoded['ok'] == true) {
+          if (decoded['ok'] == true || decoded['removed'] == true) {
             changeNotifier.notifyListeners();
             return true;
           }

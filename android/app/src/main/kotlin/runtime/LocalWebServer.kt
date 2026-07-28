@@ -173,7 +173,9 @@ class LocalWebServer(private val context: Context, private val runtime: Extensio
     private fun installExtension(pkg: String, repoId: String?): JsonElement = runtime.install(pkg, repoId).toJson()
 
     private fun uninstallExtension(pkg: String): JsonElement = buildJsonObject {
-        put("removed", runtime.uninstall(pkg))
+        val result = runtime.uninstall(pkg)
+        put("ok", result)
+        put("removed", result)
     }
 
     private fun updates(): JsonElement = buildJsonArray {
