@@ -548,6 +548,7 @@ class LocalWebServer(private val context: Context, private val runtime: Extensio
     private fun source(sourceIdStr: String): CatalogueSource {
         val numericId = sourceIdStr.toLongOrNull()
         if (numericId != null) {
+            (runtime.extensionManager.getSource(numericId) as? CatalogueSource)?.let { return it }
             val now = System.currentTimeMillis()
             synchronized(sourceCache) {
                 sourceCache[numericId]?.takeIf { now - it.loadedAt < 15 * 60 * 1000 }?.let { return it.source }

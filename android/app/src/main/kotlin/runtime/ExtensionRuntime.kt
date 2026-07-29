@@ -29,6 +29,7 @@ import kotlin.io.path.readText
 import kotlin.io.path.writeText
 
 class ExtensionRuntime(private val context: Context, private val root: Path) {
+    val extensionManager = eu.kanade.tachiyomi.extension.ExtensionManager(context)
     private val client = OkHttpClient()
     private val json = Json { ignoreUnknownKeys = true; prettyPrint = true }
     private val apkDir = root.resolve("apk")
