@@ -1,0 +1,23 @@
+﻿Classfile /C:/Users/aryan/OneDrive/Documents/watchAny 2.0/temp_asura/x1.class
+  Last modified 20-Jul-2026; size 70 bytes
+  SHA-256 checksum b5e260a5eb70c54c98174617de5ec5b71cc5dee21251e8ed48afdf7c58039053
+public final class x1
+  minor version: 0
+  major version: 52
+  flags: (0x0031) ACC_PUBLIC, ACC_FINAL, ACC_SUPER
+  this_class: #2                          // x1
+  super_class: #4                         // java/lang/Object
+  interfaces: 0, fields: 1, methods: 0, attributes: 0
+Constant pool:
+  #1 = Utf8               x1
+  #2 = Class              #1              // x1
+  #3 = Utf8               java/lang/Object
+  #4 = Class              #3              // java/lang/Object
+  #5 = Utf8               a
+  #6 = Utf8               Z
+{
+  public boolean a;
+    descriptor: Z
+    flags: (0x0001) ACC_PUBLIC
+
+}

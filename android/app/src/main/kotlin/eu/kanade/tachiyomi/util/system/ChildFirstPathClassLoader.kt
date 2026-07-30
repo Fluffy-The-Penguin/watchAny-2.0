@@ -1,57 +1,24 @@
 package eu.kanade.tachiyomi.util.system
 
-import android.content.Context
-import dalvik.system.DexClassLoader
 import dalvik.system.PathClassLoader
-import java.io.File
-import java.io.FileOutputStream
+import java.io.IOException
+import java.io.InputStream
 import java.net.URL
 import java.util.Enumeration
 
+/**
+ * A classloader that loads classes from the child (extension APK) before falling back to the parent.
+ * Matches official Mihon ChildFirstPathClassLoader implementation.
+ */
 class ChildFirstPathClassLoader(
     dexPath: String,
     librarySearchPath: String?,
     parent: ClassLoader,
-    context: Context? = null
 ) : PathClassLoader(dexPath, librarySearchPath, parent) {
 
     private val systemClassLoader: ClassLoader? = getSystemClassLoader()
-    private var patchClassLoader: ClassLoader? = null
-
-    init {
-        if (context != null) {
-            try {
-                val dexFile = File(context.cacheDir, "generated_serializer.dex")
-                if (!dexFile.exists() || dexFile.length() == 0L) {
-                    context.assets.open("generated_serializer.dex").use { input ->
-                        FileOutputStream(dexFile).use { output ->
-                            input.copyTo(output)
-                        }
-                    }
-                }
-                patchClassLoader = DexClassLoader(dexFile.absolutePath, context.codeCacheDir.absolutePath, null, parent)
-            } catch (_: Throwable) {}
-        }
-    }
 
     override fun loadClass(name: String?, resolve: Boolean): Class<*> {
-        if (name != null && (
-            name.startsWith("kotlinx.serialization.") ||
-            name.startsWith("eu.kanade.tachiyomi.") ||
-            name.startsWith("tachiyomi.") ||
-            name.startsWith("uy.kohesive.injekt.") ||
-            name.startsWith("okhttp3.") ||
-            name.startsWith("rx.") ||
-            name.startsWith("org.jsoup.") ||
-            name.startsWith("kotlin.")
-        )) {
-            val parentClass = runCatching { parent.loadClass(name) }.getOrNull()
-            if (parentClass != null) {
-                if (resolve) resolveClass(parentClass)
-                return parentClass
-            }
-        }
-
         var c = findLoadedClass(name)
 
         if (c == null && systemClassLoader != null) {
@@ -98,6 +65,18 @@ class ChildFirstPathClassLoader(
                 add(parentUrls.nextElement())
             }
         }
-        return java.util.Collections.enumeration(urls)
+        return object : Enumeration<URL> {
+            val iterator = urls.iterator()
+            override fun hasMoreElements() = iterator.hasNext()
+            override fun nextElement() = iterator.next()
+        }
+    }
+
+    override fun getResourceAsStream(name: String?): InputStream? {
+        return try {
+            getResource(name)?.openStream()
+        } catch (_: IOException) {
+            null
+        }
     }
 }

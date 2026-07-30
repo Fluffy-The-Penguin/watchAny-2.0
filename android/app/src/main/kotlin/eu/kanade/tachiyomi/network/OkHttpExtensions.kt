@@ -32,6 +32,8 @@ fun Call.asObservableSuccess(): Observable<Response> = Observable.create { subsc
     }
 }
 
+suspend fun Call.await(): Response = awaitSuccess()
+
 suspend fun Call.awaitSuccess(): Response = suspendCancellableCoroutine { continuation ->
     enqueue(object : okhttp3.Callback {
         override fun onFailure(call: Call, e: IOException) {

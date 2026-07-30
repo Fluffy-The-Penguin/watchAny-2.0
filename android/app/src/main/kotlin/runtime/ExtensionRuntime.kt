@@ -95,22 +95,39 @@ class ExtensionRuntime(private val context: Context, private val root: Path) {
     }
 
     fun install(pkgName: String, repoId: String? = null): InstalledExtension {
-        val repos = readRepos().filter { it.enabled }
-        val now = System.currentTimeMillis()
-        repos.forEach { repo ->
-            if (now - (repo.lastFetchedAt ?: 0L) > 12 * 60 * 60 * 1000 || repo.cachedExtensions.isEmpty()) {
+        var extension = indexedExtensions(useDefaultFallback = true)
+            .filter { repoId.isNullOrBlank() || it.repo.id == repoId }
+            .firstOrNull { it.extension.pkg == pkgName }
+
+        if (extension == null) {
+            val repos = readRepos().filter { it.enabled }
+            repos.forEach { repo ->
                 try {
                     refreshRepo(repo.id)
                 } catch (e: Throwable) {
                     android.util.Log.e("watchAny-ExtensionRuntime", "Failed to force refresh repo before install: ${e.message}", e)
                 }
             }
+            extension = indexedExtensions(useDefaultFallback = true)
+                .filter { repoId.isNullOrBlank() || it.repo.id == repoId }
+                .firstOrNull { it.extension.pkg == pkgName }
         }
-        val extension = indexedExtensions(useDefaultFallback = true)
-            .filter { repoId.isNullOrBlank() || it.repo.id == repoId }
-            .firstOrNull { it.extension.pkg == pkgName }
-            ?: error("Package not found in configured extension repos: $pkgName")
-        return loadExtension(extension, persist = true)
+
+        val targetExtension = extension ?: run {
+            val fallbackRepo = defaultRepo()
+            val fallbackExt = KeiyoushiExtension(
+                name = pkgName.substringAfterLast('.'),
+                pkg = pkgName,
+                apk = "https://cdn.jsdelivr.net/gh/keiyoushi/extensions@repo/apk/$pkgName.apk",
+                lang = "en",
+                code = 100L,
+                version = "1.0",
+                nsfw = 0
+            )
+            IndexedExtension(fallbackRepo, fallbackExt)
+        }
+
+        return loadExtension(targetExtension, persist = true)
     }
 
     fun updates(): List<ExtensionUpdate> {
@@ -433,7 +450,7 @@ class ExtensionRuntime(private val context: Context, private val root: Path) {
             )
         }
         if (!installed.repoId.isNullOrBlank()) readRepos().firstOrNull { it.id == installed.repoId }?.let { return it }
-        return defaultRepo()
+        return ExtensionRepo(id = "installed-${installed.pkg}", name = "Installed Extension", indexUrl = "", apkBaseUrl = "")
     }
 
     private fun sourceInstallInfoById(): Map<Long, SourceInstallInfo> {
@@ -511,23 +528,20 @@ class ExtensionRuntime(private val context: Context, private val root: Path) {
 
     private fun readRepos(): List<ExtensionRepo> {
         if (!reposFile.exists()) {
-            val default = defaultRepo()
             try {
-                writeRepos(listOf(default))
-                java.util.concurrent.Executors.newSingleThreadExecutor().execute {
-                    try {
-                        refreshRepo(default.id)
-                    } catch (e: Throwable) {
-                        android.util.Log.e("watchAny-ExtensionRuntime", "Failed to auto-refresh default repo: ${e.message}", e)
-                    }
-                }
+                writeRepos(emptyList())
             } catch (e: Throwable) {
-                android.util.Log.e("watchAny-ExtensionRuntime", "Failed to write default repo: ${e.message}", e)
+                android.util.Log.e("watchAny-ExtensionRuntime", "Failed to write initial empty repos file: ${e.message}", e)
             }
-            return listOf(default)
+            return emptyList()
         }
         val repos = try {
-            json.decodeFromString<List<ExtensionRepo>>(reposFile.readText())
+            val list = json.decodeFromString<List<ExtensionRepo>>(reposFile.readText())
+            list.map { r ->
+                if (r.indexUrl.contains("index.min.json", ignoreCase = true)) {
+                    r.copy(indexUrl = r.indexUrl.replace("index.min.json", "index.json", ignoreCase = true))
+                } else r
+            }
         } catch (e: Throwable) {
             emptyList()
         }
@@ -558,10 +572,12 @@ class ExtensionRuntime(private val context: Context, private val root: Path) {
         root.createDirectories()
         apkDir.createDirectories()
         iconDir.createDirectories()
-        val apkPath = apkDir.resolve(extension.apk)
-        download(indexed.apkUrl, apkPath)
+        val apkFileName = extension.apk.substringAfterLast('/')
+        val apkPath = apkDir.resolve(apkFileName)
+        download(indexed.apkUrl, apkPath, overwrite = true)
+        runCatching { apkPath.toFile().setReadOnly() }
 
-        val metadata = PackageTools.getPackageMetadata(apkPath)
+        val metadata = PackageTools.getPackageMetadata(apkPath, context)
         check(metadata.features.contains(PackageTools.EXTENSION_FEATURE)) { "APK is not a Tachiyomi extension" }
         val libVersion = metadata.versionName.substringBeforeLast('.').toDoubleOrNull() ?: 0.0
         if (libVersion > 0.0 && (libVersion < PackageTools.LIB_VERSION_MIN || libVersion > PackageTools.LIB_VERSION_MAX)) {
@@ -719,6 +735,10 @@ class ExtensionRuntime(private val context: Context, private val root: Path) {
                     val sourceDir = appInfo.sourceDir ?: ""
                     val apkPath = Path(sourceDir)
                     val loaded = loadSourcesFromApkDetailed(apkPath, finalClasses, pkgName)
+                    if (loaded.sources.isEmpty() || loaded.errors.isNotEmpty()) {
+                        android.util.Log.w("watchAny-ExtensionRuntime", "System extension $pkgName has source loading errors or no sources, skipping system package.")
+                        continue
+                    }
                     val sources = loaded.sources.map { InstalledSource(it.id, it.lang, it.name) }
 
                     val isNsfw = metaData?.getInt("tachiyomi.extension.nsfw", 0) == 1 ||
@@ -775,13 +795,15 @@ class ExtensionRuntime(private val context: Context, private val root: Path) {
         installedFile.writeText(json.encodeToString(installed))
     }
 
-    private fun download(url: String, target: Path) {
-        if (target.exists() && Files.size(target) > 0) return
+    private fun download(url: String, target: Path, overwrite: Boolean = false) {
+        if (!overwrite && target.exists() && Files.size(target) > 0) return
+        val temp = target.parent.resolve("${target.fileName}.tmp")
         val request = Request.Builder().url(url).build()
         client.newCall(request).execute().use { response ->
             check(response.isSuccessful) { "Download failed ${response.code}: $url" }
-            Files.newOutputStream(target).use { output -> response.body.byteStream().copyTo(output) }
+            Files.newOutputStream(temp).use { output -> response.body.byteStream().copyTo(output) }
         }
+        Files.move(temp, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
     }
 }
 
@@ -828,7 +850,14 @@ data class IndexedExtension(
     val repo: ExtensionRepo,
     val extension: KeiyoushiExtension,
 ) {
-    val apkUrl: String get() = repo.apkBaseUrl.trimEnd('/') + "/" + extension.apk
+    val apkUrl: String get() {
+        if (extension.apk.startsWith("http://") || extension.apk.startsWith("https://")) {
+            return extension.apk
+        }
+        return repo.apkBaseUrl.trimEnd('/') + "/" + extension.apk.removePrefix("/")
+    }
+
+    val iconUrl: String get() = extension.iconUrl
 }
 
 private data class SourceInstallInfo(val extensionName: String, val extensionPkg: String)

@@ -1,0 +1,48 @@
+[
+    {
+        "name": "Asura Scans",
+        "pkg": "eu.kanade.tachiyomi.extension.en.asurascans",
+        "repoId": "repo-0b3332b732a3ca14",
+        "repoName": "Keiyoushi",
+        "repoIndexUrl": "https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.min.json",
+        "repoApkBaseUrl": "https://raw.githubusercontent.com/keiyoushi/extensions/repo/apk/",
+        "apk": "tachiyomi-en.asurascans-v1.6.66.apk",
+        "version": "1.6.66",
+        "code": 66,
+        "jarPath": "C:\\Users\\aryan\\OneDrive\\Documents\\watchAny 2.0\\.runtime\\jar\\tachiyomi-en.asurascans-v1.6.66.jar",
+        "iconPath": "C:\\Users\\aryan\\OneDrive\\Documents\\watchAny 2.0\\.runtime\\icons\\tachiyomi-en.asurascans-v1.6.66.png",
+        "sourceClasses": [
+            "eu.kanade.tachiyomi.extension.en.asurascans.ExtensionGenerated"
+        ],
+        "sources": [
+            {
+                "id": 6247824327199706550,
+                "lang": "en",
+                "name": "Asura Scans"
+            }
+        ]
+    },
+    {
+        "name": "Flame Comics",
+        "pkg": "eu.kanade.tachiyomi.extension.en.flamecomics",
+        "repoId": "repo-0b3332b732a3ca14",
+        "repoName": "Keiyoushi",
+        "repoIndexUrl": "https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.min.json",
+        "repoApkBaseUrl": "https://raw.githubusercontent.com/keiyoushi/extensions/repo/apk/",
+        "apk": "tachiyomi-en.flamecomics-v1.4.50.apk",
+        "version": "1.4.50",
+        "code": 50,
+        "jarPath": "C:\\Users\\aryan\\OneDrive\\Documents\\watchAny 2.0\\.runtime\\jar\\tachiyomi-en.flamecomics-v1.4.50.jar",
+        "iconPath": "C:\\Users\\aryan\\OneDrive\\Documents\\watchAny 2.0\\.runtime\\icons\\tachiyomi-en.flamecomics-v1.4.50.png",
+        "sourceClasses": [
+            "eu.kanade.tachiyomi.extension.en.flamecomics.ExtensionGenerated"
+        ],
+        "sources": [
+            {
+                "id": 8531542650987673943,
+                "lang": "en",
+                "name": "Flame Comics"
+            }
+        ]
+    }
+]

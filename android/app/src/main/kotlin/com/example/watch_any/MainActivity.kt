@@ -34,19 +34,32 @@ class MainActivity : FlutterActivity() {
                                 return@setMethodCallHandler
                             }
                             
-                            val intent = Intent(Intent.ACTION_VIEW)
-                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                                val apkUri = FileProvider.getUriForFile(
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                if (!packageManager.canRequestPackageInstalls()) {
+                                    val settingsIntent = Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
+                                        data = Uri.parse("package:$packageName")
+                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    }
+                                    startActivity(settingsIntent)
+                                }
+                            }
+
+                            val apkUri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                                FileProvider.getUriForFile(
                                     this,
                                     "$packageName.fileprovider",
                                     file
                                 )
-                                intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                intent.setDataAndType(apkUri, "application/vnd.android.package-archive")
                             } else {
-                                intent.setDataAndType(Uri.fromFile(file), "application/vnd.android.package-archive")
+                                Uri.fromFile(file)
+                            }
+
+                            @Suppress("DEPRECATION")
+                            val intent = Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
+                                setDataAndType(apkUri, "application/vnd.android.package-archive")
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                putExtra(Intent.EXTRA_RETURN_RESULT, true)
                             }
                             
                             startActivity(intent)
@@ -97,12 +110,21 @@ class MainActivity : FlutterActivity() {
             Injekt.register(android.content.Context::class.java, applicationContext)
             
             // Register Json utility
-            Injekt.register(Json::class.java, Json { ignoreUnknownKeys = true })
+            Injekt.register(Json::class.java, Json {
+                ignoreUnknownKeys = true
+                explicitNulls = false
+                coerceInputValues = true
+                isLenient = true
+            })
             
             // Register Network helper and client
             val networkHelper = NetworkHelper()
             Injekt.register(NetworkHelper::class.java, networkHelper)
             Injekt.register(OkHttpClient::class.java, networkHelper.client)
+
+            // Register PreferenceStore for Tachiyomi extensions
+            val prefStore = tachiyomi.core.common.preference.AndroidPreferenceStore(applicationContext)
+            Injekt.register(tachiyomi.core.common.preference.PreferenceStore::class.java, prefStore)
             // Start Manga extension server asynchronously in background thread so app startup is instant
             java.util.concurrent.Executors.newSingleThreadExecutor().execute {
                 try {

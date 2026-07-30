@@ -107,45 +107,25 @@ class SuwayomiService {
   }
 
 
-  // Seed default Keiyoushi repository store on Suwayomi-Server
+  // Seed external repositories (repos are now user-managed and added explicitly)
   Future<void> seedExternalRepositories() async {
+    // Repositories are fetched only after the user adds them.
+  }
+
+  // Add an extension repository URL
+  Future<void> addRepoUrl(String url, {String? name}) async {
+    final cleanUrl = url.trim();
+    if (cleanUrl.isEmpty) return;
     try {
-      // 1. Try GraphQL addExtensionStore
-      const addStoreQuery = '''
-        mutation {
-          addExtensionStore(input: { indexUrl: "https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.min.json" }) {
-            extensionStore {
-              indexUrl
-              name
-            }
-          }
-        }
-      ''';
-      await _postGraphQL(addStoreQuery).catchError((_) => null);
-
-      // 2. Trigger fetchExtensions to populate store index
-      const fetchQuery = '''
-        mutation {
-          fetchExtensions(input: {}) {
-            clientMutationId
-          }
-        }
-      ''';
-      await _postGraphQL(fetchQuery).catchError((_) => null);
-
-      // 3. Fallback REST seed
-      final repoUrls = [
-        "https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.min.json",
-        "https://cdn.jsdelivr.net/gh/keiyoushi/extensions@repo/index.min.json",
-      ];
-      for (final repoUrl in repoUrls) {
-        try {
-          final addUrl = Uri.parse('$_baseUrl/api/repos/add?url=${Uri.encodeComponent(repoUrl)}');
-          await http.get(addUrl).timeout(const Duration(seconds: 5)).catchError((_) => http.Response('', 500));
-        } catch (_) {}
+      final queryName = name != null && name.trim().isNotEmpty ? '&name=${Uri.encodeComponent(name.trim())}' : '';
+      final addUrl = Uri.parse('$_baseUrl/api/repos/add?url=${Uri.encodeComponent(cleanUrl)}$queryName');
+      final response = await http.get(addUrl).timeout(const Duration(seconds: 15));
+      if (response.statusCode != 200) {
+        throw Exception('Failed to add repository (${response.statusCode})');
       }
     } catch (e) {
-      developer.log('Error seeding external repositories: $e', name: 'SuwayomiService');
+      developer.log('Error adding repository: $e', name: 'SuwayomiService');
+      rethrow;
     }
   }
 

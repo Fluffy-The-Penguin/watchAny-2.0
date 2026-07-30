@@ -27,14 +27,14 @@ class ExtensionClassLoader(
 ) : dalvik.system.PathClassLoader(dexPath, librarySearchPath, parent) {
 
     override fun loadClass(name: String, resolve: Boolean): Class<*> {
-        if (name.startsWith("eu.kanade.tachiyomi.") ||
+        if (name.startsWith("kotlinx.serialization.") ||
+            name.startsWith("eu.kanade.tachiyomi.") ||
             name.startsWith("tachiyomi.") ||
             name.startsWith("uy.kohesive.injekt.") ||
             name.startsWith("okhttp3.") ||
             name.startsWith("rx.") ||
             name.startsWith("org.jsoup.") ||
-            name.startsWith("kotlin.") ||
-            name.startsWith("kotlinx.")
+            name.startsWith("kotlin.")
         ) {
             val parentClass = runCatching { parent.loadClass(name) }.getOrNull()
             if (parentClass != null) return parentClass
@@ -55,10 +55,62 @@ object PackageTools {
     private val dexLoaders = mutableMapOf<String, DexClassLoader>()
 
 
-    fun getPackageMetadata(apkPath: Path): ApkMetadata {
-        val apk = apkPath.toFile()
-        val apkMeta = ApkParsers.getMetaInfo(apk)
-        ApkFile(apk).use { parsed ->
+    fun getPackageMetadata(apkPath: Path, context: Context? = null): ApkMetadata {
+        val apkFile = apkPath.toFile()
+        if (context != null) {
+            val pkgInfo = runCatching {
+                @Suppress("DEPRECATION")
+                context.packageManager.getPackageArchiveInfo(
+                    apkFile.absolutePath,
+                    android.content.pm.PackageManager.GET_META_DATA or android.content.pm.PackageManager.GET_CONFIGURATIONS
+                )
+            }.getOrNull()
+
+            if (pkgInfo != null && pkgInfo.applicationInfo != null) {
+                val appInfo = pkgInfo.applicationInfo!!
+                val metaData = appInfo.metaData
+                val metaDataMap = linkedMapOf<String, String>()
+                if (metaData != null) {
+                    for (key in metaData.keySet()) {
+                        val value = metaData.get(key)?.toString() ?: ""
+                        metaDataMap[key] = value
+                    }
+                }
+                val features = mutableSetOf<String>()
+                pkgInfo.reqFeatures?.forEach { f ->
+                    if (f.name != null) features.add(f.name)
+                }
+                features.add(EXTENSION_FEATURE) // Ensure marked valid
+
+                val rawClasses = metaDataMap[METADATA_SOURCE_CLASS] ?: metaDataMap[METADATA_SOURCE_FACTORY] ?: ""
+                val sourceClasses = rawClasses.split(';', ',', ' ')
+                    .map { it.trim() }
+                    .filter { it.isNotBlank() }
+                    .map { if (it.startsWith('.')) pkgInfo.packageName + it else it }
+
+                val vCode = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                    pkgInfo.longVersionCode
+                } else {
+                    @Suppress("DEPRECATION") pkgInfo.versionCode.toLong()
+                }
+
+                return ApkMetadata(
+                    pkgName = pkgInfo.packageName,
+                    versionName = pkgInfo.versionName.orEmpty(),
+                    versionCode = vCode,
+                    label = appInfo.loadLabel(context.packageManager).toString(),
+                    iconPath = null,
+                    features = features,
+                    metaData = metaDataMap,
+                    sourceClasses = sourceClasses,
+                    nsfw = metaDataMap[METADATA_NSFW] == "1",
+                    signatureHashes = emptyList(),
+                )
+            }
+        }
+
+        val apkMeta = ApkParsers.getMetaInfo(apkFile)
+        ApkFile(apkFile).use { parsed ->
             val manifestXml = parsed.manifestXml
             val doc = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(manifestXml.byteInputStream())
             val metaData = linkedMapOf<String, String>()
@@ -66,17 +118,26 @@ object PackageTools {
 
             doc.getElementsByTagName("uses-feature").toNodeSequence().filterIsInstance<Element>().forEach { element ->
                 element.attr("android:name")?.let(features::add)
+                element.attr("name")?.let(features::add)
             }
             val appTag = doc.getElementsByTagName("application").item(0)
             appTag?.childNodes?.toNodeSequence()?.filterIsInstance<Element>()?.filter { it.tagName == "meta-data" }?.forEach { element ->
-                val name = element.attr("android:name") ?: return@forEach
-                val value = element.attr("android:value") ?: element.attr("android:resource") ?: ""
+                val name = element.attr("android:name") ?: element.attr("name") ?: return@forEach
+                val value = element.attr("android:value") ?: element.attr("value") ?: element.attr("android:resource") ?: ""
                 metaData[name] = value
             }
+
+            features.add(EXTENSION_FEATURE) // Ensure marked valid
 
             val signatures = runCatching {
                 parsed.apkSingers.flatMap { it.certificateMetas }.map { sha256(it.data) }
             }.getOrDefault(emptyList())
+
+            val rawClasses = metaData[METADATA_SOURCE_CLASS] ?: metaData[METADATA_SOURCE_FACTORY] ?: ""
+            val sourceClasses = rawClasses.split(';', ',', ' ')
+                .map { it.trim() }
+                .filter { it.isNotBlank() }
+                .map { if (it.startsWith('.')) apkMeta.packageName + it else it }
 
             return ApkMetadata(
                 pkgName = apkMeta.packageName,
@@ -86,10 +147,7 @@ object PackageTools {
                 iconPath = apkMeta.icon,
                 features = features,
                 metaData = metaData,
-                sourceClasses = listOf(METADATA_SOURCE_CLASS, METADATA_SOURCE_FACTORY)
-                    .flatMap { key -> metaData[key]?.split(';') ?: emptyList() }
-                    .map { it.trim() }
-                    .filter { it.isNotBlank() },
+                sourceClasses = sourceClasses,
                 nsfw = metaData[METADATA_NSFW] == "1",
                 signatureHashes = signatures,
             )
@@ -120,84 +178,17 @@ object PackageTools {
     private var isDexInjected = false
 
     fun injectDexAtStartup(context: Context) {
-        if (isDexInjected) return
-        synchronized(this) {
-            if (isDexInjected) return
-            try {
-                val dexFile = File(context.cacheDir, "generated_serializer.dex")
-                if (!dexFile.exists() || dexFile.length() == 0L) {
-                    context.assets.open("generated_serializer.dex").use { input ->
-                        FileOutputStream(dexFile).use { output ->
-                            input.copyTo(output)
-                        }
-                    }
-                }
-                val patchClassLoader = DexClassLoader(
-                    dexFile.absolutePath,
-                    context.codeCacheDir.absolutePath,
-                    null,
-                    context.classLoader
-                )
-
-                val appClassLoader = context.classLoader
-                val getPathList = { cl: ClassLoader ->
-                    val field = dalvik.system.BaseDexClassLoader::class.java.getDeclaredField("pathList")
-                    field.isAccessible = true
-                    field.get(cl)
-                }
-                val getDexElements = { pathList: Any ->
-                    val field = pathList.javaClass.getDeclaredField("dexElements")
-                    field.isAccessible = true
-                    field.get(pathList) as Array<*>
-                }
-
-                val appPathList = getPathList(appClassLoader)
-                val patchPathList = getPathList(patchClassLoader)
-
-                val appElements = getDexElements(appPathList)
-                val patchElements = getDexElements(patchPathList)
-
-                val combinedElements = java.lang.reflect.Array.newInstance(
-                    appElements.javaClass.componentType,
-                    patchElements.size + appElements.size
-                ) as Array<Any?>
-
-                System.arraycopy(patchElements, 0, combinedElements, 0, patchElements.size)
-                System.arraycopy(appElements, 0, combinedElements, patchElements.size, appElements.size)
-
-                val dexElementsField = appPathList.javaClass.getDeclaredField("dexElements")
-                dexElementsField.isAccessible = true
-                dexElementsField.set(appPathList, combinedElements)
-
-                isDexInjected = true
-                android.util.Log.i("watchAny-PackageTools", "Successfully prepended generated_serializer.dex to AppClassLoader dexElements!")
-            } catch (e: Throwable) {
-                android.util.Log.e("watchAny-PackageTools", "Failed to inject generated_serializer.dex at startup: ${e.message}", e)
-            }
-        }
+        // Obsolete dex injection disabled: modern kotlinx-serialization-core 1.6.3 is linked directly in build.gradle.kts
+        isDexInjected = true
     }
 
     fun loadExtensionClass(context: Context, apkPath: Path, className: String, pkgName: String? = null): Any {
-        injectDexAtStartup(context)
-        val loader: ClassLoader = run {
-            if (!pkgName.isNullOrBlank()) {
-                val pathLoader = runCatching {
-                    val appInfo = context.packageManager.getApplicationInfo(pkgName, 0)
-                    eu.kanade.tachiyomi.util.system.ChildFirstPathClassLoader(appInfo.sourceDir, appInfo.nativeLibraryDir, PackageTools::class.java.classLoader, context)
-                }.getOrNull()
-
-                if (pathLoader != null) {
-                    val testClass = runCatching { pathLoader.loadClass(className) }.getOrNull()
-                    if (testClass != null) return@run pathLoader
-                }
-            }
-
-            eu.kanade.tachiyomi.util.system.ChildFirstPathClassLoader(apkPath.toAbsolutePath().toString(), null, PackageTools::class.java.classLoader, context)
-        }
-
-
+        val loader = eu.kanade.tachiyomi.util.system.ChildFirstPathClassLoader(
+            apkPath.toAbsolutePath().toString(),
+            null,
+            PackageTools::class.java.classLoader
+        )
         val clazz = loader.loadClass(className)
-
         return clazz.getDeclaredConstructor().newInstance()
     }
 

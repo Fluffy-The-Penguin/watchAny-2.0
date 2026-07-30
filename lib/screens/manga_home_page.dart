@@ -1627,7 +1627,13 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
                       onTap: () async {
                         if (mangaId != 0) {
                           final mangaUrl = manga['url']?.toString() ?? '';
-                          await SuwayomiService().registerMangaPath(mangaId, _selectedSourceId ?? '', mangaUrl, extName: _selectedExtensionName);
+                          String targetSourceId = manga['sourceId']?.toString() ?? _selectedSourceId ?? '';
+                          if (targetSourceId.isEmpty && _selectedExtensionName != null) {
+                            targetSourceId = _getPreferredSourceIds()[_selectedExtensionName] ?? '';
+                          }
+                          if (targetSourceId.isNotEmpty) {
+                            await SuwayomiService().registerMangaPath(mangaId, targetSourceId, mangaUrl, extName: _selectedExtensionName);
+                          }
                           widget.navigationState.selectManga(mangaId.toString());
                         }
                       },
@@ -1718,19 +1724,13 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
     final bool isNsfw = (ext['nsfw'] ?? 0) == 1 || ext['nsfw'] == true;
     final String pkgName = ext['pkgName']?.toString() ?? '';
     final bool isUpdating = _updatingPkgs.contains(pkgName);
-    // Build icon URL: prepend base host URL for relative paths
     final String baseHostUrl = 'http://${SuwayomiService.host}:${SuwayomiService.port}';
-    final String serverIconUrl = '$baseHostUrl/api/v1/extension/icon/$pkgName';
+    final String localApiIconUrl = '$baseHostUrl/api/icon?pkg=$pkgName';
+    final String githubCdnIconUrl = 'https://raw.githubusercontent.com/keiyoushi/extensions/repo/icon/$pkgName.png';
     final String rawIconUrl = ext['iconUrl']?.toString() ?? '';
-    final String dataIconUrl = rawIconUrl.isNotEmpty
-        ? (rawIconUrl.startsWith('http')
-            ? rawIconUrl
-            : (rawIconUrl.startsWith('/')
-                ? '$baseHostUrl$rawIconUrl'
-                : '$baseHostUrl/$rawIconUrl'))
-        : serverIconUrl;
-    final String iconUrl = dataIconUrl;
-
+    final String iconUrl = rawIconUrl.startsWith('http')
+        ? rawIconUrl
+        : localApiIconUrl;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10.0),
@@ -1755,19 +1755,15 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
               placeholder: (context, url) => const Center(
                 child: Icon(Icons.extension_outlined, color: Colors.white24, size: 20.0),
               ),
-              errorWidget: (context, url, error) => dataIconUrl.isNotEmpty && iconUrl != dataIconUrl
-                  ? CachedNetworkImage(
-                      imageUrl: dataIconUrl,
-                      width: 42.0,
-                      height: 42.0,
-                      fit: BoxFit.cover,
-                      errorWidget: (_, __, ___) => const Center(
-                        child: Icon(Icons.extension_outlined, color: Colors.white24, size: 20.0),
-                      ),
-                    )
-                  : const Center(
-                      child: Icon(Icons.extension_outlined, color: Colors.white24, size: 20.0),
-                    ),
+              errorWidget: (context, url, error) => CachedNetworkImage(
+                imageUrl: githubCdnIconUrl,
+                width: 42.0,
+                height: 42.0,
+                fit: BoxFit.cover,
+                errorWidget: (_, __, ___) => const Center(
+                  child: Icon(Icons.extension_outlined, color: Colors.white24, size: 20.0),
+                ),
+              ),
             ),
           ),
         ),
@@ -2080,7 +2076,12 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
                   ),
                 ),
               ),
-              const SizedBox(width: 12.0),
+              const SizedBox(width: 8.0),
+              IconButton(
+                icon: const Icon(Icons.add, color: Color(0xFFFF9F1C)),
+                tooltip: 'Add Extension Repository',
+                onPressed: _showAddRepoDialog,
+              ),
               IconButton(
                 icon: const Icon(Icons.refresh, color: Color(0xFFFF9F1C)),
                 tooltip: 'Check for extension updates',
@@ -2222,12 +2223,37 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
 
                       // Empty state
                       if (updates.isEmpty && installed.isEmpty && available.isEmpty)
-                        const Padding(
-                          padding: EdgeInsets.symmetric(vertical: 64.0),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 48.0, horizontal: 16.0),
                           child: Center(
-                            child: Text(
-                              'No extensions found.',
-                              style: TextStyle(color: Colors.white30, fontFamily: 'Outfit'),
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.extension_off_outlined, size: 54.0, color: Colors.white.withValues(alpha: 0.3)),
+                                const SizedBox(height: 16.0),
+                                const Text(
+                                  'No Extension Repositories Added',
+                                  style: TextStyle(color: Colors.white, fontSize: 16.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                                ),
+                                const SizedBox(height: 8.0),
+                                const Text(
+                                  'Manga extensions are fetched after you add an extension repository.',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(color: Colors.white54, fontSize: 13.0, fontFamily: 'Outfit'),
+                                ),
+                                const SizedBox(height: 20.0),
+                                ElevatedButton.icon(
+                                  onPressed: _showAddRepoDialog,
+                                  icon: const Icon(Icons.add_link, size: 18.0),
+                                  label: const Text('Add Extension Repo', style: TextStyle(fontWeight: FontWeight.bold, fontFamily: 'Outfit')),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFFFF9F1C),
+                                    foregroundColor: Colors.black,
+                                    padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 12.0),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ),
@@ -2238,6 +2264,108 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
                 ),
         ),
       ],
+    );
+  }
+
+  void _showAddRepoDialog() {
+    final TextEditingController urlController = TextEditingController();
+    final TextEditingController nameController = TextEditingController();
+    bool isSubmitting = false;
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          backgroundColor: const Color(0xFF141416),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
+          title: const Row(
+            children: [
+              Icon(Icons.add_link, color: Color(0xFFFF9F1C)),
+              SizedBox(width: 10.0),
+              Text(
+                'Add Extension Repository',
+                style: TextStyle(color: Colors.white, fontSize: 16.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+              ),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Enter the URL of a Tachiyomi / Mihon extension repository index:',
+                style: TextStyle(color: Colors.white70, fontSize: 13.0, fontFamily: 'Outfit'),
+              ),
+              const SizedBox(height: 12.0),
+              TextField(
+                controller: urlController,
+                style: const TextStyle(color: Colors.white, fontSize: 13.0),
+                decoration: InputDecoration(
+                  hintText: 'https://raw.githubusercontent.com/.../index.min.json',
+                  hintStyle: const TextStyle(color: Colors.white24, fontSize: 12.0),
+                  filled: true,
+                  fillColor: Colors.white.withValues(alpha: 0.05),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8.0), borderSide: BorderSide.none),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 10.0),
+                ),
+              ),
+              const SizedBox(height: 12.0),
+              TextField(
+                controller: nameController,
+                style: const TextStyle(color: Colors.white, fontSize: 13.0),
+                decoration: InputDecoration(
+                  hintText: 'Repository Name (Optional)',
+                  hintStyle: const TextStyle(color: Colors.white24, fontSize: 12.0),
+                  filled: true,
+                  fillColor: Colors.white.withValues(alpha: 0.05),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8.0), borderSide: BorderSide.none),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 10.0),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel', style: TextStyle(color: Colors.white54)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFFF9F1C),
+                foregroundColor: Colors.black,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
+              ),
+              onPressed: isSubmitting
+                  ? null
+                  : () async {
+                      final url = urlController.text.trim();
+                      final name = nameController.text.trim();
+                      if (url.isEmpty) {
+                        NotificationService().show(context, 'Please enter a repository URL');
+                        return;
+                      }
+                      setDialogState(() => isSubmitting = true);
+                      try {
+                        await _suwayomiService.addRepoUrl(url, name: name.isNotEmpty ? name : null);
+                        if (mounted) {
+                          Navigator.of(context).pop();
+                          NotificationService().show(context, 'Repository added successfully!');
+                          _loadExtensions();
+                        }
+                      } catch (e) {
+                        setDialogState(() => isSubmitting = false);
+                        if (mounted) {
+                          NotificationService().show(context, 'Failed to add repository: $e');
+                        }
+                      }
+                    },
+              child: isSubmitting
+                  ? const SizedBox(width: 16.0, height: 16.0, child: CircularProgressIndicator(strokeWidth: 2.0, color: Colors.black))
+                  : const Text('Add Repository', style: TextStyle(fontWeight: FontWeight.bold)),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

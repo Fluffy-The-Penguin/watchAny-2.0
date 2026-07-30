@@ -5,6 +5,9 @@ package eu.kanade.tachiyomi.source.model
 import android.net.Uri
 import eu.kanade.tachiyomi.network.ProgressListener
 import java.io.Serializable
+import kotlinx.serialization.json.JsonObject
+
+private val EMPTY_JSON_OBJECT = JsonObject(emptyMap())
 
 interface SManga : Serializable {
     var url: String
@@ -17,6 +20,7 @@ interface SManga : Serializable {
     var thumbnail_url: String?
     var update_strategy: UpdateStrategy
     var initialized: Boolean
+    var memo: JsonObject
 
     fun getGenres(): List<String>? {
         if (genre.isNullOrBlank()) return null
@@ -34,6 +38,7 @@ interface SManga : Serializable {
         it.thumbnail_url = thumbnail_url
         it.update_strategy = update_strategy
         it.initialized = initialized
+        it.memo = memo
     }
 
     companion object {
@@ -60,6 +65,7 @@ class SMangaImpl : SManga {
     override var thumbnail_url: String? = null
     override var update_strategy: UpdateStrategy = UpdateStrategy.ALWAYS_UPDATE
     override var initialized: Boolean = false
+    override var memo: JsonObject = EMPTY_JSON_OBJECT
 }
 
 interface SChapter : Serializable {
@@ -68,6 +74,7 @@ interface SChapter : Serializable {
     var date_upload: Long
     var chapter_number: Float
     var scanlator: String?
+    var memo: JsonObject
 
     fun copyFrom(other: SChapter) {
         name = other.name
@@ -75,6 +82,7 @@ interface SChapter : Serializable {
         date_upload = other.date_upload
         chapter_number = other.chapter_number
         scanlator = other.scanlator
+        memo = other.memo
     }
 
     companion object {
@@ -88,6 +96,7 @@ class SChapterImpl : SChapter {
     override var date_upload: Long = 0
     override var chapter_number: Float = -1f
     override var scanlator: String? = null
+    override var memo: JsonObject = EMPTY_JSON_OBJECT
 }
 
 open class Page(

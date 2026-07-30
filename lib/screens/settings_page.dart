@@ -3857,7 +3857,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 controller: _mangaRepoUrlController,
                 style: const TextStyle(color: Colors.white, fontSize: 13.0, fontFamily: 'Outfit'),
                 decoration: InputDecoration(
-                  hintText: 'https://example.com/index.min.json',
+                  hintText: 'https://example.com/index.json',
                   hintStyle: const TextStyle(color: Colors.white38),
                   filled: true,
                   fillColor: Colors.white.withValues(alpha: 0.03),

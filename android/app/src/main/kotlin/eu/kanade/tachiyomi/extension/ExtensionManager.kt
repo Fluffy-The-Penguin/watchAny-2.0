@@ -79,12 +79,20 @@ class ExtensionManager(
             val targetDir = ExtensionLoader.getPrivateExtensionDir(context)
             val pkgManager = context.packageManager
             @Suppress("DEPRECATION")
-            val pkgInfo = pkgManager.getPackageArchiveInfo(tempFile.absolutePath, 0) ?: error("Invalid APK binary")
-            val targetFile = File(targetDir, "${pkgInfo.packageName}.ext")
+            var pkgName = pkgManager.getPackageArchiveInfo(tempFile.absolutePath, 0)?.packageName
+            if (pkgName.isNullOrBlank()) {
+                val meta = runCatching { runtime.PackageTools.getPackageMetadata(tempFile.toPath()) }.getOrNull()
+                pkgName = meta?.pkgName
+            }
+            if (pkgName.isNullOrBlank()) {
+                error("Invalid APK binary: package name missing")
+            }
+
+            val targetFile = File(targetDir, "$pkgName.ext")
             tempFile.copyTo(targetFile, overwrite = true)
             tempFile.delete()
 
-            // Reload extensions
+            // Reload extension
             val result = ExtensionLoader.loadExtensionFromApkFile(context, targetFile)
             if (result is LoadResult.Success) {
                 val installedExt = result.extension
@@ -92,7 +100,10 @@ class ExtensionManager(
                 val updatedList = currentList + installedExt
                 _installedExtensions.value = updatedList
                 sourceManager.registerSources(installedExt.sources)
+                android.util.Log.i("watchAny-ExtensionManager", "Successfully installed extension $pkgName with ${installedExt.sources.size} sources")
                 return installedExt
+            } else {
+                android.util.Log.e("watchAny-ExtensionManager", "Failed to load extension $pkgName from target file")
             }
         } catch (e: Throwable) {
             android.util.Log.e("watchAny-ExtensionManager", "Error installing extension from $apkUrl: ${e.message}", e)
@@ -102,16 +113,21 @@ class ExtensionManager(
     }
 
     fun uninstallExtension(pkgName: String): Boolean {
-        val targetFile = File(ExtensionLoader.getPrivateExtensionDir(context), "$pkgName.ext")
-        val removedFile = targetFile.delete()
+        val targetDir = ExtensionLoader.getPrivateExtensionDir(context)
+        val extFile = File(targetDir, "$pkgName.ext")
+        if (extFile.exists()) extFile.delete()
+        val apkFile = File(targetDir, "$pkgName.apk")
+        if (apkFile.exists()) apkFile.delete()
+
         val current = _installedExtensions.value
         val targetExt = current.firstOrNull { it.pkgName == pkgName }
         if (targetExt != null) {
             sourceManager.unregisterSources(targetExt.sources)
             _installedExtensions.value = current.filterNot { it.pkgName == pkgName }
+            android.util.Log.i("watchAny-ExtensionManager", "Successfully uninstalled extension $pkgName")
             return true
         }
-        return removedFile
+        return true
     }
 
     fun getSource(sourceId: Long) = sourceManager.get(sourceId)

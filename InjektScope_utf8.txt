@@ -1,0 +1,337 @@
+﻿Compiled from "FullTypeReference.kt"
+public class uy.kohesive.injekt.api.InjektScope implements uy.kohesive.injekt.api.InjektFactory {
+  private final java.util.LinkedHashMap<java.lang.Class<?>, java.lang.Object> instances;
+
+  private final java.util.LinkedHashMap<kotlin.Pair<java.lang.Class<?>, java.lang.Object>, java.lang.Object> keyedInstances;
+
+  public uy.kohesive.injekt.api.InjektScope();
+    Code:
+       0: aload_0
+       1: invokespecial #73                 // Method java/lang/Object."<init>":()V
+       4: aload_0
+       5: new           #75                 // class java/util/LinkedHashMap
+       8: dup
+       9: invokespecial #76                 // Method java/util/LinkedHashMap."<init>":()V
+      12: putfield      #78                 // Field instances:Ljava/util/LinkedHashMap;
+      15: aload_0
+      16: new           #75                 // class java/util/LinkedHashMap
+      19: dup
+      20: invokespecial #76                 // Method java/util/LinkedHashMap."<init>":()V
+      23: putfield      #80                 // Field keyedInstances:Ljava/util/LinkedHashMap;
+      26: return
+
+  public final void clear();
+    Code:
+       0: aload_0
+       1: getfield      #78                 // Field instances:Ljava/util/LinkedHashMap;
+       4: invokevirtual #83                 // Method java/util/LinkedHashMap.clear:()V
+       7: return
+
+  public final <T> void register(java.lang.Class<T>, T);
+    Code:
+       0: aload_1
+       1: ldc           #85                 // String type
+       3: invokestatic  #91                 // Method kotlin/jvm/internal/Intrinsics.checkNotNullParameter:(Ljava/lang/Object;Ljava/lang/String;)V
+       6: aload_2
+       7: ldc           #92                 // String instance
+       9: invokestatic  #91                 // Method kotlin/jvm/internal/Intrinsics.checkNotNullParameter:(Ljava/lang/Object;Ljava/lang/String;)V
+      12: aload_0
+      13: getfield      #78                 // Field instances:Ljava/util/LinkedHashMap;
+      16: checkcast     #94                 // class java/util/Map
+      19: aload_1
+      20: aload_2
+      21: invokeinterface #98,  3           // InterfaceMethod java/util/Map.put:(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;
+      26: pop
+      27: return
+
+  public final <T> T get(java.lang.Class<T>);
+    Code:
+       0: aload_1
+       1: ldc           #85                 // String type
+       3: invokestatic  #91                 // Method kotlin/jvm/internal/Intrinsics.checkNotNullParameter:(Ljava/lang/Object;Ljava/lang/String;)V
+       6: aload_0
+       7: getfield      #78                 // Field instances:Ljava/util/LinkedHashMap;
+      10: aload_1
+      11: invokevirtual #103                // Method java/util/LinkedHashMap.get:(Ljava/lang/Object;)Ljava/lang/Object;
+      14: dup
+      15: ifnull        34
+      18: astore_3
+      19: iconst_0
+      20: istore        4
+      22: aload_1
+      23: aload_3
+      24: invokevirtual #108                // Method java/lang/Class.cast:(Ljava/lang/Object;)Ljava/lang/Object;
+      27: dup
+      28: ldc           #110                // String cast(...)
+      30: invokestatic  #113                // Method kotlin/jvm/internal/Intrinsics.checkNotNullExpressionValue:(Ljava/lang/Object;Ljava/lang/String;)V
+      33: areturn
+      34: pop
+      35: aload_1
+      36: iconst_0
+      37: anewarray     #105                // class java/lang/Class
+      40: invokevirtual #117                // Method java/lang/Class.getDeclaredConstructor:([Ljava/lang/Class;)Ljava/lang/reflect/Constructor;
+      43: iconst_0
+      44: anewarray     #4                  // class java/lang/Object
+      47: invokevirtual #123                // Method java/lang/reflect/Constructor.newInstance:([Ljava/lang/Object;)Ljava/lang/Object;
+      50: astore_2
+      51: aload_0
+      52: getfield      #78                 // Field instances:Ljava/util/LinkedHashMap;
+      55: checkcast     #94                 // class java/util/Map
+      58: aload_1
+      59: aload_2
+      60: invokeinterface #98,  3           // InterfaceMethod java/util/Map.put:(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;
+      65: pop
+      66: aload_2
+      67: invokestatic  #127                // Method kotlin/jvm/internal/Intrinsics.checkNotNull:(Ljava/lang/Object;)V
+      70: aload_2
+      71: areturn
+
+  public final <R> R get(uy.kohesive.injekt.api.TypeReference<R>);
+    Code:
+       0: aload_1
+       1: ldc           #133                // String forType
+       3: invokestatic  #91                 // Method kotlin/jvm/internal/Intrinsics.checkNotNullParameter:(Ljava/lang/Object;Ljava/lang/String;)V
+       6: aload_0
+       7: aload_1
+       8: invokeinterface #139,  1          // InterfaceMethod uy/kohesive/injekt/api/TypeReference.getType:()Ljava/lang/reflect/Type;
+      13: invokestatic  #145                // Method uy/kohesive/injekt/api/FullTypeReferenceKt.erasedType:(Ljava/lang/reflect/Type;)Ljava/lang/Class;
+      16: dup
+      17: ldc           #147                // String null cannot be cast to non-null type java.lang.Class<R of uy.kohesive.injekt.api.InjektScope.get>
+      19: invokestatic  #149                // Method kotlin/jvm/internal/Intrinsics.checkNotNull:(Ljava/lang/Object;Ljava/lang/String;)V
+      22: invokevirtual #151                // Method get:(Ljava/lang/Class;)Ljava/lang/Object;
+      25: areturn
+
+  public final <R> R get(uy.kohesive.injekt.api.TypeReference<R>, java.lang.Object);
+    Code:
+       0: aload_1
+       1: ldc           #133                // String forType
+       3: invokestatic  #91                 // Method kotlin/jvm/internal/Intrinsics.checkNotNullParameter:(Ljava/lang/Object;Ljava/lang/String;)V
+       6: aload_2
+       7: ldc           #153                // String key
+       9: invokestatic  #91                 // Method kotlin/jvm/internal/Intrinsics.checkNotNullParameter:(Ljava/lang/Object;Ljava/lang/String;)V
+      12: aload_0
+      13: aload_1
+      14: invokeinterface #139,  1          // InterfaceMethod uy/kohesive/injekt/api/TypeReference.getType:()Ljava/lang/reflect/Type;
+      19: aload_2
+      20: invokevirtual #155                // Method getKeyedInstance:(Ljava/lang/reflect/Type;Ljava/lang/Object;)Ljava/lang/Object;
+      23: areturn
+
+  public <R> R getInstance(java.lang.reflect.Type);
+    Code:
+       0: aload_1
+       1: invokestatic  #145                // Method uy/kohesive/injekt/api/FullTypeReferenceKt.erasedType:(Ljava/lang/reflect/Type;)Ljava/lang/Class;
+       4: invokevirtual #160                // Method java/lang/Class.getName:()Ljava/lang/String;
+       7: ldc           #162                // String kotlinx.serialization.json.Json
+       9: invokevirtual #168                // Method java/lang/String.equals:(Ljava/lang/Object;)Z
+      12: ifeq          35
+      15: aload_0
+      16: getfield      #78                 // Field instances:Ljava/util/LinkedHashMap;
+      19: ldc           #170                // class kotlinx/serialization/json/Json
+      21: invokevirtual #103                // Method java/util/LinkedHashMap.get:(Ljava/lang/Object;)Ljava/lang/Object;
+      24: astore_2
+      25: aload_2
+      26: ifnonnull     33
+      29: getstatic     #174                // Field kotlinx/serialization/json/Json.Default:Lkotlinx/serialization/json/Json$Default;
+      32: areturn
+      33: aload_2
+      34: areturn
+      35: aload_1
+      36: ldc           #133                // String forType
+      38: invokestatic  #91                 // Method kotlin/jvm/internal/Intrinsics.checkNotNullParameter:(Ljava/lang/Object;Ljava/lang/String;)V
+      41: aload_0
+      42: aload_1
+      43: invokestatic  #145                // Method uy/kohesive/injekt/api/FullTypeReferenceKt.erasedType:(Ljava/lang/reflect/Type;)Ljava/lang/Class;
+      46: dup
+      47: ldc           #176                // String null cannot be cast to non-null type java.lang.Class<R of uy.kohesive.injekt.api.InjektScope.getInstance>
+      49: invokestatic  #149                // Method kotlin/jvm/internal/Intrinsics.checkNotNull:(Ljava/lang/Object;Ljava/lang/String;)V
+      52: invokevirtual #151                // Method get:(Ljava/lang/Class;)Ljava/lang/Object;
+      55: areturn
+
+  public <R> R getInstanceOrElse(java.lang.reflect.Type, R);
+    Code:
+       0: aload_1
+       1: ldc           #133                // String forType
+       3: invokestatic  #91                 // Method kotlin/jvm/internal/Intrinsics.checkNotNullParameter:(Ljava/lang/Object;Ljava/lang/String;)V
+       6: aload_2
+       7: ldc           #178                // String default
+       9: invokestatic  #91                 // Method kotlin/jvm/internal/Intrinsics.checkNotNullParameter:(Ljava/lang/Object;Ljava/lang/String;)V
+      12: aload_0
+      13: aload_1
+      14: invokevirtual #180                // Method getInstanceOrNull:(Ljava/lang/reflect/Type;)Ljava/lang/Object;
+      17: dup
+      18: ifnonnull     23
+      21: pop
+      22: aload_2
+      23: areturn
+
+  public <R> R getInstanceOrElse(java.lang.reflect.Type, kotlin.jvm.functions.Function0<? extends R>);
+    Code:
+       0: aload_1
+       1: ldc           #133                // String forType
+       3: invokestatic  #91                 // Method kotlin/jvm/internal/Intrinsics.checkNotNullParameter:(Ljava/lang/Object;Ljava/lang/String;)V
+       6: aload_2
+       7: ldc           #178                // String default
+       9: invokestatic  #91                 // Method kotlin/jvm/internal/Intrinsics.checkNotNullParameter:(Ljava/lang/Object;Ljava/lang/String;)V
+      12: aload_0
+      13: aload_1
+      14: invokevirtual #180                // Method getInstanceOrNull:(Ljava/lang/reflect/Type;)Ljava/lang/Object;
+      17: dup
+      18: ifnonnull     28
+      21: pop
+      22: aload_2
+      23: invokeinterface #187,  1          // InterfaceMethod kotlin/jvm/functions/Function0.invoke:()Ljava/lang/Object;
+      28: areturn
+
+  public <R> R getInstanceOrNull(java.lang.reflect.Type);
+    Code:
+       0: aload_1
+       1: ldc           #133                // String forType
+       3: invokestatic  #91                 // Method kotlin/jvm/internal/Intrinsics.checkNotNullParameter:(Ljava/lang/Object;Ljava/lang/String;)V
+       6: aload_0
+       7: getfield      #78                 // Field instances:Ljava/util/LinkedHashMap;
+      10: aload_1
+      11: invokestatic  #145                // Method uy/kohesive/injekt/api/FullTypeReferenceKt.erasedType:(Ljava/lang/reflect/Type;)Ljava/lang/Class;
+      14: invokevirtual #103                // Method java/util/LinkedHashMap.get:(Ljava/lang/Object;)Ljava/lang/Object;
+      17: dup
+      18: ifnonnull     23
+      21: pop
+      22: aconst_null
+      23: areturn
+
+  public <R, K> R getKeyedInstance(java.lang.reflect.Type, K);
+    Code:
+       0: aload_1
+       1: ldc           #133                // String forType
+       3: invokestatic  #91                 // Method kotlin/jvm/internal/Intrinsics.checkNotNullParameter:(Ljava/lang/Object;Ljava/lang/String;)V
+       6: aload_2
+       7: ldc           #153                // String key
+       9: invokestatic  #91                 // Method kotlin/jvm/internal/Intrinsics.checkNotNullParameter:(Ljava/lang/Object;Ljava/lang/String;)V
+      12: aload_1
+      13: invokestatic  #145                // Method uy/kohesive/injekt/api/FullTypeReferenceKt.erasedType:(Ljava/lang/reflect/Type;)Ljava/lang/Class;
+      16: astore_3
+      17: aload_0
+      18: getfield      #80                 // Field keyedInstances:Ljava/util/LinkedHashMap;
+      21: checkcast     #94                 // class java/util/Map
+      24: astore        4
+      26: aload_3
+      27: aload_2
+      28: invokestatic  #196                // Method kotlin/TuplesKt.to:(Ljava/lang/Object;Ljava/lang/Object;)Lkotlin/Pair;
+      31: astore        5
+      33: iconst_0
+      34: istore        6
+      36: aload         4
+      38: aload         5
+      40: invokeinterface #197,  2          // InterfaceMethod java/util/Map.get:(Ljava/lang/Object;)Ljava/lang/Object;
+      45: astore        7
+      47: aload         7
+      49: ifnonnull     79
+      52: iconst_0
+      53: istore        8
+      55: aload_0
+      56: aload_3
+      57: invokevirtual #151                // Method get:(Ljava/lang/Class;)Ljava/lang/Object;
+      60: astore        9
+      62: aload         4
+      64: aload         5
+      66: aload         9
+      68: invokeinterface #98,  3           // InterfaceMethod java/util/Map.put:(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;
+      73: pop
+      74: aload         9
+      76: goto          81
+      79: aload         7
+      81: nop
+      82: dup
+      83: ldc           #199                // String null cannot be cast to non-null type R of uy.kohesive.injekt.api.InjektScope.getKeyedInstance
+      85: invokestatic  #149                // Method kotlin/jvm/internal/Intrinsics.checkNotNull:(Ljava/lang/Object;Ljava/lang/String;)V
+      88: areturn
+
+  public <R, K> R getKeyedInstanceOrElse(java.lang.reflect.Type, K, R);
+    Code:
+       0: aload_1
+       1: ldc           #133                // String forType
+       3: invokestatic  #91                 // Method kotlin/jvm/internal/Intrinsics.checkNotNullParameter:(Ljava/lang/Object;Ljava/lang/String;)V
+       6: aload_2
+       7: ldc           #153                // String key
+       9: invokestatic  #91                 // Method kotlin/jvm/internal/Intrinsics.checkNotNullParameter:(Ljava/lang/Object;Ljava/lang/String;)V
+      12: aload_3
+      13: ldc           #178                // String default
+      15: invokestatic  #91                 // Method kotlin/jvm/internal/Intrinsics.checkNotNullParameter:(Ljava/lang/Object;Ljava/lang/String;)V
+      18: aload_0
+      19: aload_1
+      20: aload_2
+      21: invokevirtual #213                // Method getKeyedInstanceOrNull:(Ljava/lang/reflect/Type;Ljava/lang/Object;)Ljava/lang/Object;
+      24: dup
+      25: ifnonnull     30
+      28: pop
+      29: aload_3
+      30: areturn
+
+  public <R, K> R getKeyedInstanceOrElse(java.lang.reflect.Type, K, kotlin.jvm.functions.Function0<? extends R>);
+    Code:
+       0: aload_1
+       1: ldc           #133                // String forType
+       3: invokestatic  #91                 // Method kotlin/jvm/internal/Intrinsics.checkNotNullParameter:(Ljava/lang/Object;Ljava/lang/String;)V
+       6: aload_2
+       7: ldc           #153                // String key
+       9: invokestatic  #91                 // Method kotlin/jvm/internal/Intrinsics.checkNotNullParameter:(Ljava/lang/Object;Ljava/lang/String;)V
+      12: aload_3
+      13: ldc           #178                // String default
+      15: invokestatic  #91                 // Method kotlin/jvm/internal/Intrinsics.checkNotNullParameter:(Ljava/lang/Object;Ljava/lang/String;)V
+      18: aload_0
+      19: aload_1
+      20: aload_2
+      21: invokevirtual #213                // Method getKeyedInstanceOrNull:(Ljava/lang/reflect/Type;Ljava/lang/Object;)Ljava/lang/Object;
+      24: dup
+      25: ifnonnull     35
+      28: pop
+      29: aload_3
+      30: invokeinterface #187,  1          // InterfaceMethod kotlin/jvm/functions/Function0.invoke:()Ljava/lang/Object;
+      35: areturn
+
+  public <R, K> R getKeyedInstanceOrNull(java.lang.reflect.Type, K);
+    Code:
+       0: aload_1
+       1: ldc           #133                // String forType
+       3: invokestatic  #91                 // Method kotlin/jvm/internal/Intrinsics.checkNotNullParameter:(Ljava/lang/Object;Ljava/lang/String;)V
+       6: aload_2
+       7: ldc           #153                // String key
+       9: invokestatic  #91                 // Method kotlin/jvm/internal/Intrinsics.checkNotNullParameter:(Ljava/lang/Object;Ljava/lang/String;)V
+      12: aload_0
+      13: getfield      #80                 // Field keyedInstances:Ljava/util/LinkedHashMap;
+      16: aload_1
+      17: invokestatic  #145                // Method uy/kohesive/injekt/api/FullTypeReferenceKt.erasedType:(Ljava/lang/reflect/Type;)Ljava/lang/Class;
+      20: aload_2
+      21: invokestatic  #196                // Method kotlin/TuplesKt.to:(Ljava/lang/Object;Ljava/lang/Object;)Lkotlin/Pair;
+      24: invokevirtual #103                // Method java/util/LinkedHashMap.get:(Ljava/lang/Object;)Ljava/lang/Object;
+      27: dup
+      28: ifnonnull     33
+      31: pop
+      32: aconst_null
+      33: areturn
+
+  public <R> R getLogger(java.lang.reflect.Type, java.lang.String);
+    Code:
+       0: aload_1
+       1: ldc           #216                // String expectedLoggerType
+       3: invokestatic  #91                 // Method kotlin/jvm/internal/Intrinsics.checkNotNullParameter:(Ljava/lang/Object;Ljava/lang/String;)V
+       6: aload_2
+       7: ldc           #217                // String byName
+       9: invokestatic  #91                 // Method kotlin/jvm/internal/Intrinsics.checkNotNullParameter:(Ljava/lang/Object;Ljava/lang/String;)V
+      12: aload_0
+      13: aload_1
+      14: invokevirtual #219                // Method getInstance:(Ljava/lang/reflect/Type;)Ljava/lang/Object;
+      17: areturn
+
+  public <R, T> R getLogger(java.lang.reflect.Type, java.lang.Class<T>);
+    Code:
+       0: aload_1
+       1: ldc           #216                // String expectedLoggerType
+       3: invokestatic  #91                 // Method kotlin/jvm/internal/Intrinsics.checkNotNullParameter:(Ljava/lang/Object;Ljava/lang/String;)V
+       6: aload_2
+       7: ldc           #222                // String forClass
+       9: invokestatic  #91                 // Method kotlin/jvm/internal/Intrinsics.checkNotNullParameter:(Ljava/lang/Object;Ljava/lang/String;)V
+      12: aload_0
+      13: aload_1
+      14: invokevirtual #219                // Method getInstance:(Ljava/lang/reflect/Type;)Ljava/lang/Object;
+      17: areturn
+}

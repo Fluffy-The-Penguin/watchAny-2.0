@@ -62,14 +62,14 @@ object ExtensionLoader {
                 val pkgInfo = pkgManager.getPackageArchiveInfo(file.absolutePath, PACKAGE_FLAGS) ?: continue
                 pkgInfo.applicationInfo?.sourceDir = file.absolutePath
                 pkgInfo.applicationInfo?.publicSourceDir = file.absolutePath
-                if (isPackageAnExtension(pkgInfo)) {
+                if (isPackageAnExtension(pkgInfo, file.absolutePath)) {
                     val result = loadExtensionFromPkgInfo(context, pkgInfo, isShared = false, apkPath = file.absolutePath)
                     if (result != null && results.none { (it as? LoadResult.Success)?.extension?.pkgName == pkgInfo.packageName }) {
                         results.add(result)
                     }
                 }
             } catch (e: Throwable) {
-                android.util.Log.e("watchAny-ExtensionLoader", "Failed to load private extension file ${file.name}: ${e.message}")
+                android.util.Log.e("watchAny-ExtensionLoader", "Failed to load private extension file ${file.name}: ${e.message}", e)
             }
         }
 
@@ -83,16 +83,21 @@ object ExtensionLoader {
         val pkgInfo = pkgManager.getPackageArchiveInfo(apkFile.absolutePath, PACKAGE_FLAGS) ?: return null
         pkgInfo.applicationInfo?.sourceDir = apkFile.absolutePath
         pkgInfo.applicationInfo?.publicSourceDir = apkFile.absolutePath
-        if (!isPackageAnExtension(pkgInfo)) return null
+        if (!isPackageAnExtension(pkgInfo, apkFile.absolutePath)) return null
         return loadExtensionFromPkgInfo(context, pkgInfo, isShared = false, apkPath = apkFile.absolutePath)
     }
 
-    private fun isPackageAnExtension(pkgInfo: PackageInfo): Boolean {
-        val appInfo = pkgInfo.applicationInfo ?: return false
-        val metaData = appInfo.metaData
+    private fun isPackageAnExtension(pkgInfo: PackageInfo, apkPath: String? = null): Boolean {
+        val appInfo = pkgInfo.applicationInfo
+        val metaData = appInfo?.metaData
         val hasFeature = pkgInfo.reqFeatures?.any { it.name == EXTENSION_FEATURE } == true
         val hasClassMeta = metaData?.containsKey(METADATA_SOURCE_CLASS) == true || metaData?.containsKey(METADATA_SOURCE_FACTORY) == true
-        return hasFeature || hasClassMeta || pkgInfo.packageName.contains("tachiyomi.extension")
+        if (hasFeature || hasClassMeta || pkgInfo.packageName.contains("tachiyomi.extension")) return true
+        if (apkPath != null) {
+            val apkMeta = runCatching { PackageTools.getPackageMetadata(File(apkPath).toPath()) }.getOrNull()
+            if (apkMeta != null && apkMeta.sourceClasses.isNotEmpty()) return true
+        }
+        return false
     }
 
     private fun loadExtensionFromPkgInfo(
@@ -106,27 +111,39 @@ object ExtensionLoader {
             val pkgName = pkgInfo.packageName
             val versionName = pkgInfo.versionName ?: "1.0"
             val versionCode = PackageInfoCompat.getLongVersionCode(pkgInfo)
-            val extName = runCatching { context.packageManager.getApplicationLabel(appInfo).toString() }
+
+            val parsedMeta = if (apkPath != null) {
+                runCatching { PackageTools.getPackageMetadata(File(apkPath).toPath()) }.getOrNull()
+            } else null
+
+            var extName = runCatching { context.packageManager.getApplicationLabel(appInfo).toString() }
                 .getOrDefault(pkgName)
                 .removePrefix("Tachiyomi: ")
                 .removePrefix("Keiyoushi: ")
                 .trim()
 
+            if (extName == pkgName && parsedMeta != null && parsedMeta.label.isNotBlank()) {
+                extName = parsedMeta.label.removePrefix("Tachiyomi: ").removePrefix("Keiyoushi: ").trim()
+            }
+
             val classLoader = ChildFirstPathClassLoader(
                 apkPath ?: appInfo.sourceDir ?: "",
                 appInfo.nativeLibraryDir,
                 context.classLoader,
-                context
             )
 
             val rawClasses = appInfo.metaData?.getString(METADATA_SOURCE_CLASS)
                 ?: appInfo.metaData?.getString(METADATA_SOURCE_FACTORY)
                 ?: ""
 
-            val sourceClasses = rawClasses.split(';', ',', ' ')
+            var sourceClasses = rawClasses.split(';', ',', ' ')
                 .map { it.trim() }
                 .filter { it.isNotBlank() }
                 .map { if (it.startsWith('.')) pkgName + it else it }
+
+            if (sourceClasses.isEmpty() && parsedMeta != null && parsedMeta.sourceClasses.isNotEmpty()) {
+                sourceClasses = parsedMeta.sourceClasses.map { if (it.startsWith('.')) pkgName + it else it }
+            }
 
             val sources = mutableListOf<Source>()
             for (className in sourceClasses) {
@@ -151,7 +168,7 @@ object ExtensionLoader {
             }
 
             val lang = sources.firstOrNull()?.lang ?: "all"
-            val isNsfw = appInfo.metaData?.getInt(METADATA_NSFW, 0) == 1
+            val isNsfw = (appInfo.metaData?.getInt(METADATA_NSFW, 0) == 1) || (parsedMeta?.nsfw == true)
 
             val installed = Extension.Installed(
                 name = extName,
@@ -161,11 +178,12 @@ object ExtensionLoader {
                 libVersion = 1.4,
                 lang = lang,
                 isNsfw = isNsfw,
-                pkgFactory = appInfo.metaData?.getString(METADATA_SOURCE_FACTORY),
+                pkgFactory = appInfo.metaData?.getString(METADATA_SOURCE_FACTORY) ?: parsedMeta?.metaData?.get(METADATA_SOURCE_FACTORY),
                 sources = sources,
                 isShared = isShared,
                 apkPath = apkPath ?: appInfo.sourceDir
             )
+            android.util.Log.d("watchAny-ExtensionLoader", "Successfully loaded extension $pkgName ($extName) with ${sources.size} sources")
             LoadResult.Success(installed)
         } catch (e: Throwable) {
             android.util.Log.e("watchAny-ExtensionLoader", "Failed to load extension ${pkgInfo.packageName}: ${e.message}", e)
