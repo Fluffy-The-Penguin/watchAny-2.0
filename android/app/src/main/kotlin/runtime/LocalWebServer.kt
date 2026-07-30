@@ -7,6 +7,7 @@ import eu.kanade.tachiyomi.source.Source
 import eu.kanade.tachiyomi.source.SourceFactory
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.MangasPage
+import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.source.online.HttpSource
@@ -50,6 +51,8 @@ class LocalWebServer(private val context: Context, private val runtime: Extensio
     private val imageClient = OkHttpClient()
     private val sourceCache = mutableMapOf<Long, CachedSource>()
 
+    override fun useGzipWhenAccepted(r: Response): Boolean = false
+
     override fun serve(session: IHTTPSession): Response {
         return try {
             route(session)
@@ -63,6 +66,9 @@ class LocalWebServer(private val context: Context, private val runtime: Extensio
         val uri = session.uri
         if (uri.startsWith("/api/v1/source/")) {
             val parts = uri.removePrefix("/api/v1/source/").split("/")
+            if (parts.size >= 2 && parts[1] == "cover") {
+                return proxyImage(session)
+            }
             if (parts.size >= 3) {
                 val sourceId = parts[0]
                 val action = parts[1]
@@ -103,10 +109,16 @@ class LocalWebServer(private val context: Context, private val runtime: Extensio
             "/api/latest" -> api { latest(session) }
             "/api/details" -> api { mangaDetails(session) }
             "/api/chapters" -> api { chapters(session) }
-            "/api/pages" -> api { pages(session) }
+            "/api/pages", "/api/v1/chapter/pages" -> api { pages(session) }
             "/api/icon" -> extensionIcon(session)
             "/api/image" -> proxyImage(session)
-            else -> sendText(404, "text/plain; charset=utf-8", "Not found")
+            else -> {
+                if (session.uri.startsWith("/api/v1/source/") && session.uri.contains("/cover")) {
+                    proxyImage(session)
+                } else {
+                    sendText(404, "text/plain; charset=utf-8", "Not found")
+                }
+            }
         }
     }
 
@@ -413,7 +425,12 @@ class LocalWebServer(private val context: Context, private val runtime: Extensio
 
     private fun popular(sourceId: String, pageNumber: Int): JsonElement {
         val source = source(sourceId)
-        val page = runBlocking(Dispatchers.IO) { withTimeout(SOURCE_REQUEST_TIMEOUT_MS) { source.getPopularManga(pageNumber) } }
+        val page = try {
+            runBlocking(Dispatchers.IO) { withTimeout(SOURCE_REQUEST_TIMEOUT_MS) { source.getPopularManga(pageNumber) } }
+        } catch (e: Throwable) {
+            android.util.Log.e("watchAny-LocalServer", "Error getting popular manga for ${source.name}", e)
+            eu.kanade.tachiyomi.source.model.MangasPage(emptyList(), false)
+        }
         return mangaPageJson(source, page, "popular")
     }
 
@@ -425,8 +442,13 @@ class LocalWebServer(private val context: Context, private val runtime: Extensio
 
     private fun latest(sourceId: String, pageNumber: Int): JsonElement {
         val source = source(sourceId)
-        check(source.supportsLatest) { "Source ${source.name} does not support latest updates" }
-        val page = runBlocking(Dispatchers.IO) { withTimeout(SOURCE_REQUEST_TIMEOUT_MS) { source.getLatestUpdates(pageNumber) } }
+        if (!source.supportsLatest) return mangaPageJson(source, eu.kanade.tachiyomi.source.model.MangasPage(emptyList(), false), "latest")
+        val page = try {
+            runBlocking(Dispatchers.IO) { withTimeout(SOURCE_REQUEST_TIMEOUT_MS) { source.getLatestUpdates(pageNumber) } }
+        } catch (e: Throwable) {
+            android.util.Log.e("watchAny-LocalServer", "Error getting latest updates for ${source.name}", e)
+            eu.kanade.tachiyomi.source.model.MangasPage(emptyList(), false)
+        }
         return mangaPageJson(source, page, "latest")
     }
 
@@ -434,7 +456,12 @@ class LocalWebServer(private val context: Context, private val runtime: Extensio
         val source = source(sourceId)
         val query = session.query()["query"]?.ifBlank { session.query()["q"] }.orEmpty()
         val filters = filterList(source, session.query()["filters"])
-        val page = runBlocking(Dispatchers.IO) { withTimeout(SOURCE_REQUEST_TIMEOUT_MS) { source.getSearchManga(pageNumber, query, filters) } }
+        val page = try {
+            runBlocking(Dispatchers.IO) { withTimeout(SOURCE_REQUEST_TIMEOUT_MS) { source.getSearchManga(pageNumber, query, filters) } }
+        } catch (e: Throwable) {
+            android.util.Log.e("watchAny-LocalServer", "Error searching manga for ${source.name}", e)
+            eu.kanade.tachiyomi.source.model.MangasPage(emptyList(), false)
+        }
         return mangaPageJson(source, page, "search")
     }
 
@@ -462,15 +489,25 @@ class LocalWebServer(private val context: Context, private val runtime: Extensio
     private fun mangaDetails(session: IHTTPSession): JsonElement {
         val source = source(session.requiredQuery("sourceId"))
         val mangaUrl = session.requiredQuery("url")
-        val title = session.query()["title"].orEmpty().ifBlank { "Runtime Manga" }
+        val titleParam = session.query()["title"]?.takeIf { it.isNotBlank() }
+        val slugTitle = mangaUrl.split('/').lastOrNull { it.isNotBlank() }
+            ?.replace('-', ' ')
+            ?.replace('_', ' ')
+            ?.split(' ')
+            ?.joinToString(" ") { word -> word.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() } }
+            ?: "Manga Details"
+        val title = titleParam ?: slugTitle
+
         val manga = SManga.create().also {
             it.url = mangaUrl
             it.title = title
             session.query()["thumbnailUrl"]?.takeIf { value -> value.isNotBlank() }?.let { value -> it.thumbnail_url = value }
         }
-        val details = runBlocking(Dispatchers.IO) { withTimeout(SOURCE_REQUEST_TIMEOUT_MS) { source.getMangaDetails(manga) } }
+        val details = runBlocking(Dispatchers.IO) {
+            runCatching { withTimeout(SOURCE_REQUEST_TIMEOUT_MS) { source.getMangaDetails(manga) } }.getOrDefault(manga)
+        }
         if (runCatching { details.url }.getOrNull().isNullOrBlank()) details.url = mangaUrl
-        if (runCatching { details.title }.getOrNull().isNullOrBlank()) details.title = title
+        if (runCatching { details.title }.getOrNull().isNullOrBlank() || details.title == "Runtime Manga") details.title = title
         return mangaDetailJson(source, details)
     }
 
@@ -501,7 +538,9 @@ class LocalWebServer(private val context: Context, private val runtime: Extensio
             it.url = mangaUrl
             it.title = title
         }
-        val chapters = runBlocking(Dispatchers.IO) { source.getChapterList(manga) }
+        val chapters = runBlocking(Dispatchers.IO) {
+            runCatching { withTimeout(SOURCE_REQUEST_TIMEOUT_MS) { source.getChapterList(manga) } }.getOrDefault(emptyList())
+        }
         return buildJsonObject {
             put("sourceId", source.id.toString())
             put("mangaUrl", mangaUrl)
@@ -525,10 +564,81 @@ class LocalWebServer(private val context: Context, private val runtime: Extensio
         val source = source(session.requiredQuery("sourceId"))
         val chapterUrl = session.requiredQuery("url")
         val chapter = SChapter.create().also {
-            it.url = chapterUrl
+            it.url = urlWithoutDomain(chapterUrl)
             it.name = "Runtime Chapter"
         }
-        val pages = runBlocking(Dispatchers.IO) { source.getPageList(chapter) }
+        android.util.Log.d("watchAny-LocalServer", "pages request for source=${source.name} chapterUrl=$chapterUrl")
+
+        val rawPages = runBlocking(Dispatchers.IO) {
+            runCatching {
+                withTimeout(SOURCE_REQUEST_TIMEOUT_MS) { source.getPageList(chapter) }
+            }.onFailure { e ->
+                android.util.Log.e("watchAny-LocalServer", "getPageList error for ${source.name} url=$chapterUrl: ${e.message}", e)
+            }.getOrDefault(emptyList())
+        }
+
+        var effectivePages = rawPages
+        if (effectivePages.isEmpty()) {
+            val httpSource = source as? HttpSource
+            val baseUrl = httpSource?.baseUrl?.ifBlank { null } ?: "https://asurascans.com"
+            val primaryTargetUrl = if (chapterUrl.startsWith("http")) chapterUrl else {
+                val relPath = urlWithoutDomain(chapterUrl)
+                if (relPath.startsWith("/")) "$baseUrl$relPath" else "$baseUrl/$relPath"
+            }
+            val candidateUrls = mutableListOf(primaryTargetUrl)
+            if (primaryTargetUrl.contains("/series/")) {
+                candidateUrls.add(primaryTargetUrl.replace("/series/", "/comics/"))
+            } else if (primaryTargetUrl.contains("/comics/")) {
+                candidateUrls.add(primaryTargetUrl.replace("/comics/", "/series/"))
+            }
+
+            val fallbackPages = runBlocking(Dispatchers.IO) {
+                var foundPages = emptyList<Page>()
+                for (targetUrl in candidateUrls) {
+                    android.util.Log.d("watchAny-LocalServer", "Attempting pageList HTML fallback for ${source.name} url=$targetUrl")
+                    val res = runCatching {
+                        val req = Request.Builder()
+                            .url(targetUrl)
+                            .header("User-Agent", httpSource?.headers?.get("User-Agent") ?: NetworkHelper.DEFAULT_USER_AGENT)
+                            .build()
+                        val client = httpSource?.client ?: imageClient
+                        client.newCall(req).execute().use { resp ->
+                            if (resp.isSuccessful) {
+                                val doc = resp.asJsoup()
+                                val imgElements = doc.select("img[src*='/asura-images/chapters/'], img[src*='/chapters/'], div.chapter-content img, div.rd-content img, div.reading-content img, #readerarea img")
+                                imgElements.mapIndexedNotNull { idx, el ->
+                                    val src = el.attr("src").ifBlank { el.attr("data-src") }.trim()
+                                    if (src.isNotBlank() && !src.contains("logo", ignoreCase = true) && !src.contains("cover", ignoreCase = true)) {
+                                        Page(idx, "", src)
+                                    } else null
+                                }
+                            } else emptyList()
+                        }
+                    }.getOrDefault(emptyList())
+                    if (res.isNotEmpty()) {
+                        foundPages = res
+                        break
+                    }
+                }
+                foundPages
+            }
+            if (fallbackPages.isNotEmpty()) {
+                android.util.Log.d("watchAny-LocalServer", "HTML fallback found ${fallbackPages.size} pages for ${source.name}")
+                effectivePages = fallbackPages
+            }
+        }
+
+        val pages = runBlocking(Dispatchers.IO) {
+            effectivePages.map { page ->
+                val finalImageUrl = if (!page.imageUrl.isNullOrBlank()) {
+                    page.imageUrl
+                } else {
+                    runCatching { (source as? HttpSource)?.getImageUrl(page) }.getOrNull() ?: page.url
+                }
+                if (!finalImageUrl.isNullOrBlank()) page.imageUrl = finalImageUrl
+                page
+            }
+        }
         return buildJsonObject {
             put("sourceId", source.id.toString())
             put("chapterUrl", chapterUrl)
@@ -569,17 +679,50 @@ class LocalWebServer(private val context: Context, private val runtime: Extensio
         return fallbackMatch
     }
 
-
     private data class CachedSource(val source: CatalogueSource, val loadedAt: Long)
 
     private fun proxyImage(session: IHTTPSession): Response {
         val imageUrl = session.requiredQuery("url")
-        val sourceIdStr = session.query()["sourceId"]
+        val sourceIdStr = session.query()["sourceId"] ?: run {
+            val uri = session.uri
+            if (uri.startsWith("/api/v1/source/")) {
+                uri.removePrefix("/api/v1/source/").substringBefore('/')
+            } else null
+        }
         val httpSource = if (!sourceIdStr.isNullOrBlank()) {
             runCatching { source(sourceIdStr) as? HttpSource }.getOrNull()
         } else null
 
-        val referer = imageReferer(imageUrl, session.query()["referer"] ?: httpSource?.headers?.get("Referer"))
+        // 1. Primary method (matches Mihon): Call httpSource.getImage(page) which invokes extension's imageRequest override
+        if (httpSource != null) {
+            val page = Page(0, "", imageUrl)
+            val imageResp = runCatching {
+                runBlocking(Dispatchers.IO) {
+                    withTimeout(SOURCE_REQUEST_TIMEOUT_MS) { httpSource.getImage(page) }
+                }
+            }.getOrNull()
+
+            if (imageResp != null && imageResp.isSuccessful) {
+                val contentType = imageResp.header("Content-Type") ?: "image/png"
+                val bytes = imageResp.body.bytes()
+                imageResp.close()
+                return sendBytes(200, contentType, bytes)
+            }
+            imageResp?.close()
+        }
+
+        // 2. Secondary method: Custom OkHttp request with calculated referer & headers
+        val baseReferer = httpSource?.getHomeUrl()?.ifBlank { null }
+            ?: httpSource?.baseUrl?.ifBlank { null }
+            ?: session.query()["referer"]
+            ?: httpSource?.headers?.get("Referer")
+
+        val referer = if (!baseReferer.isNullOrBlank()) {
+            if (baseReferer.endsWith("/")) baseReferer else "$baseReferer/"
+        } else {
+            imageReferer(imageUrl, null)
+        }
+
         val origin = runCatching { URI(referer).let { "${it.scheme}://${it.host}" } }.getOrNull()
 
         val reqBuilder = Request.Builder()
@@ -599,20 +742,63 @@ class LocalWebServer(private val context: Context, private val runtime: Extensio
         }
 
         val clientToUse = httpSource?.client ?: imageClient
-        clientToUse.newCall(reqBuilder.build()).execute().use { response ->
-            if (!response.isSuccessful) error("Image request failed: HTTP ${response.code}")
-            val bytes = response.body.bytes()
-            return sendBytes(200, response.header("Content-Type") ?: "application/octet-stream", bytes)
+
+        val fallbackResp1 = runCatching { clientToUse.newCall(reqBuilder.build()).execute() }.getOrNull()
+        if (fallbackResp1 != null && fallbackResp1.isSuccessful) {
+            val contentType = fallbackResp1.header("Content-Type") ?: "image/png"
+            val bytes = fallbackResp1.body.bytes()
+            fallbackResp1.close()
+            return sendBytes(200, contentType, bytes)
+        }
+        fallbackResp1?.close()
+
+        // 3. Final fallback: simple direct GET
+        return runCatching {
+            val simpleReq = Request.Builder()
+                .url(imageUrl)
+                .header("User-Agent", NetworkHelper.DEFAULT_USER_AGENT)
+                .header("Accept", "image/*,*/*")
+                .build()
+            imageClient.newCall(simpleReq).execute().use { fbResp ->
+                if (fbResp.isSuccessful) {
+                    sendBytes(200, fbResp.header("Content-Type") ?: "image/png", fbResp.body.bytes())
+                } else {
+                    sendText(fbResp.code, "text/plain", "Image proxy failed HTTP ${fbResp.code}")
+                }
+            }
+        }.getOrElse {
+            sendText(500, "text/plain", "Image proxy exception: ${it.message}")
         }
     }
 
     private fun extensionIcon(session: IHTTPSession): Response {
         val pkg = session.requiredQuery("pkg")
-        val installed = runtime.installed().singleOrNull { it.pkg == pkg } ?: error("Extension is not installed: $pkg")
-        val iconPath = installed.iconPath ?: error("Extension icon is unavailable: $pkg")
-        val path = Path(iconPath)
-        if (!Files.exists(path)) error("Extension icon is missing: $pkg")
-        return sendBytes(200, iconContentType(path.extension.lowercase()), Files.readAllBytes(path))
+        val installed = runtime.installed().singleOrNull { it.pkg == pkg }
+        if (installed?.iconPath != null) {
+            val path = Path(installed.iconPath)
+            if (Files.exists(path)) {
+                return sendBytes(200, iconContentType(path.extension.lowercase()), Files.readAllBytes(path))
+            }
+        }
+        val indexed = runtime.index().singleOrNull { it.pkg == pkg }
+        val iconUrl = indexed?.iconUrl ?: "https://raw.githubusercontent.com/keiyoushi/extensions/repo/icon/$pkg.png"
+        return proxyUrlBytes(iconUrl)
+    }
+
+    private fun proxyUrlBytes(url: String): Response {
+        return runCatching {
+            val request = Request.Builder().url(url).build()
+            imageClient.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val bytes = response.body.bytes()
+                    val contentType = response.header("Content-Type") ?: "image/png"
+                    return sendBytes(200, contentType, bytes)
+                }
+            }
+            sendText(404, "text/plain", "Icon not found")
+        }.getOrElse {
+            sendText(500, "text/plain", "Icon fetch error: ${it.message}")
+        }
     }
 
     private fun iconContentType(extension: String): String = when (extension) {

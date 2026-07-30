@@ -324,17 +324,19 @@ class SuwayomiService {
       final Map<String, Map<String, dynamic>> combined = {};
 
       for (var ext in installedList) {
-        final String pkg = ext['pkg']?.toString() ?? '';
+        final String pkg = ext['pkg']?.toString() ?? ext['pkgName']?.toString() ?? '';
         if (pkg.isEmpty) continue;
         final String iconName = ext['icon']?.toString() ?? 'icon/$pkg.png';
         final String iconCdn = 'https://raw.githubusercontent.com/keiyoushi/extensions/repo/$iconName';
-        final String apkName = ext['apk']?.toString() ?? '$pkg.apk';
-        final String apkUrl = ext['apkUrl']?.toString() ?? 'https://raw.githubusercontent.com/keiyoushi/extensions/repo/apk/$apkName';
+        final String rawApk = ext['apkUrl']?.toString() ?? ext['apk']?.toString() ?? '';
+        final String apkUrl = (rawApk.startsWith('http://') || rawApk.startsWith('https://'))
+            ? rawApk
+            : 'https://cdn.jsdelivr.net/gh/keiyoushi/extensions@repo/apk/$pkg.apk';
         combined[pkg] = {
           'id': pkg,
           'name': ext['name'] ?? '',
           'pkgName': pkg,
-          'versionName': ext['version'] ?? '',
+          'versionName': ext['version'] ?? ext['versionName'] ?? '',
           'isInstalled': true,
           'hasUpdate': ext['hasUpdate'] == true || ext['hasUpdate'] == 1,
           'lang': ext['lang'] ?? 'en',
@@ -345,15 +347,17 @@ class SuwayomiService {
       }
 
       for (var ext in listExts) {
-        final String pkg = ext['pkg']?.toString() ?? '';
+        final String pkg = ext['pkg']?.toString() ?? ext['pkgName']?.toString() ?? '';
         if (pkg.isEmpty) continue;
         final String iconName = ext['icon']?.toString() ?? 'icon/$pkg.png';
         final String iconCdn = 'https://raw.githubusercontent.com/keiyoushi/extensions/repo/$iconName';
-        final String apkName = ext['apk']?.toString() ?? '$pkg.apk';
-        final String apkUrl = ext['apkUrl']?.toString() ?? 'https://raw.githubusercontent.com/keiyoushi/extensions/repo/apk/$apkName';
+        final String rawApk = ext['apkUrl']?.toString() ?? ext['apk']?.toString() ?? '';
+        final String apkUrl = (rawApk.startsWith('http://') || rawApk.startsWith('https://'))
+            ? rawApk
+            : 'https://cdn.jsdelivr.net/gh/keiyoushi/extensions@repo/apk/$pkg.apk';
         if (combined.containsKey(pkg)) {
           final instVer = combined[pkg]!['versionName']?.toString() ?? '';
-          final availVer = ext['version']?.toString() ?? '';
+          final availVer = ext['version']?.toString() ?? ext['versionName']?.toString() ?? '';
           if (availVer.isNotEmpty && instVer.isNotEmpty && availVer != instVer) {
             combined[pkg]!['hasUpdate'] = true;
             combined[pkg]!['availableVersion'] = availVer;
@@ -368,7 +372,7 @@ class SuwayomiService {
           'id': pkg,
           'name': ext['name'] ?? '',
           'pkgName': pkg,
-          'versionName': ext['version'] ?? '',
+          'versionName': ext['version'] ?? ext['versionName'] ?? '',
           'isInstalled': false,
           'hasUpdate': false,
           'lang': ext['lang'] ?? 'en',
@@ -379,32 +383,50 @@ class SuwayomiService {
       }
 
 
-      if (combined.isNotEmpty) {
+      final hasAvailable = combined.values.any((ext) => ext['isInstalled'] != true);
+      if (combined.isNotEmpty && hasAvailable) {
         return combined.values.toList();
       }
 
-      // 4. Fallback: Keiyoushi GitHub Repository Index (Mihon-compatible)
+      // 4. Fallback: Keiyoushi GitHub Repository Index V2 (Mihon-compatible)
       try {
-        final repoResp = await http.get(Uri.parse('https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.min.json')).timeout(const Duration(seconds: 15));
+        final repoResp = await http.get(Uri.parse('https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.json')).timeout(const Duration(seconds: 15));
         if (repoResp.statusCode == 200) {
-          final List repoList = (await _fastJsonDecode(repoResp.body)) as List;
+          final dynamic decoded = await _fastJsonDecode(repoResp.body);
+          List repoList = [];
+          if (decoded is List) {
+            repoList = decoded;
+          } else if (decoded is Map) {
+            final extList = decoded['extensionList'];
+            if (extList is List) {
+              repoList = extList;
+            } else if (extList is Map && extList['extensions'] is List) {
+              repoList = extList['extensions'] as List;
+            } else if (decoded['extensions'] is List) {
+              repoList = decoded['extensions'] as List;
+            }
+          }
           return repoList.map((ext) {
-            final String pkg = ext['pkg']?.toString() ?? '';
-            final String apk = ext['apk']?.toString() ?? '';
-            final String iconName = ext['icon']?.toString() ?? 'icon/$pkg.png';
-            final String iconCdn = 'https://raw.githubusercontent.com/keiyoushi/extensions/repo/$iconName';
+            final String pkg = ext['packageName']?.toString() ?? ext['pkg']?.toString() ?? '';
+            final Map res = ext['resources'] as Map? ?? {};
+            final String apkUrl = res['apkUrl']?.toString() ?? 'https://raw.githubusercontent.com/keiyoushi/extensions/repo/apk/$pkg.apk';
+            final String iconUrl = res['iconUrl']?.toString() ?? 'https://raw.githubusercontent.com/keiyoushi/extensions/repo/icon/$pkg.png';
+            final List sources = ext['sources'] as List? ?? [];
+            final String lang = sources.isNotEmpty ? (sources.first['language']?.toString() ?? 'en') : (ext['lang']?.toString() ?? 'en');
+            final String warning = ext['contentWarning']?.toString() ?? '';
+            final bool isNsfw = warning.contains('NSFW') || (ext['nsfw'] ?? 0) == 1;
             return {
               'id': pkg,
               'name': ext['name'] ?? '',
               'pkgName': pkg,
-              'versionName': ext['version'] ?? '',
+              'versionName': ext['versionName'] ?? ext['version'] ?? '',
               'isInstalled': false,
               'hasUpdate': false,
-              'lang': ext['lang'] ?? 'en',
-              'nsfw': (ext['nsfw'] ?? 0) == 1,
-              'apk': apk,
-              'apkUrl': 'https://raw.githubusercontent.com/keiyoushi/extensions/repo/apk/$apk',
-              'iconUrl': iconCdn,
+              'lang': lang,
+              'nsfw': isNsfw,
+              'apkUrl': apkUrl,
+              'iconUrl': iconUrl,
+              'sources': sources,
             };
           }).toList();
         }
@@ -468,58 +490,62 @@ class SuwayomiService {
     try {
       final id = extId ?? pkgName;
 
-      // 1. On Android, install system-wide via native PackageInstaller Intent so both watchAny and Mihon see it
-      if (!kIsWeb && Platform.isAndroid) {
-        try {
-          final String downloadUrl = apkUrl ?? 'https://raw.githubusercontent.com/keiyoushi/extensions/repo/apk/$pkgName.apk';
-          final tempDir = await getTemporaryDirectory();
-          final targetFile = File('${tempDir.path}/$pkgName.apk');
-
-          final resp = await http.get(Uri.parse(downloadUrl)).timeout(const Duration(seconds: 60));
-          if (resp.statusCode == 200) {
-            await targetFile.writeAsBytes(resp.bodyBytes);
-            const channel = MethodChannel('com.example.watch_any/native_path');
-            final result = await channel.invokeMethod('installApk', {'filePath': targetFile.path});
-
-            // Also inform local server to scan
-            try {
-              await http.get(Uri.parse('$_baseUrl/api/install?pkg=$pkgName')).timeout(const Duration(seconds: 5));
-            } catch (_) {}
-
-            changeNotifier.notifyListeners();
-            return true;
-          }
-        } catch (e) {
-          developer.log('Android native APK installer error: $e', name: 'SuwayomiService');
-        }
-      }
-
-      // 2. Desktop (Windows/Mac/Linux) fallback to local server internal runtime
+      // 1. Primary: In-app private storage install via local engine API (works for both Android & Desktop)
       try {
         final response = await http.get(
           Uri.parse('$_baseUrl/api/install?pkg=$pkgName'),
-        ).timeout(const Duration(seconds: 45));
+        ).timeout(const Duration(seconds: 60));
 
         if (response.statusCode == 200) {
           final decoded = jsonDecode(response.body);
           if (decoded['ok'] == true) {
+            clearSourcesCache();
             changeNotifier.notifyListeners();
             return true;
           }
         }
-      } catch (_) {}
+      } catch (e) {
+        developer.log('Engine API install error: $e', name: 'SuwayomiService');
+      }
 
+      String targetApkUrl = apkUrl ?? '';
+      if (targetApkUrl.isEmpty || targetApkUrl.endsWith('$pkgName.apk')) {
+        final allExts = await getExtensions();
+        final match = allExts.firstWhere((e) => e['pkgName'] == pkgName || e['id'] == pkgName, orElse: () => {});
+        if (match['apkUrl'] != null && match['apkUrl'].toString().isNotEmpty) {
+          targetApkUrl = match['apkUrl'].toString();
+        } else {
+          targetApkUrl = 'https://raw.githubusercontent.com/keiyoushi/extensions/repo/apk/$pkgName.apk';
+        }
+      }
 
-      // 2. Try REST API v1 POST pkgName
+      try {
+        final apkResponse = await http.get(Uri.parse(targetApkUrl)).timeout(const Duration(seconds: 30));
+        if (apkResponse.statusCode == 200 && apkResponse.bodyBytes.isNotEmpty) {
+          final request = http.MultipartRequest('POST', Uri.parse('$_baseUrl/api/v1/extension/install'));
+          request.files.add(http.MultipartFile.fromBytes('file', apkResponse.bodyBytes, filename: '$pkgName.apk'));
+          final streamedResponse = await request.send().timeout(const Duration(seconds: 30));
+          if (streamedResponse.statusCode >= 200 && streamedResponse.statusCode < 300) {
+            clearSourcesCache();
+            changeNotifier.notifyListeners();
+            return true;
+          }
+        }
+      } catch (e) {
+        developer.log('Desktop APK download & multipart install error: $e', name: 'SuwayomiService');
+      }
+
+      // 3. Try REST API v1 POST pkgName
       try {
         final v1Resp = await http.post(Uri.parse('$_baseUrl/api/v1/extension/install/$pkgName')).timeout(const Duration(seconds: 15));
         if (v1Resp.statusCode == 200) {
+          clearSourcesCache();
           changeNotifier.notifyListeners();
           return true;
         }
       } catch (_) {}
 
-      // 3. Try GraphQL installExtension mutation by pkgName
+      // 4. Try GraphQL installExtension mutation by pkgName
       try {
         const gqlQuery = '''
           mutation InstallExt(\$pkgName: String!) {
@@ -533,6 +559,7 @@ class SuwayomiService {
         ''';
         final data = await _postGraphQL(gqlQuery, {'pkgName': pkgName});
         if (data != null && data['installExtension'] != null) {
+          clearSourcesCache();
           changeNotifier.notifyListeners();
           return true;
         }
@@ -540,22 +567,19 @@ class SuwayomiService {
         developer.log('GraphQL installExtension by pkgName failed: $e', name: 'SuwayomiService');
       }
 
-      // 4. Android Native PackageInstaller Intent (Mihon method: download APK to cache & open PackageInstaller)
+      // 5. Android System PackageInstaller Intent Fallback
       if (!kIsWeb && Platform.isAndroid) {
         try {
-          final String downloadUrl = apkUrl ?? 'https://raw.githubusercontent.com/keiyoushi/extensions/repo/apk/$pkgName.apk';
           final tempDir = await getTemporaryDirectory();
           final targetFile = File('${tempDir.path}/$pkgName.apk');
-
-          final resp = await http.get(Uri.parse(downloadUrl)).timeout(const Duration(seconds: 60));
+          final resp = await http.get(Uri.parse(targetApkUrl)).timeout(const Duration(seconds: 60));
           if (resp.statusCode == 200) {
             await targetFile.writeAsBytes(resp.bodyBytes);
             const channel = MethodChannel('com.example.watch_any/native_path');
-            final result = await channel.invokeMethod('installApk', {'filePath': targetFile.path});
-            if (result == true) {
-              changeNotifier.notifyListeners();
-              return true;
-            }
+            await channel.invokeMethod('installApk', {'filePath': targetFile.path});
+            clearSourcesCache();
+            changeNotifier.notifyListeners();
+            return true;
           }
         } catch (e) {
           developer.log('Android native APK installer error: $e', name: 'SuwayomiService');
@@ -1066,8 +1090,24 @@ class SuwayomiService {
       final pathInfo = await getMangaPath(id);
       if (pathInfo == null) return null;
 
-      final sourceId = pathInfo['sourceId']!;
-      final mangaUrl = pathInfo['url']!;
+      var sourceId = pathInfo['sourceId'] ?? '';
+      final mangaUrl = pathInfo['url'] ?? '';
+
+      if (sourceId.isEmpty) {
+        final savedExt = await getMangaExtensionName(id);
+        final sources = await getSources();
+        if (savedExt != null && savedExt.isNotEmpty) {
+          final match = sources.firstWhere(
+            (s) => (s['name']?.toString().toLowerCase() ?? '').contains(savedExt.toLowerCase()),
+            orElse: () => null,
+          );
+          if (match != null) sourceId = match['id']?.toString() ?? '';
+        }
+        if (sourceId.isEmpty && sources.isNotEmpty) {
+          sourceId = sources.first['id']?.toString() ?? '';
+        }
+      }
+      if (sourceId.isEmpty || mangaUrl.isEmpty) return null;
 
       // 2. Try v1 URL query API
       try {

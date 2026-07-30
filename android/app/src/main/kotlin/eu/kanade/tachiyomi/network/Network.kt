@@ -92,57 +92,14 @@ open class NetworkHelper {
                 .callTimeout(45, TimeUnit.SECONDS)
                 .addInterceptor { chain ->
                     val original = chain.request()
-                    val builder = original.newBuilder()
-
                     if (original.header("User-Agent").isNullOrBlank()) {
-                        builder.header("User-Agent", DEFAULT_USER_AGENT)
+                        val request = original.newBuilder()
+                            .header("User-Agent", DEFAULT_USER_AGENT)
+                            .build()
+                        chain.proceed(request)
+                    } else {
+                        chain.proceed(original)
                     }
-
-
-                    val request = builder.build()
-                    val response = chain.proceed(request)
-                    val host = request.url.host.lowercase(java.util.Locale.US)
-
-                    if ((host.contains("flamecomics") || host.contains("asura")) && response.isSuccessful) {
-                        val body = response.body
-                        if (body != null) {
-                            var bodyString: String? = null
-                            try {
-                                bodyString = body.string()
-                                var modifiedBodyString = bodyString
-                                val trimmed = bodyString.trim()
-                                if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
-                                    val root = org.json.JSONTokener(bodyString).nextValue()
-                                    sanitizeJson(root)
-                                    modifiedBodyString = root.toString()
-                                } else if (bodyString.contains("__NEXT_DATA__")) {
-                                    val regex = Regex("""(<script\s+[^>]*id=["']__NEXT_DATA__['"][^>]*>)(.*?)(</script>)""", RegexOption.DOT_MATCHES_ALL)
-                                    val match = regex.find(bodyString)
-                                    if (match != null) {
-                                        val prefix = match.groupValues[1]
-                                        val jsonStr = match.groupValues[2]
-                                        val suffix = match.groupValues[3]
-                                        try {
-                                            val root = org.json.JSONTokener(jsonStr).nextValue()
-                                            sanitizeJson(root)
-                                            val sanitizedJsonStr = root.toString()
-                                            modifiedBodyString = bodyString.replace(match.value, prefix + sanitizedJsonStr + suffix)
-                                        } catch (e: Throwable) {
-                                            android.util.Log.e("watchAny-Network", "Failed to sanitize script json: ${e.message}")
-                                        }
-                                    }
-                                }
-                                val newBody = okhttp3.ResponseBody.create(body.contentType(), modifiedBodyString)
-                                return@addInterceptor response.newBuilder().body(newBody).build()
-                            } catch (e: Throwable) {
-                                if (bodyString != null) {
-                                    val newBody = okhttp3.ResponseBody.create(body.contentType(), bodyString)
-                                    return@addInterceptor response.newBuilder().body(newBody).build()
-                                }
-                            }
-                        }
-                    }
-                    response
                 }
                 .build()
         }

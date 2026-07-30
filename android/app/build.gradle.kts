@@ -1,3 +1,12 @@
+import java.io.FileInputStream
+import java.util.Properties
+
+val keystoreProperties = Properties()
+val keystorePropertiesFile = rootProject.file("key.properties")
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(FileInputStream(keystorePropertiesFile))
+}
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
@@ -33,9 +42,18 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        create("release") {
+            keyAlias = keystoreProperties.getProperty("keyAlias") ?: "release"
+            keyPassword = keystoreProperties.getProperty("keyPassword") ?: "watchanyreleasekey"
+            storeFile = keystoreProperties.getProperty("storeFile")?.let { file(it) } ?: file("release.keystore")
+            storePassword = keystoreProperties.getProperty("storePassword") ?: "watchanyreleasekey"
+        }
+    }
+
     buildTypes {
         release {
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = false
             isShrinkResources = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
@@ -47,23 +65,23 @@ flutter {
     source = "../.."
 }
 
+configurations.all {
+    resolutionStrategy {
+        force("org.jetbrains.kotlinx:kotlinx-serialization-core:1.8.0")
+        force("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.0")
+        force("org.jetbrains.kotlinx:kotlinx-serialization-json-okio:1.8.0")
+        force("org.jetbrains.kotlinx:kotlinx-serialization-protobuf:1.8.0")
+    }
+}
+
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
     implementation(fileTree("libs") { include("*.jar") })
     implementation("org.nanohttpd:nanohttpd:2.3.1")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3") {
-        exclude(group = "org.jetbrains.kotlinx", module = "kotlinx-serialization-core")
-        exclude(group = "org.jetbrains.kotlinx", module = "kotlinx-serialization-core-jvm")
-    }
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json-okio:1.6.3") {
-        exclude(group = "org.jetbrains.kotlinx", module = "kotlinx-serialization-core")
-        exclude(group = "org.jetbrains.kotlinx", module = "kotlinx-serialization-core-jvm")
-    }
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-protobuf:1.6.3") {
-        exclude(group = "org.jetbrains.kotlinx", module = "kotlinx-serialization-core")
-        exclude(group = "org.jetbrains.kotlinx", module = "kotlinx-serialization-core-jvm")
-    }
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-core:1.8.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json-okio:1.8.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-protobuf:1.8.0")
     implementation("com.squareup.okhttp3:okhttp:5.0.0-alpha.14")
     implementation("com.squareup.okhttp3:okhttp-brotli:5.0.0-alpha.14")
     implementation("com.squareup.okio:okio:3.10.2")
