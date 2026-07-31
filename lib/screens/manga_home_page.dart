@@ -214,14 +214,12 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
       if (isDesktop) {
         await SuwayomiManager.ensureRunning(maxWaitSeconds: 40);
       }
-      SuwayomiManager.statusNotifier.value = "Loading extensions...";
       final list = await _suwayomiService.getExtensions();
       if (mounted) {
         setState(() {
           _extensions = list;
           _loadingExtensions = false;
         });
-        SuwayomiManager.statusNotifier.value = "Manga engine running";
       }
     } catch (e) {
       if (mounted) {
@@ -245,7 +243,6 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
       if (isDesktop) {
         await SuwayomiManager.ensureRunning(maxWaitSeconds: 40);
       }
-      SuwayomiManager.statusNotifier.value = "Loading manga sources...";
       _suwayomiService.clearSourcesCache();
       final list = await _suwayomiService.getSources(forceRefresh: true);
 
@@ -304,6 +301,7 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
     }
 
     if (_selectedSourceId == null) return;
+
     if (mounted) {
       setState(() {
         if (_catalogManga.isEmpty || resetPage) {
@@ -333,7 +331,6 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
         });
       }
     } catch (e) {
-
       if (mounted) {
         setState(() {
           _catalogError = e.toString().replaceFirst('Exception: ', '');
@@ -651,9 +648,9 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
       body: ValueListenableBuilder<String>(
         valueListenable: SuwayomiManager.statusNotifier,
         builder: (context, status, child) {
-          if (status.contains("Downloading") || status.contains("Starting") || status.contains("Checking")) {
+          if (status.startsWith("Starting") || status.startsWith("Downloading") || status.startsWith("Checking")) {
             return _buildLoadingScreen(status);
-          } else if (status.contains("failed") || status.contains("Error")) {
+          } else if (status.startsWith("Error:")) {
             return _buildErrorScreen(status);
           }
           

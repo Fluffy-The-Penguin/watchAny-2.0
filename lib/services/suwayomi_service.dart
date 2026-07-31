@@ -1063,7 +1063,49 @@ class SuwayomiService {
     bool latest = false,
   }) async {
     try {
-      // 1. GraphQL fetchSourceManga (Primary for POPULAR, LATEST, and SEARCH)
+      final bool isAndroid = !kIsWeb && Platform.isAndroid;
+      if (isAndroid) {
+        final urlStr = query.isNotEmpty
+            ? '$_baseUrl/api/search?sourceId=$sourceId&page=$page&q=${Uri.encodeComponent(query)}'
+            : latest
+                ? '$_baseUrl/api/latest?sourceId=$sourceId&page=$page'
+                : '$_baseUrl/api/popular?sourceId=$sourceId&page=$page';
+
+        final response = await http.get(Uri.parse(urlStr)).timeout(const Duration(seconds: 25));
+        final bodyStr = response.body.trimLeft();
+        if (bodyStr.startsWith('{')) {
+          final decoded = jsonDecode(bodyStr);
+          if (decoded['ok'] == false && decoded['error'] != null) {
+            throw Exception(decoded['error'].toString());
+          }
+          if (decoded['ok'] == true && decoded['data']?['mangas'] != null) {
+            final list = decoded['data']['mangas'] as List;
+            final mapped = <dynamic>[];
+            for (var manga in list) {
+              final String url = manga['url'] ?? '';
+              if (url.isEmpty) continue;
+              final int mangaId = manga['id'] ?? _generateHash('$sourceId:$url');
+              await registerMangaPath(mangaId, sourceId, url);
+              final rawTitle = manga['title']?.toString() ?? '';
+              final String title = _sanitizeTitle(rawTitle, url);
+              final coverUrl = manga['thumbnailUrl']?.toString() ?? '';
+              final proxiedCover = coverUrl.isNotEmpty
+                  ? '$_baseUrl/api/image?url=${Uri.encodeComponent(coverUrl)}'
+                  : '';
+              mapped.add({
+                'id': mangaId,
+                'title': title,
+                'thumbnailUrl': proxiedCover,
+                'url': url,
+              });
+            }
+            return mapped;
+          }
+        }
+        return [];
+      }
+
+      // 1. GraphQL fetchSourceManga (Primary for POPULAR, LATEST, and SEARCH - Desktop)
       for (int attempt = 0; attempt < 2; attempt++) {
         try {
           final String fetchType = query.isNotEmpty ? 'SEARCH' : (latest ? 'LATEST' : 'POPULAR');

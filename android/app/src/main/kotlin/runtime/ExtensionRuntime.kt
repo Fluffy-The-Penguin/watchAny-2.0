@@ -36,6 +36,22 @@ class ExtensionRuntime(private val context: Context, private val root: Path) {
     private val iconDir = root.resolve("icons")
     private val installedFile = root.resolve("installed.json")
     private val reposFile = root.resolve("repos.json")
+    private val uninstalledFile = root.resolve("uninstalled.json")
+
+    private fun readUninstalledPkgs(): Set<String> {
+        if (!uninstalledFile.exists()) return emptySet()
+        return try { json.decodeFromString<Set<String>>(uninstalledFile.readText()) } catch (_: Throwable) { emptySet() }
+    }
+
+    private fun markUninstalledPkg(pkgName: String) {
+        val set = readUninstalledPkgs() + pkgName
+        runCatching { root.createDirectories(); uninstalledFile.writeText(json.encodeToString(set)) }
+    }
+
+    private fun clearUninstalledPkg(pkgName: String) {
+        val set = readUninstalledPkgs() - pkgName
+        runCatching { root.createDirectories(); uninstalledFile.writeText(json.encodeToString(set)) }
+    }
 
     fun index(): List<KeiyoushiExtension> = indexedExtensions(useDefaultFallback = true).map { it.extension }
 
@@ -171,6 +187,7 @@ class ExtensionRuntime(private val context: Context, private val root: Path) {
     }
 
     fun uninstall(pkgName: String): Boolean {
+        markUninstalledPkg(pkgName)
         val installed = readInstalled()
         writeInstalled(installed.filterNot { it.pkg == pkgName })
         cachedSystemExtensions = cachedSystemExtensions.filterNot { it.pkg == pkgName }
@@ -625,6 +642,7 @@ class ExtensionRuntime(private val context: Context, private val root: Path) {
             sourceLoadErrors = sourceErrors,
         )
         if (persist) {
+            clearUninstalledPkg(installed.pkg)
             val next = readInstalled().filterNot { it.pkg == installed.pkg } + installed
             writeInstalled(next)
         }
@@ -783,6 +801,7 @@ class ExtensionRuntime(private val context: Context, private val root: Path) {
 
 
     private fun readInstalled(): List<InstalledExtension> {
+        val uninstalled = readUninstalledPkgs()
         val fileList = if (installedFile.exists()) {
             try { json.decodeFromString<List<InstalledExtension>>(installedFile.readText()) } catch (_: Throwable) { emptyList() }
         } else emptyList()
@@ -791,8 +810,8 @@ class ExtensionRuntime(private val context: Context, private val root: Path) {
             scanSystemPackagesSync()
         }
 
-        val filteredSystem = cachedSystemExtensions.filter { sys -> fileList.none { it.pkg == sys.pkg } }
-        return fileList + filteredSystem
+        val filteredSystem = cachedSystemExtensions.filter { sys -> fileList.none { it.pkg == sys.pkg } && !uninstalled.contains(sys.pkg) }
+        return fileList.filterNot { uninstalled.contains(it.pkg) } + filteredSystem
     }
 
 
