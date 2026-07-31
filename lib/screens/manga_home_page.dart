@@ -1381,12 +1381,32 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
             ),
           )
         else if (_loadingCatalog && _globalSearchResults.isEmpty)
-          const SliverToBoxAdapter(
+          SliverToBoxAdapter(
             child: Center(
               child: Padding(
-                padding: EdgeInsets.symmetric(vertical: 64.0),
-                child: CircularProgressIndicator(
-                  valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFFF9F1C)),
+                padding: const EdgeInsets.symmetric(vertical: 64.0),
+                child: ValueListenableBuilder<String>(
+                  valueListenable: SuwayomiManager.statusNotifier,
+                  builder: (context, statusMsg, _) {
+                    return Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const CircularProgressIndicator(
+                          valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFFF9F1C)),
+                        ),
+                        const SizedBox(height: 16.0),
+                        Text(
+                          statusMsg.isNotEmpty ? statusMsg : "Loading catalog...",
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 14.0,
+                            fontFamily: 'Outfit',
+                          ),
+                        ),
+                      ],
+                    );
+                  },
                 ),
               ),
             ),
