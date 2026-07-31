@@ -113,6 +113,9 @@ class SuwayomiService {
 
 
   static List<Map<String, dynamic>> _userRepoExtensionsCache = [];
+  // Tracks whether we've already attempted a cache load for the current session.
+  // Prevents an infinite retry loop if the repo JSON parse fails and cache stays empty.
+  static bool _cacheLoadAttempted = false;
 
   Future<List<String>> getUserRepos() async {
     try {
@@ -136,6 +139,7 @@ class SuwayomiService {
       await prefs.setStringList('user_extension_repos', currentList);
     } catch (_) {}
     _userRepoExtensionsCache.clear();
+    _cacheLoadAttempted = false;
     changeNotifier.value++;
   }
 
@@ -264,8 +268,12 @@ class SuwayomiService {
         return installedMap.values.toList();
       }
 
-      // Load user repository extensions if cache is empty
-      if (_userRepoExtensionsCache.isEmpty && userRepos.isNotEmpty) {
+      // Load user repository extensions if cache is empty.
+      // Guard with _cacheLoadAttempted: if the JSON parse previously failed and
+      // left the cache empty, we must NOT retry on every call — that creates an
+      // infinite loop. The sentinel is reset when the user adds/removes a repo.
+      if (_userRepoExtensionsCache.isEmpty && userRepos.isNotEmpty && !_cacheLoadAttempted) {
+        _cacheLoadAttempted = true;
         await refreshUserRepoExtensionsCache(userRepos);
       }
 
@@ -385,6 +393,11 @@ class SuwayomiService {
       } catch (_) {}
     }
     _userRepoExtensionsCache = repoExts;
+    // If we successfully loaded extensions, allow future calls to re-fetch
+    // (e.g., after app resumes or a new repo is added).
+    if (repoExts.isNotEmpty) {
+      _cacheLoadAttempted = false;
+    }
   }
 
   Future<bool> updateExtension(String pkgName, {String? extId}) async {
@@ -480,8 +493,13 @@ class SuwayomiService {
       } catch (_) {}
     }());
 
-    // 5. Trigger background fetch/refresh on Suwayomi-Server
-    unawaited(fetchExtensionsIndex());
+    // 5. Trigger background fetch/refresh on Suwayomi-Server (desktop only —
+    //    on Android the local cache was already refreshed above and server calls
+    //    are skipped inside fetchExtensionsIndex anyway).
+    final bool isAndroidDevice = !kIsWeb && Platform.isAndroid;
+    if (!isAndroidDevice) {
+      unawaited(fetchExtensionsIndex());
+    }
   }
 
   Future<void> fetchExtensionsIndex() async {
@@ -489,6 +507,13 @@ class SuwayomiService {
     if (userRepos.isNotEmpty) {
       await refreshUserRepoExtensionsCache(userRepos);
     }
+
+    // Server-side refresh calls — skip entirely on Android.
+    // On Android there is no local Suwayomi server; hitting these endpoints
+    // could trigger unintended auto-installs or loop the refresh cycle.
+    final bool isAndroid = !kIsWeb && Platform.isAndroid;
+    if (isAndroid) return;
+
     try {
       await http.get(Uri.parse('$_baseUrl/api/repos/refresh-all')).timeout(const Duration(seconds: 5)).catchError((_) => http.Response('', 500));
     } catch (_) {}
