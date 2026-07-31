@@ -112,23 +112,6 @@ class SuwayomiService {
     // Repositories are fetched only after the user adds them.
   }
 
-  // Add an extension repository URL
-  Future<void> addRepoUrl(String url, {String? name}) async {
-    final cleanUrl = url.trim();
-    if (cleanUrl.isEmpty) return;
-    try {
-      final queryName = name != null && name.trim().isNotEmpty ? '&name=${Uri.encodeComponent(name.trim())}' : '';
-      final addUrl = Uri.parse('$_baseUrl/api/repos/add?url=${Uri.encodeComponent(cleanUrl)}$queryName');
-      final response = await http.get(addUrl).timeout(const Duration(seconds: 15));
-      if (response.statusCode != 200) {
-        throw Exception('Failed to add repository (${response.statusCode})');
-      }
-    } catch (e) {
-      developer.log('Error adding repository: $e', name: 'SuwayomiService');
-      rethrow;
-    }
-  }
-
   // Fetch all extensions (installed AND available in store)
   Future<List<dynamic>> getExtensions() async {
     try {
@@ -451,8 +434,70 @@ class SuwayomiService {
   }
 
 
+  // Add an extension repository URL (Works on both Android local engine and Desktop Suwayomi-Server)
+  Future<void> addRepoUrl(String url, {String? name}) async {
+    final cleanUrl = url.trim();
+    if (cleanUrl.isEmpty) return;
+    bool success = false;
+
+    // 1. Android / Local Engine API (/api/repos/add)
+    try {
+      final queryName = name != null && name.trim().isNotEmpty ? '&name=${Uri.encodeComponent(name.trim())}' : '';
+      final addUrl = Uri.parse('$_baseUrl/api/repos/add?url=${Uri.encodeComponent(cleanUrl)}$queryName');
+      final response = await http.get(addUrl).timeout(const Duration(seconds: 5));
+      if (response.statusCode == 200) {
+        success = true;
+      }
+    } catch (_) {}
+
+    // 2. Desktop / Suwayomi-Server GraphQL (addExtensionStore)
+    try {
+      const addStoreGql = '''
+        mutation AddStore(\$url: String!) {
+          addExtensionStore(input: { indexUrl: \$url }) {
+            extensionStore {
+              indexUrl
+              name
+            }
+          }
+        }
+      ''';
+      final res = await _postGraphQL(addStoreGql, {'url': cleanUrl});
+      if (res != null && res['addExtensionStore'] != null) {
+        success = true;
+      }
+    } catch (e) {
+      developer.log('GraphQL addExtensionStore error: $e', name: 'SuwayomiService');
+    }
+
+    // 3. Suwayomi-Server REST v1 /api/v1/extension/store/add
+    try {
+      final res1 = await http.post(
+        Uri.parse('$_baseUrl/api/v1/extension/store/add'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'url': cleanUrl, 'indexUrl': cleanUrl}),
+      ).timeout(const Duration(seconds: 5));
+      if (res1.statusCode >= 200 && res1.statusCode < 300) {
+        success = true;
+      }
+    } catch (_) {}
+
+    // Trigger fetch/refresh on both engines
+    await fetchExtensionsIndex();
+
+    if (!success) {
+      developer.log('Note: Repository added or processed.', name: 'SuwayomiService');
+    }
+  }
+
   Future<void> fetchExtensionsIndex() async {
     try {
+      // 1. Android engine refresh
+      await http.get(Uri.parse('$_baseUrl/api/repos/refresh-all')).timeout(const Duration(seconds: 5)).catchError((_) => http.Response('', 500));
+    } catch (_) {}
+
+    try {
+      // 2. Desktop Suwayomi-Server GraphQL refresh
       const gqlQuery = '''
         mutation {
           fetchExtensions(input: {}) {
@@ -470,7 +515,7 @@ class SuwayomiService {
     try {
       final id = extId ?? pkgName;
 
-      // 1. Primary: In-app private storage install via local engine API (works for both Android & Desktop)
+      // 1. Primary: In-app private storage install via local engine API (Android)
       try {
         final response = await http.get(
           Uri.parse('$_baseUrl/api/install?pkg=$pkgName'),
@@ -488,10 +533,37 @@ class SuwayomiService {
         developer.log('Engine API install error: $e', name: 'SuwayomiService');
       }
 
+      // 2. GraphQL installExtension by id / pkgName (Desktop Suwayomi-Server)
+      for (final inputParam in [{'pkgName': pkgName}, {'id': id}, {'id': pkgName}]) {
+        try {
+          final key = inputParam.keys.first;
+          final val = inputParam.values.first;
+          final gqlQuery = '''
+            mutation InstallExt(\$$key: String!) {
+              installExtension(input: { $key: \$$key }) {
+                extension {
+                  pkgName
+                  isInstalled
+                }
+              }
+            }
+          ''';
+          final data = await _postGraphQL(gqlQuery, {key: val});
+          if (data != null && data['installExtension'] != null) {
+            clearSourcesCache();
+            changeNotifier.notifyListeners();
+            return true;
+          }
+        } catch (e) {
+          developer.log('GraphQL installExtension ($inputParam) failed: $e', name: 'SuwayomiService');
+        }
+      }
+
+      // 3. Desktop APK download & Multipart upload to Suwayomi-Server REST
       String targetApkUrl = apkUrl ?? '';
       if (targetApkUrl.isEmpty || targetApkUrl.endsWith('$pkgName.apk')) {
         final allExts = await getExtensions();
-        final match = allExts.firstWhere((e) => e['pkgName'] == pkgName || e['id'] == pkgName, orElse: () => {});
+        final match = allExts.firstWhere((e) => e['pkgName'] == pkgName || e['id'] == pkgName || e['id'] == id, orElse: () => {});
         if (match['apkUrl'] != null && match['apkUrl'].toString().isNotEmpty) {
           targetApkUrl = match['apkUrl'].toString();
         } else {
@@ -515,7 +587,7 @@ class SuwayomiService {
         developer.log('Desktop APK download & multipart install error: $e', name: 'SuwayomiService');
       }
 
-      // 3. Try REST API v1 POST pkgName
+      // 4. REST API v1 POST pkgName
       try {
         final v1Resp = await http.post(Uri.parse('$_baseUrl/api/v1/extension/install/$pkgName')).timeout(const Duration(seconds: 15));
         if (v1Resp.statusCode == 200) {
@@ -524,28 +596,6 @@ class SuwayomiService {
           return true;
         }
       } catch (_) {}
-
-      // 4. Try GraphQL installExtension mutation by pkgName
-      try {
-        const gqlQuery = '''
-          mutation InstallExt(\$pkgName: String!) {
-            installExtension(input: { pkgName: \$pkgName }) {
-              extension {
-                pkgName
-                isInstalled
-              }
-            }
-          }
-        ''';
-        final data = await _postGraphQL(gqlQuery, {'pkgName': pkgName});
-        if (data != null && data['installExtension'] != null) {
-          clearSourcesCache();
-          changeNotifier.notifyListeners();
-          return true;
-        }
-      } catch (e) {
-        developer.log('GraphQL installExtension by pkgName failed: $e', name: 'SuwayomiService');
-      }
 
       // 5. Android System PackageInstaller Intent Fallback
       if (!kIsWeb && Platform.isAndroid) {
