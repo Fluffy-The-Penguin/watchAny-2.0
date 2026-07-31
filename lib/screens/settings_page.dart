@@ -4641,7 +4641,7 @@ class _SettingsPageState extends State<SettingsPage> {
                         onPressed: updateService.isChecking
                             ? null
                             : () async {
-                                final hasUpdate = await updateService.checkForUpdates();
+                                final hasUpdate = await updateService.checkForUpdates(isManualCheck: true);
                                 if (context.mounted) {
                                   NotificationService().show(
                                     context,

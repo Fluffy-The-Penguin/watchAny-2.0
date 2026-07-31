@@ -1270,8 +1270,22 @@ class _StartupUpdateCheckerState extends State<StartupUpdateChecker> {
           ),),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Later', style: TextStyle(color: Colors.white38, fontFamily: 'Outfit')),
+              onPressed: () {
+                if (updateService.latestUpdate != null) {
+                  updateService.skipVersion(updateService.latestUpdate!.version);
+                }
+                Navigator.pop(context);
+              },
+              child: const Text('Skip Version', style: TextStyle(color: Colors.redAccent, fontFamily: 'Outfit')),
+            ),
+            TextButton(
+              onPressed: () {
+                if (updateService.latestUpdate != null) {
+                  updateService.dismissUpdate(updateService.latestUpdate!.version);
+                }
+                Navigator.pop(context);
+              },
+              child: const Text('Remind Later', style: TextStyle(color: Colors.white38, fontFamily: 'Outfit')),
             ),
             ElevatedButton(
               style: ElevatedButton.styleFrom(
@@ -1279,6 +1293,9 @@ class _StartupUpdateCheckerState extends State<StartupUpdateChecker> {
                 foregroundColor: Colors.black,
               ),
               onPressed: () {
+                if (updateService.latestUpdate != null) {
+                  updateService.markVersionInstalled(updateService.latestUpdate!.version);
+                }
                 Navigator.pop(context);
                 _showDownloadProgressDialog();
               },

@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class UpdateInfo {
   final String version;
@@ -79,43 +80,6 @@ class UpdateService extends ChangeNotifier {
   UpdateService._internal();
 
   static const String currentVersion = '2.1.54';
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
   
   // GitHub Releases API Endpoint
   static const String gitHubReleasesUrl = 'https://api.github.com/repos/Fluffy-The-Penguin/watchAny-2.0/releases/latest';
@@ -165,13 +129,36 @@ class UpdateService extends ChangeNotifier {
     return 0;
   }
 
+  Future<void> skipVersion(String version) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('ignored_update_version', version);
+    _latestUpdate = null;
+    notifyListeners();
+  }
 
-  Future<bool> checkForUpdates() async {
+  Future<void> dismissUpdate(String version) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('last_update_dismissed_time', DateTime.now().millisecondsSinceEpoch);
+    notifyListeners();
+  }
+
+  Future<void> markVersionInstalled(String version) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('installed_update_version', version);
+  }
+
+  Future<bool> checkForUpdates({bool isManualCheck = false}) async {
     _isChecking = true;
     _error = null;
     notifyListeners();
 
     try {
+      final prefs = await SharedPreferences.getInstance();
+      final ignoredVer = prefs.getString('ignored_update_version');
+      final installedVer = prefs.getString('installed_update_version');
+      final lastDismissedTime = prefs.getInt('last_update_dismissed_time') ?? 0;
+      final now = DateTime.now().millisecondsSinceEpoch;
+
       final headers = <String, String>{
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) watchAny-App/$currentVersion',
         'Accept': 'application/vnd.github.v3+json',
@@ -191,7 +178,7 @@ class UpdateService extends ChangeNotifier {
         ).timeout(const Duration(seconds: 10));
       }
 
-      if (response != null && response.statusCode == 200) {
+      if (response.statusCode == 200) {
         final decoded = jsonDecode(response.body);
         final json = decoded is List
             ? decoded.firstWhere(
@@ -202,6 +189,19 @@ class UpdateService extends ChangeNotifier {
 
         if (json != null && json is Map<String, dynamic>) {
           final info = UpdateInfo.fromJson(json);
+          final normLatest = _normalizeVersion(info.version);
+
+          // Check if this version is ignored or already installed
+          final isIgnored = ignoredVer != null && (info.version == ignoredVer || normLatest == _normalizeVersion(ignoredVer));
+          final isInstalled = installedVer != null && (info.version == installedVer || normLatest == _normalizeVersion(installedVer));
+          final isRecentlyDismissed = !isManualCheck && (now - lastDismissedTime) < 86400000; // 24 hours
+
+          if (!isManualCheck && (isIgnored || isInstalled || isRecentlyDismissed)) {
+            _latestUpdate = null;
+            _error = null;
+            return false;
+          }
+
           if (info.downloadUrl.isNotEmpty) {
             _latestUpdate = info;
             _error = null;
@@ -212,10 +212,10 @@ class UpdateService extends ChangeNotifier {
         } else {
           _error = 'Unable to parse update details from release server.';
         }
-      } else if (response != null && response.statusCode == 403) {
+      } else if (response.statusCode == 403) {
         _error = 'Update check rate-limited by GitHub. Please try again in a few minutes.';
       } else {
-        _error = 'Update server responded with status code: ${response?.statusCode ?? 'Unknown'}';
+        _error = 'Update server responded with status code: ${response.statusCode}';
       }
     } on SocketException {
       _error = 'Unable to check for updates: No internet connection or host unreachable.';
@@ -332,7 +332,6 @@ class UpdateService extends ChangeNotifier {
     if (_downloadedFilePath == null) return;
     try {
       if (Platform.isWindows) {
-        final downloadedFile = File(_downloadedFilePath!);
         final isZip = _downloadedFilePath!.toLowerCase().endsWith('.zip');
 
         if (isZip) {
@@ -356,12 +355,12 @@ Start-Process "$appExePath"
           ]);
           exit(0);
         } else {
-          // Native 64-bit EXE installer - pass target app directory so it updates current app location
+          // Native 64-bit EXE installer - pass target app directory and silent flags so it updates current app location in-place
           final appExePath = Platform.resolvedExecutable;
           final appDir = File(appExePath).parent.path;
           await Process.start(
             _downloadedFilePath!,
-            ['/DIR', appDir],
+            ['/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/CLOSEAPPLICATIONS', '/DIR=$appDir'],
             mode: ProcessStartMode.detached,
           );
           await Future.delayed(const Duration(milliseconds: 300));
