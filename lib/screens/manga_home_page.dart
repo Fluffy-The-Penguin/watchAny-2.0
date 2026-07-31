@@ -1,6 +1,8 @@
 import '../services/notification_service.dart';
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:http/http.dart' as http;
@@ -196,12 +198,6 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
 
   // Load Extensions from Suwayomi (or online fallback)
   Future<void> _loadExtensions() async {
-    final bool isRunning = await SuwayomiManager.isSuwayomiRunning(SuwayomiService.port);
-    if (isRunning) {
-      SuwayomiManager.statusNotifier.value = "Loading extensions...";
-    } else {
-      SuwayomiManager.statusNotifier.value = "Starting Manga engine...";
-    }
     if (mounted) {
       setState(() {
         _loadingExtensions = true;
@@ -209,6 +205,11 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
       });
     }
     try {
+      final bool isDesktop = !kIsWeb && (Platform.isWindows || Platform.isMacOS || Platform.isLinux);
+      if (isDesktop) {
+        await SuwayomiManager.ensureRunning(maxWaitSeconds: 40);
+      }
+      SuwayomiManager.statusNotifier.value = "Loading extensions...";
       final list = await _suwayomiService.getExtensions();
       if (mounted) {
         setState(() {
@@ -229,18 +230,17 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
 
   // Load Sources from Suwayomi
   Future<void> _loadSources() async {
-    final bool isRunning = await SuwayomiManager.isSuwayomiRunning(SuwayomiService.port);
-    if (isRunning) {
-      SuwayomiManager.statusNotifier.value = "Loading manga sources...";
-    } else {
-      SuwayomiManager.statusNotifier.value = "Starting Manga engine...";
-    }
     if (mounted) {
       setState(() {
         _catalogError = null;
       });
     }
     try {
+      final bool isDesktop = !kIsWeb && (Platform.isWindows || Platform.isMacOS || Platform.isLinux);
+      if (isDesktop) {
+        await SuwayomiManager.ensureRunning(maxWaitSeconds: 40);
+      }
+      SuwayomiManager.statusNotifier.value = "Loading manga sources...";
       // Seed external repos in background asynchronously so dropdown displays instantly
       unawaited(_suwayomiService.seedExternalRepositories().catchError((_) {}));
       _suwayomiService.clearSourcesCache();

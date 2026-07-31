@@ -64,6 +64,27 @@ class SuwayomiManager {
     return startPort;
   }
 
+  static Future<bool> ensureRunning({int maxWaitSeconds = 45}) async {
+    if (await isSuwayomiRunning(_port)) {
+      statusNotifier.value = "Manga engine running";
+      return true;
+    }
+    // Trigger start if not already started
+    start();
+
+    final stopwatch = Stopwatch()..start();
+    while (stopwatch.elapsed.inSeconds < maxWaitSeconds) {
+      if (await isSuwayomiRunning(_port)) {
+        statusNotifier.value = "Manga engine running";
+        return true;
+      }
+      final remaining = maxWaitSeconds - stopwatch.elapsed.inSeconds;
+      statusNotifier.value = "Starting Manga Engine (waiting ${remaining}s)...";
+      await Future.delayed(const Duration(milliseconds: 500));
+    }
+    return await isSuwayomiRunning(_port);
+  }
+
   static Future<void> start() async {
     if (_process != null) return;
     if (_startFuture != null) {
@@ -342,12 +363,14 @@ server.kcefEnabled = false
       });
 
       bool serverReady = false;
-      for (int i = 0; i < 40; i++) {
+      for (int i = 0; i < 120; i++) {
         if (await isSuwayomiRunning(_port)) {
           serverReady = true;
           break;
         }
-        await Future.delayed(const Duration(milliseconds: 300));
+        final elapsed = ((i + 1) * 0.5).toStringAsFixed(0);
+        statusNotifier.value = "Starting Manga Engine (initializing server ${elapsed}s)...";
+        await Future.delayed(const Duration(milliseconds: 500));
       }
 
       if (serverReady) {
