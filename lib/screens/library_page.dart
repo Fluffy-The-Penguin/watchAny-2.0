@@ -658,6 +658,7 @@ class _LibraryPageState extends State<LibraryPage> {
           final media = items[index];
           final int id = _getMediaId(media);
           return _LibraryMediaCard(
+            key: ValueKey('${widget.mode.name}_$id'),
             media: media,
             mode: widget.mode,
             isSelectionMode: _isSelectionMode,
@@ -1263,6 +1264,7 @@ class _LibraryPageState extends State<LibraryPage> {
                             final media = displayItems[index];
                             final int id = _getMediaId(media);
                             return _LibraryMediaCard(
+                              key: ValueKey('${widget.mode.name}_$id'),
                               media: media,
                               mode: widget.mode,
                               isSelectionMode: _isSelectionMode,
@@ -1391,6 +1393,7 @@ class _LibraryPageState extends State<LibraryPage> {
                             final media = displayItems[index];
                             final int id = _getMediaId(media);
                             return _LibraryMediaCard(
+                              key: ValueKey('${widget.mode.name}_$id'),
                               media: media,
                               mode: widget.mode,
                               isSelectionMode: _isSelectionMode,
@@ -2409,6 +2412,14 @@ class _LibraryMediaCardState extends State<_LibraryMediaCard> {
   void initState() {
     super.initState();
     _loadLocalCoverPath();
+  }
+
+  @override
+  void didUpdateWidget(_LibraryMediaCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.media != widget.media || oldWidget.mode != widget.mode) {
+      _loadLocalCoverPath();
+    }
   }
 
   Future<void> _loadLocalCoverPath() async {
