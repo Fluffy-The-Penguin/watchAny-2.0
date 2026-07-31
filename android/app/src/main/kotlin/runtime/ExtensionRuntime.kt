@@ -114,17 +114,23 @@ class ExtensionRuntime(private val context: Context, private val root: Path) {
         }
 
         val targetExtension = extension ?: run {
-            val fallbackRepo = defaultRepo()
-            val fallbackExt = KeiyoushiExtension(
-                name = pkgName.substringAfterLast('.'),
-                pkg = pkgName,
-                apk = "https://raw.githubusercontent.com/keiyoushi/extensions/repo/apk/$pkgName.apk",
-                lang = "en",
-                code = 100L,
-                version = "1.0",
-                nsfw = 0
-            )
-            IndexedExtension(fallbackRepo, fallbackExt)
+            val defRepo = defaultRepo()
+            val fetchedList = runCatching { KeiyoushiIndex(client).fetch(defRepo.indexUrl) }.getOrDefault(emptyList())
+            val matched = fetchedList.firstOrNull { it.pkg == pkgName }
+            if (matched != null) {
+                IndexedExtension(defRepo, matched)
+            } else {
+                val fallbackExt = KeiyoushiExtension(
+                    name = pkgName.substringAfterLast('.'),
+                    pkg = pkgName,
+                    apk = "$pkgName.apk",
+                    lang = "en",
+                    code = 100L,
+                    version = "1.0",
+                    nsfw = 0
+                )
+                IndexedExtension(defRepo, fallbackExt)
+            }
         }
 
         return loadExtension(targetExtension, persist = true)
@@ -518,13 +524,18 @@ class ExtensionRuntime(private val context: Context, private val root: Path) {
     }
 
     private fun readRepos(): List<ExtensionRepo> {
+        val def = defaultRepo()
         if (!reposFile.exists()) {
+            val initial = listOf(def)
             try {
-                writeRepos(emptyList())
+                writeRepos(initial)
+                java.util.concurrent.Executors.newSingleThreadExecutor().execute {
+                    runCatching { refreshRepo(def.id) }
+                }
             } catch (e: Throwable) {
-                android.util.Log.e("watchAny-ExtensionRuntime", "Failed to write initial empty repos file: ${e.message}", e)
+                android.util.Log.e("watchAny-ExtensionRuntime", "Failed to seed default repo: ${e.message}", e)
             }
-            return emptyList()
+            return initial
         }
         val repos = try {
             val list = json.decodeFromString<List<ExtensionRepo>>(reposFile.readText())
@@ -536,8 +547,14 @@ class ExtensionRuntime(private val context: Context, private val root: Path) {
         } catch (e: Throwable) {
             emptyList()
         }
+        val effectiveRepos = if (repos.isEmpty()) {
+            val initial = listOf(def)
+            runCatching { writeRepos(initial) }
+            initial
+        } else repos
+
         val now = System.currentTimeMillis()
-        val staleRepos = repos.filter { it.enabled && (now - (it.lastFetchedAt ?: 0L) > 12 * 60 * 60 * 1000) }
+        val staleRepos = effectiveRepos.filter { it.enabled && (now - (it.lastFetchedAt ?: 0L) > 12 * 60 * 60 * 1000) }
         if (staleRepos.isNotEmpty()) {
             java.util.concurrent.Executors.newSingleThreadExecutor().execute {
                 staleRepos.forEach { repo ->
@@ -549,7 +566,7 @@ class ExtensionRuntime(private val context: Context, private val root: Path) {
                 }
             }
         }
-        return repos
+        return effectiveRepos
     }
 
     private fun writeRepos(repos: List<ExtensionRepo>) {
