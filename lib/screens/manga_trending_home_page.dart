@@ -62,7 +62,7 @@ class _MangaTrendingHomePageState extends State<MangaTrendingHomePage> {
   }
 
   void _onSuwayomiChanged() {
-    if (mounted) {
+    if (mounted && !_isLoadingSources) {
       _loadPins();
       _loadSources();
     }
@@ -126,10 +126,11 @@ class _MangaTrendingHomePageState extends State<MangaTrendingHomePage> {
     } catch (_) {}
   }
 
-  // Load all installed manga sources from Suwayomi
   Future<void> _loadSources() async {
     if (!mounted) return;
-    setState(() => _isLoadingSources = true);
+    if (_allSources.isEmpty) {
+      setState(() => _isLoadingSources = true);
+    }
     
     try {
       final list = await _suwayomiService.getSources();

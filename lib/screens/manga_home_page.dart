@@ -126,7 +126,7 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
   }
 
   void _onSuwayomiChanged() {
-    if (mounted) {
+    if (mounted && !_loadingExtensions && !_loadingCatalog) {
       _loadExtensions();
       _loadSources();
     }
@@ -200,11 +200,12 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
     }
   }
 
-  // Load Extensions from Suwayomi (or online fallback)
   Future<void> _loadExtensions() async {
     if (mounted) {
       setState(() {
-        _loadingExtensions = true;
+        if (_extensions.isEmpty) {
+          _loadingExtensions = true;
+        }
         _extensionsError = null;
       });
     }
@@ -245,8 +246,6 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
         await SuwayomiManager.ensureRunning(maxWaitSeconds: 40);
       }
       SuwayomiManager.statusNotifier.value = "Loading manga sources...";
-      // Seed external repos in background asynchronously so dropdown displays instantly
-      unawaited(_suwayomiService.seedExternalRepositories().catchError((_) {}));
       _suwayomiService.clearSourcesCache();
       final list = await _suwayomiService.getSources(forceRefresh: true);
 
@@ -307,7 +306,9 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
     if (_selectedSourceId == null) return;
     if (mounted) {
       setState(() {
-        _loadingCatalog = true;
+        if (_catalogManga.isEmpty || resetPage) {
+          _loadingCatalog = true;
+        }
         _catalogError = null;
         if (resetPage) {
           _currentPage = 1;
