@@ -492,32 +492,39 @@ class SuwayomiService {
   }
 
   Future<bool> updateExtension(String pkgName, {String? extId}) async {
-    try {
-      const gqlQuery = '''
-        mutation UpdateExt(\$id: String!) {
-          updateExtension(input: { id: \$id, patch: {} }) {
-            extension {
-              pkgName
-              isInstalled
-              hasUpdate
-              versionName
+    final bool isAndroid = !kIsWeb && Platform.isAndroid;
+
+    if (!isAndroid) {
+      // Desktop only: try GraphQL update first
+      try {
+        const gqlQuery = '''
+          mutation UpdateExt(\$id: String!) {
+            updateExtension(input: { id: \$id, patch: {} }) {
+              extension {
+                pkgName
+                isInstalled
+                hasUpdate
+                versionName
+              }
             }
           }
+        ''';
+        final data = await _postGraphQL(gqlQuery, {'id': extId ?? pkgName});
+        if (data != null && data['updateExtension'] != null) {
+          clearSourcesCache();
+          unawaited(fetchExtensionsIndex());
+          return true;
         }
-      ''';
-      final data = await _postGraphQL(gqlQuery, {'id': extId ?? pkgName});
-      if (data != null && data['updateExtension'] != null) {
-        clearSourcesCache();
-        await fetchExtensionsIndex();
-        return true;
+      } catch (e) {
+        developer.log('GraphQL updateExtension failed, falling back to install: $e', name: 'SuwayomiService');
       }
-    } catch (e) {
-      developer.log('GraphQL updateExtension failed, falling back to install: $e', name: 'SuwayomiService');
     }
+
+    // Android + desktop fallback: re-install (uses the Android fast path on Android)
     final result = await installExtension(pkgName, extId: extId);
-    if (result) {
+    if (result && !isAndroid) {
       clearSourcesCache();
-      await fetchExtensionsIndex();
+      unawaited(fetchExtensionsIndex());
     }
     return result;
   }
@@ -654,63 +661,78 @@ class SuwayomiService {
               'https://raw.githubusercontent.com/keiyoushi/extensions/repo/apk/$pkgName.apk';
         }
 
-        // 1. Local Tachiyomi server: /api/install
-        // CRITICAL: only fall through to MethodChannel if the server is
-        // completely unreachable (socket error). If the server responded
-        // (even with a timeout or unexpected body), do NOT also run the
-        // MethodChannel installer — that creates the double-install loop.
-        bool serverReachable = false;
-        try {
-          final response = await http
-              .get(Uri.parse('$_baseUrl/api/install?pkg=$pkgName'))
-              .timeout(const Duration(seconds: 90));
-          serverReachable = true; // Got a response — server is up
-          if (response.statusCode == 200) {
-            final decoded = jsonDecode(response.body);
-            // Accept any truthy success field the server might use
-            final bool ok = decoded['ok'] == true ||
-                decoded['success'] == true ||
-                decoded['installed'] == true ||
-                decoded['result'] == 'success' ||
-                decoded['status'] == 'ok';
-            if (ok) {
-              await _markExtensionInstalled(pkgName);
-              clearSourcesCache();
-              changeNotifier.value++;
-              return true;
+        // 1. Local Tachiyomi server — try multiple URL formats
+        // Only block the MethodChannel fallback on TimeoutException (server is
+        // actively installing). For any other outcome (bad response, non-success
+        // body) fall through sequentially — the pending-install guard makes this safe.
+        bool serverTimedOut = false;
+        for (final installUrl in [
+          // Pass APK URL explicitly (most compatible format)
+          '$_baseUrl/api/install?url=${Uri.encodeComponent(targetApkUrl)}&pkg=$pkgName',
+          // Package-name-only fallback
+          '$_baseUrl/api/install?pkg=$pkgName',
+        ]) {
+          bool triedThisUrl = false;
+          try {
+            final response = await http
+                .get(Uri.parse(installUrl))
+                .timeout(const Duration(seconds: 90));
+            triedThisUrl = true;
+            if (response.statusCode == 200) {
+              final decoded = jsonDecode(response.body);
+              final bool ok = decoded['ok'] == true ||
+                  decoded['success'] == true ||
+                  decoded['installed'] == true ||
+                  decoded['result'] == 'success' ||
+                  decoded['status'] == 'ok';
+              if (ok) {
+                await _markExtensionInstalled(pkgName);
+                clearSourcesCache();
+                changeNotifier.value++;
+                return true;
+              }
             }
+          } on TimeoutException {
+            // Server is actively installing (>90s) — do NOT fire MethodChannel
+            // concurrently; that's what caused the loop. Mark optimistically.
+            serverTimedOut = true;
+            developer.log('Android /api/install timed out — server still installing', name: 'SuwayomiService');
+            await _markExtensionInstalled(pkgName);
+            clearSourcesCache();
+            changeNotifier.value++;
+            return true;
+          } catch (e) {
+            if (!triedThisUrl) {
+              // Connection refused / unreachable on first URL — skip second URL too
+              developer.log('Android /api/install unreachable: $e', name: 'SuwayomiService');
+              break;
+            }
+            developer.log('Android /api/install error ($installUrl): $e', name: 'SuwayomiService');
           }
-        } on TimeoutException {
-          // Server was reachable but timed out — it's probably still
-          // installing in the background. Do NOT also fire MethodChannel.
-          serverReachable = true;
-          developer.log('Android /api/install timed out — server still processing', name: 'SuwayomiService');
-        } catch (e) {
-          // SocketException / handshake error = server not running
-          serverReachable = false;
-          developer.log('Android /api/install unreachable: $e', name: 'SuwayomiService');
+          if (serverTimedOut) break;
         }
 
-        // 2. MethodChannel APK installer — only if server was completely unreachable
-        if (!serverReachable) {
-          try {
-            final tempDir = await getTemporaryDirectory();
-            final targetFile = File('${tempDir.path}/$pkgName.apk');
-            final resp = await http
-                .get(Uri.parse(targetApkUrl))
-                .timeout(const Duration(seconds: 60));
-            if (resp.statusCode == 200 && resp.bodyBytes.isNotEmpty) {
-              await targetFile.writeAsBytes(resp.bodyBytes);
-              const channel = MethodChannel('com.example.watch_any/native_path');
-              await channel.invokeMethod('installApk', {'filePath': targetFile.path});
-              await _markExtensionInstalled(pkgName);
-              clearSourcesCache();
-              changeNotifier.value++;
-              return true;
-            }
-          } catch (e) {
-            developer.log('Android APK download/install error: $e', name: 'SuwayomiService');
+        // 2. Sequential MethodChannel fallback — safe because:
+        //    a) _pendingInstalls guard blocks any concurrent second call
+        //    b) We only reach here if the server returned a non-success response
+        //       (or was unreachable) — NOT if it timed out (handled above).
+        try {
+          final tempDir = await getTemporaryDirectory();
+          final targetFile = File('${tempDir.path}/$pkgName.apk');
+          final resp = await http
+              .get(Uri.parse(targetApkUrl))
+              .timeout(const Duration(seconds: 60));
+          if (resp.statusCode == 200 && resp.bodyBytes.isNotEmpty) {
+            await targetFile.writeAsBytes(resp.bodyBytes);
+            const channel = MethodChannel('com.example.watch_any/native_path');
+            await channel.invokeMethod('installApk', {'filePath': targetFile.path});
+            await _markExtensionInstalled(pkgName);
+            clearSourcesCache();
+            changeNotifier.value++;
+            return true;
           }
+        } catch (e) {
+          developer.log('Android APK download/install error: $e', name: 'SuwayomiService');
         }
 
         return false;
