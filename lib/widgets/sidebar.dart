@@ -107,14 +107,16 @@ class Sidebar extends StatelessWidget {
                           onTap: () => state.setPage(TabPage.schedule),
                         ),
                       ],
-                      const SizedBox(height: 8.0),
-                      _SidebarItem(
-                        icon: Icons.download_for_offline,
-                        label: 'Downloads',
-                        isSelected: state.currentPage == TabPage.downloads,
-                        isExpanded: isExpanded,
-                        onTap: () => state.setPage(TabPage.downloads),
-                      ),
+                      if (state.currentMode != AppMode.manga) ...[
+                        const SizedBox(height: 8.0),
+                        _SidebarItem(
+                          icon: Icons.download_for_offline,
+                          label: 'Downloads',
+                          isSelected: state.currentPage == TabPage.downloads,
+                          isExpanded: isExpanded,
+                          onTap: () => state.setPage(TabPage.downloads),
+                        ),
+                      ],
                       const SizedBox(height: 8.0),
                       _SidebarItem(
                         icon: Icons.history,

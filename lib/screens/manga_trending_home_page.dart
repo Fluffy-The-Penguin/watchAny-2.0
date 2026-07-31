@@ -6,6 +6,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../services/suwayomi_service.dart';
 import '../services/suwayomi_manager.dart';
 import '../state/navigation_state.dart';
+import '../state/library_state.dart';
 
 class MangaTrendingHomePage extends StatefulWidget {
   final NavigationState navigationState;
@@ -579,90 +580,89 @@ class _MangaTrendingHomePageState extends State<MangaTrendingHomePage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            SizedBox(height: isMobile ? 12.0 : 48.0),
-            // Header
+            SizedBox(height: isMobile ? 12.0 : 36.0),
+            // Header: Clean top bar with pin settings icon
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24.0),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   const Text(
-                    'Manga Home',
+                    'Trending & Popular',
                     style: TextStyle(
                       color: Colors.white,
                       fontFamily: 'Outfit',
-                      fontSize: 22.0,
+                      fontSize: 20.0,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                  ElevatedButton.icon(
-                    onPressed: _showManagePinsSheet,
-                    icon: const Icon(Icons.push_pin, size: 14),
-                    label: const Text('Manage Pins', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5, fontFamily: 'Outfit')),
-                    style: ElevatedButton.styleFrom(
+                  IconButton(
+                    icon: const Icon(Icons.push_pin_outlined, color: Colors.white70, size: 20),
+                    tooltip: 'Manage Pinned Extensions',
+                    style: IconButton.styleFrom(
                       backgroundColor: Colors.white.withValues(alpha: 0.05),
-                      foregroundColor: Colors.white,
-                      elevation: 0,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(20.0),
-                        side: const BorderSide(color: Colors.white10),
-                      ),
-                      padding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 8.0),
+                      padding: const EdgeInsets.all(8.0),
                     ),
+                    onPressed: _showManagePinsSheet,
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: 24.0),
+            const SizedBox(height: 16.0),
             
-            // Pinned source railways list
+            // Content List (Pick Where You Left Off + Pinned Railways)
             Expanded(
               child: _isLoadingSources
                   ? const Center(
                       child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.0),
                     )
-                  : _pinnedSourceIds.isEmpty
-                      ? Center(
-                          child: Padding(
-                            padding: const EdgeInsets.all(32.0),
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                const Icon(Icons.push_pin_outlined, size: 48.0, color: Colors.white24),
-                                const SizedBox(height: 16.0),
-                                const Text(
-                                  'Your trending feed is empty.',
-                                  style: TextStyle(color: Colors.white54, fontSize: 14.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
-                                ),
-                                const SizedBox(height: 8.0),
-                                const Text(
-                                  'Pin up to 5 extensions to show popular & new items on the homepage.',
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(color: Colors.white38, fontSize: 12.0, fontFamily: 'Outfit'),
-                                ),
-                                const SizedBox(height: 24.0),
-                                ElevatedButton.icon(
-                                  onPressed: _showManagePinsSheet,
-                                  icon: const Icon(Icons.add, size: 16.0),
-                                  label: const Text('Pin Extensions', style: TextStyle(fontWeight: FontWeight.bold)),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: Colors.white,
-                                    foregroundColor: Colors.black,
-                                    padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 12.0),
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
+                  : ListView(
+                      physics: const BouncingScrollPhysics(),
+                      children: [
+                        // ── Pick Where You Left Off Railway ─────────
+                        ListenableBuilder(
+                          listenable: LibraryState(),
+                          builder: (context, _) => _buildPickWhereYouLeftRailway(isMobile),
+                        ),
+
+                        // ── Pinned Source Railways ───────────────────
+                        if (_pinnedSourceIds.isEmpty)
+                          Center(
+                            child: Padding(
+                              padding: const EdgeInsets.all(32.0),
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  const Icon(Icons.push_pin_outlined, size: 48.0, color: Colors.white24),
+                                  const SizedBox(height: 16.0),
+                                  const Text(
+                                    'Your trending feed is empty.',
+                                    style: TextStyle(color: Colors.white54, fontSize: 14.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
                                   ),
-                                ),
-                              ],
+                                  const SizedBox(height: 8.0),
+                                  const Text(
+                                    'Pin up to 5 extensions to show popular & new items on the homepage.',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(color: Colors.white38, fontSize: 12.0, fontFamily: 'Outfit'),
+                                  ),
+                                  const SizedBox(height: 24.0),
+                                  ElevatedButton.icon(
+                                    onPressed: _showManagePinsSheet,
+                                    icon: const Icon(Icons.add, size: 16.0),
+                                    label: const Text('Pin Extensions', style: TextStyle(fontWeight: FontWeight.bold)),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.white,
+                                      foregroundColor: Colors.black,
+                                      padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 12.0),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
-                          ),
-                        )
-                      : ListView.builder(
-                          physics: const BouncingScrollPhysics(),
-                          itemCount: _pinnedSourceIds.length,
-                          itemBuilder: (context, index) {
-                            final String sId = _pinnedSourceIds[index];
-                            
-                            // Safe iteration to find the source name and bypass List firstWhere sound null safety TypeErrors
+                          )
+                        else
+                          ..._pinnedSourceIds.map((sId) {
                             Map<String, dynamic>? sourceMap;
                             for (final s in _allSources) {
                               if (s['id']?.toString() == sId) {
@@ -671,14 +671,132 @@ class _MangaTrendingHomePageState extends State<MangaTrendingHomePage> {
                               }
                             }
                             final String sourceName = sourceMap?['name'] ?? 'Manga Source';
-                            
                             return _buildRailwayRow(sId, sourceName, isMobile);
-                          },
-                        ),
+                          }),
+                      ],
+                    ),
             ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildPickWhereYouLeftRailway(bool isMobile) {
+    final library = LibraryState();
+    final readingItems = library.items.where((item) => item.mode == 'manga' && item.watchedEpisodes > 0).toList();
+    if (readingItems.isEmpty) return const SizedBox.shrink();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24.0),
+          child: Row(
+            children: [
+              const Icon(Icons.history_toggle_off, color: Color(0xFFFF9F1C), size: 18),
+              const SizedBox(width: 8.0),
+              const Text(
+                'Pick Where You Left Off',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontFamily: 'Outfit',
+                  fontSize: 16.0,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                '${readingItems.length} Saved',
+                style: const TextStyle(color: Colors.white38, fontSize: 11.5, fontFamily: 'Outfit'),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12.0),
+        SizedBox(
+          height: isMobile ? 175.0 : 205.0,
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            physics: const BouncingScrollPhysics(),
+            padding: const EdgeInsets.symmetric(horizontal: 24.0),
+            itemCount: readingItems.length,
+            itemBuilder: (context, idx) {
+              final item = readingItems[idx];
+              final String mangaId = item.id.toString();
+              return Container(
+                width: isMobile ? 115.0 : 135.0,
+                margin: const EdgeInsets.only(right: 14.0),
+                child: GestureDetector(
+                  onTap: () => widget.navigationState.selectManga(mangaId),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Stack(
+                          children: [
+                            Positioned.fill(
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF141417),
+                                  borderRadius: BorderRadius.circular(8.0),
+                                  border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+                                ),
+                                child: const Center(
+                                  child: Icon(Icons.menu_book, color: Colors.white24, size: 36),
+                                ),
+                              ),
+                            ),
+                            Positioned(
+                              bottom: 6.0,
+                              right: 6.0,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6.0, vertical: 2.5),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFFF9F1C),
+                                  borderRadius: BorderRadius.circular(4.0),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withValues(alpha: 0.5),
+                                      blurRadius: 4.0,
+                                    ),
+                                  ],
+                                ),
+                                child: Text(
+                                  'Ch. ${item.watchedEpisodes}',
+                                  style: const TextStyle(
+                                    color: Colors.black,
+                                    fontSize: 10.0,
+                                    fontWeight: FontWeight.bold,
+                                    fontFamily: 'Outfit',
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 6.0),
+                      Text(
+                        'Manga #${item.id}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 12.0,
+                          fontWeight: FontWeight.bold,
+                          fontFamily: 'Outfit',
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 24.0),
+      ],
     );
   }
 }

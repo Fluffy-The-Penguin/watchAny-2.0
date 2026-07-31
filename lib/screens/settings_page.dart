@@ -3697,7 +3697,23 @@ class _SettingsPageState extends State<SettingsPage> {
           'Configure your Keiyoushi Manga Engine port, custom extension repositories, and lifecycle status.',
           style: TextStyle(color: Colors.white38, fontSize: 13.5, fontFamily: 'Outfit'),
         ),
-        const SizedBox(height: 24.0),
+        // Pinned Extensions Configuration
+        _SettingsTile(
+          icon: Icons.push_pin_outlined,
+          title: 'Pinned Extension Feeds',
+          subtitle: 'Select up to 5 installed manga extensions to display on your Manga Home feed.',
+          trailing: ElevatedButton.icon(
+            onPressed: _showManageMangaPinsSheet,
+            icon: const Icon(Icons.push_pin, size: 14),
+            label: const Text('Manage Pins', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12.0, fontFamily: 'Outfit')),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFFF9F1C),
+              foregroundColor: Colors.black,
+            ),
+          ),
+        ),
+
+        const SizedBox(height: 16.0),
 
         // Host/IP Configuration
         _SettingsTile(
@@ -3857,7 +3873,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 controller: _mangaRepoUrlController,
                 style: const TextStyle(color: Colors.white, fontSize: 13.0, fontFamily: 'Outfit'),
                 decoration: InputDecoration(
-                  hintText: 'https://example.com/index.json',
+                  hintText: 'https://github.com/keiyoushi/extensions/raw/repo/index.pb',
                   hintStyle: const TextStyle(color: Colors.white38),
                   filled: true,
                   fillColor: Colors.white.withValues(alpha: 0.03),
@@ -3922,6 +3938,114 @@ class _SettingsPageState extends State<SettingsPage> {
           },
         ),
       ],
+    );
+  }
+
+  Future<void> _showManageMangaPinsSheet() async {
+    final prefs = await SharedPreferences.getInstance();
+    final List<String> pinnedIds = List<String>.from(prefs.getStringList('pinned_manga_sources') ?? []);
+    final suwayomi = SuwayomiService();
+    List<dynamic> allSources = [];
+    try {
+      allSources = await suwayomi.getSources();
+    } catch (_) {}
+
+    if (!mounted) return;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF0F0F11),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16.0)),
+      ),
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return Container(
+              height: MediaQuery.of(context).size.height * 0.7,
+              padding: const EdgeInsets.all(24.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Pin Extensions (Max 5)',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 16.0,
+                          fontWeight: FontWeight.bold,
+                          fontFamily: 'Outfit',
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close, color: Colors.white70, size: 20),
+                        onPressed: () => Navigator.pop(context),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8.0),
+                  Text(
+                    'Selected: ${pinnedIds.length} / 5',
+                    style: const TextStyle(color: Colors.white38, fontSize: 12.0, fontFamily: 'Outfit'),
+                  ),
+                  const SizedBox(height: 16.0),
+                  Expanded(
+                    child: allSources.isEmpty
+                        ? const Center(
+                            child: Text(
+                              'No sources installed or engine starting...',
+                              style: TextStyle(color: Colors.white38, fontFamily: 'Outfit'),
+                              textAlign: TextAlign.center,
+                            ),
+                          )
+                        : ListView.separated(
+                            itemCount: allSources.length,
+                            separatorBuilder: (c, i) => const Divider(color: Colors.white10, height: 1.0),
+                            itemBuilder: (context, index) {
+                              final source = allSources[index];
+                              final String sId = source['id']?.toString() ?? '';
+                              final String name = source['name'] ?? 'Unknown Source';
+                              final String lang = source['lang'] ?? 'en';
+                              final bool isPinned = pinnedIds.contains(sId);
+
+                              return ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                title: Text(name, style: const TextStyle(color: Colors.white, fontFamily: 'Outfit', fontSize: 14.0)),
+                                subtitle: Text(lang.toUpperCase(), style: const TextStyle(color: Colors.white38, fontSize: 11.0, fontFamily: 'Outfit')),
+                                trailing: IconButton(
+                                  icon: Icon(
+                                    isPinned ? Icons.push_pin : Icons.push_pin_outlined,
+                                    color: isPinned ? const Color(0xFFFF9F1C) : Colors.white38,
+                                    size: 20.0,
+                                  ),
+                                  onPressed: () async {
+                                    setModalState(() {
+                                      if (isPinned) {
+                                        pinnedIds.remove(sId);
+                                      } else {
+                                        if (pinnedIds.length >= 5) {
+                                          NotificationService().show(context, 'You can only pin up to 5 extensions.', isError: true);
+                                          return;
+                                        }
+                                        pinnedIds.add(sId);
+                                      }
+                                    });
+                                    await prefs.setStringList('pinned_manga_sources', pinnedIds);
+                                    SuwayomiService.changeNotifier.notifyListeners();
+                                  },
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
     );
   }
 

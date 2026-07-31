@@ -118,11 +118,20 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
     super.dispose();
   }
 
+  double _lastScrollOffset = 0.0;
   void _onScroll() {
     if (_readingFormat != 'webtoon') return;
     if (_scrollController.hasClients && _pageUrls.isNotEmpty) {
-      // Scroll offset is already at 1x scale because layout remains constant
       final double offset = _scrollController.offset;
+
+      // Auto-hide top banner/overlay when scrolling down, show at top (offset <= 0)
+      if (offset > 50.0 && _showOverlay && offset > _lastScrollOffset + 10.0) {
+        setState(() => _showOverlay = false);
+      } else if (offset <= 0.0 && !_showOverlay) {
+        setState(() => _showOverlay = true);
+      }
+      _lastScrollOffset = offset;
+
       final double width = MediaQuery.of(context).size.width.clamp(0.0, 800.0);
       
       double cumulativeHeight = 40.0; // matching top padding
@@ -170,6 +179,11 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
     
     _pageLoader?.setPriorityIndex(index);
     _saveCurrentPage(index);
+
+    // Auto-mark chapter as completed when reaching the last page of the chapter
+    if (index >= _pageUrls.length - 1 && _pageUrls.isNotEmpty) {
+      _updateLibraryProgress();
+    }
 
     if (jump && _readingFormat != 'webtoon' && _pageController.hasClients) {
       if (_readingFormat == 'paging_double') {
@@ -795,44 +809,54 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
               left: 0,
               right: 0,
               child: Center(
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
-                  padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 5.0),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.6),
-                    borderRadius: BorderRadius.circular(12.0),
-                    border: Border.all(color: Colors.white10, width: 0.5),
-                  ),
-                  child: Builder(
-                    builder: (context) {
-                      final bool isDouble = _readingFormat == 'paging_double';
-                      String pageText;
-                      if (isDouble) {
-                        final groups = _getDoublePageIndices();
-                        final groupIdx = groups.indexWhere((g) => g.contains(_currentPageIndex));
-                        if (groupIdx != -1) {
-                          final group = groups[groupIdx];
-                          if (group.length == 2) {
-                            pageText = '${group[0] + 1}-${group[1] + 1}/${_pageUrls.length}';
+                child: GestureDetector(
+                  onTap: _showPageJumpBottomSheet,
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 6.0),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.75),
+                      borderRadius: BorderRadius.circular(16.0),
+                      border: Border.all(color: Colors.white24, width: 0.8),
+                    ),
+                    child: Builder(
+                      builder: (context) {
+                        final bool isDouble = _readingFormat == 'paging_double';
+                        String pageText;
+                        if (isDouble) {
+                          final groups = _getDoublePageIndices();
+                          final groupIdx = groups.indexWhere((g) => g.contains(_currentPageIndex));
+                          if (groupIdx != -1) {
+                            final group = groups[groupIdx];
+                            if (group.length == 2) {
+                              pageText = '${group[0] + 1}-${group[1] + 1}/${_pageUrls.length}';
+                            } else {
+                              pageText = '${group[0] + 1}/${_pageUrls.length}';
+                            }
                           } else {
-                            pageText = '${group[0] + 1}/${_pageUrls.length}';
+                            pageText = '${_currentPageIndex + 1}/${_pageUrls.length}';
                           }
                         } else {
                           pageText = '${_currentPageIndex + 1}/${_pageUrls.length}';
                         }
-                      } else {
-                        pageText = '${_currentPageIndex + 1}/${_pageUrls.length}';
+                        return Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              pageText,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 11.5,
+                                fontFamily: 'Outfit',
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(width: 4.0),
+                            const Icon(Icons.touch_app_outlined, color: Color(0xFFFF9F1C), size: 13.0),
+                          ],
+                        );
                       }
-                      return Text(
-                        pageText,
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 11.0,
-                          fontFamily: 'Outfit',
-                          fontWeight: FontWeight.bold,
-                        ),
-                      );
-                    }
+                    ),
                   ),
                 ),
               ),
@@ -842,6 +866,123 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
       ), // Scaffold
     ); // Focus
   } // build
+
+  void _showPageJumpBottomSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF141417),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16.0)),
+      ),
+      builder: (ctx) {
+        double tempPage = (_currentPageIndex + 1).toDouble();
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 16.0),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 36.0,
+                    height: 4.0,
+                    decoration: BoxDecoration(
+                      color: Colors.white24,
+                      borderRadius: BorderRadius.circular(2.0),
+                    ),
+                  ),
+                  const SizedBox(height: 16.0),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Jump to Page',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 16.0,
+                          fontWeight: FontWeight.bold,
+                          fontFamily: 'Outfit',
+                        ),
+                      ),
+                      Text(
+                        'Page ${tempPage.toInt()} of ${_pageUrls.length}',
+                        style: const TextStyle(
+                          color: Color(0xFFFF9F1C),
+                          fontSize: 13.0,
+                          fontWeight: FontWeight.bold,
+                          fontFamily: 'Outfit',
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12.0),
+                  Slider(
+                    value: tempPage,
+                    min: 1.0,
+                    max: _pageUrls.length.toDouble().clamp(1.0, 999.0),
+                    divisions: _pageUrls.length > 1 ? _pageUrls.length - 1 : 1,
+                    activeColor: const Color(0xFFFF9F1C),
+                    inactiveColor: Colors.white10,
+                    onChanged: (val) {
+                      setModalState(() {
+                        tempPage = val;
+                      });
+                      _updatePageIndex(val.toInt() - 1, jump: true);
+                    },
+                  ),
+                  const SizedBox(height: 12.0),
+                  SizedBox(
+                    height: 90.0,
+                    child: ListView.builder(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: _pageUrls.length,
+                      itemBuilder: (context, idx) {
+                        final bool isSelected = idx == (tempPage.toInt() - 1);
+                        return GestureDetector(
+                          onTap: () {
+                            setModalState(() {
+                              tempPage = (idx + 1).toDouble();
+                            });
+                            _updatePageIndex(idx, jump: true);
+                            Navigator.pop(ctx);
+                          },
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 150),
+                            margin: const EdgeInsets.only(right: 8.0),
+                            width: 55.0,
+                            decoration: BoxDecoration(
+                              color: isSelected ? const Color(0xFFFF9F1C).withValues(alpha: 0.2) : Colors.white.withValues(alpha: 0.05),
+                              borderRadius: BorderRadius.circular(8.0),
+                              border: Border.all(
+                                color: isSelected ? const Color(0xFFFF9F1C) : Colors.white10,
+                                width: isSelected ? 1.5 : 1.0,
+                              ),
+                            ),
+                            child: Center(
+                              child: Text(
+                                '${idx + 1}',
+                                style: TextStyle(
+                                  color: isSelected ? const Color(0xFFFF9F1C) : Colors.white70,
+                                  fontSize: 13.0,
+                                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                  fontFamily: 'Outfit',
+                                ),
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 12.0),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
 
   Widget _buildErrorView() {
     return Center(
@@ -916,6 +1057,14 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
             pageNumber: index + 1,
             isDownloading: isDownloading,
             progress: progress,
+          );
+        }
+
+        if (localPath != null && isWebtoon) {
+          return SizedBox(
+            key: ValueKey('sizedbox_$index'),
+            width: w,
+            child: content,
           );
         }
 

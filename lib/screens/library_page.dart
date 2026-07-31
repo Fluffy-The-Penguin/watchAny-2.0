@@ -2507,6 +2507,16 @@ class _LibraryMediaCardState extends State<_LibraryMediaCard> {
     final double userRating = savedItem?.rating ?? 0.0;
     final String status = savedItem?.libraryStatus ?? 'watching';
 
+    int unreadCount = 0;
+    if (widget.mode == AppMode.manga && savedItem != null) {
+      final readChapterIds = LibraryState().getReadChapterIds(libId);
+      if (readChapterIds.isNotEmpty && savedItem.totalEpisodes != null && savedItem.totalEpisodes! > 0) {
+        unreadCount = (savedItem.totalEpisodes! - readChapterIds.length).clamp(0, savedItem.totalEpisodes!);
+      } else if (savedItem.totalEpisodes != null && savedItem.totalEpisodes! > 0) {
+        unreadCount = (savedItem.totalEpisodes! - savedItem.watchedEpisodes).clamp(0, savedItem.totalEpisodes!);
+      }
+    }
+
     // Status colors
     Color statusColor = Colors.white38;
     String statusName = 'Planning';
@@ -2608,6 +2618,36 @@ class _LibraryMediaCardState extends State<_LibraryMediaCard> {
                               style: const TextStyle(
                                 color: Colors.white70,
                                 fontSize: 9.0,
+                                fontWeight: FontWeight.bold,
+                                fontFamily: 'Outfit',
+                              ),
+                            ),
+                          ),
+                        ),
+
+                      // Unread Chapter Counter Badge on top right for Manga
+                      if (widget.mode == AppMode.manga && unreadCount > 0 && !widget.isSelectionMode)
+                        Positioned(
+                          top: 6.0,
+                          right: 6.0,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6.0, vertical: 2.5),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFF9F1C),
+                              borderRadius: BorderRadius.circular(10.0),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withValues(alpha: 0.6),
+                                  blurRadius: 4.0,
+                                  offset: const Offset(0, 2),
+                                ),
+                              ],
+                            ),
+                            child: Text(
+                              '+$unreadCount',
+                              style: const TextStyle(
+                                color: Colors.black,
+                                fontSize: 10.0,
                                 fontWeight: FontWeight.bold,
                                 fontFamily: 'Outfit',
                               ),

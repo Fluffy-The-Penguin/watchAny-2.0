@@ -96,6 +96,14 @@ class ShellLayout extends StatelessWidget {
         case TabPage.settings: return 5;
         default: return 0;
       }
+    } else if (mode == AppMode.manga) {
+      switch (page) {
+        case TabPage.home: return 0;
+        case TabPage.search: return 1;
+        case TabPage.library: return 2;
+        case TabPage.settings: return 3;
+        default: return 0;
+      }
     } else {
       switch (page) {
         case TabPage.home: return 0;
@@ -117,6 +125,14 @@ class ShellLayout extends StatelessWidget {
         case 3: return TabPage.schedule;
         case 4: return TabPage.downloads;
         case 5: return TabPage.settings;
+        default: return TabPage.home;
+      }
+    } else if (mode == AppMode.manga) {
+      switch (index) {
+        case 0: return TabPage.home;
+        case 1: return TabPage.search;
+        case 2: return TabPage.library;
+        case 3: return TabPage.settings;
         default: return TabPage.home;
       }
     } else {
@@ -736,6 +752,11 @@ class _LazyPageStackState extends State<_LazyPageStack> {
     TabPage.downloads, TabPage.settings, TabPage.history,
     TabPage.notifications, TabPage.profile,
   ];
+  static const List<TabPage> _mangaPages = [
+    TabPage.home, TabPage.search, TabPage.library,
+    TabPage.settings, TabPage.history,
+    TabPage.notifications, TabPage.profile,
+  ];
   static const List<TabPage> _otherPages = [
     TabPage.home, TabPage.search, TabPage.library,
     TabPage.downloads, TabPage.settings, TabPage.history,
@@ -743,7 +764,9 @@ class _LazyPageStackState extends State<_LazyPageStack> {
   ];
 
   List<TabPage> _pagesForMode(AppMode mode) {
-    return mode == AppMode.anime ? _animePages : _otherPages;
+    if (mode == AppMode.anime) return _animePages;
+    if (mode == AppMode.manga) return _mangaPages;
+    return _otherPages;
   }
 
   int _pageIndex(TabPage page, AppMode mode) {
