@@ -46,3 +46,13 @@ app.*.map.json
 extensions_storage.json
 
 stremio_addons.json
+
+# Binary build outputs and temporary work directories
+*.zip
+*.exe
+*.apk
+*.pdf
+temp_*/
+temp_*
+scratch/
+

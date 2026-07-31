@@ -43,12 +43,21 @@ class UpdateInfo {
         }
       }
     } else {
-      // Locate the first executable (.exe) asset
+      // Locate the first executable (.exe) or zip asset
       for (final asset in assets) {
         final name = asset['name'] as String? ?? '';
         if (name.endsWith('.exe')) {
           downloadUrl = asset['browser_download_url'] as String? ?? '';
           break;
+        }
+      }
+      if (downloadUrl.isEmpty) {
+        for (final asset in assets) {
+          final name = asset['name'] as String? ?? '';
+          if (name.endsWith('.zip')) {
+            downloadUrl = asset['browser_download_url'] as String? ?? '';
+            break;
+          }
         }
       }
     }
@@ -184,7 +193,12 @@ class UpdateService extends ChangeNotifier {
 
       if (response != null && response.statusCode == 200) {
         final decoded = jsonDecode(response.body);
-        final json = decoded is List ? (decoded.isNotEmpty ? decoded.first : null) : decoded;
+        final json = decoded is List
+            ? decoded.firstWhere(
+                (r) => r is Map<String, dynamic> && r['draft'] != true && r['prerelease'] != true,
+                orElse: () => decoded.isNotEmpty ? decoded.first : null,
+              )
+            : decoded;
 
         if (json != null && json is Map<String, dynamic>) {
           final info = UpdateInfo.fromJson(json);
@@ -318,15 +332,39 @@ class UpdateService extends ChangeNotifier {
     if (_downloadedFilePath == null) return;
     try {
       if (Platform.isWindows) {
-        // Run Inno Setup installer silently and force close running app instance
-        await Process.start(_downloadedFilePath!, [
-          '/SILENT',
-          '/SUPPRESSMSGBOXES',
-          '/NORESTART',
-          '/CLOSEAPPLICATIONS',
-          '/FORCECLOSEAPPLICATIONS',
-        ]);
-        exit(0);
+        final downloadedFile = File(_downloadedFilePath!);
+        final isZip = _downloadedFilePath!.toLowerCase().endsWith('.zip');
+
+        if (isZip) {
+          final tempDir = Directory.systemTemp;
+          final psScriptPath = '${tempDir.path}\\watchany_update_runner.ps1';
+          final appExePath = Platform.resolvedExecutable;
+          final appDir = File(appExePath).parent.path;
+
+          final psScriptContent = '''
+Start-Sleep -Seconds 1
+Get-Process -Name "watch_any" -ErrorAction SilentlyContinue | Stop-Process -Force
+Expand-Archive -Path "$_downloadedFilePath" -DestinationPath "$appDir" -Force
+Remove-Item "$_downloadedFilePath" -Force -ErrorAction SilentlyContinue
+Start-Process "$appExePath"
+''';
+          await File(psScriptPath).writeAsString(psScriptContent);
+          await Process.start('powershell.exe', [
+            '-ExecutionPolicy', 'Bypass',
+            '-WindowStyle', 'Hidden',
+            '-File', psScriptPath,
+          ]);
+          exit(0);
+        } else {
+          // Native 64-bit EXE installer - pass target app directory so it updates current app location
+          final appExePath = Platform.resolvedExecutable;
+          final appDir = File(appExePath).parent.path;
+          await Process.start(_downloadedFilePath!, [
+            '/DIR',
+            appDir,
+          ]);
+          exit(0);
+        }
       } else if (Platform.isAndroid) {
         const channel = MethodChannel('com.example.watch_any/native_path');
         await channel.invokeMethod('installApk', {'filePath': _downloadedFilePath});
