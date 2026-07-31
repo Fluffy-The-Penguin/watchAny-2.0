@@ -2219,6 +2219,29 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
                         ),
                         const SizedBox(height: 12.0),
                         ...available.map((ext) => _buildExtensionTile(ext)),
+                      ] else if (installed.isNotEmpty) ...[
+                        const SizedBox(height: 16.0),
+                        Center(
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 20.0),
+                            child: Column(
+                              children: [
+                                const Icon(Icons.playlist_add_outlined, color: Colors.white24, size: 32.0),
+                                const SizedBox(height: 8.0),
+                                const Text(
+                                  'No extension repository added yet',
+                                  style: TextStyle(color: Colors.white54, fontSize: 13.0, fontFamily: 'Outfit'),
+                                ),
+                                const SizedBox(height: 6.0),
+                                TextButton.icon(
+                                  onPressed: _showAddRepoDialog,
+                                  icon: const Icon(Icons.add, size: 16.0, color: Color(0xFFFF9F1C)),
+                                  label: const Text('Add Extension Repo', style: TextStyle(color: Color(0xFFFF9F1C), fontWeight: FontWeight.bold, fontSize: 12.0)),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
                       ],
 
                       // Empty state
