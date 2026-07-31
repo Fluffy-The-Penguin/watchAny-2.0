@@ -341,9 +341,20 @@ class SuwayomiService {
         if (repoResp.statusCode == 200) {
           final dynamic decoded = await _fastJsonDecode(repoResp.body);
           List repoList = [];
-          if (decoded is Map && decoded['extensionList'] is List) {
-            repoList = decoded['extensionList'] as List;
+          if (decoded is Map) {
+            final dynamic extListField = decoded['extensionList'];
+            if (extListField is List) {
+              // Old format: "extensionList": [...]
+              repoList = extListField;
+            } else if (extListField is Map && extListField['extensions'] is List) {
+              // New Keiyoushi format: "extensionList": { "extensions": [...] }
+              repoList = extListField['extensions'] as List;
+            } else if (decoded['extensions'] is List) {
+              // Fallback: root-level "extensions" key
+              repoList = decoded['extensions'] as List;
+            }
           } else if (decoded is List) {
+            // Plain array format
             repoList = decoded;
           }
           for (final ext in repoList) {
@@ -429,42 +440,48 @@ class SuwayomiService {
     final userRepos = await getUserRepos();
     await refreshUserRepoExtensionsCache(userRepos);
 
-    // 3. Android / Local Engine API (/api/repos/add)
-    try {
-      final queryName = name != null && name.trim().isNotEmpty ? '&name=${Uri.encodeComponent(name.trim())}' : '';
-      final addUrl = Uri.parse('$_baseUrl/api/repos/add?url=${Uri.encodeComponent(cleanUrl)}$queryName');
-      await http.get(addUrl).timeout(const Duration(seconds: 5));
-    } catch (_) {}
+    // 3. Notify UI immediately — don't wait for slow server calls below
+    changeNotifier.value++;
 
-    // 4. Desktop / Suwayomi-Server GraphQL (addExtensionStore)
-    try {
-      const addStoreGql = '''
-        mutation AddStore(\$url: String!) {
-          addExtensionStore(input: { indexUrl: \$url }) {
-            extensionStore {
-              indexUrl
-              name
+    // 4. Server-side registrations (best-effort, all failures silently ignored)
+    // Run these unawaited so UI is never blocked by them on Android
+    unawaited(() async {
+      // Android / Local Engine API (/api/repos/add)
+      try {
+        final queryName = name != null && name.trim().isNotEmpty ? '&name=${Uri.encodeComponent(name.trim())}' : '';
+        final addUrl = Uri.parse('$_baseUrl/api/repos/add?url=${Uri.encodeComponent(cleanUrl)}$queryName');
+        await http.get(addUrl).timeout(const Duration(seconds: 5));
+      } catch (_) {}
+
+      // Desktop / Suwayomi-Server GraphQL (addExtensionStore)
+      try {
+        const addStoreGql = '''
+          mutation AddStore(\$url: String!) {
+            addExtensionStore(input: { indexUrl: \$url }) {
+              extensionStore {
+                indexUrl
+                name
+              }
             }
           }
-        }
-      ''';
-      await _postGraphQL(addStoreGql, {'url': cleanUrl});
-    } catch (e) {
-      developer.log('GraphQL addExtensionStore error: $e', name: 'SuwayomiService');
-    }
+        ''';
+        await _postGraphQL(addStoreGql, {'url': cleanUrl});
+      } catch (e) {
+        developer.log('GraphQL addExtensionStore error: $e', name: 'SuwayomiService');
+      }
 
-    // 5. Suwayomi-Server REST v1 /api/v1/extension/store/add
-    try {
-      await http.post(
-        Uri.parse('$_baseUrl/api/v1/extension/store/add'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'url': cleanUrl, 'indexUrl': cleanUrl}),
-      ).timeout(const Duration(seconds: 5));
-    } catch (_) {}
+      // Suwayomi-Server REST v1 /api/v1/extension/store/add
+      try {
+        await http.post(
+          Uri.parse('$_baseUrl/api/v1/extension/store/add'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({'url': cleanUrl, 'indexUrl': cleanUrl}),
+        ).timeout(const Duration(seconds: 5));
+      } catch (_) {}
+    }());
 
-    // Trigger background fetch/refresh on Suwayomi-Server
+    // 5. Trigger background fetch/refresh on Suwayomi-Server
     unawaited(fetchExtensionsIndex());
-    changeNotifier.value++;
   }
 
   Future<void> fetchExtensionsIndex() async {
