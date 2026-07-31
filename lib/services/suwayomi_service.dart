@@ -115,24 +115,22 @@ class SuwayomiService {
   // Fetch all extensions (installed AND available in store)
   Future<List<dynamic>> getExtensions() async {
     try {
+      final List<String> userRepos = await getUserRepos();
+      final bool hasUserRepos = userRepos.isNotEmpty;
+
       // 1. Local Native Server API (/api/installed & /api/list)
       try {
         final responses = await Future.wait([
-          http.get(Uri.parse('$_baseUrl/api/installed')).timeout(const Duration(seconds: 15)),
-          http.get(Uri.parse('$_baseUrl/api/list')).timeout(const Duration(seconds: 15)),
-        ]);
+          http.get(Uri.parse('$_baseUrl/api/installed')).timeout(const Duration(seconds: 10)),
+          http.get(Uri.parse('$_baseUrl/api/list')).timeout(const Duration(seconds: 10)),
+        ]).catchError((_) => [http.Response('', 500), http.Response('', 500)]);
 
-
-        final instResp = responses[0];
-        final listResp = responses[1];
-
-        if (instResp.statusCode == 200 && listResp.statusCode == 200) {
-          final installedData = await _fastJsonDecode(instResp.body);
-          final listData = await _fastJsonDecode(listResp.body);
+        if (responses[0].statusCode == 200 && responses[1].statusCode == 200) {
+          final installedData = await _fastJsonDecode(responses[0].body);
+          final listData = await _fastJsonDecode(responses[1].body);
 
           final installedList = installedData['data'] as List? ?? [];
           final listExts = listData['data'] as List? ?? [];
-
           final Map<String, Map<String, dynamic>> combined = {};
 
           for (var ext in installedList) {
@@ -155,50 +153,52 @@ class SuwayomiService {
               'iconUrl': ext['iconUrl']?.toString() ?? iconCdn,
               'sources': ext['sources'] ?? [],
             };
-
           }
 
-          for (var ext in listExts) {
-            final String pkg = ext['pkg']?.toString() ?? '';
-            if (pkg.isEmpty) continue;
-            final String iconName = ext['icon']?.toString() ?? 'icon/$pkg.png';
-            final String iconCdn = 'https://raw.githubusercontent.com/keiyoushi/extensions/repo/$iconName';
-            final String apkName = ext['apk']?.toString() ?? '$pkg.apk';
-            final String apkUrl = ext['apkUrl']?.toString() ?? 'https://raw.githubusercontent.com/keiyoushi/extensions/repo/apk/$apkName';
-            if (combined.containsKey(pkg)) {
-              final instVer = combined[pkg]!['versionName']?.toString() ?? '';
-              final availVer = ext['version']?.toString() ?? '';
-              if (availVer.isNotEmpty && instVer.isNotEmpty && availVer != instVer) {
-                combined[pkg]!['hasUpdate'] = true;
-                combined[pkg]!['availableVersion'] = availVer;
+          if (hasUserRepos) {
+            for (var ext in listExts) {
+              final String pkg = ext['pkg']?.toString() ?? '';
+              if (pkg.isEmpty) continue;
+              final String iconName = ext['icon']?.toString() ?? 'icon/$pkg.png';
+              final String iconCdn = 'https://raw.githubusercontent.com/keiyoushi/extensions/repo/$iconName';
+              final String apkName = ext['apk']?.toString() ?? '$pkg.apk';
+              final String apkUrl = ext['apkUrl']?.toString() ?? 'https://raw.githubusercontent.com/keiyoushi/extensions/repo/apk/$apkName';
+              if (combined.containsKey(pkg)) {
+                final instVer = combined[pkg]!['versionName']?.toString() ?? '';
+                final availVer = ext['version']?.toString() ?? '';
+                if (availVer.isNotEmpty && instVer.isNotEmpty && availVer != instVer) {
+                  combined[pkg]!['hasUpdate'] = true;
+                  combined[pkg]!['availableVersion'] = availVer;
+                }
+                combined[pkg]!['apkUrl'] = apkUrl;
+              } else {
+                combined[pkg] = {
+                  'id': pkg,
+                  'name': ext['name'] ?? '',
+                  'pkgName': pkg,
+                  'versionName': ext['version'] ?? '',
+                  'isInstalled': false,
+                  'hasUpdate': false,
+                  'lang': ext['lang'] ?? 'en',
+                  'nsfw': (ext['nsfw'] ?? 0) == 1,
+                  'apkUrl': apkUrl,
+                  'iconUrl': ext['iconUrl']?.toString() ?? iconCdn,
+                };
               }
-              combined[pkg]!['apkUrl'] = apkUrl;
-              if (combined[pkg]!['iconUrl'] == null || combined[pkg]!['iconUrl'].toString().isEmpty) {
-                combined[pkg]!['iconUrl'] = iconCdn;
-              }
-              continue;
             }
-            combined[pkg] = {
-              'id': pkg,
-              'name': ext['name'] ?? '',
-              'pkgName': pkg,
-              'versionName': ext['version'] ?? '',
-              'isInstalled': false,
-              'hasUpdate': false,
-              'lang': ext['lang'] ?? 'en',
-              'nsfw': (ext['nsfw'] ?? 0) == 1,
-              'apkUrl': apkUrl,
-              'iconUrl': ext['iconUrl']?.toString() ?? iconCdn,
-            };
           }
 
           if (combined.isNotEmpty) {
-            return combined.values.toList();
+            final res = combined.values.toList();
+            if (!hasUserRepos) {
+              return res.where((e) => e['isInstalled'] == true).toList();
+            }
+            return res;
           }
         }
       } catch (_) {}
 
-      // 2. Try GraphQL extensions query
+      // 2. Try GraphQL extensions query (Suwayomi-Server)
       const gqlQuery = '''
         query {
           extensions {
@@ -220,9 +220,9 @@ class SuwayomiService {
         if (data != null && data['extensions']?['nodes'] != null) {
           final List nodes = data['extensions']['nodes'] as List;
           if (nodes.isNotEmpty) {
-            return nodes.map((ext) {
+            final mapped = nodes.map((ext) {
               final pkg = ext['pkgName'] ?? '';
-              return {
+              return <String, dynamic>{
                 'id': pkg,
                 'name': ext['name'] ?? '',
                 'pkgName': pkg,
@@ -234,21 +234,25 @@ class SuwayomiService {
                 'iconUrl': ext['iconUrl']?.toString() ?? '',
               };
             }).toList();
+
+            if (!hasUserRepos) {
+              return mapped.where((e) => e['isInstalled'] == true).toList();
+            }
+            return mapped;
           }
         }
       } catch (e) {
         developer.log('GraphQL extensions query failed: $e', name: 'SuwayomiService');
       }
 
-
-      // 2. REST API v1 fallback
+      // 3. REST API v1 fallback
       try {
         final v1Resp = await http.get(Uri.parse('$_baseUrl/api/v1/extension/list')).timeout(const Duration(seconds: 10));
         if (v1Resp.statusCode == 200) {
           final List v1List = (await _fastJsonDecode(v1Resp.body)) as List;
-          return v1List.map((ext) {
+          final mapped = v1List.map((ext) {
             final pkg = ext['pkgName'] ?? ext['pkg'] ?? '';
-            return {
+            return <String, dynamic>{
               'id': ext['id']?.toString() ?? pkg,
               'name': ext['name'] ?? '',
               'pkgName': pkg,
@@ -260,100 +264,16 @@ class SuwayomiService {
               'iconUrl': ext['iconUrl']?.toString() ?? '',
             };
           }).toList();
+
+          if (!hasUserRepos) {
+            return mapped.where((e) => e['isInstalled'] == true).toList();
+          }
+          return mapped;
         }
       } catch (_) {}
 
-      // 3. Legacy REST API fallback
-      final responses = await Future.wait([
-        http.get(Uri.parse('$_baseUrl/api/installed')).timeout(const Duration(seconds: 10)),
-        http.get(Uri.parse('$_baseUrl/api/list')).timeout(const Duration(seconds: 10)),
-      ]).catchError((e) {
-        throw Exception('Network request failed: $e');
-      });
-
-      final instResp = responses[0];
-      final listResp = responses[1];
-
-      if (instResp.statusCode != 200 || listResp.statusCode != 200) {
-        throw Exception('Server error: installed_status=${instResp.statusCode}, list_status=${listResp.statusCode}');
-      }
-
-      final installedData = await _fastJsonDecode(instResp.body);
-      final listData = await _fastJsonDecode(listResp.body);
-
-      final installedList = installedData['data'] as List? ?? [];
-      final listExts = listData['data'] as List? ?? [];
-
-      final Map<String, Map<String, dynamic>> combined = {};
-
-      for (var ext in installedList) {
-        final String pkg = ext['pkg']?.toString() ?? ext['pkgName']?.toString() ?? '';
-        if (pkg.isEmpty) continue;
-        final String iconName = ext['icon']?.toString() ?? 'icon/$pkg.png';
-        final String iconCdn = 'https://raw.githubusercontent.com/keiyoushi/extensions/repo/$iconName';
-        final String rawApk = ext['apkUrl']?.toString() ?? ext['apk']?.toString() ?? '';
-        final String apkUrl = (rawApk.startsWith('http://') || rawApk.startsWith('https://'))
-            ? rawApk
-            : 'https://cdn.jsdelivr.net/gh/keiyoushi/extensions@repo/apk/$pkg.apk';
-        combined[pkg] = {
-          'id': pkg,
-          'name': ext['name'] ?? '',
-          'pkgName': pkg,
-          'versionName': ext['version'] ?? ext['versionName'] ?? '',
-          'isInstalled': true,
-          'hasUpdate': ext['hasUpdate'] == true || ext['hasUpdate'] == 1,
-          'lang': ext['lang'] ?? 'en',
-          'nsfw': (ext['nsfw'] ?? 0) == 1,
-          'apkUrl': apkUrl,
-          'iconUrl': ext['iconUrl']?.toString() ?? iconCdn,
-        };
-      }
-
-      for (var ext in listExts) {
-        final String pkg = ext['pkg']?.toString() ?? ext['pkgName']?.toString() ?? '';
-        if (pkg.isEmpty) continue;
-        final String iconName = ext['icon']?.toString() ?? 'icon/$pkg.png';
-        final String iconCdn = 'https://raw.githubusercontent.com/keiyoushi/extensions/repo/$iconName';
-        final String rawApk = ext['apkUrl']?.toString() ?? ext['apk']?.toString() ?? '';
-        final String apkUrl = (rawApk.startsWith('http://') || rawApk.startsWith('https://'))
-            ? rawApk
-            : 'https://cdn.jsdelivr.net/gh/keiyoushi/extensions@repo/apk/$pkg.apk';
-        if (combined.containsKey(pkg)) {
-          final instVer = combined[pkg]!['versionName']?.toString() ?? '';
-          final availVer = ext['version']?.toString() ?? ext['versionName']?.toString() ?? '';
-          if (availVer.isNotEmpty && instVer.isNotEmpty && availVer != instVer) {
-            combined[pkg]!['hasUpdate'] = true;
-            combined[pkg]!['availableVersion'] = availVer;
-          }
-          combined[pkg]!['apkUrl'] = apkUrl;
-          if (combined[pkg]!['iconUrl'] == null || combined[pkg]!['iconUrl'].toString().isEmpty) {
-            combined[pkg]!['iconUrl'] = iconCdn;
-          }
-          continue;
-        }
-        combined[pkg] = {
-          'id': pkg,
-          'name': ext['name'] ?? '',
-          'pkgName': pkg,
-          'versionName': ext['version'] ?? ext['versionName'] ?? '',
-          'isInstalled': false,
-          'hasUpdate': false,
-          'lang': ext['lang'] ?? 'en',
-          'nsfw': (ext['nsfw'] ?? 0) == 1,
-          'apkUrl': apkUrl,
-          'iconUrl': ext['iconUrl']?.toString() ?? iconCdn,
-        };
-      }
-
-
-      final hasAvailable = combined.values.any((ext) => ext['isInstalled'] != true);
-      if (combined.isNotEmpty && hasAvailable) {
-        return combined.values.toList();
-      }
-
-      // 4. Load from user added repositories ONLY if user has added extension repos
-      final List<String> userRepos = await getUserRepos();
-      if (userRepos.isNotEmpty) {
+      // 4. Load from user added repositories ONLY if userRepos is NOT empty
+      if (hasUserRepos) {
         final List<Map<String, dynamic>> repoExts = [];
         for (final repoUrl in userRepos) {
           try {
@@ -396,7 +316,7 @@ class SuwayomiService {
         if (repoExts.isNotEmpty) return repoExts;
       }
 
-      return combined.values.toList();
+      return [];
     } catch (e, stack) {
       developer.log('getExtensions Error', name: 'SuwayomiService', error: e, stackTrace: stack);
       return [];
