@@ -78,7 +78,7 @@ class UpdateService extends ChangeNotifier {
   factory UpdateService() => _instance;
   UpdateService._internal();
 
-  static const String currentVersion = '2.1.50';
+  static const String currentVersion = '2.1.51';
 
 
 
@@ -359,10 +359,12 @@ Start-Process "$appExePath"
           // Native 64-bit EXE installer - pass target app directory so it updates current app location
           final appExePath = Platform.resolvedExecutable;
           final appDir = File(appExePath).parent.path;
-          await Process.start(_downloadedFilePath!, [
-            '/DIR',
-            appDir,
-          ]);
+          await Process.start(
+            _downloadedFilePath!,
+            ['/DIR', appDir],
+            mode: ProcessStartMode.detached,
+          );
+          await Future.delayed(const Duration(milliseconds: 300));
           exit(0);
         }
       } else if (Platform.isAndroid) {
