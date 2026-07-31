@@ -113,9 +113,43 @@ class SuwayomiService {
 
 
   static List<Map<String, dynamic>> _userRepoExtensionsCache = [];
-  // Tracks whether we've already attempted a cache load for the current session.
-  // Prevents an infinite retry loop if the repo JSON parse fails and cache stays empty.
+  // Prevents infinite retry loop if the repo JSON parse fails and cache stays empty.
   static bool _cacheLoadAttempted = false;
+
+  // Android: tracks which extension packages we have installed locally.
+  // Persisted to SharedPreferences so it survives app restarts.
+  static Set<String> _androidInstalledPkgs = {};
+  static bool _androidInstalledPkgsLoaded = false;
+
+  Future<void> _loadAndroidInstalledPkgs() async {
+    if (_androidInstalledPkgsLoaded) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final list = prefs.getStringList('android_installed_ext_pkgs') ?? [];
+      _androidInstalledPkgs = list.toSet();
+      _androidInstalledPkgsLoaded = true;
+    } catch (_) {}
+  }
+
+  Future<void> _markExtensionInstalled(String pkgName) async {
+    _androidInstalledPkgs.add(pkgName);
+    _androidInstalledPkgsLoaded = true;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList('android_installed_ext_pkgs', _androidInstalledPkgs.toList());
+    } catch (_) {}
+  }
+
+  Future<void> _markExtensionUninstalled(String pkgName) async {
+    _androidInstalledPkgs.remove(pkgName);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList('android_installed_ext_pkgs', _androidInstalledPkgs.toList());
+    } catch (_) {}
+  }
+
+  // Prevents concurrent install calls for the same package (was causing loop).
+  static final Set<String> _pendingInstalls = {};
 
   Future<List<String>> getUserRepos() async {
     try {
@@ -161,7 +195,64 @@ class SuwayomiService {
 
       final bool isAndroid = !kIsWeb && Platform.isAndroid;
 
-      if (!isAndroid) {
+      if (isAndroid) {
+        // ── Android path ──────────────────────────────────────────────────────
+        // Load installed packages from SharedPreferences (instant, in-memory after first load)
+        await _loadAndroidInstalledPkgs();
+
+        // Try lightweight /api/installed from the local Tachiyomi server (3s timeout).
+        // Skip GraphQL entirely on Android — mutations reach the local server and
+        // trigger unintended extension operations.
+        try {
+          final localResp = await http
+              .get(Uri.parse('$_baseUrl/api/installed'))
+              .timeout(const Duration(seconds: 3));
+          if (localResp.statusCode == 200) {
+            final installedData = await _fastJsonDecode(localResp.body);
+            final installedList = installedData['data'] as List? ?? [];
+            for (var ext in installedList) {
+              final String pkg = ext['pkg']?.toString() ?? '';
+              if (pkg.isEmpty) continue;
+              _androidInstalledPkgs.add(pkg);
+              final String iconName = ext['icon']?.toString() ?? 'icon/$pkg.png';
+              final String iconCdn =
+                  'https://raw.githubusercontent.com/keiyoushi/extensions/repo/$iconName';
+              installedMap[pkg] = {
+                'id': pkg,
+                'name': ext['name'] ?? '',
+                'pkgName': pkg,
+                'versionName': ext['version'] ?? '',
+                'isInstalled': true,
+                'hasUpdate': ext['hasUpdate'] == true || ext['hasUpdate'] == 1,
+                'lang': ext['lang'] ?? 'en',
+                'nsfw': (ext['nsfw'] ?? 0) == 1,
+                'iconUrl': ext['iconUrl']?.toString() ?? iconCdn,
+                'sources': ext['sources'] ?? [],
+              };
+            }
+          }
+        } catch (_) {}
+
+        // Also mark packages we know are installed from SharedPreferences
+        // (covers case where server isn't ready yet or was freshly installed)
+        for (final pkg in _androidInstalledPkgs) {
+          if (!installedMap.containsKey(pkg)) {
+            installedMap[pkg] = {
+              'id': pkg,
+              'pkgName': pkg,
+              'name': pkg,
+              'versionName': '',
+              'isInstalled': true,
+              'hasUpdate': false,
+              'lang': 'en',
+              'nsfw': false,
+              'iconUrl': 'https://raw.githubusercontent.com/keiyoushi/extensions/repo/icon/$pkg.png',
+              'sources': <dynamic>[],
+            };
+          }
+        }
+      } else {
+        // ── Desktop path ──────────────────────────────────────────────────────
         // 1. GraphQL extensions query (desktop/Suwayomi-Server only)
         try {
           const gqlQuery = '''
@@ -533,10 +624,100 @@ class SuwayomiService {
   }
 
   Future<bool> installExtension(String pkgName, {String? extId, String? apkUrl}) async {
+    // Guard: one install at a time per package. Prevents the loop where a
+    // changeNotifier fire or duplicate UI tap causes a second install flow to
+    // start while the first is still running.
+    if (_pendingInstalls.contains(pkgName)) {
+      developer.log('installExtension: $pkgName already in progress, ignoring', name: 'SuwayomiService');
+      return false;
+    }
+    _pendingInstalls.add(pkgName);
     try {
       final id = extId ?? pkgName;
+      final bool isAndroid = !kIsWeb && Platform.isAndroid;
 
-      // 1. Local Engine API (Android)
+      // ── ANDROID FAST PATH ─────────────────────────────────────────────────
+      if (isAndroid) {
+        // Resolve APK URL from cache
+        String targetApkUrl = apkUrl ?? '';
+        if (targetApkUrl.isEmpty) {
+          for (final item in _userRepoExtensionsCache) {
+            final p = item['pkgName']?.toString() ?? '';
+            if (p == pkgName || p == id) {
+              final u = item['apkUrl']?.toString() ?? '';
+              if (u.startsWith('http')) { targetApkUrl = u; break; }
+            }
+          }
+        }
+        if (targetApkUrl.isEmpty) {
+          targetApkUrl =
+              'https://raw.githubusercontent.com/keiyoushi/extensions/repo/apk/$pkgName.apk';
+        }
+
+        // 1. Local Tachiyomi server: /api/install
+        // CRITICAL: only fall through to MethodChannel if the server is
+        // completely unreachable (socket error). If the server responded
+        // (even with a timeout or unexpected body), do NOT also run the
+        // MethodChannel installer — that creates the double-install loop.
+        bool serverReachable = false;
+        try {
+          final response = await http
+              .get(Uri.parse('$_baseUrl/api/install?pkg=$pkgName'))
+              .timeout(const Duration(seconds: 90));
+          serverReachable = true; // Got a response — server is up
+          if (response.statusCode == 200) {
+            final decoded = jsonDecode(response.body);
+            // Accept any truthy success field the server might use
+            final bool ok = decoded['ok'] == true ||
+                decoded['success'] == true ||
+                decoded['installed'] == true ||
+                decoded['result'] == 'success' ||
+                decoded['status'] == 'ok';
+            if (ok) {
+              await _markExtensionInstalled(pkgName);
+              clearSourcesCache();
+              changeNotifier.value++;
+              return true;
+            }
+          }
+        } on TimeoutException {
+          // Server was reachable but timed out — it's probably still
+          // installing in the background. Do NOT also fire MethodChannel.
+          serverReachable = true;
+          developer.log('Android /api/install timed out — server still processing', name: 'SuwayomiService');
+        } catch (e) {
+          // SocketException / handshake error = server not running
+          serverReachable = false;
+          developer.log('Android /api/install unreachable: $e', name: 'SuwayomiService');
+        }
+
+        // 2. MethodChannel APK installer — only if server was completely unreachable
+        if (!serverReachable) {
+          try {
+            final tempDir = await getTemporaryDirectory();
+            final targetFile = File('${tempDir.path}/$pkgName.apk');
+            final resp = await http
+                .get(Uri.parse(targetApkUrl))
+                .timeout(const Duration(seconds: 60));
+            if (resp.statusCode == 200 && resp.bodyBytes.isNotEmpty) {
+              await targetFile.writeAsBytes(resp.bodyBytes);
+              const channel = MethodChannel('com.example.watch_any/native_path');
+              await channel.invokeMethod('installApk', {'filePath': targetFile.path});
+              await _markExtensionInstalled(pkgName);
+              clearSourcesCache();
+              changeNotifier.value++;
+              return true;
+            }
+          } catch (e) {
+            developer.log('Android APK download/install error: $e', name: 'SuwayomiService');
+          }
+        }
+
+        return false;
+      }
+
+      // ── DESKTOP PATH ──────────────────────────────────────────────────────
+      // 1. Local Engine API (desktop fallback)
       try {
         final response = await http.get(
           Uri.parse('$_baseUrl/api/install?pkg=$pkgName'),
@@ -722,6 +903,8 @@ class SuwayomiService {
     } catch (e, stack) {
       developer.log('installExtension Error', name: 'SuwayomiService', error: e, stackTrace: stack);
       return false;
+    } finally {
+      _pendingInstalls.remove(pkgName);
     }
   }
 
@@ -729,17 +912,42 @@ class SuwayomiService {
 
   Future<bool> uninstallExtension(String pkgName, {String? extId}) async {
     try {
-      if (!kIsWeb && Platform.isAndroid) {
+      final bool isAndroid = !kIsWeb && Platform.isAndroid;
+
+      // ── ANDROID FAST PATH ─────────────────────────────────────────────────
+      // Skip GraphQL/REST mutations — use native channel + system dialog.
+      if (isAndroid) {
+        // 1. Native MethodChannel uninstall (triggers Android system uninstall dialog)
         try {
           const channel = MethodChannel('com.example.watch_any/native_path');
           await channel.invokeMethod('uninstallApk', {'pkgName': pkgName});
+          await _markExtensionUninstalled(pkgName);
+          clearSourcesCache();
+          changeNotifier.value++;
+          return true;
         } catch (e) {
           developer.log('Android uninstallApk channel error: $e', name: 'SuwayomiService');
         }
+
+        // 2. Fallback: open system App Details page
+        try {
+          final Uri uri = Uri.parse('package:$pkgName');
+          if (await canLaunchUrl(uri)) {
+            await launchUrl(uri);
+            await _markExtensionUninstalled(pkgName);
+            clearSourcesCache();
+            changeNotifier.value++;
+            return true;
+          }
+        } catch (e) {
+          developer.log('Android package details launch error: $e', name: 'SuwayomiService');
+        }
+
+        return false;
       }
 
+      // ── DESKTOP PATH ──────────────────────────────────────────────────────
       final id = extId ?? pkgName;
-
 
       // 1. Primary Suwayomi Server GraphQL updateExtension (patch: { uninstall: true })
       for (final targetId in [id, pkgName]) {
@@ -765,30 +973,23 @@ class SuwayomiService {
         }
       }
 
-      // 4. Try REST HTTP DELETE
+      // 2. Try REST HTTP DELETE
       try {
         final delResp = await http.delete(Uri.parse('$_baseUrl/api/v1/extension/pkg/$pkgName')).timeout(const Duration(seconds: 15));
-        if (delResp.statusCode == 200) {
-          changeNotifier.value++;
-          return true;
-        }
+        if (delResp.statusCode == 200) { changeNotifier.value++; return true; }
       } catch (_) {}
 
-      // 5. Try REST HTTP POST uninstall
+      // 3. Try REST HTTP POST uninstall
       try {
         final postResp = await http.post(Uri.parse('$_baseUrl/api/v1/extension/uninstall/$pkgName')).timeout(const Duration(seconds: 15));
-        if (postResp.statusCode == 200) {
-          changeNotifier.value++;
-          return true;
-        }
+        if (postResp.statusCode == 200) { changeNotifier.value++; return true; }
       } catch (_) {}
 
-      // 6. Legacy REST API fallback
+      // 4. Legacy REST API fallback
       try {
         final response = await http.get(
           Uri.parse('$_baseUrl/api/uninstall?pkg=$pkgName'),
         ).timeout(const Duration(seconds: 15));
-
         if (response.statusCode == 200) {
           final decoded = jsonDecode(response.body);
           if (decoded['ok'] == true || decoded['removed'] == true) {
@@ -797,20 +998,6 @@ class SuwayomiService {
           }
         }
       } catch (_) {}
-
-      // 7. Android fallback: open Android App Details settings page for package uninstallation
-      if (!kIsWeb && Platform.isAndroid) {
-        try {
-          final Uri uri = Uri.parse('package:$pkgName');
-          if (await canLaunchUrl(uri)) {
-            await launchUrl(uri);
-            changeNotifier.value++;
-            return true;
-          }
-        } catch (e) {
-          developer.log('Android package details launch error: $e', name: 'SuwayomiService');
-        }
-      }
 
       return false;
     } catch (e, stack) {
