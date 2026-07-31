@@ -644,97 +644,29 @@ class SuwayomiService {
       final bool isAndroid = !kIsWeb && Platform.isAndroid;
 
       // ── ANDROID FAST PATH ─────────────────────────────────────────────────
+      // On Android, extensions are installed silently in-process via our native
+      // Kotlin engine (/api/install). DEX classes are loaded dynamically into memory.
+      // NO Android system package installer popups or MethodChannel intents are used.
       if (isAndroid) {
-        // Resolve APK URL from cache
-        String targetApkUrl = apkUrl ?? '';
-        if (targetApkUrl.isEmpty) {
-          for (final item in _userRepoExtensionsCache) {
-            final p = item['pkgName']?.toString() ?? '';
-            if (p == pkgName || p == id) {
-              final u = item['apkUrl']?.toString() ?? '';
-              if (u.startsWith('http')) { targetApkUrl = u; break; }
-            }
-          }
-        }
-        if (targetApkUrl.isEmpty) {
-          targetApkUrl =
-              'https://raw.githubusercontent.com/keiyoushi/extensions/repo/apk/$pkgName.apk';
-        }
-
-        // 1. Local Tachiyomi server — try multiple URL formats
-        // Only block the MethodChannel fallback on TimeoutException (server is
-        // actively installing). For any other outcome (bad response, non-success
-        // body) fall through sequentially — the pending-install guard makes this safe.
-        bool serverTimedOut = false;
-        for (final installUrl in [
-          // Pass APK URL explicitly (most compatible format)
-          '$_baseUrl/api/install?url=${Uri.encodeComponent(targetApkUrl)}&pkg=$pkgName',
-          // Package-name-only fallback
-          '$_baseUrl/api/install?pkg=$pkgName',
-        ]) {
-          bool triedThisUrl = false;
-          try {
-            final response = await http
-                .get(Uri.parse(installUrl))
-                .timeout(const Duration(seconds: 90));
-            triedThisUrl = true;
-            if (response.statusCode == 200) {
-              final decoded = jsonDecode(response.body);
-              final bool ok = decoded['ok'] == true ||
-                  decoded['success'] == true ||
-                  decoded['installed'] == true ||
-                  decoded['result'] == 'success' ||
-                  decoded['status'] == 'ok';
-              if (ok) {
-                await _markExtensionInstalled(pkgName);
-                clearSourcesCache();
-                changeNotifier.value++;
-                return true;
-              }
-            }
-          } on TimeoutException {
-            // Server is actively installing (>90s) — do NOT fire MethodChannel
-            // concurrently; that's what caused the loop. Mark optimistically.
-            serverTimedOut = true;
-            developer.log('Android /api/install timed out — server still installing', name: 'SuwayomiService');
-            await _markExtensionInstalled(pkgName);
-            clearSourcesCache();
-            changeNotifier.value++;
-            return true;
-          } catch (e) {
-            if (!triedThisUrl) {
-              // Connection refused / unreachable on first URL — skip second URL too
-              developer.log('Android /api/install unreachable: $e', name: 'SuwayomiService');
-              break;
-            }
-            developer.log('Android /api/install error ($installUrl): $e', name: 'SuwayomiService');
-          }
-          if (serverTimedOut) break;
-        }
-
-        // 2. Sequential MethodChannel fallback — safe because:
-        //    a) _pendingInstalls guard blocks any concurrent second call
-        //    b) We only reach here if the server returned a non-success response
-        //       (or was unreachable) — NOT if it timed out (handled above).
         try {
-          final tempDir = await getTemporaryDirectory();
-          final targetFile = File('${tempDir.path}/$pkgName.apk');
-          final resp = await http
-              .get(Uri.parse(targetApkUrl))
-              .timeout(const Duration(seconds: 60));
-          if (resp.statusCode == 200 && resp.bodyBytes.isNotEmpty) {
-            await targetFile.writeAsBytes(resp.bodyBytes);
-            const channel = MethodChannel('com.example.watch_any/native_path');
-            await channel.invokeMethod('installApk', {'filePath': targetFile.path});
-            await _markExtensionInstalled(pkgName);
-            clearSourcesCache();
-            changeNotifier.value++;
-            return true;
+          final response = await http
+              .get(Uri.parse('$_baseUrl/api/install?pkg=$pkgName'))
+              .timeout(const Duration(seconds: 45));
+          if (response.statusCode == 200) {
+            final decoded = jsonDecode(response.body);
+            final bool ok = decoded['ok'] == true ||
+                decoded['success'] == true ||
+                decoded['installed'] == true;
+            if (ok) {
+              await _markExtensionInstalled(pkgName);
+              clearSourcesCache();
+              changeNotifier.value++;
+              return true;
+            }
           }
         } catch (e) {
-          developer.log('Android APK download/install error: $e', name: 'SuwayomiService');
+          developer.log('Android /api/install error: $e', name: 'SuwayomiService');
         }
-
         return false;
       }
 
@@ -902,25 +834,6 @@ class SuwayomiService {
         }
       } catch (_) {}
 
-      // 5. Android System PackageInstaller Intent Fallback
-      if (!kIsWeb && Platform.isAndroid) {
-        try {
-          final tempDir = await getTemporaryDirectory();
-          final targetFile = File('${tempDir.path}/$pkgName.apk');
-          final resp = await http.get(Uri.parse(targetApkUrl)).timeout(const Duration(seconds: 60));
-          if (resp.statusCode == 200) {
-            await targetFile.writeAsBytes(resp.bodyBytes);
-            const channel = MethodChannel('com.example.watch_any/native_path');
-            await channel.invokeMethod('installApk', {'filePath': targetFile.path});
-            clearSourcesCache();
-            changeNotifier.value++;
-            return true;
-          }
-        } catch (e) {
-          developer.log('Android native APK installer error: $e', name: 'SuwayomiService');
-        }
-      }
-
       return false;
     } catch (e, stack) {
       developer.log('installExtension Error', name: 'SuwayomiService', error: e, stackTrace: stack);
@@ -937,34 +850,22 @@ class SuwayomiService {
       final bool isAndroid = !kIsWeb && Platform.isAndroid;
 
       // ── ANDROID FAST PATH ─────────────────────────────────────────────────
-      // Skip GraphQL/REST mutations — use native channel + system dialog.
+      // On Android, uninstallation is silent in-process via our native engine.
+      // Removes internal APK files and deletes from installed.json cleanly.
       if (isAndroid) {
-        // 1. Native MethodChannel uninstall (triggers Android system uninstall dialog)
         try {
-          const channel = MethodChannel('com.example.watch_any/native_path');
-          await channel.invokeMethod('uninstallApk', {'pkgName': pkgName});
-          await _markExtensionUninstalled(pkgName);
-          clearSourcesCache();
-          changeNotifier.value++;
-          return true;
-        } catch (e) {
-          developer.log('Android uninstallApk channel error: $e', name: 'SuwayomiService');
-        }
-
-        // 2. Fallback: open system App Details page
-        try {
-          final Uri uri = Uri.parse('package:$pkgName');
-          if (await canLaunchUrl(uri)) {
-            await launchUrl(uri);
+          final response = await http
+              .get(Uri.parse('$_baseUrl/api/uninstall?pkg=$pkgName'))
+              .timeout(const Duration(seconds: 15));
+          if (response.statusCode == 200) {
             await _markExtensionUninstalled(pkgName);
             clearSourcesCache();
             changeNotifier.value++;
             return true;
           }
         } catch (e) {
-          developer.log('Android package details launch error: $e', name: 'SuwayomiService');
+          developer.log('Android /api/uninstall error: $e', name: 'SuwayomiService');
         }
-
         return false;
       }
 

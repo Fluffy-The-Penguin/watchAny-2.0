@@ -118,7 +118,7 @@ class ExtensionRuntime(private val context: Context, private val root: Path) {
             val fallbackExt = KeiyoushiExtension(
                 name = pkgName.substringAfterLast('.'),
                 pkg = pkgName,
-                apk = "https://cdn.jsdelivr.net/gh/keiyoushi/extensions@repo/apk/$pkgName.apk",
+                apk = "https://raw.githubusercontent.com/keiyoushi/extensions/repo/apk/$pkgName.apk",
                 lang = "en",
                 code = 100L,
                 version = "1.0",
@@ -173,15 +173,6 @@ class ExtensionRuntime(private val context: Context, private val root: Path) {
             runCatching { Files.deleteIfExists(apkDir.resolve(current.apk)) }
             runCatching { Files.deleteIfExists(Path(current.jarPath)) }
             current.iconPath?.let { icon -> runCatching { Files.deleteIfExists(Path(icon)) } }
-        }
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
-            runCatching {
-                val intent = android.content.Intent(android.content.Intent.ACTION_DELETE).apply {
-                    data = android.net.Uri.parse("package:$pkgName")
-                    addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-                context.startActivity(intent)
-            }
         }
         return true
     }
