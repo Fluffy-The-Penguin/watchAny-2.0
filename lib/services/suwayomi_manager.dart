@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:path/path.dart' as p;
 import 'suwayomi_service.dart';
 
 class SuwayomiManager {
@@ -28,20 +29,24 @@ class SuwayomiManager {
   static Future<bool> isSuwayomiRunning(int port) async {
     try {
       final response = await http.get(
-        Uri.parse('http://${SuwayomiService.host}:$port/api/v1/settings'),
-      ).timeout(const Duration(seconds: 4));
+        Uri.parse('http://${SuwayomiService.host}:$port/api/health'),
+      ).timeout(const Duration(seconds: 1));
       if (response.statusCode == 200) {
         return true;
       }
     } catch (_) {}
+
     try {
-      final response2 = await http.get(
-        Uri.parse('http://${SuwayomiService.host}:$port/api/health'),
-      ).timeout(const Duration(seconds: 4));
-      if (response2.statusCode == 200) {
+      final gqlResponse = await http.post(
+        Uri.parse('http://${SuwayomiService.host}:$port/api/graphql'),
+        headers: {'Content-Type': 'application/json'},
+        body: '{"query":"query { __typename }"}',
+      ).timeout(const Duration(seconds: 1));
+      if (gqlResponse.statusCode == 200) {
         return true;
       }
     } catch (_) {}
+
     return false;
   }
 
@@ -151,8 +156,8 @@ class SuwayomiManager {
       }
 
       if (!javaInstalled && Platform.isWindows) {
-        final localJreDir = Directory('${appDir.path}\\jre');
-        final localJavaExe = File('${localJreDir.path}\\bin\\java.exe');
+        final localJreDir = Directory(p.join(appDir.path, 'jre'));
+        final localJavaExe = File(p.join(localJreDir.path, 'bin', 'java.exe'));
 
         if (await localJavaExe.exists()) {
           javaPath = localJavaExe.path;
@@ -166,7 +171,7 @@ class SuwayomiManager {
           final jreZipUrl = Uri.parse(
               'https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.3%2B9/OpenJDK21U-jre_x64_windows_hotspot_21.0.3_9.zip');
 
-          final jreZipPath = '${appDir.path}\\jre.zip';
+          final jreZipPath = p.join(appDir.path, 'jre.zip');
           final jreZipFile = File(jreZipPath);
 
           final client = HttpClient();
@@ -191,7 +196,7 @@ class SuwayomiManager {
             _isDownloading = false;
 
             statusNotifier.value = "Extracting JRE runtime...";
-            final tempExtractDir = Directory('${appDir.path}\\jre_temp');
+            final tempExtractDir = Directory(p.join(appDir.path, 'jre_temp'));
             if (await tempExtractDir.exists()) {
               await tempExtractDir.delete(recursive: true);
             }
@@ -235,7 +240,7 @@ class SuwayomiManager {
       _port = await _findAvailablePort(savedPort);
       SuwayomiService.port = _port;
 
-      final jarFile = File('${appDir.path}\\Suwayomi-Server.jar');
+      final jarFile = File(p.join(appDir.path, 'Suwayomi-Server.jar'));
       final String? savedVersion = prefs.getString('suwayomi_server_version');
       final bool needsDownload = !await jarFile.exists() || savedVersion != suwayomiServerVersion;
 
@@ -259,7 +264,7 @@ class SuwayomiManager {
           final totalBytes = response.contentLength;
           int receivedBytes = 0;
 
-          final tempJar = File('${appDir.path}\\Suwayomi-Server.jar.tmp');
+          final tempJar = File(p.join(appDir.path, 'Suwayomi-Server.jar.tmp'));
           if (await tempJar.exists()) await tempJar.delete();
 
           final sink = tempJar.openWrite();
@@ -288,36 +293,38 @@ class SuwayomiManager {
         }
       }
 
-      final runtimeDir = Directory('${appDir.path}\\suwayomi');
+      final runtimeDir = Directory(p.join(appDir.path, 'suwayomi'));
       if (!await runtimeDir.exists()) {
         await runtimeDir.create(recursive: true);
       }
 
-      // Write server.conf to strictly disable initial open in browser, CEF download, and system tray
       final confContent = '''
 server.initialOpenInBrowserEnabled = false
 server.webUIInterface = "BROWSER"
 server.systemTrayEnabled = false
 server.webUIEnabled = false
 server.kcefEnabled = false
+server.extensionRepos = [
+  "https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.pb"
+]
 ''';
 
-      final confFile = File('${runtimeDir.path}\\server.conf');
+      final confFile = File(p.join(runtimeDir.path, 'server.conf'));
       await confFile.writeAsString(confContent);
 
       if (Platform.isWindows) {
         final localAppData = Platform.environment['LOCALAPPDATA'];
         if (localAppData != null) {
-          final tachideskDir = Directory('$localAppData\\Tachidesk');
+          final tachideskDir = Directory(p.join(localAppData, 'Tachidesk'));
           if (!await tachideskDir.exists()) {
             await tachideskDir.create(recursive: true);
           }
-          final tachideskConf = File('${tachideskDir.path}\\server.conf');
+          final tachideskConf = File(p.join(tachideskDir.path, 'server.conf'));
           if (await tachideskConf.exists()) {
             final existing = await tachideskConf.readAsString();
             final updated = existing
                 .replaceAll('server.initialOpenInBrowserEnabled = true', 'server.initialOpenInBrowserEnabled = false')
-                .replaceAll('server.webUIInterface = "BROWSER"', 'server.webUIInterface = "NONE"');
+                .replaceAll('server.webUIInterface = "NONE"', 'server.webUIInterface = "BROWSER"');
             await tachideskConf.writeAsString(updated);
           } else {
             await tachideskConf.writeAsString(confContent);

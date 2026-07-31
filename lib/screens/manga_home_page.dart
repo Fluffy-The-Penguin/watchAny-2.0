@@ -169,9 +169,13 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
   void _handleTabChange() {
     if (_tabController.indexIsChanging) return;
     if (_tabController.index == 0) {
-      _loadSources();
+      if (_sources.isEmpty) {
+        _loadSources();
+      }
     } else {
-      _loadExtensions();
+      if (_extensions.isEmpty) {
+        _loadExtensions();
+      }
     }
   }
 
@@ -258,7 +262,13 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
           distinctExtensionNames.sort();
 
           if (_selectedExtensionName == null) {
-            _selectedExtensionName = distinctExtensionNames.isNotEmpty ? distinctExtensionNames.first : "Global";
+            if (distinctExtensionNames.contains("Asura Scans")) {
+              _selectedExtensionName = "Asura Scans";
+            } else if (distinctExtensionNames.contains("MangaDex")) {
+              _selectedExtensionName = "MangaDex";
+            } else {
+              _selectedExtensionName = distinctExtensionNames.isNotEmpty ? distinctExtensionNames.first : "Global";
+            }
           }
 
           if (_selectedExtensionName != "Global") {
@@ -277,39 +287,6 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
           _loadCatalog();
 
         });
-
-        if (list.isEmpty) {
-          Future.microtask(() async {
-            if (!mounted) return;
-            String extraInfo = '';
-            try {
-              final installedUrl = Uri.parse('http://${SuwayomiService.host}:${SuwayomiService.port}/api/installed');
-              final installedResp = await http.get(installedUrl).timeout(const Duration(seconds: 5));
-              if (installedResp.statusCode == 200) {
-                final data = jsonDecode(installedResp.body);
-                final installedList = data['data'] as List?;
-                if (installedList != null && installedList.isNotEmpty) {
-                  final firstInst = installedList.first;
-                  final errors = firstInst['sourceLoadErrors'] as List?;
-                  if (errors != null && errors.isNotEmpty) {
-                    final firstError = errors.first;
-                    extraInfo = ' | Ext Load Error: ${firstError['className']}: ${firstError['errorType']} - ${firstError['message']}';
-                  } else {
-                    extraInfo = ' | Installed Ext: ${firstInst['name']} (no errors, sources count: ${firstInst['sources']?.length})';
-                  }
-                } else {
-                  extraInfo = ' | No extensions installed on server';
-                }
-              }
-            } catch (e) {
-              extraInfo = ' | Failed to fetch installed: $e';
-            }
-
-            if (mounted && _isActive) {
-              NotificationService().show(context, 'Manga: Fetched ${list.length} catalog sources$extraInfo');
-            }
-          });
-        }
       }
     } catch (e) {
       if (mounted) {
@@ -1326,8 +1303,47 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
           ),
         ),
 
-        // â”€â”€ Catalog content â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-        if (_catalogError != null)
+        // ── Catalog content ──────────────────────────────────────────────────────────
+        if (_sources.isEmpty && !_loadingCatalog)
+          SliverToBoxAdapter(
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 48.0, horizontal: 16.0),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.extension_off_outlined, color: Colors.white38, size: 48.0),
+                    const SizedBox(height: 16.0),
+                    const Text(
+                      'No Extension Installed',
+                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16.0, fontFamily: 'Outfit'),
+                    ),
+                    const SizedBox(height: 8.0),
+                    const Text(
+                      'To browse manga catalogs, add an extension repository and install extensions from the Extensions tab.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.white54, fontSize: 13.0, fontFamily: 'Outfit'),
+                    ),
+                    const SizedBox(height: 20.0),
+                    ElevatedButton.icon(
+                      onPressed: () {
+                        _tabController.animateTo(1);
+                      },
+                      icon: const Icon(Icons.extension_outlined, size: 18.0),
+                      label: const Text('Go to Extensions Tab', style: TextStyle(fontWeight: FontWeight.bold, fontFamily: 'Outfit')),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFFF9F1C),
+                        foregroundColor: Colors.black,
+                        padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 12.0),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          )
+        else if (_catalogError != null)
           SliverToBoxAdapter(
             child: Center(
               child: Padding(
