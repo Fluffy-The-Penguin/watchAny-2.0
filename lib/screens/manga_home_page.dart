@@ -198,9 +198,9 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
   Future<void> _loadExtensions() async {
     final bool isRunning = await SuwayomiManager.isSuwayomiRunning(SuwayomiService.port);
     if (isRunning) {
-      SuwayomiManager.statusNotifier.value = "Manga engine running";
+      SuwayomiManager.statusNotifier.value = "Loading extensions...";
     } else {
-      SuwayomiManager.statusNotifier.value = "Manga engine ready";
+      SuwayomiManager.statusNotifier.value = "Starting Manga engine...";
     }
     if (mounted) {
       setState(() {
@@ -209,15 +209,13 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
       });
     }
     try {
-      if (isRunning) {
-        await _suwayomiService.seedExternalRepositories();
-      }
       final list = await _suwayomiService.getExtensions();
       if (mounted) {
         setState(() {
           _extensions = list;
           _loadingExtensions = false;
         });
+        SuwayomiManager.statusNotifier.value = "Manga engine running";
       }
     } catch (e) {
       if (mounted) {
@@ -233,12 +231,11 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
   Future<void> _loadSources() async {
     final bool isRunning = await SuwayomiManager.isSuwayomiRunning(SuwayomiService.port);
     if (isRunning) {
-      SuwayomiManager.statusNotifier.value = "Manga engine running";
+      SuwayomiManager.statusNotifier.value = "Loading manga sources...";
     } else {
-      SuwayomiManager.statusNotifier.value = "Manga engine ready";
+      SuwayomiManager.statusNotifier.value = "Starting Manga engine...";
     }
     if (mounted) {
-
       setState(() {
         _catalogError = null;
       });
@@ -2083,6 +2080,11 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
                 onPressed: _showAddRepoDialog,
               ),
               IconButton(
+                icon: const Icon(Icons.folder_special_outlined, color: Color(0xFFFF9F1C)),
+                tooltip: 'Manage Extension Repositories',
+                onPressed: _showManageReposDialog,
+              ),
+              IconButton(
                 icon: const Icon(Icons.refresh, color: Color(0xFFFF9F1C)),
                 tooltip: 'Check for extension updates',
                 onPressed: () async {
@@ -2134,9 +2136,34 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
                   ),
                 )
               : _loadingExtensions
-                  ? const Center(
-                      child: CircularProgressIndicator(
-                        valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFFF9F1C)),
+                  ? Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(32.0),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const CircularProgressIndicator(
+                              valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFFF9F1C)),
+                            ),
+                            const SizedBox(height: 16.0),
+                            ValueListenableBuilder<String>(
+                              valueListenable: SuwayomiManager.statusNotifier,
+                              builder: (context, statusMsg, _) {
+                                final text = statusMsg.isNotEmpty ? statusMsg : 'Loading extensions...';
+                                return Text(
+                                  text,
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(
+                                    color: Colors.white70,
+                                    fontSize: 14.0,
+                                    fontFamily: 'Outfit',
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                );
+                              },
+                            ),
+                          ],
+                        ),
                       ),
                     )
                   : SmoothScrollArea(
@@ -2388,6 +2415,89 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  void _showManageReposDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => FutureBuilder<List<String>>(
+        future: _suwayomiService.getUserRepos(),
+        builder: (context, snapshot) {
+          final repos = snapshot.data ?? [];
+          return StatefulBuilder(
+            builder: (context, setDialogState) => AlertDialog(
+              backgroundColor: const Color(0xFF141416),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
+              title: const Row(
+                children: [
+                  Icon(Icons.folder_special_outlined, color: Color(0xFFFF9F1C)),
+                  SizedBox(width: 10.0),
+                  Text(
+                    'Manage Repositories',
+                    style: TextStyle(color: Colors.white, fontSize: 16.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                  ),
+                ],
+              ),
+              content: SizedBox(
+                width: 380,
+                child: repos.isEmpty
+                    ? const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 24.0),
+                        child: Text(
+                          'No custom repositories added yet.\nClick "+" to add a repository URL.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: Colors.white54, fontSize: 13.0, fontFamily: 'Outfit'),
+                        ),
+                      )
+                    : ListView.builder(
+                        shrinkWrap: true,
+                        itemCount: repos.length,
+                        itemBuilder: (context, index) {
+                          final repo = repos[index];
+                          return Container(
+                            margin: const EdgeInsets.only(bottom: 8.0),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.05),
+                              borderRadius: BorderRadius.circular(8.0),
+                              border: Border.all(color: Colors.white10),
+                            ),
+                            child: ListTile(
+                              dense: true,
+                              title: Text(
+                                repo,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(color: Colors.white, fontSize: 12.0, fontFamily: 'Outfit'),
+                              ),
+                              trailing: IconButton(
+                                icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20.0),
+                                tooltip: 'Remove Repository',
+                                onPressed: () async {
+                                  await _suwayomiService.removeRepoUrl(repo);
+                                  final updated = await _suwayomiService.getUserRepos();
+                                  setDialogState(() => repos..clear()..addAll(updated));
+                                  _loadExtensions();
+                                  if (mounted) {
+                                    NotificationService().show(context, 'Repository removed');
+                                  }
+                                },
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Close', style: TextStyle(color: Color(0xFFFF9F1C), fontWeight: FontWeight.bold)),
+                ),
+              ],
+            ),
+          );
+        },
       ),
     );
   }
