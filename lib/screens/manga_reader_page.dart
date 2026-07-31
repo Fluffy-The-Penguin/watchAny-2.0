@@ -889,8 +889,9 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
             key: ValueKey('file_${_currentChapterId}_${index}_$localPath'),
             fit: isWebtoon ? BoxFit.fitWidth : BoxFit.contain,
             width: isWebtoon ? double.infinity : null,
-            gaplessPlayback: false,
+            gaplessPlayback: true,
             filterQuality: FilterQuality.low,
+            cacheWidth: (w * 2.0).toInt().clamp(800, 2048),
             frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
               if (wasSynchronouslyLoaded || frame != null) {
                 return child;
@@ -1032,25 +1033,23 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
             _webtoonScaleController.forward(from: 0.0);
           }
         },
-        child: SingleChildScrollView(
+        child: ListView.builder(
           controller: _scrollController,
           physics: const ClampingScrollPhysics(),
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 800.0),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 40.0),
-                child: Column(
-                  children: List.generate(_pageUrls.length, (index) {
-                    _pageLoader?.setPriorityIndex(index);
-                    return _buildColorFilteredWidget(
-                      _buildPageImage(index, isWebtoon: true),
-                    );
-                  }),
+          padding: const EdgeInsets.symmetric(vertical: 40.0),
+          itemCount: _pageUrls.length,
+          cacheExtent: 1200.0,
+          itemBuilder: (context, index) {
+            _pageLoader?.setPriorityIndex(index);
+            return Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 800.0),
+                child: _buildColorFilteredWidget(
+                  _buildPageImage(index, isWebtoon: true),
                 ),
               ),
-            ),
-          ),
+            );
+          },
         ),
       ),
     );
@@ -1479,10 +1478,6 @@ class MangaPageLoader {
         try {
           final bytes = await localFile.readAsBytes();
           ImageDimension? dims = _parseImageDimensions(bytes);
-          if (dims == null) {
-            final image = await decodeImageFromList(bytes);
-            dims = ImageDimension(image.width.toDouble(), image.height.toDouble());
-          }
           pageDimensions[index] = dims;
         } catch (_) {}
         onPageDownloaded(index);
@@ -1546,10 +1541,6 @@ class MangaPageLoader {
             try {
               final uint8bytes = Uint8List.fromList(bytes);
               ImageDimension? dims = _parseImageDimensions(uint8bytes);
-              if (dims == null) {
-                final image = await decodeImageFromList(uint8bytes);
-                dims = ImageDimension(image.width.toDouble(), image.height.toDouble());
-              }
               pageDimensions[index] = dims;
             } catch (_) {}
             
