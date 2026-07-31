@@ -54,7 +54,7 @@ class SuwayomiService {
         'query': query,
         if (variables != null) 'variables': variables,
       }),
-    ).timeout(const Duration(seconds: 35));
+    ).timeout(const Duration(seconds: 10));
 
     if (response.statusCode == 200) {
       final decoded = await _fastJsonDecode(response.body);
@@ -150,107 +150,113 @@ class SuwayomiService {
       }
 
       // Collect installed extensions from Suwayomi (GraphQL & REST)
+      // On Android, Suwayomi server is not running locally — skip server calls entirely
+      // to avoid 35s+ timeouts. Installed state on Android is tracked by the APK manager.
       final Map<String, Map<String, dynamic>> installedMap = {};
       final Map<String, Map<String, dynamic>> gqlAvailableMap = {};
 
-      // 1. GraphQL extensions query
-      try {
-        const gqlQuery = '''
-          query {
-            extensions {
-              nodes {
-                pkgName
-                name
-                versionName
-                isInstalled
-                hasUpdate
-                lang
-                isNsfw
-                iconUrl
+      final bool isAndroid = !kIsWeb && Platform.isAndroid;
+
+      if (!isAndroid) {
+        // 1. GraphQL extensions query (desktop/Suwayomi-Server only)
+        try {
+          const gqlQuery = '''
+            query {
+              extensions {
+                nodes {
+                  pkgName
+                  name
+                  versionName
+                  isInstalled
+                  hasUpdate
+                  lang
+                  isNsfw
+                  iconUrl
+                }
               }
             }
-          }
-        ''';
-        final data = await _postGraphQL(gqlQuery);
-        if (data != null && data['extensions']?['nodes'] != null) {
-          final List nodes = data['extensions']['nodes'] as List;
-          for (final ext in nodes) {
-            final pkg = ext['pkgName']?.toString() ?? '';
-            if (pkg.isEmpty) continue;
-            final bool isInst = ext['isInstalled'] == true;
-            final item = <String, dynamic>{
-              'id': pkg,
-              'name': ext['name'] ?? '',
-              'pkgName': pkg,
-              'versionName': ext['versionName'] ?? ext['version'] ?? '',
-              'isInstalled': isInst,
-              'hasUpdate': ext['hasUpdate'] == true || ext['hasUpdate'] == 1,
-              'lang': ext['lang'] ?? 'en',
-              'nsfw': ext['isNsfw'] == true || ext['nsfw'] == true,
-              'iconUrl': ext['iconUrl']?.toString() ?? '',
-            };
-            if (isInst) {
-              installedMap[pkg] = item;
-            } else {
-              gqlAvailableMap[pkg] = item;
-            }
-          }
-        }
-      } catch (e) {
-        developer.log('GraphQL installed query error: $e', name: 'SuwayomiService');
-      }
-
-      // 2. REST API v1 installed fallback
-      try {
-        final v1Resp = await http.get(Uri.parse('$_baseUrl/api/v1/extension/list')).timeout(const Duration(seconds: 5));
-        if (v1Resp.statusCode == 200) {
-          final List v1List = (await _fastJsonDecode(v1Resp.body)) as List;
-          for (final ext in v1List) {
-            final pkg = ext['pkgName']?.toString() ?? ext['pkg']?.toString() ?? '';
-            final bool isInst = ext['installed'] == true || ext['isInstalled'] == true;
-            if (pkg.isNotEmpty && isInst) {
-              installedMap[pkg] = <String, dynamic>{
-                'id': ext['id']?.toString() ?? pkg,
+          ''';
+          final data = await _postGraphQL(gqlQuery);
+          if (data != null && data['extensions']?['nodes'] != null) {
+            final List nodes = data['extensions']['nodes'] as List;
+            for (final ext in nodes) {
+              final pkg = ext['pkgName']?.toString() ?? '';
+              if (pkg.isEmpty) continue;
+              final bool isInst = ext['isInstalled'] == true;
+              final item = <String, dynamic>{
+                'id': pkg,
                 'name': ext['name'] ?? '',
                 'pkgName': pkg,
                 'versionName': ext['versionName'] ?? ext['version'] ?? '',
+                'isInstalled': isInst,
+                'hasUpdate': ext['hasUpdate'] == true || ext['hasUpdate'] == 1,
+                'lang': ext['lang'] ?? 'en',
+                'nsfw': ext['isNsfw'] == true || ext['nsfw'] == true,
+                'iconUrl': ext['iconUrl']?.toString() ?? '',
+              };
+              if (isInst) {
+                installedMap[pkg] = item;
+              } else {
+                gqlAvailableMap[pkg] = item;
+              }
+            }
+          }
+        } catch (e) {
+          developer.log('GraphQL installed query error: $e', name: 'SuwayomiService');
+        }
+
+        // 2. REST API v1 installed fallback (desktop only)
+        try {
+          final v1Resp = await http.get(Uri.parse('$_baseUrl/api/v1/extension/list')).timeout(const Duration(seconds: 5));
+          if (v1Resp.statusCode == 200) {
+            final List v1List = (await _fastJsonDecode(v1Resp.body)) as List;
+            for (final ext in v1List) {
+              final pkg = ext['pkgName']?.toString() ?? ext['pkg']?.toString() ?? '';
+              final bool isInst = ext['installed'] == true || ext['isInstalled'] == true;
+              if (pkg.isNotEmpty && isInst) {
+                installedMap[pkg] = <String, dynamic>{
+                  'id': ext['id']?.toString() ?? pkg,
+                  'name': ext['name'] ?? '',
+                  'pkgName': pkg,
+                  'versionName': ext['versionName'] ?? ext['version'] ?? '',
+                  'isInstalled': true,
+                  'hasUpdate': ext['hasUpdate'] == true || ext['hasUpdate'] == 1,
+                  'lang': ext['lang'] ?? 'en',
+                  'nsfw': ext['nsfw'] == true || ext['isNsfw'] == true,
+                  'iconUrl': ext['iconUrl']?.toString() ?? '',
+                };
+              }
+            }
+          }
+        } catch (_) {}
+
+        // 3. Local Native Engine installed fallback (/api/installed) — desktop fallback
+        try {
+          final localResp = await http.get(Uri.parse('$_baseUrl/api/installed')).timeout(const Duration(seconds: 5));
+          if (localResp.statusCode == 200) {
+            final installedData = await _fastJsonDecode(localResp.body);
+            final installedList = installedData['data'] as List? ?? [];
+            for (var ext in installedList) {
+              final String pkg = ext['pkg']?.toString() ?? '';
+              if (pkg.isEmpty) continue;
+              final String iconName = ext['icon']?.toString() ?? 'icon/$pkg.png';
+              final String iconCdn = 'https://raw.githubusercontent.com/keiyoushi/extensions/repo/$iconName';
+              installedMap[pkg] = {
+                'id': pkg,
+                'name': ext['name'] ?? '',
+                'pkgName': pkg,
+                'versionName': ext['version'] ?? '',
                 'isInstalled': true,
                 'hasUpdate': ext['hasUpdate'] == true || ext['hasUpdate'] == 1,
                 'lang': ext['lang'] ?? 'en',
-                'nsfw': ext['nsfw'] == true || ext['isNsfw'] == true,
-                'iconUrl': ext['iconUrl']?.toString() ?? '',
+                'nsfw': (ext['nsfw'] ?? 0) == 1,
+                'iconUrl': ext['iconUrl']?.toString() ?? iconCdn,
+                'sources': ext['sources'] ?? [],
               };
             }
           }
-        }
-      } catch (_) {}
-
-      // 3. Local Native Engine installed fallback (/api/installed)
-      try {
-        final localResp = await http.get(Uri.parse('$_baseUrl/api/installed')).timeout(const Duration(seconds: 5));
-        if (localResp.statusCode == 200) {
-          final installedData = await _fastJsonDecode(localResp.body);
-          final installedList = installedData['data'] as List? ?? [];
-          for (var ext in installedList) {
-            final String pkg = ext['pkg']?.toString() ?? '';
-            if (pkg.isEmpty) continue;
-            final String iconName = ext['icon']?.toString() ?? 'icon/$pkg.png';
-            final String iconCdn = 'https://raw.githubusercontent.com/keiyoushi/extensions/repo/$iconName';
-            installedMap[pkg] = {
-              'id': pkg,
-              'name': ext['name'] ?? '',
-              'pkgName': pkg,
-              'versionName': ext['version'] ?? '',
-              'isInstalled': true,
-              'hasUpdate': ext['hasUpdate'] == true || ext['hasUpdate'] == 1,
-              'lang': ext['lang'] ?? 'en',
-              'nsfw': (ext['nsfw'] ?? 0) == 1,
-              'iconUrl': ext['iconUrl']?.toString() ?? iconCdn,
-              'sources': ext['sources'] ?? [],
-            };
-          }
-        }
-      } catch (_) {}
+        } catch (_) {}
+      }
 
       // IF USER HAS ADDED NO REPOS: RETURN ONLY INSTALLED EXTENSIONS (ZERO AVAILABLE UNINSTALLED EXTENSIONS)
       if (!hasUserRepos) {

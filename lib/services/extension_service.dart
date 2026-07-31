@@ -353,8 +353,9 @@ class ExtensionService extends ChangeNotifier {
   Future<void> _doInit() async {
     try {
       final appDir = await getApplicationSupportDirectory();
-      _storageFile = File('${appDir.path}\\extensions_storage.json');
-      _logFile = File('${appDir.path}\\extension_debug.log');
+      final sep = Platform.pathSeparator;
+      _storageFile = File('${appDir.path}${sep}extensions_storage.json');
+      _logFile = File('${appDir.path}${sep}extension_debug.log');
 
       // Warm up JS engine in the background after startup completes to prevent launch lag
       Future.delayed(const Duration(seconds: 4), () async {
