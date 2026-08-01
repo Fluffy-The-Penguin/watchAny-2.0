@@ -115,6 +115,24 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
     super.dispose();
   }
 
+  double _getAverageWebtoonAspectRatio() {
+    double loadedAspectSum = 0.0;
+    int loadedCount = 0;
+    if (_pageLoader != null) {
+      for (int i = 0; i < _pageUrls.length; i++) {
+        final dims = _pageLoader?.pageDimensions[i];
+        if (dims != null && dims.height > 0) {
+          loadedAspectSum += (dims.width / dims.height);
+          loadedCount++;
+        }
+      }
+    }
+    if (loadedCount > 0) {
+      return loadedAspectSum / loadedCount;
+    }
+    return _readingFormat == 'webtoon' ? 0.4 : (2 / 3);
+  }
+
   double _lastScrollOffset = 0.0;
   void _onScroll() {
     if (_readingFormat != 'webtoon') return;
@@ -130,16 +148,19 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
       _lastScrollOffset = offset;
 
       final double width = MediaQuery.of(context).size.width.clamp(0.0, 800.0);
+      final double defaultAspect = _getAverageWebtoonAspectRatio();
       
       double cumulativeHeight = 40.0; // matching top padding
       int estimatedIndex = 0;
       
       for (int i = 0; i < _pageUrls.length; i++) {
         final dims = _pageLoader?.pageDimensions[i];
-        final double aspectRatio = dims != null ? (dims.width / dims.height) : (2 / 3);
+        final double aspectRatio = (dims != null && dims.height > 0)
+            ? (dims.width / dims.height)
+            : defaultAspect;
         final double pageHeight = width / aspectRatio;
         
-        if (offset < cumulativeHeight + pageHeight / 2) {
+        if (offset < cumulativeHeight + pageHeight * 0.5) {
           estimatedIndex = i;
           break;
         }
@@ -147,9 +168,11 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
         estimatedIndex = i;
       }
       
-      // Use maxScrollExtent to determine if the user has reached the actual end of the chapter
-      if (_scrollController.position.hasContentDimensions && 
-          _scrollController.offset >= _scrollController.position.maxScrollExtent - 100.0) {
+      // ONLY force last page index if ALL pages have finished loading and user reaches actual scroll end
+      final int loadedCount = _pageLoader?.pageDimensions.where((d) => d != null && d.height > 0).length ?? 0;
+      if (loadedCount == _pageUrls.length &&
+          _scrollController.position.hasContentDimensions && 
+          _scrollController.offset >= _scrollController.position.maxScrollExtent - 50.0) {
         estimatedIndex = _pageUrls.length - 1;
       }
       
@@ -313,10 +336,13 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
 
   double _getWebtoonScrollOffsetForIndex(int index) {
     final double width = MediaQuery.of(context).size.width.clamp(0.0, 800.0);
+    final double defaultAspect = _getAverageWebtoonAspectRatio();
     double cumulativeHeight = 40.0; // matching top padding
     for (int i = 0; i < index; i++) {
       final dims = _pageLoader?.pageDimensions[i];
-      final double aspectRatio = dims != null ? (dims.width / dims.height) : (2 / 3);
+      final double aspectRatio = (dims != null && dims.height > 0)
+          ? (dims.width / dims.height)
+          : defaultAspect;
       cumulativeHeight += width / aspectRatio;
     }
     return cumulativeHeight;
@@ -995,8 +1021,9 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
       key: ValueKey('page_${_currentChapterId}_$index'),
       builder: (context, constraints) {
         final double w = constraints.maxWidth.isFinite ? constraints.maxWidth : MediaQuery.of(context).size.width;
+        final double defaultAspect = _getAverageWebtoonAspectRatio();
         final dims = _pageLoader?.pageDimensions[index];
-        final double aspectRatio = dims != null ? (dims.width / dims.height) : (2 / 3);
+        final double aspectRatio = (dims != null && dims.height > 0) ? (dims.width / dims.height) : defaultAspect;
 
         Widget content;
         if (localPath != null) {
