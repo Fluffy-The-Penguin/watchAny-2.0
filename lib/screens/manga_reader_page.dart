@@ -1027,14 +1027,16 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
 
         Widget content;
         if (localPath != null) {
-          content = Image.file(
-            File(localPath),
-            key: ValueKey('file_${_currentChapterId}_${index}_$localPath'),
-            fit: isWebtoon ? BoxFit.fitWidth : BoxFit.contain,
-            width: isWebtoon ? double.infinity : null,
-            gaplessPlayback: true,
-            filterQuality: FilterQuality.medium,
-            cacheWidth: (w * 2.0).toInt().clamp(800, 2048),
+          content = _WebtoonImageWithSize(
+            file: File(localPath),
+            index: index,
+            currentChapterId: _currentChapterId,
+            isWebtoon: isWebtoon,
+            maxWidth: w,
+            pageLoader: _pageLoader,
+            onDimensionResolved: () {
+              if (mounted) setState(() {});
+            },
             errorBuilder: (context, error, stackTrace) => _buildPageError(index),
           );
         } else {
@@ -1718,6 +1720,31 @@ class MangaPageLoader {
   ImageDimension? _parseImageDimensions(Uint8List bytes) {
     if (bytes.length < 8) return null;
 
+    // WebP Check: signature RIFF .... WEBP
+    if (bytes.length >= 30 &&
+        bytes[0] == 0x52 && bytes[1] == 0x49 && bytes[2] == 0x46 && bytes[3] == 0x46 &&
+        bytes[8] == 0x57 && bytes[9] == 0x45 && bytes[10] == 0x42 && bytes[11] == 0x50) {
+      // Chunk VP8X (Extended WebP)
+      if (bytes[12] == 0x56 && bytes[13] == 0x50 && bytes[14] == 0x38 && bytes[15] == 0x58 && bytes.length >= 30) {
+        final int width = 1 + (bytes[24] | (bytes[25] << 8) | (bytes[26] << 16));
+        final int height = 1 + (bytes[27] | (bytes[28] << 8) | (bytes[29] << 16));
+        return ImageDimension(width.toDouble(), height.toDouble());
+      }
+      // Chunk VP8 (Lossy WebP)
+      if (bytes[12] == 0x56 && bytes[13] == 0x50 && bytes[14] == 0x38 && bytes[15] == 0x20 && bytes.length >= 30) {
+        final int width = ((bytes[26] | (bytes[27] << 8)) & 0x3FFF);
+        final int height = ((bytes[28] | (bytes[29] << 8)) & 0x3FFF);
+        return ImageDimension(width.toDouble(), height.toDouble());
+      }
+      // Chunk VP8L (Lossless WebP)
+      if (bytes[12] == 0x56 && bytes[13] == 0x50 && bytes[14] == 0x38 && bytes[15] == 0x4C && bytes.length >= 25) {
+        final int bits = bytes[21] | (bytes[22] << 8) | (bytes[23] << 16) | (bytes[24] << 24);
+        final int width = 1 + (bits & 0x3FFF);
+        final int height = 1 + ((bits >> 14) & 0x3FFF);
+        return ImageDimension(width.toDouble(), height.toDouble());
+      }
+    }
+
     // PNG Check: signature 89 50 4E 47 0D 0A 1A 0A
     if (bytes[0] == 0x89 &&
         bytes[1] == 0x50 &&
@@ -1972,4 +1999,86 @@ class ImageDimension {
   final double width;
   final double height;
   ImageDimension(this.width, this.height);
+}
+
+class _WebtoonImageWithSize extends StatefulWidget {
+  final File file;
+  final int index;
+  final String currentChapterId;
+  final bool isWebtoon;
+  final double maxWidth;
+  final MangaPageLoader? pageLoader;
+  final VoidCallback? onDimensionResolved;
+  final Widget Function(BuildContext, Object, StackTrace?) errorBuilder;
+
+  const _WebtoonImageWithSize({
+    required this.file,
+    required this.index,
+    required this.currentChapterId,
+    required this.isWebtoon,
+    required this.maxWidth,
+    required this.pageLoader,
+    this.onDimensionResolved,
+    required this.errorBuilder,
+  });
+
+  @override
+  State<_WebtoonImageWithSize> createState() => _WebtoonImageWithSizeState();
+}
+
+class _WebtoonImageWithSizeState extends State<_WebtoonImageWithSize> {
+  ImageStream? _imageStream;
+  ImageStreamListener? _imageStreamListener;
+
+  @override
+  void initState() {
+    super.initState();
+    _resolveDimensions();
+  }
+
+  @override
+  void didUpdateWidget(_WebtoonImageWithSize oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.file.path != widget.file.path) {
+      _resolveDimensions();
+    }
+  }
+
+  void _resolveDimensions() {
+    if (widget.pageLoader?.pageDimensions[widget.index] != null) return;
+    
+    final provider = FileImage(widget.file);
+    _imageStreamListener = ImageStreamListener((ImageInfo info, bool _) {
+      final w = info.image.width.toDouble();
+      final h = info.image.height.toDouble();
+      if (w > 0 && h > 0 && mounted) {
+        widget.pageLoader?.pageDimensions[widget.index] = ImageDimension(w, h);
+        widget.onDimensionResolved?.call();
+      }
+    });
+    _imageStream = provider.resolve(const ImageConfiguration());
+    _imageStream?.addListener(_imageStreamListener!);
+  }
+
+  @override
+  void dispose() {
+    if (_imageStream != null && _imageStreamListener != null) {
+      _imageStream!.removeListener(_imageStreamListener!);
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Image.file(
+      widget.file,
+      key: ValueKey('file_${widget.currentChapterId}_${widget.index}_${widget.file.path}'),
+      fit: widget.isWebtoon ? BoxFit.fitWidth : BoxFit.contain,
+      width: widget.isWebtoon ? double.infinity : null,
+      gaplessPlayback: true,
+      filterQuality: FilterQuality.medium,
+      cacheWidth: (widget.maxWidth * 2.0).toInt().clamp(800, 2048),
+      errorBuilder: widget.errorBuilder,
+    );
+  }
 }

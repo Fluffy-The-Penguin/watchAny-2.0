@@ -831,6 +831,10 @@ class _MangaPickWhereYouLeftCardState extends State<_MangaPickWhereYouLeftCard> 
   @override
   void initState() {
     super.initState();
+    final cached = LibraryState().mangaCache[widget.item.id];
+    if (cached != null) {
+      _details = cached;
+    }
     _loadDetails();
   }
 
@@ -847,8 +851,16 @@ class _MangaPickWhereYouLeftCardState extends State<_MangaPickWhereYouLeftCard> 
 
   @override
   Widget build(BuildContext context) {
-    final String title = _details?['title']?.toString() ?? 'Manga #${widget.item.id}';
-    final String coverUrl = _details?['thumbnailUrl']?.toString() ?? _details?['coverUrl']?.toString() ?? '';
+    final cached = LibraryState().mangaCache[widget.item.id];
+    final String? rawTitle = _details?['title']?.toString() ?? cached?['title']?.toString();
+    final String title = (rawTitle != null && rawTitle.isNotEmpty && !rawTitle.startsWith('Manga #') && !rawTitle.startsWith('manga_'))
+        ? rawTitle
+        : 'Loading...';
+    final String coverUrl = _details?['thumbnailUrl']?.toString() ??
+        _details?['coverUrl']?.toString() ??
+        cached?['thumbnailUrl']?.toString() ??
+        cached?['coverUrl']?.toString() ??
+        '';
     final String mangaId = widget.item.id.toString();
 
     return Container(

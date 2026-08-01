@@ -871,7 +871,7 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
               if (cache != null) return cache;
               return {
                 'id': item.id,
-                'title': 'Manga #${item.id}',
+                'title': 'Loading...',
                 'thumbnailUrl': '',
               };
             })
