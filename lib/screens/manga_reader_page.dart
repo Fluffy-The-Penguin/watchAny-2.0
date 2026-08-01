@@ -168,10 +168,20 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
         estimatedIndex = i;
       }
       
-      // ONLY force last page index if ALL pages have finished loading and user reaches actual scroll end
+      int maxLoadedIndex = 0;
+      for (int i = 0; i < _pageUrls.length; i++) {
+        if (_pageLoader?.localPaths[i] != null || (_pageLoader?.pageDimensions[i] != null && _pageLoader!.pageDimensions[i]!.height > 0)) {
+          maxLoadedIndex = i;
+        }
+      }
+      
       final int loadedCount = _pageLoader?.pageDimensions.where((d) => d != null && d.height > 0).length ?? 0;
-      if (loadedCount == _pageUrls.length &&
-          _scrollController.position.hasContentDimensions && 
+      if (loadedCount < _pageUrls.length) {
+        final int maxAllowed = (maxLoadedIndex + 1).clamp(0, _pageUrls.length - 1);
+        if (estimatedIndex > maxAllowed) {
+          estimatedIndex = maxAllowed;
+        }
+      } else if (_scrollController.position.hasContentDimensions && 
           _scrollController.offset >= _scrollController.position.maxScrollExtent - 50.0) {
         estimatedIndex = _pageUrls.length - 1;
       }
