@@ -13,13 +13,13 @@ import '../state/navigation_state.dart';
 import '../services/notification_service.dart';
 import '../services/cache_service.dart';
 import '../services/download_service.dart';
-import '../services/backup_service.dart';
 import '../services/log_service.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../state/anilist_auth_state.dart';
 import '../state/library_state.dart';
 import '../widgets/smooth_scroll_area.dart';
+import '../models/pinned_source_config.dart';
 
 enum SettingsCategory {
   general,
@@ -1746,8 +1746,6 @@ class _SettingsPageState extends State<SettingsPage> {
                           if (path != null) {
                             await settings.setDownloadPath(path);
                             await _updateStorageSizes();
-                            // Restore settings/database backups if they exist in the new directory
-                            await BackupService().restoreFromPath(path);
                           }
                         },
                       ),
@@ -3942,8 +3940,7 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> _showManageMangaPinsSheet() async {
-    final prefs = await SharedPreferences.getInstance();
-    final List<String> pinnedIds = List<String>.from(prefs.getStringList('pinned_manga_sources') ?? []);
+    final List<PinnedSourceConfig> pinnedConfigs = await PinnedSourceConfig.loadPins();
     final suwayomi = SuwayomiService();
     List<dynamic> allSources = [];
     try {
@@ -3985,10 +3982,15 @@ class _SettingsPageState extends State<SettingsPage> {
                       ),
                     ],
                   ),
+                  const SizedBox(height: 4.0),
+                  Text(
+                    'Customize which feeds (Popular / New Updates) to display for each extension.',
+                    style: TextStyle(color: Colors.white.withValues(alpha: 0.4), fontSize: 12.0, fontFamily: 'Outfit'),
+                  ),
                   const SizedBox(height: 8.0),
                   Text(
-                    'Selected: ${pinnedIds.length} / 5',
-                    style: const TextStyle(color: Colors.white38, fontSize: 12.0, fontFamily: 'Outfit'),
+                    'Selected: ${pinnedConfigs.length} / 5',
+                    style: const TextStyle(color: Color(0xFFFF9F1C), fontSize: 12.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
                   ),
                   const SizedBox(height: 16.0),
                   Expanded(
@@ -4008,33 +4010,109 @@ class _SettingsPageState extends State<SettingsPage> {
                               final String sId = source['id']?.toString() ?? '';
                               final String name = source['name'] ?? 'Unknown Source';
                               final String lang = source['lang'] ?? 'en';
-                              final bool isPinned = pinnedIds.contains(sId);
 
-                              return ListTile(
-                                contentPadding: EdgeInsets.zero,
-                                title: Text(name, style: const TextStyle(color: Colors.white, fontFamily: 'Outfit', fontSize: 14.0)),
-                                subtitle: Text(lang.toUpperCase(), style: const TextStyle(color: Colors.white38, fontSize: 11.0, fontFamily: 'Outfit')),
-                                trailing: IconButton(
-                                  icon: Icon(
-                                    isPinned ? Icons.push_pin : Icons.push_pin_outlined,
-                                    color: isPinned ? const Color(0xFFFF9F1C) : Colors.white38,
-                                    size: 20.0,
-                                  ),
-                                  onPressed: () async {
-                                    setModalState(() {
-                                      if (isPinned) {
-                                        pinnedIds.remove(sId);
-                                      } else {
-                                        if (pinnedIds.length >= 5) {
-                                          NotificationService().show(context, 'You can only pin up to 5 extensions.', isError: true);
-                                          return;
-                                        }
-                                        pinnedIds.add(sId);
-                                      }
-                                    });
-                                    await prefs.setStringList('pinned_manga_sources', pinnedIds);
-                                    SuwayomiService.changeNotifier.notifyListeners();
-                                  },
+                              final existingConfigIndex = pinnedConfigs.indexWhere((c) => c.sourceId == sId);
+                              final bool isPinned = existingConfigIndex != -1;
+                              final PinnedSourceConfig? cfg = isPinned ? pinnedConfigs[existingConfigIndex] : null;
+
+                              return Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 8.0),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Text(name, style: const TextStyle(color: Colors.white, fontFamily: 'Outfit', fontSize: 14.0, fontWeight: FontWeight.bold)),
+                                              Text(lang.toUpperCase(), style: const TextStyle(color: Colors.white38, fontSize: 11.0, fontFamily: 'Outfit')),
+                                            ],
+                                          ),
+                                        ),
+                                        IconButton(
+                                          icon: Icon(
+                                            isPinned ? Icons.push_pin : Icons.push_pin_outlined,
+                                            color: isPinned ? const Color(0xFFFF9F1C) : Colors.white38,
+                                            size: 20.0,
+                                          ),
+                                          onPressed: () async {
+                                            setModalState(() {
+                                              if (isPinned) {
+                                                pinnedConfigs.removeAt(existingConfigIndex);
+                                              } else {
+                                                if (pinnedConfigs.length >= 5) {
+                                                  NotificationService().show(context, 'You can only pin up to 5 extensions.', isError: true);
+                                                  return;
+                                                }
+                                                pinnedConfigs.add(PinnedSourceConfig(sourceId: sId, showPopular: true, showLatest: true));
+                                              }
+                                            });
+                                            await PinnedSourceConfig.savePins(pinnedConfigs);
+                                            SuwayomiService.changeNotifier.value++;
+                                          },
+                                        ),
+                                      ],
+                                    ),
+                                    if (isPinned && cfg != null) ...[
+                                      const SizedBox(height: 6.0),
+                                      Wrap(
+                                        spacing: 8.0,
+                                        runSpacing: 6.0,
+                                        children: [
+                                          FilterChip(
+                                            label: const Text('🔥 Popular Feed', style: TextStyle(fontSize: 11.0, fontFamily: 'Outfit')),
+                                            selected: cfg.showPopular,
+                                            selectedColor: const Color(0xFFFF9F1C).withValues(alpha: 0.25),
+                                            checkmarkColor: const Color(0xFFFF9F1C),
+                                            labelStyle: TextStyle(
+                                              color: cfg.showPopular ? const Color(0xFFFF9F1C) : Colors.white54,
+                                              fontWeight: cfg.showPopular ? FontWeight.bold : FontWeight.normal,
+                                            ),
+                                            backgroundColor: Colors.white.withValues(alpha: 0.04),
+                                            side: BorderSide(
+                                              color: cfg.showPopular ? const Color(0xFFFF9F1C).withValues(alpha: 0.6) : Colors.white10,
+                                            ),
+                                            onSelected: (selected) async {
+                                              setModalState(() {
+                                                cfg.showPopular = selected;
+                                                if (!cfg.showPopular && !cfg.showLatest) {
+                                                  pinnedConfigs.removeWhere((c) => c.sourceId == sId);
+                                                }
+                                              });
+                                              await PinnedSourceConfig.savePins(pinnedConfigs);
+                                              SuwayomiService.changeNotifier.value++;
+                                            },
+                                          ),
+                                          FilterChip(
+                                            label: const Text('🆕 New Updates', style: TextStyle(fontSize: 11.0, fontFamily: 'Outfit')),
+                                            selected: cfg.showLatest,
+                                            selectedColor: const Color(0xFFFF9F1C).withValues(alpha: 0.25),
+                                            checkmarkColor: const Color(0xFFFF9F1C),
+                                            labelStyle: TextStyle(
+                                              color: cfg.showLatest ? const Color(0xFFFF9F1C) : Colors.white54,
+                                              fontWeight: cfg.showLatest ? FontWeight.bold : FontWeight.normal,
+                                            ),
+                                            backgroundColor: Colors.white.withValues(alpha: 0.04),
+                                            side: BorderSide(
+                                              color: cfg.showLatest ? const Color(0xFFFF9F1C).withValues(alpha: 0.6) : Colors.white10,
+                                            ),
+                                            onSelected: (selected) async {
+                                              setModalState(() {
+                                                cfg.showLatest = selected;
+                                                if (!cfg.showPopular && !cfg.showLatest) {
+                                                  pinnedConfigs.removeWhere((c) => c.sourceId == sId);
+                                                }
+                                              });
+                                              await PinnedSourceConfig.savePins(pinnedConfigs);
+                                              SuwayomiService.changeNotifier.value++;
+                                            },
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  ],
                                 ),
                               );
                             },

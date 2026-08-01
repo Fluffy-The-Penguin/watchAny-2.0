@@ -1137,12 +1137,13 @@ class _SearchPageState extends State<SearchPage> {
           style: ElevatedButton.styleFrom(
             backgroundColor: Colors.white,
             foregroundColor: Colors.black,
+            iconColor: Colors.black,
             padding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 12.0),
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
             minimumSize: const Size(0, 38),
           ),
           onPressed: () => _performSearch(),
-          child: const Icon(Icons.send, size: 14),
+          child: const Icon(Icons.send, color: Colors.black, size: 14),
         ),
         const SizedBox(width: 4.0),
 
@@ -1425,12 +1426,13 @@ class _SearchPageState extends State<SearchPage> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.white,
                 foregroundColor: Colors.black,
+                iconColor: Colors.black,
                 padding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 12.0),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
                 minimumSize: const Size(0, 38),
               ),
               onPressed: () => _performSearch(),
-              child: const Icon(Icons.send, size: 14),
+              child: const Icon(Icons.send, color: Colors.black, size: 14),
             ),
             const SizedBox(width: 8.0),
             Material(

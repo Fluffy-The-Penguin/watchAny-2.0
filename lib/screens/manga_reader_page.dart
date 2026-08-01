@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 import 'package:flutter/foundation.dart';
 import '../services/notification_service.dart';
 import '../services/suwayomi_service.dart';
@@ -64,8 +63,6 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
   Animation<Matrix4>? _webtoonAnimation;
   TapDownDetails? _webtoonDoubleTapDetails;
   bool _isPageZoomed = false;
-
-  double get _webtoonScale => _webtoonTransformationController.value.getMaxScaleOnAxis();
 
   @override
   void initState() {
@@ -288,7 +285,6 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
             urls: urls,
             onPageDownloaded: (index) {
               if (mounted) {
-                _adjustWebtoonScrollForLoadedPage(index);
                 setState(() {});
               }
             },
@@ -331,27 +327,7 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
     _scrollController.jumpTo(_getWebtoonScrollOffsetForIndex(_currentPageIndex));
   }
 
-  void _adjustWebtoonScrollForLoadedPage(int loadedIndex) {
-    if (_readingFormat != 'webtoon') return;
-    if (!_scrollController.hasClients) return;
-    if (loadedIndex >= _currentPageIndex) return; // Only care about resizing pages above viewport
 
-    final double width = MediaQuery.of(context).size.width.clamp(0.0, 800.0);
-    final double oldHeight = width / (2 / 3);
-    
-    final dims = _pageLoader?.pageDimensions[loadedIndex];
-    if (dims == null) return;
-    final double aspectRatio = dims.width / dims.height;
-    final double newHeight = width / aspectRatio;
-    
-    final double delta = newHeight - oldHeight;
-    if (delta != 0.0) {
-      final double newOffset = _scrollController.offset + (delta * _webtoonScale);
-      _scrollController.removeListener(_onScroll);
-      _scrollController.jumpTo(newOffset.clamp(0.0, _scrollController.position.maxScrollExtent + delta));
-      _scrollController.addListener(_onScroll);
-    }
-  }
 
 
   void _updateLibraryProgress() {
@@ -1018,10 +994,9 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
     return LayoutBuilder(
       key: ValueKey('page_${_currentChapterId}_$index'),
       builder: (context, constraints) {
-        final w = constraints.maxWidth.isFinite ? constraints.maxWidth : MediaQuery.of(context).size.width;
+        final double w = constraints.maxWidth.isFinite ? constraints.maxWidth : MediaQuery.of(context).size.width;
         final dims = _pageLoader?.pageDimensions[index];
         final double aspectRatio = dims != null ? (dims.width / dims.height) : (2 / 3);
-        final double h = w / aspectRatio;
 
         Widget content;
         if (localPath != null) {
@@ -1031,36 +1006,22 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
             fit: isWebtoon ? BoxFit.fitWidth : BoxFit.contain,
             width: isWebtoon ? double.infinity : null,
             gaplessPlayback: true,
-            filterQuality: FilterQuality.low,
+            filterQuality: FilterQuality.medium,
             cacheWidth: (w * 2.0).toInt().clamp(800, 2048),
-            frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
-              if (wasSynchronouslyLoaded || frame != null) {
-                return child;
-              }
-              return _MihonPagePlaceholder(
-                width: w,
-                height: h,
-                pageNumber: index + 1,
-                isDownloading: false,
-                progress: 1.0,
-              );
-            },
             errorBuilder: (context, error, stackTrace) => _buildPageError(index),
           );
-        }
-
- else {
-          // Shimmer placeholder
+        } else {
+          final double h = w / aspectRatio;
           content = _MihonPagePlaceholder(
             width: w,
-            height: h,
+            height: isWebtoon ? h : null,
             pageNumber: index + 1,
             isDownloading: isDownloading,
             progress: progress,
           );
         }
 
-        if (localPath != null && isWebtoon) {
+        if (isWebtoon) {
           return SizedBox(
             key: ValueKey('sizedbox_$index'),
             width: w,
@@ -1071,8 +1032,10 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
         return SizedBox(
           key: ValueKey('sizedbox_$index'),
           width: w,
-          height: h,
-          child: content,
+          child: AspectRatio(
+            aspectRatio: aspectRatio,
+            child: content,
+          ),
         );
       },
     );
@@ -1884,14 +1847,14 @@ class _ZoomablePageImageState extends State<_ZoomablePageImage> {
 
 class _MihonPagePlaceholder extends StatelessWidget {
   final double width;
-  final double height;
+  final double? height;
   final int pageNumber;
   final bool isDownloading;
   final double? progress;
 
   const _MihonPagePlaceholder({
     required this.width,
-    required this.height,
+    this.height,
     required this.pageNumber,
     required this.isDownloading,
     this.progress,
@@ -1900,7 +1863,7 @@ class _MihonPagePlaceholder extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ShimmerCard(
-      height: height,
+      height: height ?? (width * 1.5),
       borderRadius: 0.0,
       child: Stack(
         children: [

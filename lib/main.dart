@@ -9,7 +9,6 @@ import 'services/torrserver_manager.dart';
 import 'services/suwayomi_manager.dart';
 import 'services/extension_service.dart';
 import 'services/download_service.dart';
-import 'services/backup_service.dart';
 import 'state/navigation_state.dart';
 import 'state/app_settings.dart';
 import 'state/library_state.dart';
@@ -151,9 +150,6 @@ class _MyAppState extends State<MyApp> with WindowListener, WidgetsBindingObserv
     _savedWidth = rawWidth is num ? rawWidth.toDouble() : 1280.0;
     final rawHeight = prefs.get('window_height');
     _savedHeight = rawHeight is num ? rawHeight.toDouble() : 720.0;
-    // Restore backups ONLY on a fresh install (empty library).
-    // LibraryState is initialized first so we can read its in-memory item
-    // count — no second DB connection needed.
     await Future.wait([
       AppSettings().init(),
       AnilistAuthState().init(),
@@ -163,28 +159,12 @@ class _MyAppState extends State<MyApp> with WindowListener, WidgetsBindingObserv
     // Initialize NavigationState with the loaded AppSettings
     NavigationState().init();
 
-    if (LibraryState().items.isEmpty) {
-      await BackupService().restoreAll();
-      if (LibraryState().items.isEmpty) {
-        await LibraryState().init();
-      }
-    }
-
     // Deferred non-critical background services initialization (non-blocking)
     Future.microtask(() async {
       await Future.wait([
         DownloadService().init(),
         NotificationService().initLocalNotifications(),
       ]);
-
-      // Register change listeners for debounced background exports
-      AppSettings().addListener(() {
-        BackupService().backupAllDebounced();
-      });
-      LibraryState().addListener(() {
-        BackupService().backupAllDebounced();
-      });
-
 
       // Initialize ExtensionService early to load local extensions in the background
       ExtensionService().init();

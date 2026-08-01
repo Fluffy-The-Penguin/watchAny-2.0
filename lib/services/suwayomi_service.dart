@@ -1125,9 +1125,7 @@ class SuwayomiService {
           final data = await _postGraphQL(gqlQuery, vars);
           if (data != null && data['fetchSourceManga']?['mangas'] != null) {
             final List mangas = data['fetchSourceManga']['mangas'] as List;
-            if (mangas.isNotEmpty || page > 1) {
-              return _mapGqlMangas(mangas, sourceId);
-            }
+            return _mapGqlMangas(mangas, sourceId);
           }
         } catch (e) {
           developer.log('GraphQL fetchSourceManga attempt $attempt failed: $e', name: 'SuwayomiService');

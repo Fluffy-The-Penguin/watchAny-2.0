@@ -282,247 +282,238 @@ class _MangaDetailsPageState extends State<MangaDetailsPage> {
     }
 
     return Scaffold(
-      backgroundColor: Colors.black,
-      body: Stack(
-        children: [
-          // 1. Background Banner Backdrop (blurred cover)
-          if (coverUrl.isNotEmpty)
-            Positioned(
-              top: 0, left: 0, right: 0,
-              height: 300.0,
-              child: Stack(
+      backgroundColor: const Color(0xFF0A0A0C),
+      body: SmoothScrollArea(
+        builder: (controller, physics) => SingleChildScrollView(
+          controller: controller,
+          physics: physics,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // ── 1. Scrollable Backdrop Banner Header ────────────────────────
+              Stack(
                 children: [
-                  CachedNetworkImage(
-                    imageUrl: coverUrl,
-                    width: double.infinity,
-                    height: 300.0,
-                    fit: BoxFit.cover,
-                    memCacheWidth: 600,
-                    placeholder: (_, __) => const SizedBox(),
-                    errorWidget: (_, __, ___) => const SizedBox(),
-                  ),
-                  Container(
-                    decoration: const BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [Colors.black26, Colors.black87, Colors.black],
+                  if (coverUrl.isNotEmpty)
+                    Positioned.fill(
+                      child: ShaderMask(
+                        shaderCallback: (rect) {
+                          return const LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [Colors.transparent, Colors.black87, Color(0xFF0A0A0C)],
+                            stops: [0.0, 0.7, 1.0],
+                          ).createShader(rect);
+                        },
+                        blendMode: BlendMode.darken,
+                        child: CachedNetworkImage(
+                          imageUrl: coverUrl,
+                          width: double.infinity,
+                          height: 320.0,
+                          fit: BoxFit.cover,
+                          memCacheWidth: 600,
+                          placeholder: (_, __) => const SizedBox(),
+                          errorWidget: (_, __, ___) => const SizedBox(),
+                        ),
                       ),
                     ),
-                  ),
-                ],
-              ),
-            ),
-
-          // 2. Main scrollable content
-          Positioned.fill(
-            child: SmoothScrollArea(
-              builder: (controller, physics) => SingleChildScrollView(
-                controller: controller,
-                physics: physics,
-                child: Padding(
-                  padding: const EdgeInsets.only(top: 40.0, bottom: 40.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // â”€â”€ Top bar: back + title + bookmark â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 24.0),
-                      child: Row(
-                        children: [
-                          IconButton(
-                            icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 18.0),
-                            onPressed: () => widget.navigationState.selectManga(null),
-                            style: IconButton.styleFrom(
-                              backgroundColor: Colors.black.withValues(alpha: 0.5),
-                              padding: const EdgeInsets.all(10.0),
-                            ),
-                          ),
-                          const SizedBox(width: 16.0),
-                          Expanded(
-                            child: Text(
-                              title,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 16.0,
-                                fontWeight: FontWeight.bold,
-                                fontFamily: 'Outfit',
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 16.0),
-                          ListenableBuilder(
-                            listenable: LibraryState(),
-                            builder: (context, _) {
-                              final saved = LibraryState().isSaved(_parsedMangaId, 'manga');
-                              return IconButton(
-                                icon: Icon(
-                                  saved ? Icons.bookmark : Icons.bookmark_border,
-                                  color: saved ? Colors.amber : Colors.white,
-                                  size: 18.0,
-                                ),
-                                onPressed: _showLibraryEditPanel,
+                  Container(
+                    width: double.infinity,
+                    color: Colors.black.withValues(alpha: 0.35),
+                    padding: const EdgeInsets.only(top: 36.0, bottom: 20.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Top bar: back + title + bookmark
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 24.0),
+                          child: Row(
+                            children: [
+                              IconButton(
+                                icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 18.0),
+                                onPressed: () => widget.navigationState.selectManga(null),
                                 style: IconButton.styleFrom(
                                   backgroundColor: Colors.black.withValues(alpha: 0.5),
                                   padding: const EdgeInsets.all(10.0),
                                 ),
-                              );
-                            },
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 24.0),
-
-                    // ── Hero: cover on LEFT + metadata on RIGHT ──────────────
-                    Center(
-                      child: Padding(
-                        padding: EdgeInsets.symmetric(horizontal: isMobile ? 12.0 : 24.0),
-                        child: SizedBox(
-                          width: isMobile ? double.infinity : screenWidth * 0.85,
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  // Cover on LEFT
-                                  if (coverUrl.isNotEmpty)
-                                    Container(
-                                      height: isMobile ? 170.0 : 220.0,
-                                      width: isMobile ? 115.0 : 150.0,
-                                      decoration: BoxDecoration(
-                                        borderRadius: BorderRadius.circular(8.0),
-                                        boxShadow: [
-                                          BoxShadow(
-                                            color: Colors.black.withValues(alpha: 0.8),
-                                            blurRadius: 12.0,
-                                            offset: const Offset(0, 4),
-                                          )
-                                        ],
-                                        border: Border.all(color: Colors.white10),
-                                      ),
-                                      child: ClipRRect(
-                                        borderRadius: BorderRadius.circular(7.0),
-                                        child: CachedNetworkImage(
-                                          imageUrl: coverUrl,
-                                          fit: BoxFit.cover,
-                                          memCacheWidth: isMobile ? 230 : 300,
-                                        ),
-                                      ),
-                                    ),
-                                  const SizedBox(width: 16.0),
-                                  // Metadata on RIGHT
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        // Author
-                                        if (authorStr != 'Unknown Author')
-                                          Text(
-                                            authorStr,
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: const TextStyle(
-                                              color: Colors.white54,
-                                              fontSize: 13.0,
-                                              fontFamily: 'Outfit',
-                                              fontWeight: FontWeight.w500,
-                                            ),
-                                          ),
-                                        const SizedBox(height: 4.0),
-                                        // Title
-                                        Text(
-                                          title,
-                                          maxLines: 2,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: TextStyle(
-                                            color: Colors.white,
-                                            fontSize: isMobile ? 20.0 : 26.0,
-                                            fontWeight: FontWeight.bold,
-                                            letterSpacing: -0.5,
-                                            fontFamily: 'Outfit',
-                                            height: 1.2,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 10.0),
-                                        // Badges
-                                        Wrap(
-                                          spacing: 6.0,
-                                          runSpacing: 6.0,
-                                          children: [
-                                            _buildBadge(statusStr),
-                                            _buildBadge('${_chapters.length} Ch'),
-                                          ],
-                                        ),
-                                        const SizedBox(height: 10.0),
-                                        // Continue Reading button
-                                        if (inLibrary && continueChapter != null)
-                                          _buildContinueButton(continueChapter, false),
-                                        const SizedBox(height: 10.0),
-                                        // Genres
-                                        Wrap(
-                                          spacing: 4.0,
-                                          runSpacing: 4.0,
-                                          children: genres.take(4).map((g) => Chip(
-                                            label: Text(g, style: const TextStyle(fontSize: 10.5, color: Colors.white70)),
-                                            backgroundColor: Colors.white.withValues(alpha: 0.05),
-                                            padding: EdgeInsets.zero,
-                                            side: BorderSide.none,
-                                            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                          )).toList(),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ],
                               ),
-
-                              const SizedBox(height: 24.0),
-
-                              // ── Description ───────────────────────────
-                              _buildDescriptionSection(description),
+                              const SizedBox(width: 16.0),
+                              Expanded(
+                                child: Text(
+                                  title,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 16.0,
+                                    fontWeight: FontWeight.bold,
+                                    fontFamily: 'Outfit',
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 16.0),
+                              ListenableBuilder(
+                                listenable: LibraryState(),
+                                builder: (context, _) {
+                                  final saved = LibraryState().isSaved(_parsedMangaId, 'manga');
+                                  return IconButton(
+                                    icon: Icon(
+                                      saved ? Icons.bookmark : Icons.bookmark_border,
+                                      color: saved ? Colors.amber : Colors.white,
+                                      size: 18.0,
+                                    ),
+                                    onPressed: _showLibraryEditPanel,
+                                    style: IconButton.styleFrom(
+                                      backgroundColor: Colors.black.withValues(alpha: 0.5),
+                                      padding: const EdgeInsets.all(10.0),
+                                    ),
+                                  );
+                                },
+                              ),
                             ],
                           ),
                         ),
-                      ),
-                    ),
+                        const SizedBox(height: 20.0),
 
-                    const SizedBox(height: 28.0),
-                    Container(height: 1.0, color: Colors.white10),
-                    const SizedBox(height: 16.0),
+                        // Hero: cover on LEFT + metadata on RIGHT
+                        Center(
+                          child: Padding(
+                            padding: EdgeInsets.symmetric(horizontal: isMobile ? 12.0 : 24.0),
+                            child: SizedBox(
+                              width: isMobile ? double.infinity : screenWidth * 0.85,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      // Cover on LEFT
+                                      if (coverUrl.isNotEmpty)
+                                        Container(
+                                          height: isMobile ? 165.0 : 210.0,
+                                          width: isMobile ? 110.0 : 145.0,
+                                          decoration: BoxDecoration(
+                                            borderRadius: BorderRadius.circular(8.0),
+                                            boxShadow: [
+                                              BoxShadow(
+                                                color: Colors.black.withValues(alpha: 0.8),
+                                                blurRadius: 12.0,
+                                                offset: const Offset(0, 4),
+                                              )
+                                            ],
+                                            border: Border.all(color: Colors.white10),
+                                          ),
+                                          child: ClipRRect(
+                                            borderRadius: BorderRadius.circular(7.0),
+                                            child: CachedNetworkImage(
+                                              imageUrl: coverUrl,
+                                              fit: BoxFit.cover,
+                                              memCacheWidth: isMobile ? 230 : 300,
+                                            ),
+                                          ),
+                                        ),
+                                      const SizedBox(width: 16.0),
+                                      // Metadata on RIGHT
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            if (authorStr != 'Unknown Author')
+                                              Text(
+                                                authorStr,
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: const TextStyle(
+                                                  color: Colors.white54,
+                                                  fontSize: 13.0,
+                                                  fontFamily: 'Outfit',
+                                                  fontWeight: FontWeight.w500,
+                                                ),
+                                              ),
+                                            const SizedBox(height: 4.0),
+                                            Text(
+                                              title,
+                                              maxLines: 2,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: TextStyle(
+                                                color: Colors.white,
+                                                fontSize: isMobile ? 19.0 : 24.0,
+                                                fontWeight: FontWeight.bold,
+                                                letterSpacing: -0.5,
+                                                fontFamily: 'Outfit',
+                                                height: 1.2,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 10.0),
+                                            Wrap(
+                                              spacing: 6.0,
+                                              runSpacing: 6.0,
+                                              children: [
+                                                _buildBadge(statusStr),
+                                                _buildBadge('${_chapters.length} Ch'),
+                                              ],
+                                            ),
+                                            const SizedBox(height: 10.0),
+                                            if (inLibrary && continueChapter != null)
+                                              _buildContinueButton(continueChapter, false),
+                                            const SizedBox(height: 10.0),
+                                            Wrap(
+                                              spacing: 4.0,
+                                              runSpacing: 4.0,
+                                              children: genres.take(4).map((g) => Chip(
+                                                label: Text(g, style: const TextStyle(fontSize: 10.5, color: Colors.white70)),
+                                                backgroundColor: Colors.white.withValues(alpha: 0.05),
+                                                padding: EdgeInsets.zero,
+                                                side: BorderSide.none,
+                                                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                              )).toList(),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
 
-                    // ── Chapter list ──────────────────────────────────
-                    Padding(
-                      padding: EdgeInsets.symmetric(horizontal: isMobile ? 8.0 : 24.0),
-                      child: RepaintBoundary(
-                        child: _MangaChaptersSection(
-                          chapters: _chapters,
-                          mangaId: _parsedMangaId,
-                          title: title,
-                          inLibrary: inLibrary,
-                          libraryItem: libraryItem,
-                          navigationState: widget.navigationState,
-                          onSetChapterReadStatus: (chapterId, read) async {
-                            await libraryState.setChapterReadStatus(_parsedMangaId, chapterId, read);
-                            _updateContinueChapter();
-                            setState(() {});
-                          },
-                          onUpdated: () {
-                            _updateContinueChapter();
-                            setState(() {});
-                          },
+                                  const SizedBox(height: 20.0),
+                                  _buildDescriptionSection(description),
+                                ],
+                              ),
+                            ),
+                          ),
                         ),
-                      ),
+                      ],
                     ),
-                  ],
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 16.0),
+
+              // ── 2. Chapter List Section ─────────────────────────────────────
+              Padding(
+                padding: EdgeInsets.symmetric(horizontal: isMobile ? 8.0 : 24.0),
+                child: RepaintBoundary(
+                  child: _MangaChaptersSection(
+                    chapters: _chapters,
+                    mangaId: _parsedMangaId,
+                    title: title,
+                    inLibrary: inLibrary,
+                    libraryItem: libraryItem,
+                    navigationState: widget.navigationState,
+                    onSetChapterReadStatus: (chapterId, read) async {
+                      await libraryState.setChapterReadStatus(_parsedMangaId, chapterId, read);
+                      _updateContinueChapter();
+                      setState(() {});
+                    },
+                    onUpdated: () {
+                      _updateContinueChapter();
+                      setState(() {});
+                    },
+                  ),
                 ),
               ),
-            ),
+              const SizedBox(height: 40.0),
+            ],
           ),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -1234,11 +1225,6 @@ class _MangaChaptersSectionState extends State<_MangaChaptersSection> {
   bool _isSelectionMode = false;
   final Set<String> _selectedChapterIds = {};
 
-  int _currentPage = 1;
-  static const int _chaptersPerPage = 20;
-  String _lastQuery = '';
-  String _lastFilter = 'ALL';
-
   Widget _buildChapterFilterChip(String value, String label) {
     final bool isSelected = _chapterFilter == value;
     return ChoiceChip(
@@ -1347,103 +1333,80 @@ class _MangaChaptersSectionState extends State<_MangaChaptersSection> {
       }).toList();
     }
 
-    // Reset pagination if query or filters change
-    if (_chapterSearchQuery != _lastQuery || _chapterFilter != _lastFilter) {
-      _currentPage = 1;
-      _lastQuery = _chapterSearchQuery;
-      _lastFilter = _chapterFilter;
-    }
-
-    // Pagination slicing
-    final int totalPages = (displayChapters.length / _chaptersPerPage).ceil().clamp(1, double.infinity).toInt();
-    if (_currentPage > totalPages) {
-      _currentPage = totalPages;
-    }
-    final int startIndex = (_currentPage - 1) * _chaptersPerPage;
-    final int endIndex = (startIndex + _chaptersPerPage).clamp(0, displayChapters.length);
-    final pageChapters = displayChapters.sublist(startIndex, endIndex);
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Chapter search bar
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24.0),
-          child: Container(
-            height: 38.0,
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.03),
-              borderRadius: BorderRadius.circular(8.0),
-              border: Border.all(color: Colors.white10),
+        // Chapter search bar (Vertically centered icon and placeholder)
+        Container(
+          height: 40.0,
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.03),
+            borderRadius: BorderRadius.circular(8.0),
+            border: Border.all(color: Colors.white10),
+          ),
+          child: TextField(
+            textAlignVertical: TextAlignVertical.center,
+            style: const TextStyle(color: Colors.white, fontSize: 13.0, fontFamily: 'Outfit'),
+            decoration: const InputDecoration(
+              isDense: true,
+              hintText: 'Search chapters by name or number...',
+              hintStyle: TextStyle(color: Colors.white24, fontSize: 12.5),
+              prefixIcon: Icon(Icons.search, color: Colors.white38, size: 18),
+              border: InputBorder.none,
+              contentPadding: EdgeInsets.symmetric(vertical: 10.0),
             ),
-            child: TextField(
-              style: const TextStyle(color: Colors.white, fontSize: 13.0, fontFamily: 'Outfit'),
-              decoration: const InputDecoration(
-                hintText: 'Search chapters by name or number...',
-                hintStyle: TextStyle(color: Colors.white24, fontSize: 12.0),
-                prefixIcon: Icon(Icons.search, color: Colors.white38, size: 16),
-                border: InputBorder.none,
-                contentPadding: EdgeInsets.symmetric(vertical: 8.0),
-              ),
-              onChanged: (val) => setState(() => _chapterSearchQuery = val),
-            ),
+            onChanged: (val) => setState(() => _chapterSearchQuery = val),
           ),
         ),
-        const SizedBox(height: 12.0),
+        const SizedBox(height: 8.0),
 
         // Choice chip filters
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24.0),
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            physics: const ClampingScrollPhysics(),
-            child: Row(
-              children: [
-                _buildChapterFilterChip('ALL', 'All Chapters'),
-                const SizedBox(width: 8.0),
-                _buildChapterFilterChip('UNREAD', 'Unread'),
-                const SizedBox(width: 8.0),
-                _buildChapterFilterChip('READ', 'Read'),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 20.0),
-
-        // Chapters Section Header
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24.0),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          physics: const ClampingScrollPhysics(),
           child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                'Chapters (${displayChapters.length})',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 16.0,
-                  fontWeight: FontWeight.bold,
-                  fontFamily: 'Outfit',
-                ),
-              ),
-              IconButton(
-                icon: Icon(
-                  _isChaptersReversed ? Icons.arrow_upward : Icons.arrow_downward,
-                  color: Colors.white54,
-                  size: 18.0,
-                ),
-                onPressed: () {
-                  setState(() => _isChaptersReversed = !_isChaptersReversed);
-                },
-              ),
+              _buildChapterFilterChip('ALL', 'All Chapters'),
+              const SizedBox(width: 8.0),
+              _buildChapterFilterChip('UNREAD', 'Unread'),
+              const SizedBox(width: 8.0),
+              _buildChapterFilterChip('READ', 'Read'),
             ],
           ),
         ),
-        const SizedBox(height: 12.0),
+        const SizedBox(height: 8.0),
+
+        // Chapters Section Header
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              'Chapters (${displayChapters.length})',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 15.0,
+                fontWeight: FontWeight.bold,
+                fontFamily: 'Outfit',
+              ),
+            ),
+            IconButton(
+              icon: Icon(
+                _isChaptersReversed ? Icons.arrow_upward : Icons.arrow_downward,
+                color: Colors.white54,
+                size: 18.0,
+              ),
+              onPressed: () {
+                setState(() => _isChaptersReversed = !_isChaptersReversed);
+              },
+            ),
+          ],
+        ),
+        const SizedBox(height: 4.0),
 
         // Bulk Selection Action Bar
         if (_isSelectionMode)
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 4.0),
+            padding: const EdgeInsets.only(bottom: 6.0),
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 6.0),
               decoration: BoxDecoration(
@@ -1524,15 +1487,15 @@ class _MangaChaptersSectionState extends State<_MangaChaptersSection> {
               ),
             ),
           ),
-        const SizedBox(height: 8.0),
 
-        // Chapters list
+        // Continuous Chapters List (No Pagination, Uniform 6px Margins)
         ListView.builder(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
-          itemCount: pageChapters.length,
+          padding: EdgeInsets.zero,
+          itemCount: displayChapters.length,
           itemBuilder: (context, index) {
-            final chapter = pageChapters[index];
+            final chapter = displayChapters[index];
             final String chName = chapter['name'] ?? 'Chapter';
             final String chId = chapter['id']?.toString() ?? '';
             final double? chNum = double.tryParse(chapter['chapterNumber']?.toString() ?? '');
@@ -1548,7 +1511,7 @@ class _MangaChaptersSectionState extends State<_MangaChaptersSection> {
             final bool isSelected = _selectedChapterIds.contains(chId);
 
             return Container(
-              margin: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 4.0),
+              margin: const EdgeInsets.only(bottom: 6.0),
               decoration: BoxDecoration(
                 color: isSelected ? const Color(0xFFFF9F1C).withValues(alpha: 0.12) : const Color(0xFF0F0F11),
                 borderRadius: BorderRadius.circular(6.0),
@@ -1557,7 +1520,7 @@ class _MangaChaptersSectionState extends State<_MangaChaptersSection> {
                 ),
               ),
               child: ListTile(
-                contentPadding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 2.0),
                 leading: _isSelectionMode
                     ? Checkbox(
                         value: isSelected,
@@ -1601,7 +1564,6 @@ class _MangaChaptersSectionState extends State<_MangaChaptersSection> {
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // Download button / progress / delete
                     _buildDownloadTrailing(
                       chId: chId,
                       chName: chName,
@@ -1720,65 +1682,36 @@ class _MangaChaptersSectionState extends State<_MangaChaptersSection> {
                       }
                     });
                   } else {
-                  if (chId.isNotEmpty) {
-                    Navigator.of(context, rootNavigator: true).push(
-                      PageRouteBuilder(
-                        pageBuilder: (context, animation, secondaryAnimation) => MangaReaderPage(
-                          chapterId: chId,
-                          chapterNumber: currentChapterIdx,
-                          mangaId: widget.mangaId.toString(),
-                          mangaTitle: widget.title,
-                          chapters: widget.chapters,
-                          navigationState: widget.navigationState,
+                    if (chId.isNotEmpty) {
+                      Navigator.of(context, rootNavigator: true).push(
+                        PageRouteBuilder(
+                          pageBuilder: (context, animation, secondaryAnimation) => MangaReaderPage(
+                            chapterId: chId,
+                            chapterNumber: currentChapterIdx,
+                            mangaId: widget.mangaId.toString(),
+                            mangaTitle: widget.title,
+                            chapters: widget.chapters,
+                            navigationState: widget.navigationState,
+                          ),
+                          transitionsBuilder: (context, animation, secondaryAnimation, child) {
+                            return SlideTransition(
+                              position: Tween<Offset>(begin: const Offset(1.0, 0.0), end: Offset.zero).animate(
+                                CurvedAnimation(parent: animation, curve: Curves.easeOutCubic),
+                              ),
+                              child: child,
+                            );
+                          },
                         ),
-                        transitionsBuilder: (context, animation, secondaryAnimation, child) {
-                          return SlideTransition(
-                            position: Tween<Offset>(begin: const Offset(1.0, 0.0), end: Offset.zero).animate(
-                              CurvedAnimation(parent: animation, curve: Curves.easeOutCubic),
-                            ),
-                            child: child,
-                          );
-                        },
-                      ),
-                    ).then((_) {
-                      setState(() {});
-                    });
-                  }
+                      ).then((_) {
+                        setState(() {});
+                      });
+                    }
                   }
                 },
               ),
             );
           },
         ),
-
-        // Sliced pagination controller
-        if (totalPages > 1) ...[
-          const SizedBox(height: 20.0),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              IconButton(
-                icon: Icon(Icons.chevron_left, color: _currentPage > 1 ? Colors.white : Colors.white24),
-                onPressed: _currentPage > 1 ? () => setState(() => _currentPage--) : null,
-              ),
-              const SizedBox(width: 16),
-              Text(
-                'Page $_currentPage of $totalPages',
-                style: const TextStyle(
-                  color: Colors.white70,
-                  fontSize: 13.0,
-                  fontWeight: FontWeight.bold,
-                  fontFamily: 'Outfit',
-                ),
-              ),
-              const SizedBox(width: 16),
-              IconButton(
-                icon: Icon(Icons.chevron_right, color: _currentPage < totalPages ? Colors.white : Colors.white24),
-                onPressed: _currentPage < totalPages ? () => setState(() => _currentPage++) : null,
-              ),
-            ],
-          ),
-        ],
       ],
     );
   }

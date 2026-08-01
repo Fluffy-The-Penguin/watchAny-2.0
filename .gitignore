@@ -1,5 +1,7 @@
 # Miscellaneous
 *.class
+*.jar
+assets/suwayomi/
 *.log
 *.pyc
 *.swp

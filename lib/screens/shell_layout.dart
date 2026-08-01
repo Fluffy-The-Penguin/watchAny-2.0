@@ -74,6 +74,13 @@ class ShellLayout extends StatelessWidget {
         BottomNavigationBarItem(icon: Icon(Icons.download_for_offline), label: 'Downloads'),
         BottomNavigationBarItem(icon: Icon(Icons.settings), label: 'Settings'),
       ];
+    } else if (mode == AppMode.manga) {
+      return const [
+        BottomNavigationBarItem(icon: Icon(Icons.home_filled), label: 'Home'),
+        BottomNavigationBarItem(icon: Icon(Icons.search), label: 'Search'),
+        BottomNavigationBarItem(icon: Icon(Icons.video_library), label: 'Library'),
+        BottomNavigationBarItem(icon: Icon(Icons.settings), label: 'Settings'),
+      ];
     } else {
       return const [
         BottomNavigationBarItem(icon: Icon(Icons.home_filled), label: 'Home'),

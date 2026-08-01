@@ -1,11 +1,9 @@
 import '../services/notification_service.dart';
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/suwayomi_manager.dart';
 import '../services/suwayomi_service.dart';
@@ -31,10 +29,6 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
   final SuwayomiService _suwayomiService = SuwayomiService();
   bool _showDebugLogs = false;
 
-  bool get _isActive =>
-      widget.navigationState.currentMode == AppMode.manga &&
-      widget.navigationState.currentPage == TabPage.search;
-  
   // Extension tab state
   List<dynamic> _extensions = [];
   bool _loadingExtensions = false;
@@ -44,6 +38,9 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
   
   // Catalog tab state
   List<dynamic> _sources = [];
+  bool _loadingSources = true;
+  bool _sourcesLoaded = false;
+  Timer? _searchDebounceTimer;
   String? _selectedSourceId;
   List<dynamic> _catalogManga = [];
   bool _loadingCatalog = false;
@@ -117,6 +114,7 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
 
   @override
   void dispose() {
+    _searchDebounceTimer?.cancel();
     widget.navigationState.removeListener(_checkAndStartEngine);
     SuwayomiService.changeNotifier.removeListener(_onSuwayomiChanged);
     _tabController.removeListener(_handleTabChange);
@@ -235,6 +233,9 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
   Future<void> _loadSources() async {
     if (mounted) {
       setState(() {
+        if (_sources.isEmpty) {
+          _loadingSources = true;
+        }
         _catalogError = null;
       });
     }
@@ -249,6 +250,8 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
       if (mounted) {
         setState(() {
           _sources = list;
+          _sourcesLoaded = true;
+          _loadingSources = false;
           
           final List<String> distinctExtensionNames = _sources
               .map((s) => _getCleanName(s['name']?.toString() ?? ''))
@@ -281,12 +284,13 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
           }
 
           _loadCatalog();
-
         });
       }
     } catch (e) {
       if (mounted) {
         setState(() {
+          _sourcesLoaded = true;
+          _loadingSources = false;
           _catalogError = 'Failed to load catalog sources: ${e.toString().replaceFirst('Exception: ', '')}';
         });
       }
@@ -316,11 +320,12 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
     }
 
     try {
+      final bool isSearch = _catalogSearchQuery.trim().isNotEmpty;
       final manga = await _suwayomiService.fetchSourceManga(
         sourceId: _selectedSourceId!,
         page: _currentPage,
-        query: _catalogSearchQuery,
-        latest: _isLatestFeed,
+        query: _catalogSearchQuery.trim(),
+        latest: isSearch ? false : _isLatestFeed,
       );
 
       if (mounted) {
@@ -1167,20 +1172,53 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
                       ),
                       child: TextField(
                         controller: _searchController,
-                        style: const TextStyle(color: Colors.white, fontFamily: 'Outfit', fontSize: 14.0),
-                        decoration: const InputDecoration(
+                        textAlignVertical: TextAlignVertical.center,
+                        style: const TextStyle(color: Colors.white, fontFamily: 'Outfit', fontSize: 13.5),
+                        decoration: InputDecoration(
+                          isDense: true,
                           hintText: 'Search manga...',
-                          hintStyle: TextStyle(color: Colors.white30),
-                          prefixIcon: Icon(Icons.search, color: Colors.white30, size: 18),
+                          hintStyle: const TextStyle(color: Colors.white30, fontFamily: 'Outfit', fontSize: 13.5),
+                          prefixIcon: const Icon(Icons.search, color: Colors.white30, size: 18.0),
+                          suffixIcon: _searchController.text.isNotEmpty
+                              ? IconButton(
+                                  icon: const Icon(Icons.close, color: Colors.white54, size: 16.0),
+                                  onPressed: () {
+                                    _searchController.clear();
+                                    _searchDebounceTimer?.cancel();
+                                    setState(() {
+                                      _catalogSearchQuery = '';
+                                      _currentPage = 1;
+                                    });
+                                    _loadCatalog(resetPage: true);
+                                  },
+                                )
+                              : null,
                           border: InputBorder.none,
-                          contentPadding: EdgeInsets.symmetric(vertical: 10.0),
+                          focusedBorder: InputBorder.none,
+                          enabledBorder: InputBorder.none,
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 10.0),
                         ),
+                        onChanged: (val) {
+                          setState(() {});
+                          _searchDebounceTimer?.cancel();
+                          _searchDebounceTimer = Timer(const Duration(milliseconds: 400), () {
+                            final query = val.trim();
+                            if (_catalogSearchQuery != query) {
+                              setState(() {
+                                _catalogSearchQuery = query;
+                                _currentPage = 1;
+                              });
+                              _loadCatalog(resetPage: true);
+                            }
+                          });
+                        },
                         onSubmitted: (value) {
+                          _searchDebounceTimer?.cancel();
                           setState(() {
                             _catalogSearchQuery = value.trim();
                             _currentPage = 1;
                           });
-                          _loadCatalog();
+                          _loadCatalog(resetPage: true);
                         },
                       ),
                     );
@@ -1302,7 +1340,39 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
         ),
 
         // ── Catalog content ──────────────────────────────────────────────────────────
-        if (_sources.isEmpty && !_loadingCatalog)
+        if (_loadingSources || (_loadingCatalog && _globalSearchResults.isEmpty && _catalogManga.isEmpty))
+          SliverToBoxAdapter(
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 64.0),
+                child: ValueListenableBuilder<String>(
+                  valueListenable: SuwayomiManager.statusNotifier,
+                  builder: (context, statusMsg, _) {
+                    return Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const CircularProgressIndicator(
+                          valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFFF9F1C)),
+                          strokeWidth: 2.0,
+                        ),
+                        const SizedBox(height: 16.0),
+                        Text(
+                          statusMsg.isNotEmpty ? statusMsg : "Loading catalog...",
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 14.0,
+                            fontFamily: 'Outfit',
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              ),
+            ),
+          )
+        else if (_sources.isEmpty && _sourcesLoaded)
           SliverToBoxAdapter(
             child: Center(
               child: Padding(
@@ -1327,11 +1397,12 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
                       onPressed: () {
                         _tabController.animateTo(1);
                       },
-                      icon: const Icon(Icons.extension_outlined, size: 18.0),
+                      icon: const Icon(Icons.extension_outlined, color: Colors.black, size: 18.0),
                       label: const Text('Go to Extensions Tab', style: TextStyle(fontWeight: FontWeight.bold, fontFamily: 'Outfit')),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFFFF9F1C),
                         foregroundColor: Colors.black,
+                        iconColor: Colors.black,
                         padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 12.0),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
                       ),

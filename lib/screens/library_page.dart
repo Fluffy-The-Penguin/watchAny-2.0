@@ -821,12 +821,13 @@ class _LibraryPageState extends State<LibraryPage> {
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           ElevatedButton.icon(
-                            icon: const Icon(Icons.add, size: 16),
+                            icon: const Icon(Icons.create_new_folder_outlined, color: Colors.black, size: 16),
                             label: const Text('Create Category', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13.0)),
                             onPressed: _showManageCategoriesDialog,
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Colors.white,
                               foregroundColor: Colors.black,
+                              iconColor: Colors.black,
                               padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 12.0),
                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
                             ),
@@ -1552,7 +1553,7 @@ class _LibraryPageState extends State<LibraryPage> {
           ),
           const SizedBox(height: 20.0),
           ElevatedButton.icon(
-            icon: const Icon(Icons.search, size: 16),
+            icon: const Icon(Icons.search, color: Colors.black, size: 16),
             label: const Text('Browse Content', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13.0)),
             onPressed: () {
               widget.navigationState.setPage(TabPage.search);
@@ -1560,6 +1561,7 @@ class _LibraryPageState extends State<LibraryPage> {
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.white,
               foregroundColor: Colors.black,
+              iconColor: Colors.black,
               padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 12.0),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
             ),

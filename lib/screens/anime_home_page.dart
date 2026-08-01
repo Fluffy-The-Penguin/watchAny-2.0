@@ -582,7 +582,7 @@ class _HeroSectionState extends State<_HeroSection> {
                   Row(
                     children: [
                       ElevatedButton.icon(
-                        icon: Icon(Icons.play_arrow, size: isMobile ? 16 : 18),
+                        icon: Icon(Icons.play_arrow, color: Colors.black, size: isMobile ? 16 : 18),
                         label: const Text('Play'),
                         onPressed: () {
                           widget.navigationState.selectAnime(anime['id']);
@@ -590,6 +590,7 @@ class _HeroSectionState extends State<_HeroSection> {
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.white,
                           foregroundColor: Colors.black,
+                          iconColor: Colors.black,
                           padding: EdgeInsets.symmetric(
                             horizontal: isMobile ? 18.0 : 24.0, 
                             vertical: isMobile ? 10.0 : 12.0,

@@ -1,12 +1,12 @@
 import '../services/notification_service.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../services/suwayomi_service.dart';
 import '../services/suwayomi_manager.dart';
 import '../state/navigation_state.dart';
 import '../state/library_state.dart';
+import '../models/pinned_source_config.dart';
 
 class MangaTrendingHomePage extends StatefulWidget {
   final NavigationState navigationState;
@@ -23,7 +23,7 @@ class MangaTrendingHomePage extends StatefulWidget {
 class _MangaTrendingHomePageState extends State<MangaTrendingHomePage> {
   final SuwayomiService _suwayomiService = SuwayomiService();
   
-  List<String> _pinnedSourceIds = [];
+  List<PinnedSourceConfig> _pinnedConfigs = [];
   List<dynamic> _allSources = [];
   bool _isLoadingSources = true;
   
@@ -36,16 +36,6 @@ class _MangaTrendingHomePageState extends State<MangaTrendingHomePage> {
   
   final Map<String, String> _popularErrors = {};
   final Map<String, String> _latestErrors = {};
-
-  String? _getSourceName(String sId) {
-    if (_allSources.isEmpty) return null;
-    for (var src in _allSources) {
-      if (src is Map && src['id']?.toString() == sId) {
-        return src['name']?.toString();
-      }
-    }
-    return null;
-  }
 
   @override
   void initState() {
@@ -106,25 +96,19 @@ class _MangaTrendingHomePageState extends State<MangaTrendingHomePage> {
     }
   }
 
-  // Load Pinned Source IDs from SharedPreferences
+  // Load Pinned Source Configs from SharedPreferences
   Future<void> _loadPins() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final list = prefs.getStringList('pinned_manga_sources');
-      if (mounted) {
-        setState(() {
-          _pinnedSourceIds = list ?? [];
-        });
-      }
-    } catch (_) {}
+    final list = await PinnedSourceConfig.loadPins();
+    if (mounted) {
+      setState(() {
+        _pinnedConfigs = list;
+      });
+    }
   }
 
-  // Save Pinned Source IDs to SharedPreferences
+  // Save Pinned Source Configs to SharedPreferences
   Future<void> _savePins() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setStringList('pinned_manga_sources', _pinnedSourceIds);
-    } catch (_) {}
+    await PinnedSourceConfig.savePins(_pinnedConfigs);
   }
 
   Future<void> _loadSources() async {
@@ -142,18 +126,24 @@ class _MangaTrendingHomePageState extends State<MangaTrendingHomePage> {
 
           // Filter out pinned sources that are no longer installed/available
           final availableSourceIds = _allSources.map((s) => s['id']?.toString()).toSet();
-          final filteredPins = _pinnedSourceIds.where((id) => availableSourceIds.contains(id)).toList();
+          final filteredPins = _pinnedConfigs.where((c) => availableSourceIds.contains(c.sourceId)).toList();
           
-          if (filteredPins.length != _pinnedSourceIds.length) {
-            _pinnedSourceIds = filteredPins;
-            _savePins(); // Auto-save cleaned list back to SharedPreferences
+          if (filteredPins.length != _pinnedConfigs.length) {
+            _pinnedConfigs = filteredPins;
+            _savePins();
           }
         });
         
         // Auto-pin first source if list is completely empty
-        if (_pinnedSourceIds.isEmpty && _allSources.isNotEmpty) {
+        if (_pinnedConfigs.isEmpty && _allSources.isNotEmpty) {
           setState(() {
-            _pinnedSourceIds = [_allSources.first['id']?.toString() ?? ''];
+            _pinnedConfigs = [
+              PinnedSourceConfig(
+                sourceId: _allSources.first['id']?.toString() ?? '',
+                showPopular: true,
+                showLatest: true,
+              )
+            ];
           });
           await _savePins();
         }
@@ -170,17 +160,20 @@ class _MangaTrendingHomePageState extends State<MangaTrendingHomePage> {
 
   // Trigger parallel fetching of all pinned source popular/latest feeds
   void _loadAllFeeds() {
-    for (final id in _pinnedSourceIds) {
-      _loadSourceFeeds(id);
+    for (final cfg in _pinnedConfigs) {
+      _loadSourceFeeds(cfg);
     }
   }
 
-  // Load both feeds for a source
-  Future<void> _loadSourceFeeds(String sourceId) async {
-    if (sourceId.isEmpty) return;
-    
-    _loadPopularFeed(sourceId);
-    _loadLatestFeed(sourceId);
+  // Load selected feeds for a source
+  Future<void> _loadSourceFeeds(PinnedSourceConfig cfg) async {
+    if (cfg.sourceId.isEmpty) return;
+    if (cfg.showPopular) {
+      _loadPopularFeed(cfg.sourceId);
+    }
+    if (cfg.showLatest) {
+      _loadLatestFeed(cfg.sourceId);
+    }
   }
 
   // Load popular feed for a source
@@ -233,7 +226,7 @@ class _MangaTrendingHomePageState extends State<MangaTrendingHomePage> {
     }
   }
 
-  // Show bottom sheet configuration dialog to toggle pins (max 5)
+  // Show bottom sheet configuration dialog to toggle pins and feed selection (max 5)
   void _showManagePinsSheet() {
     showModalBottomSheet(
       context: context,
@@ -269,10 +262,15 @@ class _MangaTrendingHomePageState extends State<MangaTrendingHomePage> {
                       ),
                     ],
                   ),
+                  const SizedBox(height: 4.0),
+                  Text(
+                    'Customize which feeds (Popular / New Updates) to display for each extension.',
+                    style: TextStyle(color: Colors.white.withValues(alpha: 0.4), fontSize: 12.0, fontFamily: 'Outfit'),
+                  ),
                   const SizedBox(height: 8.0),
                   Text(
-                    'Selected: ${_pinnedSourceIds.length} / 5',
-                    style: const TextStyle(color: Colors.white38, fontSize: 12.0, fontFamily: 'Outfit'),
+                    'Selected: ${_pinnedConfigs.length} / 5',
+                    style: const TextStyle(color: Color(0xFFFF9F1C), fontSize: 12.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
                   ),
                   const SizedBox(height: 16.0),
                   Expanded(
@@ -292,40 +290,118 @@ class _MangaTrendingHomePageState extends State<MangaTrendingHomePage> {
                               final String sId = source['id']?.toString() ?? '';
                               final String name = source['name'] ?? 'Unknown Source';
                               final String lang = source['lang'] ?? 'en';
-                              final bool isPinned = _pinnedSourceIds.contains(sId);
 
-                              return ListTile(
-                                contentPadding: EdgeInsets.zero,
-                                title: Text(name, style: const TextStyle(color: Colors.white, fontFamily: 'Outfit', fontSize: 14.0)),
-                                subtitle: Text(lang.toUpperCase(), style: const TextStyle(color: Colors.white38, fontSize: 11.0, fontFamily: 'Outfit')),
-                                trailing: IconButton(
-                                  icon: Icon(
-                                    isPinned ? Icons.push_pin : Icons.push_pin_outlined,
-                                    color: isPinned ? const Color(0xFFFF9F1C) : Colors.white38,
-                                    size: 20.0,
-                                  ),
-                                  onPressed: () async {
-                                    setModalState(() {
-                                      if (isPinned) {
-                                        _pinnedSourceIds.remove(sId);
-                                      } else {
-                                        if (_pinnedSourceIds.length >= 5) {
-                                          NotificationService().show(context, 'You can only pin up to 5 extensions.', isError: true);
-                                          return;
-                                        }
-                                        _pinnedSourceIds.add(sId);
-                                      }
-                                    });
-                                    
-                                    // Mirror state to parent widget
-                                    setState(() {});
-                                    await _savePins();
-                                    
-                                    // Load feeds for the newly pinned source
-                                    if (!isPinned) {
-                                      _loadSourceFeeds(sId);
-                                    }
-                                  },
+                              final existingConfigIndex = _pinnedConfigs.indexWhere((c) => c.sourceId == sId);
+                              final bool isPinned = existingConfigIndex != -1;
+                              final PinnedSourceConfig? cfg = isPinned ? _pinnedConfigs[existingConfigIndex] : null;
+
+                              return Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 8.0),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Text(name, style: const TextStyle(color: Colors.white, fontFamily: 'Outfit', fontSize: 14.0, fontWeight: FontWeight.bold)),
+                                              Text(lang.toUpperCase(), style: const TextStyle(color: Colors.white38, fontSize: 11.0, fontFamily: 'Outfit')),
+                                            ],
+                                          ),
+                                        ),
+                                        IconButton(
+                                          icon: Icon(
+                                            isPinned ? Icons.push_pin : Icons.push_pin_outlined,
+                                            color: isPinned ? const Color(0xFFFF9F1C) : Colors.white38,
+                                            size: 20.0,
+                                          ),
+                                          onPressed: () async {
+                                            setModalState(() {
+                                              if (isPinned) {
+                                                _pinnedConfigs.removeAt(existingConfigIndex);
+                                              } else {
+                                                if (_pinnedConfigs.length >= 5) {
+                                                  NotificationService().show(context, 'You can only pin up to 5 extensions.', isError: true);
+                                                  return;
+                                                }
+                                                final newCfg = PinnedSourceConfig(sourceId: sId, showPopular: true, showLatest: true);
+                                                _pinnedConfigs.add(newCfg);
+                                                _loadSourceFeeds(newCfg);
+                                              }
+                                            });
+                                            
+                                            setState(() {});
+                                            await _savePins();
+                                          },
+                                        ),
+                                      ],
+                                    ),
+                                    if (isPinned && cfg != null) ...[
+                                      const SizedBox(height: 6.0),
+                                      Wrap(
+                                        spacing: 8.0,
+                                        runSpacing: 6.0,
+                                        children: [
+                                          FilterChip(
+                                            label: const Text('🔥 Popular Feed', style: TextStyle(fontSize: 11.0, fontFamily: 'Outfit')),
+                                            selected: cfg.showPopular,
+                                            selectedColor: const Color(0xFFFF9F1C).withValues(alpha: 0.25),
+                                            checkmarkColor: const Color(0xFFFF9F1C),
+                                            labelStyle: TextStyle(
+                                              color: cfg.showPopular ? const Color(0xFFFF9F1C) : Colors.white54,
+                                              fontWeight: cfg.showPopular ? FontWeight.bold : FontWeight.normal,
+                                            ),
+                                            backgroundColor: Colors.white.withValues(alpha: 0.04),
+                                            side: BorderSide(
+                                              color: cfg.showPopular ? const Color(0xFFFF9F1C).withValues(alpha: 0.6) : Colors.white10,
+                                            ),
+                                            onSelected: (selected) async {
+                                              setModalState(() {
+                                                cfg.showPopular = selected;
+                                                if (!cfg.showPopular && !cfg.showLatest) {
+                                                  _pinnedConfigs.removeWhere((c) => c.sourceId == sId);
+                                                }
+                                              });
+                                              setState(() {});
+                                              await _savePins();
+                                              if (cfg.showPopular) {
+                                                _loadPopularFeed(sId);
+                                              }
+                                            },
+                                          ),
+                                          FilterChip(
+                                            label: const Text('🆕 New Updates', style: TextStyle(fontSize: 11.0, fontFamily: 'Outfit')),
+                                            selected: cfg.showLatest,
+                                            selectedColor: const Color(0xFFFF9F1C).withValues(alpha: 0.25),
+                                            checkmarkColor: const Color(0xFFFF9F1C),
+                                            labelStyle: TextStyle(
+                                              color: cfg.showLatest ? const Color(0xFFFF9F1C) : Colors.white54,
+                                              fontWeight: cfg.showLatest ? FontWeight.bold : FontWeight.normal,
+                                            ),
+                                            backgroundColor: Colors.white.withValues(alpha: 0.04),
+                                            side: BorderSide(
+                                              color: cfg.showLatest ? const Color(0xFFFF9F1C).withValues(alpha: 0.6) : Colors.white10,
+                                            ),
+                                            onSelected: (selected) async {
+                                              setModalState(() {
+                                                cfg.showLatest = selected;
+                                                if (!cfg.showPopular && !cfg.showLatest) {
+                                                  _pinnedConfigs.removeWhere((c) => c.sourceId == sId);
+                                                }
+                                              });
+                                              setState(() {});
+                                              await _savePins();
+                                              if (cfg.showLatest) {
+                                                _loadLatestFeed(sId);
+                                              }
+                                            },
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  ],
                                 ),
                               );
                             },
@@ -378,72 +454,61 @@ class _MangaTrendingHomePageState extends State<MangaTrendingHomePage> {
                         final String coverUrl = item['thumbnailUrl'] ?? '';
                         final String mId = item['id']?.toString() ?? '';
 
-                        return RepaintBoundary(
+                        return Container(
+                          width: isMobile ? 105.0 : 120.0,
+                          margin: const EdgeInsets.only(right: 12.0),
                           child: GestureDetector(
-                            onTap: () async {
+                            onTap: () {
                               if (mId.isNotEmpty) {
-                                final mangaUrl = item['url']?.toString() ?? '';
-                                final parsedId = int.tryParse(mId) ?? 0;
-                                  if (parsedId != 0) {
-                                    final extName = _getSourceName(sourceId);
-                                    await SuwayomiService().registerMangaPath(parsedId, sourceId, mangaUrl, extName: extName);
-                                  }
                                 widget.navigationState.selectManga(mId);
                               }
                             },
-                            child: Container(
-                              width: 105.0,
-                              margin: const EdgeInsets.only(right: 12.0),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Expanded(
-                                    child: Container(
-                                      decoration: BoxDecoration(
-                                        color: Colors.white.withValues(alpha: 0.03),
-                                        borderRadius: BorderRadius.circular(6.0),
-                                        border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
-                                        boxShadow: [
-                                          BoxShadow(
-                                            color: Colors.black.withValues(alpha: 0.3),
-                                            blurRadius: 4.0,
-                                            offset: const Offset(0, 2),
-                                          ),
-                                        ],
-                                      ),
-                                      child: ClipRRect(
-                                        borderRadius: BorderRadius.circular(5.0),
-                                        child: coverUrl.isNotEmpty
-                                            ? CachedNetworkImage(
-                                                imageUrl: coverUrl,
-                                                fit: BoxFit.cover,
-                                                memCacheWidth: 250,
-                                                fadeInDuration: const Duration(milliseconds: 150),
-                                                placeholder: (c, u) => Container(color: Colors.white10),
-                                                errorWidget: (c, u, e) => const Center(
-                                                  child: Icon(Icons.book, color: Colors.white24, size: 24.0),
-                                                ),
-                                              )
-                                            : const Center(
-                                                child: Icon(Icons.book, color: Colors.white24, size: 24.0),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(6.0),
+                                      border: Border.all(color: Colors.white10),
+                                    ),
+                                    child: ClipRRect(
+                                      borderRadius: BorderRadius.circular(5.0),
+                                      child: coverUrl.isNotEmpty
+                                          ? CachedNetworkImage(
+                                              imageUrl: coverUrl,
+                                              fit: BoxFit.cover,
+                                              width: double.infinity,
+                                              height: double.infinity,
+                                              memCacheWidth: isMobile ? 210 : 240,
+                                              placeholder: (_, __) => Container(color: Colors.white.withValues(alpha: 0.03)),
+                                              errorWidget: (_, __, ___) => const Center(
+                                                child: Icon(Icons.broken_image, color: Colors.white24, size: 24),
                                               ),
-                                      ),
+                                            )
+                                          : Container(
+                                              color: Colors.white.withValues(alpha: 0.03),
+                                              child: const Center(
+                                                child: Icon(Icons.book, color: Colors.white24, size: 24),
+                                              ),
+                                            ),
                                     ),
                                   ),
-                                  const SizedBox(height: 6.0),
-                                  Text(
-                                    title,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      color: Colors.white70,
-                                      fontSize: 11.5,
-                                      fontWeight: FontWeight.w600,
-                                      fontFamily: 'Outfit',
-                                    ),
+                                ),
+                                const SizedBox(height: 6.0),
+                                Text(
+                                  title,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 11.5,
+                                    fontWeight: FontWeight.w600,
+                                    height: 1.2,
+                                    fontFamily: 'Outfit',
                                   ),
-                                ],
-                              ),
+                                ),
+                              ],
                             ),
                           ),
                         );
@@ -452,8 +517,11 @@ class _MangaTrendingHomePageState extends State<MangaTrendingHomePage> {
     );
   }
 
-  // Build a single source section (Popular + Latest stacked)
-  Widget _buildRailwayRow(String sourceId, String sourceName, bool isMobile) {
+  // Build a single source section (Popular + Latest stacked conditionally)
+  Widget _buildRailwayRow(PinnedSourceConfig cfg, String sourceName, bool isMobile) {
+    final String sourceId = cfg.sourceId;
+    if (!cfg.showPopular && !cfg.showLatest) return const SizedBox.shrink();
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -474,7 +542,7 @@ class _MangaTrendingHomePageState extends State<MangaTrendingHomePage> {
               ),
               IconButton(
                 icon: const Icon(Icons.refresh, color: Colors.white38, size: 18.0),
-                onPressed: () => _loadSourceFeeds(sourceId),
+                onPressed: () => _loadSourceFeeds(cfg),
                 tooltip: 'Refresh feeds',
               ),
             ],
@@ -483,50 +551,55 @@ class _MangaTrendingHomePageState extends State<MangaTrendingHomePage> {
         const SizedBox(height: 4.0),
 
         // Popular subheader
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24.0),
-          child: Text(
-            'Popular',
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.5),
-              fontSize: 11.5,
-              fontWeight: FontWeight.w600,
-              fontFamily: 'Outfit',
+        if (cfg.showPopular) ...[
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24.0),
+            child: Text(
+              'Popular',
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.5),
+                fontSize: 11.5,
+                fontWeight: FontWeight.w600,
+                fontFamily: 'Outfit',
+              ),
             ),
           ),
-        ),
-        const SizedBox(height: 6.0),
-        _buildHorizontalMangaList(
-          sourceId: sourceId,
-          mangaList: _popularCache[sourceId] ?? [],
-          isLoading: _loadingPopularStatus[sourceId] ?? false,
-          error: _popularErrors[sourceId],
-          isMobile: isMobile,
-        ),
-        const SizedBox(height: 16.0),
+          const SizedBox(height: 6.0),
+          _buildHorizontalMangaList(
+            sourceId: sourceId,
+            mangaList: _popularCache[sourceId] ?? [],
+            isLoading: _loadingPopularStatus[sourceId] ?? false,
+            error: _popularErrors[sourceId],
+            isMobile: isMobile,
+          ),
+          const SizedBox(height: 16.0),
+        ],
 
         // Latest updates subheader
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24.0),
-          child: Text(
-            'New Updates',
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.5),
-              fontSize: 11.5,
-              fontWeight: FontWeight.w600,
-              fontFamily: 'Outfit',
+        if (cfg.showLatest) ...[
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24.0),
+            child: Text(
+              'New Updates',
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.5),
+                fontSize: 11.5,
+                fontWeight: FontWeight.w600,
+                fontFamily: 'Outfit',
+              ),
             ),
           ),
-        ),
-        const SizedBox(height: 6.0),
-        _buildHorizontalMangaList(
-          sourceId: sourceId,
-          mangaList: _latestCache[sourceId] ?? [],
-          isLoading: _loadingLatestStatus[sourceId] ?? false,
-          error: _latestErrors[sourceId],
-          isMobile: isMobile,
-        ),
-        const SizedBox(height: 28.0),
+          const SizedBox(height: 6.0),
+          _buildHorizontalMangaList(
+            sourceId: sourceId,
+            mangaList: _latestCache[sourceId] ?? [],
+            isLoading: _loadingLatestStatus[sourceId] ?? false,
+            error: _latestErrors[sourceId],
+            isMobile: isMobile,
+          ),
+          const SizedBox(height: 16.0),
+        ],
+        const SizedBox(height: 12.0),
       ],
     );
   }
@@ -626,7 +699,7 @@ class _MangaTrendingHomePageState extends State<MangaTrendingHomePage> {
                         ),
 
                         // ── Pinned Source Railways ───────────────────
-                        if (_pinnedSourceIds.isEmpty)
+                        if (_pinnedConfigs.isEmpty)
                           Center(
                             child: Padding(
                               padding: const EdgeInsets.all(32.0),
@@ -648,11 +721,12 @@ class _MangaTrendingHomePageState extends State<MangaTrendingHomePage> {
                                   const SizedBox(height: 24.0),
                                   ElevatedButton.icon(
                                     onPressed: _showManagePinsSheet,
-                                    icon: const Icon(Icons.add, size: 16.0),
+                                    icon: const Icon(Icons.add, color: Colors.black, size: 16.0),
                                     label: const Text('Pin Extensions', style: TextStyle(fontWeight: FontWeight.bold)),
                                     style: ElevatedButton.styleFrom(
                                       backgroundColor: Colors.white,
                                       foregroundColor: Colors.black,
+                                      iconColor: Colors.black,
                                       padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 12.0),
                                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
                                     ),
@@ -662,16 +736,16 @@ class _MangaTrendingHomePageState extends State<MangaTrendingHomePage> {
                             ),
                           )
                         else
-                          ..._pinnedSourceIds.map((sId) {
+                          ..._pinnedConfigs.map((cfg) {
                             Map<String, dynamic>? sourceMap;
                             for (final s in _allSources) {
-                              if (s['id']?.toString() == sId) {
+                              if (s['id']?.toString() == cfg.sourceId) {
                                 sourceMap = s as Map<String, dynamic>?;
                                 break;
                               }
                             }
                             final String sourceName = sourceMap?['name'] ?? 'Manga Source';
-                            return _buildRailwayRow(sId, sourceName, isMobile);
+                            return _buildRailwayRow(cfg, sourceName, isMobile);
                           }),
                       ],
                     ),
@@ -722,81 +796,153 @@ class _MangaTrendingHomePageState extends State<MangaTrendingHomePage> {
             padding: const EdgeInsets.symmetric(horizontal: 24.0),
             itemCount: readingItems.length,
             itemBuilder: (context, idx) {
-              final item = readingItems[idx];
-              final String mangaId = item.id.toString();
-              return Container(
-                width: isMobile ? 115.0 : 135.0,
-                margin: const EdgeInsets.only(right: 14.0),
-                child: GestureDetector(
-                  onTap: () => widget.navigationState.selectManga(mangaId),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: Stack(
-                          children: [
-                            Positioned.fill(
-                              child: Container(
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFF141417),
-                                  borderRadius: BorderRadius.circular(8.0),
-                                  border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
-                                ),
-                                child: const Center(
-                                  child: Icon(Icons.menu_book, color: Colors.white24, size: 36),
-                                ),
-                              ),
-                            ),
-                            Positioned(
-                              bottom: 6.0,
-                              right: 6.0,
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 6.0, vertical: 2.5),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFFF9F1C),
-                                  borderRadius: BorderRadius.circular(4.0),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.black.withValues(alpha: 0.5),
-                                      blurRadius: 4.0,
-                                    ),
-                                  ],
-                                ),
-                                child: Text(
-                                  'Ch. ${item.watchedEpisodes}',
-                                  style: const TextStyle(
-                                    color: Colors.black,
-                                    fontSize: 10.0,
-                                    fontWeight: FontWeight.bold,
-                                    fontFamily: 'Outfit',
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 6.0),
-                      Text(
-                        'Manga #${item.id}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 12.0,
-                          fontWeight: FontWeight.bold,
-                          fontFamily: 'Outfit',
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+              return _MangaPickWhereYouLeftCard(
+                item: readingItems[idx],
+                isMobile: isMobile,
+                navigationState: widget.navigationState,
               );
             },
           ),
         ),
         const SizedBox(height: 24.0),
       ],
+    );
+  }
+}
+
+class _MangaPickWhereYouLeftCard extends StatefulWidget {
+  final LibraryItem item;
+  final bool isMobile;
+  final NavigationState navigationState;
+
+  const _MangaPickWhereYouLeftCard({
+    required this.item,
+    required this.isMobile,
+    required this.navigationState,
+  });
+
+  @override
+  State<_MangaPickWhereYouLeftCard> createState() => _MangaPickWhereYouLeftCardState();
+}
+
+class _MangaPickWhereYouLeftCardState extends State<_MangaPickWhereYouLeftCard> {
+  Map<String, dynamic>? _details;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadDetails();
+  }
+
+  Future<void> _loadDetails() async {
+    try {
+      final res = await SuwayomiService().getMangaDetails(widget.item.id);
+      if (mounted && res != null) {
+        setState(() {
+          _details = res;
+        });
+      }
+    } catch (_) {}
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final String title = _details?['title']?.toString() ?? 'Manga #${widget.item.id}';
+    final String coverUrl = _details?['thumbnailUrl']?.toString() ?? _details?['coverUrl']?.toString() ?? '';
+    final String mangaId = widget.item.id.toString();
+
+    return Container(
+      width: widget.isMobile ? 115.0 : 135.0,
+      margin: const EdgeInsets.only(right: 14.0),
+      child: GestureDetector(
+        onTap: () => widget.navigationState.selectManga(mangaId),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Stack(
+                children: [
+                  Positioned.fill(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF141417),
+                        borderRadius: BorderRadius.circular(8.0),
+                        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.3),
+                            blurRadius: 6.0,
+                            offset: const Offset(0, 3),
+                          ),
+                        ],
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(7.0),
+                        child: coverUrl.isNotEmpty
+                            ? CachedNetworkImage(
+                                imageUrl: coverUrl,
+                                fit: BoxFit.cover,
+                                memCacheWidth: widget.isMobile ? 220 : 270,
+                                placeholder: (_, __) => Container(
+                                  color: const Color(0xFF141417),
+                                  child: const Center(
+                                    child: Icon(Icons.menu_book, color: Colors.white24, size: 36),
+                                  ),
+                                ),
+                                errorWidget: (_, __, ___) => const Center(
+                                  child: Icon(Icons.menu_book, color: Colors.white24, size: 36),
+                                ),
+                              )
+                            : const Center(
+                                child: Icon(Icons.menu_book, color: Colors.white24, size: 36),
+                              ),
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    bottom: 6.0,
+                    right: 6.0,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6.0, vertical: 2.5),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFF9F1C),
+                        borderRadius: BorderRadius.circular(4.0),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.6),
+                            blurRadius: 4.0,
+                          ),
+                        ],
+                      ),
+                      child: Text(
+                        'Ch. ${widget.item.watchedEpisodes}',
+                        style: const TextStyle(
+                          color: Colors.black,
+                          fontSize: 10.0,
+                          fontWeight: FontWeight.bold,
+                          fontFamily: 'Outfit',
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 6.0),
+            Text(
+              title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 12.0,
+                fontWeight: FontWeight.bold,
+                fontFamily: 'Outfit',
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
