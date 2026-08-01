@@ -36,6 +36,44 @@ CREATE TABLE notification_acks (
     start_value INT NOT NULL
 );
 
+-- Watch History Table (replaces watch_history_flat_records JSON blob)
+CREATE TABLE watch_history (
+    media_id TEXT NOT NULL,
+    is_anime INT NOT NULL, -- 0 or 1
+    is_manga INT NOT NULL, -- 0 or 1
+    title TEXT NOT NULL,
+    cover_image TEXT NOT NULL,
+    format TEXT NOT NULL,
+    average_score REAL NOT NULL DEFAULT 0.0,
+    total_episodes INT NOT NULL DEFAULT 0,
+    media_type_hint TEXT NOT NULL DEFAULT '',
+    episodes TEXT NOT NULL, -- JSON list of watched numbers e.g. [1, 2, 3]
+    timestamp INT NOT NULL, -- millisecondsSinceEpoch
+    PRIMARY KEY (media_id, is_manga)
+);
+CREATE INDEX idx_watch_history_timestamp ON watch_history(timestamp DESC);
+
+-- Continue Watching Metadata Table (replaces <prefix>continue_watching_metadata_* keys)
+CREATE TABLE continue_watching (
+    media_id TEXT NOT NULL PRIMARY KEY,
+    prefix TEXT NOT NULL, -- 'anime_' or 'movie_'
+    metadata_json TEXT NOT NULL,
+    last_episode INT NOT NULL,
+    timestamp INT NOT NULL
+);
+CREATE INDEX idx_continue_watching_timestamp ON continue_watching(timestamp DESC);
+
+-- Playback Positions Table (replaces <prefix>playback_pos_* and <prefix>playback_dur_*)
+CREATE TABLE playback_positions (
+    media_id TEXT NOT NULL,
+    episode INT NOT NULL,
+    prefix TEXT NOT NULL, -- 'anime_' or 'movie_'
+    position_ms INT NOT NULL,
+    duration_ms INT NOT NULL,
+    saved_at INT NOT NULL,
+    PRIMARY KEY (media_id, episode)
+);
+
 -- FTS5 virtual table for searching titles
 CREATE VIRTUAL TABLE library_fts USING fts5(
     media_id,

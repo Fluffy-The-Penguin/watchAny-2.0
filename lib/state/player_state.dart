@@ -17,6 +17,9 @@ import 'package:http/http.dart' as http;
 import '../services/hstream_service.dart';
 import '../services/log_service.dart';
 import '../services/torrserver_service.dart';
+import '../database/app_database.dart' as db;
+import '../database/history_migration.dart';
+import 'package:drift/drift.dart' as drift;
 
 class PlaybackProgress {
   final int position; // in milliseconds
@@ -29,6 +32,8 @@ class PlayerState extends ChangeNotifier {
   static final PlayerState _instance = PlayerState._internal();
   factory PlayerState() => _instance;
   PlayerState._internal();
+
+  final db.AppDatabase _db = db.AppDatabase();
 
   Player? _player;
   VideoController? _controller;
@@ -207,14 +212,14 @@ class PlayerState extends ChangeNotifier {
   }
 
   Future<void> loadProgressForAnime(dynamic id, List<int> episodeNumbers) async {
-    final prefs = await SharedPreferences.getInstance();
-    for (final epNum in episodeNumbers) {
-      final key = '${id}_$epNum';
-      final pos = prefs.getInt('playback_pos_$key');
-      final dur = prefs.getInt('playback_dur_$key');
-      if (pos != null && dur != null) {
-        _progressCache[key] = PlaybackProgress(position: pos, duration: dur);
-      }
+    await HistoryMigration.runIfNeeded(_db);
+    final mediaId = id.toString();
+    final query = _db.select(_db.playbackPositions)
+      ..where((tbl) => tbl.mediaId.equals(mediaId) & tbl.episode.isIn(episodeNumbers));
+    final rows = await query.get();
+    for (final row in rows) {
+      final key = '${mediaId}_${row.episode}';
+      _progressCache[key] = PlaybackProgress(position: row.positionMs, duration: row.durationMs);
     }
     notifyListeners();
   }
@@ -580,7 +585,7 @@ class PlayerState extends ChangeNotifier {
     }
   }
 
-  void _saveCurrentProgress() {
+  void _saveCurrentProgress() async {
     final isAnimeMode = _anilistId != null;
     final id = isAnimeMode ? _anilistId.toString() : _movieId;
     final ep = _episodeNumber ?? 1;
@@ -593,13 +598,32 @@ class PlayerState extends ChangeNotifier {
       _progressCache[key] = PlaybackProgress(position: pos, duration: dur);
       notifyListeners();
 
-      SharedPreferences.getInstance().then((prefs) {
-        final prefix = isAnimeMode ? 'anime_' : 'movie_';
-        prefs.setInt('${prefix}playback_pos_$key', pos);
-        prefs.setInt('${prefix}playback_dur_$key', dur);
-        prefs.setInt('${prefix}continue_watching_timestamp_$id', DateTime.now().millisecondsSinceEpoch);
-        prefs.setInt('${prefix}continue_watching_last_ep_$id', ep);
-      });
+      final prefix = isAnimeMode ? 'anime_' : 'movie_';
+      final now = DateTime.now().millisecondsSinceEpoch;
+
+      await _db.into(_db.playbackPositions).insertOnConflictUpdate(
+        db.PlaybackPositionsCompanion.insert(
+          mediaId: id,
+          episode: ep,
+          prefix: prefix,
+          positionMs: pos,
+          durationMs: dur,
+          savedAt: now,
+        ),
+      );
+
+      final existingCw = await (_db.select(_db.continueWatching)..where((tbl) => tbl.mediaId.equals(id))).getSingleOrNull();
+      if (existingCw != null) {
+        await _db.into(_db.continueWatching).insertOnConflictUpdate(
+          db.ContinueWatchingCompanion.insert(
+            mediaId: id,
+            prefix: prefix,
+            metadataJson: existingCw.metadataJson,
+            lastEpisode: ep,
+            timestamp: now,
+          ),
+        );
+      }
 
       if (isAnimeMode) {
         _checkCompletion(_anilistId!, ep, pos, dur);
@@ -609,7 +633,7 @@ class PlayerState extends ChangeNotifier {
     }
   }
 
-  void _saveMediaMetadata() {
+  void _saveMediaMetadata() async {
     final isAnimeMode = _anilistId != null;
     final id = isAnimeMode ? _anilistId.toString() : _movieId;
     if (id != null) {
@@ -638,123 +662,78 @@ class PlayerState extends ChangeNotifier {
           'type': (_isMovie == true) ? 'movie' : 'series',
         };
       }
-      SharedPreferences.getInstance().then((prefs) {
-        final prefix = isAnimeMode ? 'anime_' : 'movie_';
-        prefs.setString('${prefix}continue_watching_metadata_$id', jsonEncode(lightweightMedia));
-      });
+
+      final prefix = isAnimeMode ? 'anime_' : 'movie_';
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final ep = _episodeNumber ?? 1;
+
+      final existingCw = await (_db.select(_db.continueWatching)..where((tbl) => tbl.mediaId.equals(id))).getSingleOrNull();
+      final timestamp = existingCw?.timestamp ?? now;
+
+      await _db.into(_db.continueWatching).insertOnConflictUpdate(
+        db.ContinueWatchingCompanion.insert(
+          mediaId: id,
+          prefix: prefix,
+          metadataJson: jsonEncode(lightweightMedia),
+          lastEpisode: ep,
+          timestamp: timestamp,
+        ),
+      );
     }
   }
 
   static Future<List<dynamic>> getContinueWatchingList({bool? isAnime}) async {
-    final prefs = await SharedPreferences.getInstance();
-    final keys = prefs.getKeys();
-    
-    // Migrate legacy continue watching keys to new partitioned prefixes
-    for (final key in keys) {
-      if (key.startsWith('continue_watching_metadata_')) {
-        final id = key.replaceFirst('continue_watching_metadata_', '');
-        final isAnimeItem = int.tryParse(id) != null;
-        final prefix = isAnimeItem ? 'anime_' : 'movie_';
-        
-        final metadataJson = prefs.getString(key);
-        if (metadataJson != null) {
-          await prefs.setString('${prefix}continue_watching_metadata_$id', metadataJson);
-          await prefs.remove(key);
-        }
-        
-        final timestamp = prefs.getInt('continue_watching_timestamp_$id');
-        if (timestamp != null) {
-          await prefs.setInt('${prefix}continue_watching_timestamp_$id', timestamp);
-          await prefs.remove('continue_watching_timestamp_$id');
-        }
-        
-        final lastEp = prefs.getInt('continue_watching_last_ep_$id');
-        if (lastEp != null) {
-          await prefs.setInt('${prefix}continue_watching_last_ep_$id', lastEp);
-          await prefs.remove('continue_watching_last_ep_$id');
-        }
-        
-        // Migrate playback positions/durations
-        final playKeys = keys.where((k) => k.startsWith('playback_pos_${id}_') || k.startsWith('playback_dur_${id}_')).toList();
-        for (final pk in playKeys) {
-          final val = prefs.getInt(pk);
-          if (val != null) {
-            final newPk = pk.replaceFirst('playback_pos_', '${prefix}playback_pos_').replaceFirst('playback_dur_', '${prefix}playback_dur_');
-            await prefs.setInt(newPk, val);
-            await prefs.remove(pk);
-          }
-        }
-      }
-    }
-    
-    // Refresh keys after migration
-    final updatedKeys = prefs.getKeys();
+    final database = PlayerState()._db;
+    await HistoryMigration.runIfNeeded(database);
+
     final prefix = (isAnime == true) ? 'anime_' : 'movie_';
-    final metadataPrefix = '${prefix}continue_watching_metadata_';
     
-    final metadataKeys = updatedKeys.where((k) => k.startsWith(metadataPrefix)).toList();
+    final query = database.select(database.continueWatching)
+      ..where((tbl) => tbl.prefix.equals(prefix))
+      ..orderBy([(tbl) => drift.OrderingTerm.desc(tbl.timestamp)]);
+    
+    final cwRows = await query.get();
     final List<Map<String, dynamic>> items = [];
-    
-    for (final key in metadataKeys) {
-      final id = key.replaceFirst(metadataPrefix, '');
-      final timestamp = prefs.getInt('${prefix}continue_watching_timestamp_$id') ?? 0;
-      final lastEp = prefs.getInt('${prefix}continue_watching_last_ep_$id') ?? 1;
-      
-      final pos = prefs.getInt('${prefix}playback_pos_${id}_$lastEp');
-      final dur = prefs.getInt('${prefix}playback_dur_${id}_$lastEp');
-      
-      if (pos != null && dur != null) {
-        final ratio = pos / dur;
+
+    for (final cw in cwRows) {
+      final pbQuery = database.select(database.playbackPositions)
+        ..where((tbl) => tbl.mediaId.equals(cw.mediaId) & tbl.episode.equals(cw.lastEpisode));
+      final pb = await pbQuery.getSingleOrNull();
+
+      if (pb != null && pb.durationMs > 0) {
+        final ratio = pb.positionMs / pb.durationMs;
         if (ratio > 0.001 && ratio < 0.90) {
-          final metadataJson = prefs.getString(key);
-          if (metadataJson != null) {
-            try {
-              final mediaMap = jsonDecode(metadataJson) as Map<String, dynamic>;
-              items.add({
-                'media': mediaMap,
-                'timestamp': timestamp,
-              });
-            } catch (_) {}
-          }
+          try {
+            final mediaMap = jsonDecode(cw.metadataJson) as Map<String, dynamic>;
+            items.add({
+              'media': mediaMap,
+              'timestamp': cw.timestamp,
+            });
+          } catch (_) {}
         }
       }
     }
-    
+
     items.sort((a, b) => (b['timestamp'] as int).compareTo(a['timestamp'] as int));
     return items.map((item) => item['media']).toList();
   }
 
   static Future<void> removeFromContinueWatching(String id, {required bool isAnime}) async {
-    final prefs = await SharedPreferences.getInstance();
-    final prefix = isAnime ? 'anime_' : 'movie_';
-    
-    await prefs.remove('${prefix}continue_watching_metadata_$id');
-    await prefs.remove('${prefix}continue_watching_timestamp_$id');
-    await prefs.remove('${prefix}continue_watching_last_ep_$id');
-    
-    final keys = prefs.getKeys();
-    final posPrefix = '${prefix}playback_pos_${id}_';
-    final durPrefix = '${prefix}playback_dur_${id}_';
-    
-    for (final key in keys) {
-      if (key.startsWith(posPrefix) || key.startsWith(durPrefix)) {
-        await prefs.remove(key);
-      }
-    }
-    
+    final database = PlayerState()._db;
+    await (database.delete(database.continueWatching)..where((tbl) => tbl.mediaId.equals(id))).go();
+    await (database.delete(database.playbackPositions)..where((tbl) => tbl.mediaId.equals(id))).go();
     PlayerState().notifyListeners();
   }
 
   Future<void> _resumePlayback(String id, int episodeNumber) async {
-    final key = '${id}_$episodeNumber';
-    final prefs = await SharedPreferences.getInstance();
-    final prefix = (_anilistId != null) ? 'anime_' : 'movie_';
-    final pos = prefs.getInt('${prefix}playback_pos_$key');
-    final dur = prefs.getInt('${prefix}playback_dur_$key');
-    if (pos != null && dur != null) {
-      final ratio = pos / dur;
+    final query = _db.select(_db.playbackPositions)
+      ..where((tbl) => tbl.mediaId.equals(id) & tbl.episode.equals(episodeNumber));
+    final pb = await query.getSingleOrNull();
+
+    if (pb != null && pb.durationMs > 0) {
+      final ratio = pb.positionMs / pb.durationMs;
       if (ratio < 0.90) {
-        await _player?.seek(Duration(milliseconds: pos));
+        await _player?.seek(Duration(milliseconds: pb.positionMs));
       }
     }
   }
@@ -972,88 +951,75 @@ class PlayerState extends ChangeNotifier {
   }
 
   void _addToHistory(String id, int episodeNumber) async {
-    final prefs = await SharedPreferences.getInstance();
-    
-    // 1. Determine mode and metadata
-    var isAnime = true;
-    var metadataStr = prefs.getString('anime_continue_watching_metadata_$id');
-    if (metadataStr == null) {
-      metadataStr = prefs.getString('movie_continue_watching_metadata_$id');
-      isAnime = false;
-    }
-    if (metadataStr == null) return; // No metadata saved yet, skip adding to history
+    await HistoryMigration.runIfNeeded(_db);
+
+    final cwQuery = _db.select(_db.continueWatching)..where((tbl) => tbl.mediaId.equals(id));
+    final cw = await cwQuery.getSingleOrNull();
+    if (cw == null) return;
 
     Map<String, dynamic> metadata;
     try {
-      metadata = jsonDecode(metadataStr);
+      metadata = jsonDecode(cw.metadataJson);
     } catch (_) {
       return;
     }
 
-    // 2. Load existing flat records list
-    List<Map<String, dynamic>> records = [];
-    final String? flatRecordsStr = prefs.getString('watch_history_flat_records');
-    if (flatRecordsStr != null) {
-      try {
-        final List<dynamic> decodedList = jsonDecode(flatRecordsStr);
-        records = decodedList.map((e) => Map<String, dynamic>.from(e)).toList();
-      } catch (_) {}
-    } else {
-      // Migrate legacy history if present
-      records = await _migrateLegacyHistory(prefs);
-    }
-
-    // 3. Update or insert record
+    final isAnime = cw.prefix == 'anime_';
     final now = DateTime.now().millisecondsSinceEpoch;
-    
-    // Check if the most recent record (index 0) is the same show
-    if (records.isNotEmpty && records[0]['id'] == id && records[0]['isManga'] != true) {
-      // Continuous watch! Merge into existing most-recent record
-      final List<dynamic> epList = records[0]['episodes'] ?? [];
-      final List<int> eps = epList.map((e) => e as int).toList();
-      if (!eps.contains(episodeNumber)) {
-        eps.add(episodeNumber);
-        records[0]['episodes'] = eps;
-      }
-      records[0]['timestamp'] = now;
-    } else {
-      // Remove any existing duplicate record elsewhere in the list before inserting at the top
-      records.removeWhere((r) => r['id'] == id && r['isManga'] != true);
 
-      // Not continuous watch! Create a brand new history entry at the top
-      records.insert(0, {
-        'id': id,
-        'isAnime': isAnime,
-        'isManga': false,
-        'media': metadata,
-        'episodes': [episodeNumber],
-        'timestamp': now,
-      });
+    String titleStr = 'Unknown';
+    final rawTitle = metadata['title'];
+    if (rawTitle is String) {
+      titleStr = rawTitle;
+    } else if (rawTitle is Map) {
+      titleStr = rawTitle['userPreferred'] ?? rawTitle['english'] ?? rawTitle['romaji'] ?? rawTitle['native'] ?? 'Unknown';
     }
 
-    // Keep history at a reasonable limit (e.g. 200 items)
-    if (records.length > 200) {
-      records = records.sublist(0, 200);
+    String coverUrl = '';
+    final rawCover = metadata['coverImage'];
+    if (rawCover is String) {
+      coverUrl = rawCover;
+    } else if (rawCover is Map) {
+      coverUrl = rawCover['large'] ?? rawCover['medium'] ?? '';
     }
 
-    // 4. Save flat records
-    await prefs.setString('watch_history_flat_records', jsonEncode(records));
+    final existingQuery = _db.select(_db.watchHistory)..where((tbl) => tbl.mediaId.equals(id) & tbl.isManga.equals(0));
+    final existing = await existingQuery.getSingleOrNull();
 
-    // Also keep legacy keys updated for compatibility/resuming
-    final String legacyKey = 'watched_episodes_$id';
-    List<String> legacyList = prefs.getStringList(legacyKey) ?? [];
-    final String epStr = episodeNumber.toString();
-    if (!legacyList.contains(epStr)) {
-      legacyList.add(epStr);
-      await prefs.setStringList(legacyKey, legacyList);
+    List<int> eps = [];
+    if (existing != null) {
+      try {
+        final List<dynamic> decodedEps = jsonDecode(existing.episodes);
+        eps = decodedEps.map((e) => (e as num).toInt()).toList();
+      } catch (_) {}
     }
-    await prefs.setInt('history_last_watched_timestamp_$id', now);
+
+    if (!eps.contains(episodeNumber)) {
+      eps.add(episodeNumber);
+    }
+
+    await _db.into(_db.watchHistory).insertOnConflictUpdate(
+      db.WatchHistoryCompanion.insert(
+        mediaId: id,
+        isAnime: isAnime ? 1 : 0,
+        isManga: 0,
+        title: titleStr,
+        coverImage: coverUrl,
+        format: metadata['format']?.toString() ?? 'UNKNOWN',
+        averageScore: drift.Value((metadata['averageScore'] as num?)?.toDouble() ?? 0.0),
+        totalEpisodes: drift.Value((metadata['episodes'] as num?)?.toInt() ?? 0),
+        mediaTypeHint: drift.Value(metadata['type']?.toString() ?? ''),
+        episodes: jsonEncode(eps),
+        timestamp: now,
+      ),
+    );
   }
 
   static Future<void> addMangaToHistory(String mangaId, int chapterNumber, String mangaTitle) async {
+    final database = PlayerState()._db;
+    await HistoryMigration.runIfNeeded(database);
+
     final prefs = await SharedPreferences.getInstance();
-    
-    // Resolve cover image from cache or settings if we have it
     String coverUrl = '';
     try {
       final cacheJson = prefs.getString('manga_library_cache');
@@ -1065,125 +1031,81 @@ class PlayerState extends ChangeNotifier {
       }
     } catch (_) {}
 
-    // Load existing flat records
-    List<Map<String, dynamic>> records = [];
-    final String? flatRecordsStr = prefs.getString('watch_history_flat_records');
-    if (flatRecordsStr != null) {
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    final existingQuery = database.select(database.watchHistory)..where((tbl) => tbl.mediaId.equals(mangaId) & tbl.isManga.equals(1));
+    final existing = await existingQuery.getSingleOrNull();
+
+    List<int> chapters = [];
+    if (existing != null) {
       try {
-        final List<dynamic> decodedList = jsonDecode(flatRecordsStr);
-        records = decodedList.map((e) => Map<String, dynamic>.from(e)).toList();
+        final List<dynamic> decodedCh = jsonDecode(existing.episodes);
+        chapters = decodedCh.map((e) => (e as num).toInt()).toList();
       } catch (_) {}
     }
 
-    final now = DateTime.now().millisecondsSinceEpoch;
-
-    // Check if the most recent record (index 0) is the same manga
-    if (records.isNotEmpty && records[0]['id'] == mangaId && records[0]['isManga'] == true) {
-      final List<dynamic> chList = records[0]['episodes'] ?? [];
-      final List<int> chapters = chList.map((e) => e as int).toList();
-      if (!chapters.contains(chapterNumber)) {
-        chapters.add(chapterNumber);
-        records[0]['episodes'] = chapters;
-      }
-      records[0]['timestamp'] = now;
-    } else {
-      // Remove any existing duplicate history item for this manga
-      records.removeWhere((r) => r['id'] == mangaId && r['isManga'] == true);
-      
-      records.insert(0, {
-        'id': mangaId,
-        'isAnime': false,
-        'isManga': true,
-        'media': {
-          'id': mangaId,
-          'title': mangaTitle,
-          'coverImage': coverUrl,
-          'format': 'MANGA',
-        },
-        'episodes': [chapterNumber],
-        'timestamp': now,
-      });
+    if (!chapters.contains(chapterNumber)) {
+      chapters.add(chapterNumber);
     }
 
-    if (records.length > 200) {
-      records = records.sublist(0, 200);
-    }
-
-    await prefs.setString('watch_history_flat_records', jsonEncode(records));
-  }
-
-  static Future<List<Map<String, dynamic>>> _migrateLegacyHistory(SharedPreferences prefs) async {
-    final List<Map<String, dynamic>> records = [];
-    final keys = prefs.getKeys();
-    for (var key in keys) {
-      if (key.startsWith('watched_episodes_')) {
-        final id = key.replaceFirst('watched_episodes_', '');
-        var isAnime = true;
-        var metadataStr = prefs.getString('anime_continue_watching_metadata_$id');
-        if (metadataStr == null) {
-          metadataStr = prefs.getString('movie_continue_watching_metadata_$id');
-          isAnime = false;
-        }
-        if (metadataStr == null) continue;
-        
-        try {
-          final metadata = jsonDecode(metadataStr);
-          final timestamp = prefs.getInt('history_last_watched_timestamp_$id') ?? 0;
-          final List<String> epStrs = prefs.getStringList(key) ?? [];
-          final List<int> eps = epStrs.map((e) => int.tryParse(e) ?? 0).toList();
-          
-          records.add({
-            'id': id,
-            'isAnime': isAnime,
-            'media': metadata,
-            'episodes': eps,
-            'timestamp': timestamp,
-          });
-        } catch (_) {}
-      }
-    }
-    records.sort((a, b) => b['timestamp'].compareTo(a['timestamp']));
-    return records;
+    await database.into(database.watchHistory).insertOnConflictUpdate(
+      db.WatchHistoryCompanion.insert(
+        mediaId: mangaId,
+        isAnime: 0,
+        isManga: 1,
+        title: mangaTitle,
+        coverImage: coverUrl,
+        format: 'MANGA',
+        averageScore: const drift.Value(0.0),
+        totalEpisodes: const drift.Value(0),
+        mediaTypeHint: const drift.Value(''),
+        episodes: jsonEncode(chapters),
+        timestamp: now,
+      ),
+    );
   }
 
   static Future<List<Map<String, dynamic>>> getHistoryList() async {
-    final prefs = await SharedPreferences.getInstance();
-    final String? flatRecordsStr = prefs.getString('watch_history_flat_records');
-    
-    if (flatRecordsStr != null) {
+    final database = PlayerState()._db;
+    await HistoryMigration.runIfNeeded(database);
+
+    final query = database.select(database.watchHistory)
+      ..orderBy([(tbl) => drift.OrderingTerm.desc(tbl.timestamp)]);
+
+    final rows = await query.get();
+    final List<Map<String, dynamic>> records = [];
+
+    for (final row in rows) {
+      List<int> eps = [];
       try {
-        final List<dynamic> decodedList = jsonDecode(flatRecordsStr);
-        final List<Map<String, dynamic>> records = [];
-        for (var item in decodedList) {
-          final map = Map<String, dynamic>.from(item);
-          if (map['episodes'] != null) {
-            final List<dynamic> epsDecoded = map['episodes'];
-            map['episodes'] = epsDecoded.map((e) => e as int).toList();
-          } else {
-            map['episodes'] = <int>[];
-          }
-          records.add(map);
-        }
-        return records;
+        final List<dynamic> decodedEps = jsonDecode(row.episodes);
+        eps = decodedEps.map((e) => (e as num).toInt()).toList();
       } catch (_) {}
+
+      records.add({
+        'id': row.mediaId,
+        'isAnime': row.isAnime == 1,
+        'isManga': row.isManga == 1,
+        'media': {
+          'id': row.mediaId,
+          'title': row.title,
+          'coverImage': row.coverImage,
+          'format': row.format,
+          'averageScore': row.averageScore,
+          'episodes': row.totalEpisodes > 0 ? row.totalEpisodes : null,
+          'isAnime': row.isAnime == 1,
+          'type': row.mediaTypeHint,
+        },
+        'episodes': eps,
+        'timestamp': row.timestamp,
+      });
     }
 
-    // Migration / Fallback if flat records do not exist yet
-    final migrated = await _migrateLegacyHistory(prefs);
-    if (migrated.isNotEmpty) {
-      await prefs.setString('watch_history_flat_records', jsonEncode(migrated));
-    }
-    return migrated;
+    return records;
   }
 
   static Future<void> clearHistory() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('watch_history_flat_records');
-    final keys = prefs.getKeys();
-    for (var key in keys) {
-      if (key.startsWith('watched_episodes_') || key.startsWith('history_last_watched_timestamp_')) {
-        await prefs.remove(key);
-      }
-    }
+    final database = PlayerState()._db;
+    await database.delete(database.watchHistory).go();
   }
 }
