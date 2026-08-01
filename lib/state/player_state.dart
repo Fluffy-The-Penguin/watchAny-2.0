@@ -18,7 +18,6 @@ import '../services/hstream_service.dart';
 import '../services/log_service.dart';
 import '../services/torrserver_service.dart';
 import '../database/app_database.dart' as db;
-import '../database/history_migration.dart';
 import 'package:drift/drift.dart' as drift;
 
 class PlaybackProgress {
@@ -212,7 +211,6 @@ class PlayerState extends ChangeNotifier {
   }
 
   Future<void> loadProgressForAnime(dynamic id, List<int> episodeNumbers) async {
-    await HistoryMigration.runIfNeeded(_db);
     final mediaId = id.toString();
     final query = _db.select(_db.playbackPositions)
       ..where((tbl) => tbl.mediaId.equals(mediaId) & tbl.episode.isIn(episodeNumbers));
@@ -684,7 +682,6 @@ class PlayerState extends ChangeNotifier {
 
   static Future<List<dynamic>> getContinueWatchingList({bool? isAnime}) async {
     final database = PlayerState()._db;
-    await HistoryMigration.runIfNeeded(database);
 
     final prefix = (isAnime == true) ? 'anime_' : 'movie_';
     
@@ -951,8 +948,6 @@ class PlayerState extends ChangeNotifier {
   }
 
   void _addToHistory(String id, int episodeNumber) async {
-    await HistoryMigration.runIfNeeded(_db);
-
     final cwQuery = _db.select(_db.continueWatching)..where((tbl) => tbl.mediaId.equals(id));
     final cw = await cwQuery.getSingleOrNull();
     if (cw == null) return;
@@ -1017,7 +1012,6 @@ class PlayerState extends ChangeNotifier {
 
   static Future<void> addMangaToHistory(String mangaId, int chapterNumber, String mangaTitle) async {
     final database = PlayerState()._db;
-    await HistoryMigration.runIfNeeded(database);
 
     final prefs = await SharedPreferences.getInstance();
     String coverUrl = '';
@@ -1067,7 +1061,6 @@ class PlayerState extends ChangeNotifier {
 
   static Future<List<Map<String, dynamic>>> getHistoryList() async {
     final database = PlayerState()._db;
-    await HistoryMigration.runIfNeeded(database);
 
     final query = database.select(database.watchHistory)
       ..orderBy([(tbl) => drift.OrderingTerm.desc(tbl.timestamp)]);

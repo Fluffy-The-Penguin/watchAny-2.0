@@ -1294,23 +1294,7 @@ class _MangaChaptersSectionState extends State<_MangaChaptersSection> {
     final List<String> downloadedChapterIds = libraryState.getDownloadedChapterIds(widget.mangaId);
     final downloadService = MangaDownloadService();
 
-    // Auto-migration check: If they have sequential progress but empty read chapter list
-    if (widget.inLibrary && widget.libraryItem != null && widget.libraryItem!.watchedEpisodes > 0 && readChapterIds.isEmpty) {
-      WidgetsBinding.instance.addPostFrameCallback((_) async {
-        final list = widget.chapters.reversed.toList();
-        final int episodes = widget.libraryItem!.watchedEpisodes;
-        final chaptersToMark = list.take(episodes > list.length ? list.length : episodes);
-        for (var ch in chaptersToMark) {
-          final id = ch['id']?.toString() ?? '';
-          if (id.isNotEmpty) {
-            await libraryState.setChapterReadStatus(widget.mangaId, id, true);
-          }
-        }
-        if (mounted) {
-          setState(() {}); // trigger rebuild after migration
-        }
-      });
-    }
+
 
     var displayChapters = _isChaptersReversed ? widget.chapters.reversed.toList() : widget.chapters;
 
