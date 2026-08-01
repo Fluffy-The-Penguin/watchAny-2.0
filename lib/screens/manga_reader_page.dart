@@ -52,6 +52,9 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
   // Actual pixel heights reported by each rendered webtoon page widget.
   // Used by _onScroll for ground-truth page detection without any estimation.
   final List<double?> _pageRenderedHeights = [];
+  // Debounce timer — all disk I/O (SharedPrefs, SQLite) is batched and only
+  // written 500 ms after the user stops changing pages, preventing frame drops.
+  Timer? _saveDebounce;
   
   late PageController _pageController;
   late ScrollController _scrollController;
@@ -113,8 +116,9 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
     _pageController.dispose();
     _scrollController.dispose();
     _webtoonHorizontalScrollController.dispose();
-    _webtoonScaleController.dispose();
     _webtoonTransformationController.dispose();
+    _webtoonScaleController.dispose();
+    _saveDebounce?.cancel();
     super.dispose();
   }
 
@@ -188,9 +192,34 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
 
   SharedPreferences? _prefs;
 
-  void _saveCurrentPage(int index) async {
+  /// Debounced save: batches SharedPrefs + SQLite writes into a single
+  /// operation that fires 500 ms after the last page change. This prevents
+  /// disk I/O on every scroll frame from blocking the UI thread.
+  void _scheduleSave(int index, {bool isLastPage = false}) {
+    _saveDebounce?.cancel();
+    _saveDebounce = Timer(const Duration(milliseconds: 500), () {
+      _flushSave(index, isLastPage: isLastPage);
+    });
+  }
+
+  Future<void> _flushSave(int index, {bool isLastPage = false}) async {
+    // 1. Save current page position
     _prefs ??= await SharedPreferences.getInstance();
     await _prefs?.setInt('manga_chapter_page_$_currentChapterId', index);
+
+    // 2. Add to history (only once per chapter open, or when chapter changes)
+    PlayerState.addMangaToHistory(widget.mangaId, _currentChapterNumber, widget.mangaTitle);
+
+    // 3. Mark chapter read only on last page
+    if (isLastPage) {
+      final int parsedMangaId = int.tryParse(widget.mangaId) ?? 0;
+      if (parsedMangaId != 0) {
+        final library = LibraryState();
+        if (library.getItem(parsedMangaId, 'manga') != null) {
+          library.setChapterReadStatus(parsedMangaId, _currentChapterId, true);
+        }
+      }
+    }
   }
 
   void _updatePageIndex(int index, {bool jump = false}) {
@@ -202,12 +231,9 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
     });
     
     _pageLoader?.setPriorityIndex(index);
-    _saveCurrentPage(index);
 
-    // Auto-mark chapter as completed when reaching the last page of the chapter
-    if (index >= _pageUrls.length - 1 && _pageUrls.isNotEmpty) {
-      _updateLibraryProgress();
-    }
+    final bool isLastPage = index >= _pageUrls.length - 1 && _pageUrls.isNotEmpty;
+    _scheduleSave(index, isLastPage: isLastPage);
 
     if (jump && _readingFormat != 'webtoon' && _pageController.hasClients) {
       if (_readingFormat == 'paging_double') {
