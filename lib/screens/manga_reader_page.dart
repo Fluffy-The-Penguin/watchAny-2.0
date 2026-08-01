@@ -49,6 +49,9 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
   String _colorFilterMode = 'none'; // 'none', 'grayscale', 'sepia', 'warm', 'inverted', 'boost'
   int _currentPageIndex = 0;
   MangaPageLoader? _pageLoader;
+  // Actual pixel heights reported by each rendered webtoon page widget.
+  // Used by _onScroll for ground-truth page detection without any estimation.
+  final List<double?> _pageRenderedHeights = [];
   
   late PageController _pageController;
   late ScrollController _scrollController;
@@ -136,59 +139,50 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
   double _lastScrollOffset = 0.0;
   void _onScroll() {
     if (_readingFormat != 'webtoon') return;
-    if (_scrollController.hasClients && _pageUrls.isNotEmpty) {
-      final double offset = _scrollController.offset;
+    if (!_scrollController.hasClients || _pageUrls.isEmpty) return;
 
-      // Auto-hide top banner/overlay when scrolling down, show at top (offset <= 0)
-      if (offset > 50.0 && _showOverlay && offset > _lastScrollOffset + 10.0) {
-        setState(() => _showOverlay = false);
-      } else if (offset <= 0.0 && !_showOverlay) {
-        setState(() => _showOverlay = true);
-      }
-      _lastScrollOffset = offset;
+    final double offset = _scrollController.offset;
 
-      final double width = MediaQuery.of(context).size.width.clamp(0.0, 800.0);
-      final double defaultAspect = _getAverageWebtoonAspectRatio();
-      
-      double cumulativeHeight = 40.0; // matching top padding
-      int estimatedIndex = 0;
-      
-      for (int i = 0; i < _pageUrls.length; i++) {
+    // Auto-hide overlay on scroll down, show at top
+    if (offset > 50.0 && _showOverlay && offset > _lastScrollOffset + 10.0) {
+      setState(() => _showOverlay = false);
+    } else if (offset <= 0.0 && !_showOverlay) {
+      setState(() => _showOverlay = true);
+    }
+    _lastScrollOffset = offset;
+
+    // Use real rendered heights when available; fall back to estimated for unrendered pages.
+    // This ensures the page counter never jumps when images load and change total height.
+    final double width = MediaQuery.of(context).size.width.clamp(0.0, 800.0);
+    final double defaultAspect = _getAverageWebtoonAspectRatio();
+
+    double cumulativeHeight = 40.0; // top ListView padding
+    int visibleIndex = _pageUrls.length - 1;
+
+    for (int i = 0; i < _pageUrls.length; i++) {
+      // Prefer the actual measured height from the widget; fall back to aspect-ratio estimate
+      final double pageHeight;
+      final double? rendered = i < _pageRenderedHeights.length ? _pageRenderedHeights[i] : null;
+      if (rendered != null && rendered > 0) {
+        pageHeight = rendered;
+      } else {
         final dims = _pageLoader?.pageDimensions[i];
         final double aspectRatio = (dims != null && dims.height > 0)
             ? (dims.width / dims.height)
             : defaultAspect;
-        final double pageHeight = width / aspectRatio;
-        
-        if (offset < cumulativeHeight + pageHeight * 0.5) {
-          estimatedIndex = i;
-          break;
-        }
-        cumulativeHeight += pageHeight;
-        estimatedIndex = i;
+        pageHeight = width / aspectRatio;
       }
-      
-      int maxLoadedIndex = 0;
-      for (int i = 0; i < _pageUrls.length; i++) {
-        if (_pageLoader?.localPaths[i] != null || (_pageLoader?.pageDimensions[i] != null && _pageLoader!.pageDimensions[i]!.height > 0)) {
-          maxLoadedIndex = i;
-        }
+
+      // The page whose top half contains the viewport center is the current page
+      if (offset < cumulativeHeight + pageHeight * 0.5) {
+        visibleIndex = i;
+        break;
       }
-      
-      final int loadedCount = _pageLoader?.pageDimensions.where((d) => d != null && d.height > 0).length ?? 0;
-      if (loadedCount < _pageUrls.length) {
-        final int maxAllowed = (maxLoadedIndex + 1).clamp(0, _pageUrls.length - 1);
-        if (estimatedIndex > maxAllowed) {
-          estimatedIndex = maxAllowed;
-        }
-      } else if (_scrollController.position.hasContentDimensions && 
-          _scrollController.offset >= _scrollController.position.maxScrollExtent - 50.0) {
-        estimatedIndex = _pageUrls.length - 1;
-      }
-      
-      if (estimatedIndex != _currentPageIndex) {
-        _updatePageIndex(estimatedIndex);
-      }
+      cumulativeHeight += pageHeight;
+    }
+
+    if (visibleIndex != _currentPageIndex) {
+      _updatePageIndex(visibleIndex);
     }
   }
 
@@ -297,6 +291,9 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
       if (mounted) {
         setState(() {
           _pageUrls = urls;
+          _pageRenderedHeights
+            ..clear()
+            ..addAll(List.filled(urls.length, null));
           _isLoading = false;
           _currentPageIndex = savedPage < urls.length ? savedPage : 0;
           
@@ -1192,11 +1189,21 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
           cacheExtent: 1200.0,
           itemBuilder: (context, index) {
             _pageLoader?.setPriorityIndex(index);
-            return Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 800.0),
-                child: _buildColorFilteredWidget(
-                  _buildPageImage(index, isWebtoon: true),
+            return _WebtoonPageHeightReporter(
+              index: index,
+              onHeightChanged: (h) {
+                if (index < _pageRenderedHeights.length && _pageRenderedHeights[index] != h) {
+                  _pageRenderedHeights[index] = h;
+                  // Re-run scroll logic with the now-accurate height
+                  _onScroll();
+                }
+              },
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 800.0),
+                  child: _buildColorFilteredWidget(
+                    _buildPageImage(index, isWebtoon: true),
+                  ),
                 ),
               ),
             );
@@ -2089,6 +2096,72 @@ class _WebtoonImageWithSizeState extends State<_WebtoonImageWithSize> {
       filterQuality: FilterQuality.medium,
       cacheWidth: (widget.maxWidth * 2.0).toInt().clamp(800, 2048),
       errorBuilder: widget.errorBuilder,
+    );
+  }
+}
+
+/// Wraps a single webtoon page item and reports its actual rendered pixel height
+/// to the parent via [onHeightChanged] every time the widget's size changes.
+/// This is the ground truth used by [_onScroll] for accurate page indicator tracking.
+class _WebtoonPageHeightReporter extends StatefulWidget {
+  final int index;
+  final Widget child;
+  final ValueChanged<double> onHeightChanged;
+
+  const _WebtoonPageHeightReporter({
+    required this.index,
+    required this.child,
+    required this.onHeightChanged,
+  });
+
+  @override
+  State<_WebtoonPageHeightReporter> createState() => _WebtoonPageHeightReporterState();
+}
+
+class _WebtoonPageHeightReporterState extends State<_WebtoonPageHeightReporter> {
+  final GlobalKey _key = GlobalKey();
+  double? _lastHeight;
+
+  void _reportHeight() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final box = _key.currentContext?.findRenderObject() as RenderBox?;
+      if (box != null && box.hasSize) {
+        final h = box.size.height;
+        if (h > 0 && h != _lastHeight) {
+          _lastHeight = h;
+          widget.onHeightChanged(h);
+        }
+      }
+    });
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _reportHeight();
+  }
+
+  @override
+  void didUpdateWidget(_WebtoonPageHeightReporter oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _reportHeight();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // NotificationListener catches size changes from children (e.g. image load)
+    return NotificationListener<SizeChangedLayoutNotification>(
+      onNotification: (_) {
+        _reportHeight();
+        return false;
+      },
+      child: SizeChangedLayoutNotifier(
+        child: KeyedSubtree(
+          key: _key,
+          child: widget.child,
+        ),
+      ),
     );
   }
 }
