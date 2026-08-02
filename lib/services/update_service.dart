@@ -79,7 +79,7 @@ class UpdateService extends ChangeNotifier {
   factory UpdateService() => _instance;
   UpdateService._internal();
 
-  static const String currentVersion = '2.1.80';
+  static const String currentVersion = '2.1.81';
   
   // GitHub Releases API Endpoint
   static const String gitHubReleasesUrl = 'https://api.github.com/repos/Fluffy-The-Penguin/watchAny-2.0/releases/latest';
@@ -104,6 +104,7 @@ class UpdateService extends ChangeNotifier {
 
   bool get isUpdateReady {
     if (_downloadedFilePath == null || _downloadedVersion == null) return false;
+    if (_compareVersions(_normalizeVersion(_downloadedVersion!), _normalizeVersion(currentVersion)) <= 0) return false;
     if (_latestUpdate != null && _normalizeVersion(_downloadedVersion!) != _normalizeVersion(_latestUpdate!.version)) return false;
     final file = File(_downloadedFilePath!);
     return file.existsSync() && file.lengthSync() > 0;
@@ -145,6 +146,11 @@ class UpdateService extends ChangeNotifier {
       final version = prefs.getString('downloaded_update_version');
 
       if (path != null && version != null) {
+        if (_compareVersions(_normalizeVersion(version), _normalizeVersion(currentVersion)) <= 0) {
+          await clearCachedUpdateFile();
+          return;
+        }
+
         final file = File(path);
         if (await file.exists() && await file.length() > 0) {
           _downloadedFilePath = path;
