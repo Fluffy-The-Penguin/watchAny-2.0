@@ -94,8 +94,12 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
       });
 
     _loadSettings().then((_) {
-      _loadPages();
-      _updateLibraryProgress();
+      Future.delayed(const Duration(milliseconds: 250), () {
+        if (mounted) {
+          _loadPages();
+          _updateLibraryProgress();
+        }
+      });
     });
   }
 
@@ -147,13 +151,17 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
 
     final double offset = _scrollController.offset;
 
-    // Auto-hide overlay on scroll down, show at top
+    // Auto-hide overlay on scroll down
     if (offset > 50.0 && _showOverlay && offset > _lastScrollOffset + 10.0) {
       setState(() => _showOverlay = false);
-    } else if (offset <= 0.0 && !_showOverlay) {
-      setState(() => _showOverlay = true);
     }
     _lastScrollOffset = offset;
+
+    // Auto-mark read if user scrolled past 85% of Webtoon content
+    final double maxScroll = _scrollController.position.maxScrollExtent;
+    if (maxScroll > 0 && offset >= maxScroll * 0.85) {
+      _flushSave(_currentPageIndex, isLastPage: true);
+    }
 
     // Use real rendered heights when available; fall back to estimated for unrendered pages.
     // This ensures the page counter never jumps when images load and change total height.
@@ -210,14 +218,11 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
     // 2. Add to history (only once per chapter open, or when chapter changes)
     PlayerState.addMangaToHistory(widget.mangaId, _currentChapterNumber, widget.mangaTitle);
 
-    // 3. Mark chapter read only on last page
+    // 3. Mark chapter read on last page / 85%+ completion
     if (isLastPage) {
       final int parsedMangaId = int.tryParse(widget.mangaId) ?? 0;
       if (parsedMangaId != 0) {
-        final library = LibraryState();
-        if (library.getItem(parsedMangaId, 'manga') != null) {
-          library.setChapterReadStatus(parsedMangaId, _currentChapterId, true);
-        }
+        LibraryState().setChapterReadStatus(parsedMangaId, _currentChapterId, true);
       }
     }
   }
@@ -312,7 +317,10 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
       }
 
       final prefs = await SharedPreferences.getInstance();
-      final savedPage = prefs.getInt('manga_chapter_page_$_currentChapterId') ?? 0;
+      int savedPage = prefs.getInt('manga_chapter_page_$_currentChapterId') ?? 0;
+      if (savedPage >= urls.length - 1) {
+        savedPage = 0;
+      }
 
       if (mounted) {
         setState(() {
@@ -340,9 +348,7 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
             chapterId: parsedId,
             urls: urls,
             onPageDownloaded: (index) {
-              if (mounted) {
-                setState(() {});
-              }
+              // No full-screen setState here to prevent overlay flickering/showing
             },
           );
         });
@@ -350,9 +356,11 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
         // Jump or scroll to the saved page on startup (only for webtoon)
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (!mounted) return;
-          if (_readingFormat == 'webtoon') {
-            if (_scrollController.hasClients && _currentPageIndex > 0) {
+          if (_readingFormat == 'webtoon' && _scrollController.hasClients) {
+            if (_currentPageIndex > 0) {
               _scrollToSavedPageWebtoon();
+            } else {
+              _scrollController.jumpTo(0.0);
             }
           }
         });
@@ -1211,16 +1219,23 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
           controller: _scrollController,
           physics: const ClampingScrollPhysics(),
           padding: const EdgeInsets.symmetric(vertical: 40.0),
-          itemCount: _pageUrls.length,
+          itemCount: _pageUrls.length + 1,
           cacheExtent: 1200.0,
           itemBuilder: (context, index) {
+            if (index == _pageUrls.length) {
+              return Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 800.0),
+                  child: _buildEndOfChapterCard(),
+                ),
+              );
+            }
             _pageLoader?.setPriorityIndex(index);
             return _WebtoonPageHeightReporter(
               index: index,
               onHeightChanged: (h) {
                 if (index < _pageRenderedHeights.length && _pageRenderedHeights[index] != h) {
                   _pageRenderedHeights[index] = h;
-                  // Re-run scroll logic with the now-accurate height
                   _onScroll();
                 }
               },
@@ -1349,9 +1364,76 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
             ),
           );
         },
-
       );
     }
+  }
+
+  Widget _buildEndOfChapterCard() {
+    final int currentIdx = widget.chapters.indexWhere((c) => c['id']?.toString() == _currentChapterId);
+    final bool hasNext = currentIdx != -1 && currentIdx > 0;
+    final nextChap = hasNext ? widget.chapters[currentIdx - 1] : null;
+
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 32.0),
+      padding: const EdgeInsets.all(24.0),
+      decoration: BoxDecoration(
+        color: const Color(0xFF141418),
+        borderRadius: BorderRadius.circular(16.0),
+        border: Border.all(color: Colors.white12, width: 1.0),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.5),
+            blurRadius: 16.0,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.check_circle_rounded, color: Color(0xFFFF9F1C), size: 36.0),
+          const SizedBox(height: 10.0),
+          Text(
+            'Completed Chapter $_currentChapterNumber',
+            style: const TextStyle(color: Colors.white, fontSize: 16.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+          ),
+          const SizedBox(height: 4.0),
+          Text(
+            widget.mangaTitle,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: Colors.white54, fontSize: 13.0, fontFamily: 'Outfit'),
+          ),
+          const SizedBox(height: 20.0),
+          if (hasNext && nextChap != null) ...[
+            ElevatedButton.icon(
+              onPressed: _navigateToNextChapter,
+              icon: const Icon(Icons.arrow_forward_rounded, size: 18.0),
+              label: Text('Next Chapter (${nextChap['chapterNumber'] ?? currentIdx})'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFFF9F1C),
+                foregroundColor: Colors.black,
+                minimumSize: const Size.fromHeight(46.0),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.0)),
+                textStyle: const TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 14.0),
+              ),
+            ),
+          ] else ...[
+            Container(
+              padding: const EdgeInsets.all(12.0),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.05),
+                borderRadius: BorderRadius.circular(10.0),
+              ),
+              child: const Text(
+                'You have reached the latest chapter!',
+                style: TextStyle(color: Colors.white70, fontSize: 13.0, fontFamily: 'Outfit'),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
   }
 
   Widget _buildTopOverlay() {
@@ -1444,8 +1526,8 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Slider navigation (only in paging mode)
-          if (_readingFormat != 'webtoon' && _pageUrls.isNotEmpty) ...[
+          // Slider navigation
+          if (_pageUrls.isNotEmpty) ...[
             Row(
               children: [
                 Text(

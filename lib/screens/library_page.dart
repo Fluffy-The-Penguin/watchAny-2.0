@@ -2604,8 +2604,8 @@ class _LibraryMediaCardState extends State<_LibraryMediaCard> {
                         ),
                       ],
 
-                      // Overlay Format badge
-                      if (format.isNotEmpty)
+                      // Overlay Format badge (hidden for MANGA)
+                      if (format.isNotEmpty && format != 'MANGA')
                         Positioned(
                           top: 8.0,
                           left: 8.0,
@@ -2646,7 +2646,7 @@ class _LibraryMediaCardState extends State<_LibraryMediaCard> {
                               ],
                             ),
                             child: Text(
-                              '+$unreadCount',
+                              '$unreadCount',
                               style: const TextStyle(
                                 color: Colors.black,
                                 fontSize: 10.0,

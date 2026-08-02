@@ -1414,6 +1414,70 @@ class LibraryState extends ChangeNotifier {
 
     notifyListeners();
   }
+
+  Future<void> setBatchChapterReadStatus(int mangaId, List<String> chapterIds, bool read) async {
+    if (chapterIds.isEmpty) return;
+    final cache = _mangaCache[mangaId] ?? {};
+    final list = Set<String>.from(cache['readChapterIds'] ?? []);
+    if (read) {
+      list.addAll(chapterIds);
+    } else {
+      list.removeAll(chapterIds);
+    }
+    final readList = list.toList();
+    cache['readChapterIds'] = readList;
+
+    final item = getItem(mangaId, 'manga');
+    if (item != null) {
+      _items = _items.map((i) {
+        if (i.id == mangaId && i.mode == 'manga') {
+          return LibraryItem(
+            id: i.id,
+            mode: i.mode,
+            format: i.format,
+            addedAt: i.addedAt,
+            libraryStatus: i.libraryStatus,
+            rating: i.rating,
+            watchedEpisodes: readList.length,
+            totalEpisodes: i.totalEpisodes,
+            categoryIds: i.categoryIds,
+          );
+        }
+        return i;
+      }).toList();
+
+      final updatedItem = getItem(mangaId, 'manga');
+      if (updatedItem != null) {
+        await _db.into(_db.libraryItems).insertOnConflictUpdate(
+          db.LibraryItemsCompanion.insert(
+            id: updatedItem.id,
+            mode: updatedItem.mode,
+            format: updatedItem.format,
+            libraryStatus: updatedItem.libraryStatus,
+            rating: updatedItem.rating,
+            watchedEpisodes: updatedItem.watchedEpisodes,
+            totalEpisodes: drift.Value(updatedItem.totalEpisodes),
+            addedAt: updatedItem.addedAt,
+            categoryIds: jsonEncode(updatedItem.categoryIds),
+          ),
+        );
+      }
+    }
+
+    _mangaCache[mangaId] = cache;
+
+    await _db.into(_db.mediaCaches).insertOnConflictUpdate(
+      db.MediaCachesCompanion.insert(
+        id: mangaId,
+        mode: 'manga',
+        title: cache['title'] ?? 'Untitled',
+        coverImage: cache['thumbnailUrl'] ?? '',
+        extraData: drift.Value(jsonEncode(cache)),
+      ),
+    );
+
+    notifyListeners();
+  }
 }
 
 class LazyJsonMap extends MapBase<int, Map<String, dynamic>> {

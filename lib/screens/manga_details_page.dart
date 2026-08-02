@@ -35,7 +35,7 @@ class _MangaDetailsPageState extends State<MangaDetailsPage> {
   int get _parsedMangaId => int.tryParse(widget.mangaId) ?? 0;
 
   void _updateContinueChapter() {
-    if (LibraryState().isSaved(_parsedMangaId, 'manga') && _chapters.isNotEmpty) {
+    if (_chapters.isNotEmpty) {
       final readIds = LibraryState().getReadChapterIds(_parsedMangaId).toSet();
       for (int i = _chapters.length - 1; i >= 0; i--) {
         final chId = _chapters[i]['id']?.toString() ?? '';
@@ -137,6 +137,15 @@ class _MangaDetailsPageState extends State<MangaDetailsPage> {
         'genres': <String>[],
         'status': 0,
       };
+
+      final existingReadIds = LibraryState().getReadChapterIds(_parsedMangaId).toSet();
+      for (var ch in finalChaps) {
+        final chId = ch['id']?.toString() ?? '';
+        if (chId.isNotEmpty && ch['read'] == true) {
+          existingReadIds.add(chId);
+        }
+      }
+      resolvedDetails['readChapterIds'] = existingReadIds.toList();
 
       if (LibraryState().isSaved(_parsedMangaId, 'manga')) {
         resolvedDetails['cachedChapters'] = finalChaps;
@@ -560,6 +569,8 @@ class _MangaDetailsPageState extends State<MangaDetailsPage> {
                 // Push reader page directly so navigation actually happens
                 Navigator.of(context, rootNavigator: true).push(
                   PageRouteBuilder(
+                    transitionDuration: Duration.zero,
+                    reverseTransitionDuration: Duration.zero,
                     pageBuilder: (context, animation, secondaryAnimation) => MangaReaderPage(
                       chapterId: chId,
                       chapterNumber: chNum,
@@ -568,17 +579,13 @@ class _MangaDetailsPageState extends State<MangaDetailsPage> {
                       chapters: _chapters,
                       navigationState: widget.navigationState,
                     ),
-                    transitionsBuilder: (context, animation, secondaryAnimation, child) {
-                      return SlideTransition(
-                        position: Tween<Offset>(begin: const Offset(1.0, 0.0), end: Offset.zero).animate(
-                          CurvedAnimation(parent: animation, curve: Curves.easeOutCubic),
-                        ),
-                        child: child,
-                      );
-                    },
                   ),
                 ).then((_) {
-                  setState(() {});
+                  if (mounted) {
+                    setState(() {
+                      _updateContinueChapter();
+                    });
+                  }
                 });
               }
             },
@@ -609,19 +616,15 @@ class _MangaDetailsPageState extends State<MangaDetailsPage> {
           ),
         ),
         const SizedBox(height: 12.0),
-        AnimatedCrossFade(
-          firstChild: Text(
+        AnimatedSize(
+          duration: const Duration(milliseconds: 250),
+          curve: Curves.easeOutCubic,
+          child: Text(
             description,
-            maxLines: 3,
-            overflow: TextOverflow.ellipsis,
+            maxLines: _descriptionExpanded ? null : 3,
+            overflow: _descriptionExpanded ? TextOverflow.visible : TextOverflow.ellipsis,
             style: const TextStyle(color: Colors.white70, fontSize: 13.5, height: 1.55, fontFamily: 'Outfit'),
           ),
-          secondChild: Text(
-            description,
-            style: const TextStyle(color: Colors.white70, fontSize: 13.5, height: 1.55, fontFamily: 'Outfit'),
-          ),
-          crossFadeState: _descriptionExpanded ? CrossFadeState.showSecond : CrossFadeState.showFirst,
-          duration: const Duration(milliseconds: 200),
         ),
         const SizedBox(height: 8.0),
         GestureDetector(
@@ -1432,9 +1435,7 @@ class _MangaChaptersSectionState extends State<_MangaChaptersSection> {
                     onPressed: _selectedChapterIds.isEmpty
                         ? null
                         : () async {
-                            for (final id in _selectedChapterIds) {
-                              await libraryState.setChapterReadStatus(widget.mangaId, id, true);
-                            }
+                            await libraryState.setBatchChapterReadStatus(widget.mangaId, _selectedChapterIds.toList(), true);
                             setState(() {
                               _selectedChapterIds.clear();
                               _isSelectionMode = false;
@@ -1447,16 +1448,14 @@ class _MangaChaptersSectionState extends State<_MangaChaptersSection> {
                     onPressed: _selectedChapterIds.isEmpty
                         ? null
                         : () async {
-                            for (final id in _selectedChapterIds) {
-                              await libraryState.setChapterReadStatus(widget.mangaId, id, false);
-                            }
+                            await libraryState.setBatchChapterReadStatus(widget.mangaId, _selectedChapterIds.toList(), false);
                             setState(() {
                               _selectedChapterIds.clear();
                               _isSelectionMode = false;
                             });
                             widget.onUpdated();
                           },
-                    child: const Text('Mark Unread', style: TextStyle(color: Colors.orangeAccent, fontSize: 12.0, fontFamily: 'Outfit', fontWeight: FontWeight.bold)),
+                    child: const Text('Mark Unread', style: TextStyle(color: Colors.redAccent, fontSize: 12.0, fontFamily: 'Outfit', fontWeight: FontWeight.bold)),
                   ),
                   IconButton(
                     icon: const Icon(Icons.close, color: Colors.white54, size: 18),
@@ -1579,33 +1578,17 @@ class _MangaChaptersSectionState extends State<_MangaChaptersSection> {
                         if (action == 'toggle') {
                           await libraryState.setChapterReadStatus(widget.mangaId, chId, !isRead);
                         } else if (action == 'prev_read') {
-                          for (int i = 0; i <= currentIdx; i++) {
-                            final id = list[i]['id']?.toString() ?? '';
-                            if (id.isNotEmpty) {
-                              await libraryState.setChapterReadStatus(widget.mangaId, id, true);
-                            }
-                          }
+                          final ids = list.sublist(0, currentIdx + 1).map((c) => c['id']?.toString() ?? '').where((id) => id.isNotEmpty).toList();
+                          await libraryState.setBatchChapterReadStatus(widget.mangaId, ids, true);
                         } else if (action == 'prev_unread') {
-                          for (int i = 0; i <= currentIdx; i++) {
-                            final id = list[i]['id']?.toString() ?? '';
-                            if (id.isNotEmpty) {
-                              await libraryState.setChapterReadStatus(widget.mangaId, id, false);
-                            }
-                          }
+                          final ids = list.sublist(0, currentIdx + 1).map((c) => c['id']?.toString() ?? '').where((id) => id.isNotEmpty).toList();
+                          await libraryState.setBatchChapterReadStatus(widget.mangaId, ids, false);
                         } else if (action == 'next_read') {
-                          for (int i = currentIdx; i < list.length; i++) {
-                            final id = list[i]['id']?.toString() ?? '';
-                            if (id.isNotEmpty) {
-                              await libraryState.setChapterReadStatus(widget.mangaId, id, true);
-                            }
-                          }
+                          final ids = list.sublist(currentIdx).map((c) => c['id']?.toString() ?? '').where((id) => id.isNotEmpty).toList();
+                          await libraryState.setBatchChapterReadStatus(widget.mangaId, ids, true);
                         } else if (action == 'next_unread') {
-                          for (int i = currentIdx; i < list.length; i++) {
-                            final id = list[i]['id']?.toString() ?? '';
-                            if (id.isNotEmpty) {
-                              await libraryState.setChapterReadStatus(widget.mangaId, id, false);
-                            }
-                          }
+                          final ids = list.sublist(currentIdx).map((c) => c['id']?.toString() ?? '').where((id) => id.isNotEmpty).toList();
+                          await libraryState.setBatchChapterReadStatus(widget.mangaId, ids, false);
                         } else if (action == 'download') {
                           _handleDownloadAction(chId, chName, chNum ?? 1.0, downloadedChapterIds, downloadService, libraryState);
                         }
@@ -1669,6 +1652,8 @@ class _MangaChaptersSectionState extends State<_MangaChaptersSection> {
                     if (chId.isNotEmpty) {
                       Navigator.of(context, rootNavigator: true).push(
                         PageRouteBuilder(
+                          transitionDuration: Duration.zero,
+                          reverseTransitionDuration: Duration.zero,
                           pageBuilder: (context, animation, secondaryAnimation) => MangaReaderPage(
                             chapterId: chId,
                             chapterNumber: currentChapterIdx,
@@ -1677,17 +1662,12 @@ class _MangaChaptersSectionState extends State<_MangaChaptersSection> {
                             chapters: widget.chapters,
                             navigationState: widget.navigationState,
                           ),
-                          transitionsBuilder: (context, animation, secondaryAnimation, child) {
-                            return SlideTransition(
-                              position: Tween<Offset>(begin: const Offset(1.0, 0.0), end: Offset.zero).animate(
-                                CurvedAnimation(parent: animation, curve: Curves.easeOutCubic),
-                              ),
-                              child: child,
-                            );
-                          },
                         ),
                       ).then((_) {
-                        setState(() {});
+                        if (mounted) {
+                          widget.onUpdated();
+                          setState(() {});
+                        }
                       });
                     }
                   }
