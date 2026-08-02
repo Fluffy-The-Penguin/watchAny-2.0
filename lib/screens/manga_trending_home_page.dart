@@ -124,29 +124,36 @@ class _MangaTrendingHomePageState extends State<MangaTrendingHomePage> {
           _allSources = list;
           _isLoadingSources = false;
 
-          // Filter out pinned sources that are no longer installed/available
-          final availableSourceIds = _allSources.map((s) => s['id']?.toString()).toSet();
-          final filteredPins = _pinnedConfigs.where((c) => availableSourceIds.contains(c.sourceId)).toList();
-          
-          if (filteredPins.length != _pinnedConfigs.length) {
-            _pinnedConfigs = filteredPins;
-            _savePins();
+          // Only process pins if sources were successfully returned
+          if (_allSources.isNotEmpty) {
+            // If _pinnedConfigs is empty, check if SharedPreferences has saved pins
+            if (_pinnedConfigs.isEmpty) {
+              PinnedSourceConfig.loadPins().then((savedPins) {
+                if (mounted && savedPins.isNotEmpty) {
+                  setState(() {
+                    _pinnedConfigs = savedPins;
+                  });
+                  _loadAllFeeds();
+                } else if (mounted && _pinnedConfigs.isEmpty) {
+                  final firstId = _allSources.first['id']?.toString();
+                  if (firstId != null && firstId.isNotEmpty) {
+                    setState(() {
+                      _pinnedConfigs = [
+                        PinnedSourceConfig(
+                          sourceId: firstId,
+                          showPopular: true,
+                          showLatest: true,
+                        )
+                      ];
+                    });
+                    _savePins();
+                    _loadAllFeeds();
+                  }
+                }
+              });
+            }
           }
         });
-        
-        // Auto-pin first source if list is completely empty
-        if (_pinnedConfigs.isEmpty && _allSources.isNotEmpty) {
-          setState(() {
-            _pinnedConfigs = [
-              PinnedSourceConfig(
-                sourceId: _allSources.first['id']?.toString() ?? '',
-                showPopular: true,
-                showLatest: true,
-              )
-            ];
-          });
-          await _savePins();
-        }
         
         // Load feeds for pinned sources
         _loadAllFeeds();
