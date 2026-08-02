@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:window_manager/window_manager.dart';
+import 'update_circular_progress_badge.dart';
 
 class CustomTitleBar extends StatefulWidget implements PreferredSizeWidget {
   const CustomTitleBar({super.key});
@@ -61,6 +62,8 @@ class _CustomTitleBarState extends State<CustomTitleBar> {
           // Window action buttons
           Row(
             children: [
+              const UpdateCircularProgressBadge(),
+              const SizedBox(width: 4.0),
               // Minimize
               _TitleBarButton(
                 icon: Icons.remove,

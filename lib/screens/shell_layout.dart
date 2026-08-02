@@ -10,6 +10,7 @@ import '../services/update_service.dart';
 import '../services/anilist_service.dart';
 import '../state/app_settings.dart';
 import '../widgets/custom_title_bar.dart';
+import '../widgets/update_circular_progress_badge.dart';
 import '../widgets/sidebar.dart';
 import '../widgets/mini_player.dart';
 import 'home_page.dart';
@@ -486,14 +487,12 @@ class ShellLayout extends StatelessWidget {
                                 ),
                               ),
                             ),
-                          Positioned(
-                            top: (!isMobile && (Platform.isWindows || Platform.isMacOS || Platform.isLinux))
-                                ? (AppSettings().offlineMode ? 58.0 : 32.0)
-                                : (AppSettings().offlineMode ? 26.0 : 0.0),
-                            left: 0,
-                            right: 0,
-                            child: const _UpdateStatusBanner(),
-                          ),
+                          if (isMobile)
+                            const Positioned(
+                              top: 8.0,
+                              right: 12.0,
+                              child: UpdateCircularProgressBadge(),
+                            ),
                         ],
                       ),
                     ),
@@ -1402,224 +1401,4 @@ class _StartupUpdateCheckerState extends State<StartupUpdateChecker> {
 
   @override
   Widget build(BuildContext context) => widget.child;
-}
-
-class _UpdateStatusBanner extends StatefulWidget {
-  const _UpdateStatusBanner();
-
-  @override
-  State<_UpdateStatusBanner> createState() => _UpdateStatusBannerState();
-}
-
-class _UpdateStatusBannerState extends State<_UpdateStatusBanner> {
-  bool _dismissedForSession = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return ListenableBuilder(
-      listenable: UpdateService(),
-      builder: (context, _) {
-        final updateService = UpdateService();
-        final isDownloading = updateService.isDownloading;
-        final isReady = updateService.isUpdateReady;
-        final error = updateService.error;
-
-        if (_dismissedForSession && !isDownloading) {
-          return const SizedBox.shrink();
-        }
-
-        if (!isDownloading && !isReady && error == null) {
-          return const SizedBox.shrink();
-        }
-
-        if (isDownloading) {
-          final progressPct = (updateService.downloadProgress * 100).toStringAsFixed(0);
-          return Material(
-            color: const Color(0xFF141418),
-            elevation: 4.0,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-              decoration: const BoxDecoration(
-                border: Border(bottom: BorderSide(color: Color(0xFFFF9F1C), width: 1.5)),
-              ),
-              child: Row(
-                children: [
-                  const SizedBox(
-                    width: 14,
-                    height: 14,
-                    child: CircularProgressIndicator(
-                      color: Color(0xFFFF9F1C),
-                      strokeWidth: 2.0,
-                    ),
-                  ),
-                  const SizedBox(width: 12.0),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              'Downloading update v${updateService.latestUpdate?.version ?? ''}...',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 12.0,
-                                fontWeight: FontWeight.bold,
-                                fontFamily: 'Outfit',
-                              ),
-                            ),
-                            Text(
-                              '$progressPct%',
-                              style: const TextStyle(
-                                color: Color(0xFFFF9F1C),
-                                fontSize: 12.0,
-                                fontWeight: FontWeight.bold,
-                                fontFamily: 'Outfit',
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 4.0),
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(2.0),
-                          child: LinearProgressIndicator(
-                            value: updateService.downloadProgress > 0 ? updateService.downloadProgress : null,
-                            backgroundColor: Colors.white10,
-                            valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFFFF9F1C)),
-                            minHeight: 3.0,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 12.0),
-                  InkWell(
-                    onTap: () {
-                      setState(() {
-                        _dismissedForSession = true;
-                      });
-                    },
-                    child: const Padding(
-                      padding: EdgeInsets.all(4.0),
-                      child: Text(
-                        'Hide',
-                        style: TextStyle(color: Colors.white54, fontSize: 11.0, fontFamily: 'Outfit'),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        }
-
-        if (isReady) {
-          final verStr = updateService.downloadedVersion ?? updateService.latestUpdate?.version ?? '';
-          return Material(
-            color: const Color(0xFF141418),
-            elevation: 4.0,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-              decoration: const BoxDecoration(
-                border: Border(bottom: BorderSide(color: Color(0xFF2EC4B6), width: 1.5)),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.system_update_rounded, color: Color(0xFF2EC4B6), size: 18.0),
-                  const SizedBox(width: 10.0),
-                  Expanded(
-                    child: Text(
-                      'watchAny $verStr is ready to install!',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.bold,
-                        fontFamily: 'Outfit',
-                      ),
-                    ),
-                  ),
-                  ElevatedButton.icon(
-                    onPressed: () {
-                      updateService.launchInstaller();
-                    },
-                    icon: const Icon(Icons.download_done_rounded, size: 14.0, color: Colors.black),
-                    label: const Text('Install Now', style: TextStyle(color: Colors.black, fontSize: 11.5, fontWeight: FontWeight.bold, fontFamily: 'Outfit')),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF2EC4B6),
-                      padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 6.0),
-                      minimumSize: Size.zero,
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6.0)),
-                    ),
-                  ),
-                  const SizedBox(width: 8.0),
-                  IconButton(
-                    icon: const Icon(Icons.close, color: Colors.white38, size: 16.0),
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(),
-                    onPressed: () {
-                      setState(() {
-                        _dismissedForSession = true;
-                      });
-                    },
-                  ),
-                ],
-              ),
-            ),
-          );
-        }
-
-        if (error != null) {
-          return Material(
-            color: const Color(0xFF2A1517),
-            elevation: 4.0,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-              decoration: const BoxDecoration(
-                border: Border(bottom: BorderSide(color: Colors.redAccent, width: 1.5)),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.error_outline_rounded, color: Colors.redAccent, size: 18.0),
-                  const SizedBox(width: 10.0),
-                  Expanded(
-                    child: Text(
-                      error,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Colors.white70,
-                        fontSize: 12.0,
-                        fontFamily: 'Outfit',
-                      ),
-                    ),
-                  ),
-                  TextButton(
-                    onPressed: () {
-                      updateService.startUpdate();
-                    },
-                    child: const Text('Retry', style: TextStyle(color: Color(0xFFFF9F1C), fontSize: 11.5, fontWeight: FontWeight.bold, fontFamily: 'Outfit')),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.close, color: Colors.white38, size: 16.0),
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(),
-                    onPressed: () {
-                      setState(() {
-                        _dismissedForSession = true;
-                      });
-                    },
-                  ),
-                ],
-              ),
-            ),
-          );
-        }
-
-        return const SizedBox.shrink();
-      },
-    );
-  }
 }
