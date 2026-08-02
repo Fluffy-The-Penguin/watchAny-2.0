@@ -236,6 +236,7 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
     });
     
     _pageLoader?.setPriorityIndex(index);
+    _precacheUpcomingPages(index);
 
     final bool isLastPage = index >= _pageUrls.length - 1 && _pageUrls.isNotEmpty;
     _scheduleSave(index, isLastPage: isLastPage);
@@ -249,6 +250,19 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
         }
       } else {
         _pageController.jumpToPage(index);
+      }
+    }
+  }
+
+  void _precacheUpcomingPages(int currentIndex) {
+    if (!mounted || _pageUrls.isEmpty) return;
+    for (int i = 1; i <= 3; i++) {
+      final targetIndex = currentIndex + i;
+      if (targetIndex < _pageUrls.length) {
+        final url = _pageUrls[targetIndex];
+        if (url.isNotEmpty && (url.startsWith('http://') || url.startsWith('https://'))) {
+          precacheImage(NetworkImage(url), context).catchError((_) {});
+        }
       }
     }
   }
