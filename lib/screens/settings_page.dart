@@ -4901,7 +4901,37 @@ class _SettingsPageState extends State<SettingsPage> {
                         ),
                       ),
                       const SizedBox(height: 16.0),
-                      if (updateService.isDownloading) ...[
+                      if (updateService.isUpdateReady) ...[
+                        Row(
+                          children: [
+                            ElevatedButton.icon(
+                              icon: const Icon(Icons.download_done_rounded, color: Colors.black, size: 16.0),
+                              label: const Text('Install Now', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                              onPressed: () {
+                                updateService.launchInstaller();
+                              },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF2EC4B6),
+                                padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 12.0),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6.0)),
+                              ),
+                            ),
+                            const SizedBox(width: 12.0),
+                            OutlinedButton.icon(
+                              icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 16.0),
+                              label: const Text('Delete Download', style: TextStyle(color: Colors.redAccent)),
+                              onPressed: () async {
+                                await updateService.clearCachedUpdateFile();
+                              },
+                              style: OutlinedButton.styleFrom(
+                                side: const BorderSide(color: Colors.redAccent),
+                                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6.0)),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ] else if (updateService.isDownloading) ...[
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -4929,7 +4959,7 @@ class _SettingsPageState extends State<SettingsPage> {
                       ] else ...[
                         ElevatedButton.icon(
                           icon: const Icon(Icons.download, color: Colors.black, size: 16.0),
-                          label: const Text('Update Now', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                          label: const Text('Download Update', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
                           onPressed: () {
                             updateService.startUpdate();
                           },

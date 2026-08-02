@@ -79,7 +79,7 @@ class UpdateService extends ChangeNotifier {
   factory UpdateService() => _instance;
   UpdateService._internal();
 
-  static const String currentVersion = '2.1.78';
+  static const String currentVersion = '2.1.79';
   
   // GitHub Releases API Endpoint
   static const String gitHubReleasesUrl = 'https://api.github.com/repos/Fluffy-The-Penguin/watchAny-2.0/releases/latest';
@@ -90,6 +90,7 @@ class UpdateService extends ChangeNotifier {
   double _downloadProgress = 0.0;
   String? _error;
   String? _downloadedFilePath;
+  String? _downloadedVersion;
   bool _hasChecked = false;
 
   UpdateInfo? get latestUpdate => _latestUpdate;
@@ -98,7 +99,15 @@ class UpdateService extends ChangeNotifier {
   double get downloadProgress => _downloadProgress;
   String? get error => _error;
   String? get downloadedFilePath => _downloadedFilePath;
+  String? get downloadedVersion => _downloadedVersion;
   bool get hasChecked => _hasChecked;
+
+  bool get isUpdateReady {
+    if (_downloadedFilePath == null || _downloadedVersion == null) return false;
+    if (_latestUpdate != null && _normalizeVersion(_downloadedVersion!) != _normalizeVersion(_latestUpdate!.version)) return false;
+    final file = File(_downloadedFilePath!);
+    return file.existsSync() && file.lengthSync() > 0;
+  }
 
   bool get hasUpdate {
     if (_latestUpdate == null) return false;
@@ -129,6 +138,47 @@ class UpdateService extends ChangeNotifier {
     return 0;
   }
 
+  Future<void> loadCachedUpdateInfo() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final path = prefs.getString('downloaded_update_path');
+      final version = prefs.getString('downloaded_update_version');
+
+      if (path != null && version != null) {
+        final file = File(path);
+        if (await file.exists() && await file.length() > 0) {
+          _downloadedFilePath = path;
+          _downloadedVersion = version;
+          notifyListeners();
+        } else {
+          await prefs.remove('downloaded_update_path');
+          await prefs.remove('downloaded_update_version');
+        }
+      }
+    } catch (e) {
+      debugPrint('[UpdateService] Error loading cached update info: $e');
+    }
+  }
+
+  Future<void> clearCachedUpdateFile() async {
+    try {
+      if (_downloadedFilePath != null) {
+        final file = File(_downloadedFilePath!);
+        if (await file.exists()) {
+          await file.delete();
+        }
+      }
+      _downloadedFilePath = null;
+      _downloadedVersion = null;
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('downloaded_update_path');
+      await prefs.remove('downloaded_update_version');
+      notifyListeners();
+    } catch (e) {
+      debugPrint('[UpdateService] Error clearing cached update file: $e');
+    }
+  }
+
   Future<void> skipVersion(String version) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('ignored_update_version', version);
@@ -152,6 +202,8 @@ class UpdateService extends ChangeNotifier {
     _error = null;
     notifyListeners();
 
+    await loadCachedUpdateInfo();
+
     try {
       final prefs = await SharedPreferences.getInstance();
       final ignoredVer = prefs.getString('ignored_update_version');
@@ -171,7 +223,6 @@ class UpdateService extends ChangeNotifier {
           headers: headers,
         ).timeout(const Duration(seconds: 10));
       } catch (_) {
-        // Fallback: Releases list endpoint if latest endpoint fails/redirects
         response = await http.get(
           Uri.parse('https://api.github.com/repos/Fluffy-The-Penguin/watchAny-2.0/releases'),
           headers: headers,
@@ -191,10 +242,13 @@ class UpdateService extends ChangeNotifier {
           final info = UpdateInfo.fromJson(json);
           final normLatest = _normalizeVersion(info.version);
 
-          // Check if this version is ignored or already installed
+          if (_downloadedVersion != null && _normalizeVersion(_downloadedVersion!) != normLatest) {
+            await clearCachedUpdateFile();
+          }
+
           final isIgnored = ignoredVer != null && (info.version == ignoredVer || normLatest == _normalizeVersion(ignoredVer));
           final isInstalled = installedVer != null && (info.version == installedVer || normLatest == _normalizeVersion(installedVer));
-          final isRecentlyDismissed = !isManualCheck && (now - lastDismissedTime) < 86400000; // 24 hours
+          final isRecentlyDismissed = !isManualCheck && (now - lastDismissedTime) < 86400000;
 
           if (!isManualCheck && (isIgnored || isInstalled || isRecentlyDismissed)) {
             _latestUpdate = null;
@@ -235,6 +289,11 @@ class UpdateService extends ChangeNotifier {
   }
 
   Future<void> startUpdate() async {
+    if (isUpdateReady) {
+      await launchInstaller();
+      return;
+    }
+
     if (_latestUpdate == null || _isDownloading) return;
 
     _isDownloading = true;
@@ -278,11 +337,6 @@ class UpdateService extends ChangeNotifier {
         await sink.close();
       }
 
-      _downloadedFilePath = filePath;
-      _isDownloading = false;
-
-      // SHA-256 verification: fetch checksums.txt from the same release and
-      // compare against the hash of the downloaded file before executing it.
       final checksumUrl = _latestUpdate!.downloadUrl
           .replaceAll(RegExp(r'/[^/]+$'), '/checksums.txt');
       try {
@@ -301,6 +355,7 @@ class UpdateService extends ChangeNotifier {
             if (actualHash != expectedHash) {
               await File(filePath).delete();
               _downloadedFilePath = null;
+              _downloadedVersion = null;
               _error = 'SHA-256 mismatch — download may be corrupted or tampered. Please try again.';
               _isDownloading = false;
               notifyListeners();
@@ -317,10 +372,15 @@ class UpdateService extends ChangeNotifier {
         debugPrint('[UpdateService] Checksum fetch failed ($e); proceeding without verification.');
       }
 
-      notifyListeners();
+      _downloadedFilePath = filePath;
+      _downloadedVersion = _latestUpdate!.version;
 
-      // Launch the installer
-      await launchInstaller();
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('downloaded_update_path', filePath);
+      await prefs.setString('downloaded_update_version', _latestUpdate!.version);
+
+      _isDownloading = false;
+      notifyListeners();
     } catch (e) {
       _error = 'Download failed: $e';
       _isDownloading = false;

@@ -486,6 +486,7 @@ class ShellLayout extends StatelessWidget {
                                 ),
                               ),
                             ),
+                          const _UpdateStatusBanner(),
                         ],
                       ),
                     ),
@@ -1260,14 +1261,58 @@ class _StartupUpdateCheckerState extends State<StartupUpdateChecker> {
 
   void _checkUpdatesOnStartup() async {
     final updateService = UpdateService();
+    await updateService.loadCachedUpdateInfo();
     final hasUpdate = await updateService.checkForUpdates();
-    if (!hasUpdate || updateService.latestUpdate == null) return;
 
     if (!mounted) return;
 
+    if (updateService.isUpdateReady) {
+      showDialog(
+        context: context,
+        barrierDismissible: true,
+        builder: (BuildContext context) {
+          return AlertDialog(
+            backgroundColor: const Color(0xFF16161A),
+            title: Text(
+              'Update Ready to Install (${updateService.downloadedVersion})',
+              style: const TextStyle(
+                color: Colors.white,
+                fontFamily: 'Outfit',
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            content: const Text(
+              'The update has been downloaded and verified on your device. Would you like to install it now?',
+              style: TextStyle(color: Colors.white70, fontFamily: 'Outfit', fontSize: 13.5),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Install Later', style: TextStyle(color: Colors.white38, fontFamily: 'Outfit')),
+              ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF2EC4B6),
+                  foregroundColor: Colors.black,
+                ),
+                onPressed: () {
+                  Navigator.pop(context);
+                  updateService.launchInstaller();
+                },
+                child: const Text('Install Now', style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold)),
+              ),
+            ],
+          );
+        },
+      );
+      return;
+    }
+
+    if (!hasUpdate || updateService.latestUpdate == null) return;
+
     showDialog(
       context: context,
-      barrierDismissible: false,
+      barrierDismissible: true,
       builder: (BuildContext context) {
         return AlertDialog(
           backgroundColor: const Color(0xFF16161A),
@@ -1283,34 +1328,35 @@ class _StartupUpdateCheckerState extends State<StartupUpdateChecker> {
             width: MediaQuery.of(context).size.width.clamp(0.0, 480.0),
             child: SingleChildScrollView(
               child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'A new version of watchAny is available! What\'s new:',
-                  style: TextStyle(color: Colors.white70, fontFamily: 'Outfit', fontSize: 13.5),
-                ),
-                const SizedBox(height: 12),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.05),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.white10),
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'A new version of watchAny is available! What\'s new:',
+                    style: TextStyle(color: Colors.white70, fontFamily: 'Outfit', fontSize: 13.5),
                   ),
-                  child: Text(
-                    updateService.latestUpdate!.changelog,
-                    style: const TextStyle(
-                      color: Colors.white60,
-                      fontFamily: 'Outfit',
-                      fontSize: 12.0,
-                      height: 1.4,
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.05),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.white10),
+                    ),
+                    child: Text(
+                      updateService.latestUpdate!.changelog,
+                      style: const TextStyle(
+                        color: Colors.white60,
+                        fontFamily: 'Outfit',
+                        fontSize: 12.0,
+                        height: 1.4,
+                      ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),),
+          ),
           actions: [
             TextButton(
               onPressed: () {
@@ -1336,13 +1382,10 @@ class _StartupUpdateCheckerState extends State<StartupUpdateChecker> {
                 foregroundColor: Colors.black,
               ),
               onPressed: () {
-                if (updateService.latestUpdate != null) {
-                  updateService.markVersionInstalled(updateService.latestUpdate!.version);
-                }
                 Navigator.pop(context);
-                _showDownloadProgressDialog();
+                updateService.startUpdate();
               },
-              child: const Text('Download Now', style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold)),
+              child: const Text('Download Update', style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold)),
             ),
           ],
         );
@@ -1350,76 +1393,246 @@ class _StartupUpdateCheckerState extends State<StartupUpdateChecker> {
     );
   }
 
-  void _showDownloadProgressDialog() {
-    final updateService = UpdateService();
-    updateService.startUpdate(); // start download and install
+  @override
+  Widget build(BuildContext context) => widget.child;
+}
 
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (BuildContext context) {
-        return ListenableBuilder(
-          listenable: updateService,
-          builder: (context, _) {
-            final progress = updateService.downloadProgress;
-            final isDownloading = updateService.isDownloading;
-            final error = updateService.error;
+class _UpdateStatusBanner extends StatefulWidget {
+  const _UpdateStatusBanner();
 
-            return AlertDialog(
-              backgroundColor: const Color(0xFF16161A),
-              title: Text(
-                error != null ? 'Update Failed' : 'Downloading Update...',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontFamily: 'Outfit',
-                  fontWeight: FontWeight.bold,
+  @override
+  State<_UpdateStatusBanner> createState() => _UpdateStatusBannerState();
+}
+
+class _UpdateStatusBannerState extends State<_UpdateStatusBanner> {
+  bool _dismissedForSession = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: UpdateService(),
+      builder: (context, _) {
+        final updateService = UpdateService();
+        final isDownloading = updateService.isDownloading;
+        final isReady = updateService.isUpdateReady;
+        final error = updateService.error;
+
+        if (_dismissedForSession && !isDownloading) {
+          return const SizedBox.shrink();
+        }
+
+        if (!isDownloading && !isReady && error == null) {
+          return const SizedBox.shrink();
+        }
+
+        final double screenWidth = MediaQuery.of(context).size.width;
+        final bool isMobile = screenWidth < 650;
+        final double topMargin = (!isMobile && (Platform.isWindows || Platform.isMacOS || Platform.isLinux)) ? 32.0 : 0.0;
+        final double extraTopMargin = AppSettings().offlineMode ? 26.0 : 0.0;
+
+        if (isDownloading) {
+          final progressPct = (updateService.downloadProgress * 100).toStringAsFixed(0);
+          return Positioned(
+            top: topMargin + extraTopMargin,
+            left: 0,
+            right: 0,
+            child: Material(
+              color: const Color(0xFF141418),
+              elevation: 4.0,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                decoration: const BoxDecoration(
+                  border: Border(bottom: BorderSide(color: Color(0xFFFF9F1C), width: 1.5)),
                 ),
-              ),
-              content: Container(
-                width: MediaQuery.of(context).size.width.clamp(0.0, 480.0),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
+                child: Row(
                   children: [
-                    if (error != null) ...[
-                      Text(
-                        error,
-                        style: const TextStyle(color: Colors.redAccent, fontFamily: 'Outfit', fontSize: 13.5),
+                    const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(
+                        color: Color(0xFFFF9F1C),
+                        strokeWidth: 2.0,
                       ),
-                      const SizedBox(height: 16),
-                    ] else ...[
-                      LinearProgressIndicator(
-                        value: progress,
-                        backgroundColor: Colors.white12,
-                        color: const Color(0xFFFF9F1C),
+                    ),
+                    const SizedBox(width: 12.0),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                'Downloading update v${updateService.latestUpdate?.version ?? ''}...',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12.0,
+                                  fontWeight: FontWeight.bold,
+                                  fontFamily: 'Outfit',
+                                ),
+                              ),
+                              Text(
+                                '$progressPct%',
+                                style: const TextStyle(
+                                  color: Color(0xFFFF9F1C),
+                                  fontSize: 12.0,
+                                  fontWeight: FontWeight.bold,
+                                  fontFamily: 'Outfit',
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 4.0),
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(2.0),
+                            child: LinearProgressIndicator(
+                              value: updateService.downloadProgress > 0 ? updateService.downloadProgress : null,
+                              backgroundColor: Colors.white10,
+                              valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFFFF9F1C)),
+                              minHeight: 3.0,
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 12),
-                      Text(
-                        '${(progress * 100).toStringAsFixed(1)}%',
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontFamily: 'Outfit',
-                          fontSize: 14.0,
-                          fontWeight: FontWeight.bold,
+                    ),
+                    const SizedBox(width: 12.0),
+                    InkWell(
+                      onTap: () {
+                        setState(() {
+                          _dismissedForSession = true;
+                        });
+                      },
+                      child: const Padding(
+                        padding: EdgeInsets.all(4.0),
+                        child: Text(
+                          'Hide',
+                          style: TextStyle(color: Colors.white54, fontSize: 11.0, fontFamily: 'Outfit'),
                         ),
                       ),
-                    ],
+                    ),
                   ],
                 ),
               ),
-              actions: [
-                if (error != null || !isDownloading)
-                  TextButton(
-                    onPressed: () => Navigator.pop(context),
-                    child: const Text('Close', style: TextStyle(color: Colors.white70, fontFamily: 'Outfit')),
-                  ),
-              ],
-            );
-          },
-        );
+            ),
+          );
+        }
+
+        if (isReady) {
+          final verStr = updateService.downloadedVersion ?? updateService.latestUpdate?.version ?? '';
+          return Positioned(
+            top: topMargin + extraTopMargin,
+            left: 0,
+            right: 0,
+            child: Material(
+              color: const Color(0xFF141418),
+              elevation: 4.0,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                decoration: const BoxDecoration(
+                  border: Border(bottom: BorderSide(color: Color(0xFF2EC4B6), width: 1.5)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.system_update_rounded, color: Color(0xFF2EC4B6), size: 18.0),
+                    const SizedBox(width: 10.0),
+                    Expanded(
+                      child: Text(
+                        'watchAny $verStr is ready to install!',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.bold,
+                          fontFamily: 'Outfit',
+                        ),
+                      ),
+                    ),
+                    ElevatedButton.icon(
+                      onPressed: () {
+                        updateService.launchInstaller();
+                      },
+                      icon: const Icon(Icons.download_done_rounded, size: 14.0, color: Colors.black),
+                      label: const Text('Install Now', style: TextStyle(color: Colors.black, fontSize: 11.5, fontWeight: FontWeight.bold, fontFamily: 'Outfit')),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF2EC4B6),
+                        padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 6.0),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6.0)),
+                      ),
+                    ),
+                    const SizedBox(width: 8.0),
+                    IconButton(
+                      icon: const Icon(Icons.close, color: Colors.white38, size: 16.0),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                      onPressed: () {
+                        setState(() {
+                          _dismissedForSession = true;
+                        });
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        }
+
+        if (error != null) {
+          return Positioned(
+            top: topMargin + extraTopMargin,
+            left: 0,
+            right: 0,
+            child: Material(
+              color: const Color(0xFF2A1517),
+              elevation: 4.0,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                decoration: const BoxDecoration(
+                  border: Border(bottom: BorderSide(color: Colors.redAccent, width: 1.5)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.error_outline_rounded, color: Colors.redAccent, size: 18.0),
+                    const SizedBox(width: 10.0),
+                    Expanded(
+                      child: Text(
+                        error,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 12.0,
+                          fontFamily: 'Outfit',
+                        ),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () {
+                        updateService.startUpdate();
+                      },
+                      child: const Text('Retry', style: TextStyle(color: Color(0xFFFF9F1C), fontSize: 11.5, fontWeight: FontWeight.bold, fontFamily: 'Outfit')),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close, color: Colors.white38, size: 16.0),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                      onPressed: () {
+                        setState(() {
+                          _dismissedForSession = true;
+                        });
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        }
+
+        return const SizedBox.shrink();
       },
     );
   }
-
-  @override
-  Widget build(BuildContext context) => widget.child;
 }
