@@ -14,7 +14,6 @@ import 'dart:io';
 import 'dart:async';
 import 'package:window_manager/window_manager.dart';
 import 'package:async/async.dart';
-import '../widgets/shimmer_card.dart';
 
 
 class MangaReaderPage extends StatefulWidget {
@@ -1120,7 +1119,7 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
   Widget _buildPageError(int index) {
     return Container(
       constraints: const BoxConstraints(minHeight: 300),
-      color: const Color(0xFF0A0A0C),
+      color: Colors.black,
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
@@ -2277,9 +2276,10 @@ class _MihonPagePlaceholder extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ShimmerCard(
+    return Container(
+      width: width,
       height: height ?? (width * 1.5),
-      borderRadius: 0.0,
+      color: Colors.black,
       child: Stack(
         children: [
           // Center: page number + spinner/progress
@@ -2439,6 +2439,18 @@ class _WebtoonImageWithSizeState extends State<_WebtoonImageWithSize> {
       gaplessPlayback: true,
       filterQuality: FilterQuality.medium,
       cacheWidth: (widget.maxWidth * 2.0).toInt().clamp(800, 2048),
+      frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+        if (wasSynchronouslyLoaded || frame != null) {
+          return child;
+        }
+        return _MihonPagePlaceholder(
+          width: widget.maxWidth,
+          height: null,
+          pageNumber: widget.index + 1,
+          isDownloading: false,
+          progress: null,
+        );
+      },
       errorBuilder: widget.errorBuilder,
     );
   }

@@ -257,25 +257,7 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                ListenableBuilder(
-                  listenable: PlayerState(),
-                  builder: (context, _) {
-                    return FutureBuilder<List<dynamic>>(
-                      future: PlayerState.getContinueWatchingList(isAnime: true),
-                      builder: (context, snapshot) {
-                        if (!snapshot.hasData || snapshot.data!.isEmpty) {
-                          return const SizedBox.shrink();
-                        }
-                        return _RailwayTrack(
-                          title: 'Continue Watching',
-                          initialItems: snapshot.data!,
-                          onLoadMore: (page) async => const [],
-                          navigationState: widget.navigationState,
-                        );
-                      },
-                    );
-                  },
-                ),
+                _AnimeContinueWatchingSection(navigationState: widget.navigationState),
                 const SizedBox(height: 24.0),
                 if (_trending.isNotEmpty)
                   _RailwayTrack(
@@ -1085,6 +1067,56 @@ class _AnimeCardState extends State<_AnimeCard> {
           ),
         ),
       ),
-    ),);
+    ),
+    );
+  }
+}
+
+class _AnimeContinueWatchingSection extends StatefulWidget {
+  final NavigationState navigationState;
+  const _AnimeContinueWatchingSection({required this.navigationState});
+
+  @override
+  State<_AnimeContinueWatchingSection> createState() => _AnimeContinueWatchingSectionState();
+}
+
+class _AnimeContinueWatchingSectionState extends State<_AnimeContinueWatchingSection> {
+  List<dynamic> _items = [];
+
+  @override
+  void initState() {
+    super.initState();
+    PlayerState().addListener(_onPlayerChange);
+    _loadItems();
+  }
+
+  @override
+  void dispose() {
+    PlayerState().removeListener(_onPlayerChange);
+    super.dispose();
+  }
+
+  void _onPlayerChange() {
+    if (mounted) _loadItems();
+  }
+
+  Future<void> _loadItems() async {
+    final list = await PlayerState.getContinueWatchingList(isAnime: true);
+    if (mounted) {
+      setState(() {
+        _items = list;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_items.isEmpty) return const SizedBox.shrink();
+    return _RailwayTrack(
+      title: 'Continue Watching',
+      initialItems: _items,
+      onLoadMore: (page) async => const [],
+      navigationState: widget.navigationState,
+    );
   }
 }

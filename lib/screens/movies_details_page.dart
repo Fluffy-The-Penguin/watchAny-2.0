@@ -72,7 +72,11 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
       _meta = Map<String, dynamic>.from(cached);
     }
 
-    _loadMetadata();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _loadMetadata();
+      }
+    });
   }
 
   /// Splits "type:id" into (_type, _realId).

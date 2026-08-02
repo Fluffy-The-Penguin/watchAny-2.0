@@ -67,7 +67,11 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
   @override
   void initState() {
     super.initState();
-    _loadDetails();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _loadDetails();
+      }
+    });
   }
 
   @override
