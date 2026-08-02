@@ -7,6 +7,7 @@ import '../state/navigation_state.dart';
 import '../state/library_state.dart';
 import '../services/manga_download_service.dart';
 import 'manga_reader_page.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../widgets/smooth_scroll_area.dart';
 
 class MangaDetailsPage extends StatefulWidget {
@@ -1227,6 +1228,38 @@ class _MangaChaptersSectionState extends State<_MangaChaptersSection> {
   bool _isChaptersReversed = false;
   bool _isSelectionMode = false;
   final Set<String> _selectedChapterIds = {};
+  Map<String, int> _savedPages = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSavedPages();
+  }
+
+  @override
+  void didUpdateWidget(_MangaChaptersSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _loadSavedPages();
+  }
+
+  Future<void> _loadSavedPages() async {
+    final prefs = await SharedPreferences.getInstance();
+    final Map<String, int> pages = {};
+    for (final ch in widget.chapters) {
+      final chId = ch['id']?.toString() ?? '';
+      if (chId.isNotEmpty) {
+        final p = prefs.getInt('manga_chapter_page_$chId');
+        if (p != null && p > 0) {
+          pages[chId] = p + 1;
+        }
+      }
+    }
+    if (mounted) {
+      setState(() {
+        _savedPages = pages;
+      });
+    }
+  }
 
   Widget _buildChapterFilterChip(String value, String label) {
     final bool isSelected = _chapterFilter == value;
@@ -1492,6 +1525,8 @@ class _MangaChaptersSectionState extends State<_MangaChaptersSection> {
             if (scanlator.isNotEmpty) metaParts.add(scanlator);
 
             final bool isSelected = _selectedChapterIds.contains(chId);
+            final int? savedPageNum = _savedPages[chId];
+            final bool isHalfRead = !isRead && savedPageNum != null && savedPageNum > 1;
 
             return Container(
               margin: const EdgeInsets.only(bottom: 6.0),
@@ -1522,14 +1557,49 @@ class _MangaChaptersSectionState extends State<_MangaChaptersSection> {
                         },
                       )
                     : null,
-                title: Text(
-                  chName,
-                  style: TextStyle(
-                    color: isRead ? Colors.white38 : Colors.white,
-                    fontSize: 13.5,
-                    fontWeight: FontWeight.w600,
-                    fontFamily: 'Outfit',
-                  ),
+                title: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        chName,
+                        style: TextStyle(
+                          color: isRead ? Colors.white38 : Colors.white,
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w600,
+                          fontFamily: 'Outfit',
+                        ),
+                      ),
+                    ),
+                    if (isHalfRead)
+                      Container(
+                        margin: const EdgeInsets.only(left: 8.0),
+                        padding: const EdgeInsets.symmetric(horizontal: 7.0, vertical: 2.0),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFF9F1C).withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(6.0),
+                          border: Border.all(
+                            color: const Color(0xFFFF9F1C).withValues(alpha: 0.4),
+                            width: 0.8,
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.bookmark_rounded, color: Color(0xFFFF9F1C), size: 11.0),
+                            const SizedBox(width: 3.0),
+                            Text(
+                              'Page $savedPageNum',
+                              style: const TextStyle(
+                                color: Color(0xFFFF9F1C),
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.bold,
+                                fontFamily: 'Outfit',
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
                 ),
                 subtitle: metaParts.isNotEmpty
                     ? Padding(
@@ -1786,9 +1856,9 @@ class _MangaChaptersSectionState extends State<_MangaChaptersSection> {
 int _parseMangaChapterNumber(dynamic chapter) {
   final rawNum = chapter['chapterNumber'];
   if (rawNum != null) {
-    if (rawNum is num) return rawNum.toInt();
+    if (rawNum is num && rawNum >= 0) return rawNum.toInt();
     final double? parsed = double.tryParse(rawNum.toString());
-    if (parsed != null) return parsed.toInt();
+    if (parsed != null && parsed >= 0) return parsed.toInt();
   }
   
   final name = chapter['name']?.toString() ?? '';

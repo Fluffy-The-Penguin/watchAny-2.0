@@ -398,17 +398,8 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
 
 
   void _updateLibraryProgress() {
-    // Save to global read history list
+    // Record history entry when opening/reading chapter
     PlayerState.addMangaToHistory(widget.mangaId, _currentChapterNumber, widget.mangaTitle);
-
-    final int parsedMangaId = int.tryParse(widget.mangaId) ?? 0;
-    if (parsedMangaId == 0) return;
-
-    final library = LibraryState();
-    final item = library.getItem(parsedMangaId, 'manga');
-    if (item != null) {
-      library.setChapterReadStatus(parsedMangaId, _currentChapterId, true);
-    }
   }
 
   void _nextPage() {
@@ -1436,6 +1427,209 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
     );
   }
 
+  String get _currentChapterDisplayTitle {
+    final currentChapter = widget.chapters.firstWhere(
+      (c) => c['id']?.toString() == _currentChapterId,
+      orElse: () => null,
+    );
+    if (currentChapter != null) {
+      final name = (currentChapter['name'] ?? '').toString().trim();
+      if (name.isNotEmpty) return name;
+    }
+    if (_currentChapterNumber > 0) {
+      return 'Chapter $_currentChapterNumber';
+    }
+    return 'Chapter';
+  }
+
+  void _showChaptersListBottomSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF141417),
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16.0)),
+      ),
+      builder: (ctx) {
+        String searchQuery = '';
+        final parsedMangaId = int.tryParse(widget.mangaId) ?? 0;
+        final readIds = LibraryState().getReadChapterIds(parsedMangaId).toSet();
+
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            final filtered = widget.chapters.where((ch) {
+              final name = (ch['name'] ?? '').toString().toLowerCase();
+              final numStr = (ch['chapterNumber'] ?? '').toString();
+              return searchQuery.isEmpty ||
+                  name.contains(searchQuery.toLowerCase()) ||
+                  numStr.contains(searchQuery);
+            }).toList();
+
+            return Container(
+              height: MediaQuery.of(context).size.height * 0.75,
+              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+              child: Column(
+                children: [
+                  Container(
+                    width: 36.0,
+                    height: 4.0,
+                    decoration: BoxDecoration(
+                      color: Colors.white24,
+                      borderRadius: BorderRadius.circular(2.0),
+                    ),
+                  ),
+                  const SizedBox(height: 12.0),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Chapters List',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 16.0,
+                          fontWeight: FontWeight.bold,
+                          fontFamily: 'Outfit',
+                        ),
+                      ),
+                      Text(
+                        '${widget.chapters.length} Chapters',
+                        style: const TextStyle(
+                          color: Color(0xFFFF9F1C),
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.bold,
+                          fontFamily: 'Outfit',
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12.0),
+                  TextField(
+                    onChanged: (val) => setModalState(() => searchQuery = val),
+                    style: const TextStyle(color: Colors.white, fontFamily: 'Outfit', fontSize: 13.5),
+                    decoration: InputDecoration(
+                      hintText: 'Search chapters...',
+                      hintStyle: const TextStyle(color: Colors.white38, fontFamily: 'Outfit', fontSize: 13.5),
+                      prefixIcon: const Icon(Icons.search, color: Colors.white38, size: 20),
+                      filled: true,
+                      fillColor: Colors.white.withValues(alpha: 0.05),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12.0),
+                  Expanded(
+                    child: filtered.isEmpty
+                        ? const Center(
+                            child: Text(
+                              'No matching chapters found.',
+                              style: TextStyle(color: Colors.white38, fontFamily: 'Outfit'),
+                            ),
+                          )
+                        : ListView.builder(
+                            itemCount: filtered.length,
+                            itemBuilder: (context, idx) {
+                              final ch = filtered[idx];
+                              final chId = ch['id']?.toString() ?? '';
+                              final isCurrent = chId == _currentChapterId;
+                              final isRead = readIds.contains(chId);
+                              final chNum = _parseChapterNumber(ch);
+                              final chName = (ch['name'] ?? 'Chapter $chNum').toString().trim();
+
+                              final savedPage = _prefs?.getInt('manga_chapter_page_$chId');
+                              final bool isHalfRead = !isRead && !isCurrent && savedPage != null && savedPage > 0;
+
+                              return ListTile(
+                                dense: true,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
+                                tileColor: isCurrent ? const Color(0xFFFF9F1C).withValues(alpha: 0.15) : null,
+                                leading: Icon(
+                                  isCurrent
+                                      ? Icons.play_circle_fill_rounded
+                                      : (isRead ? Icons.check_circle_rounded : Icons.radio_button_unchecked),
+                                  color: isCurrent
+                                      ? const Color(0xFFFF9F1C)
+                                      : (isRead ? Colors.greenAccent : Colors.white30),
+                                  size: 20,
+                                ),
+                                title: Text(
+                                  chName,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: isCurrent
+                                        ? const Color(0xFFFF9F1C)
+                                        : (isRead ? Colors.white54 : Colors.white),
+                                    fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
+                                    fontFamily: 'Outfit',
+                                    fontSize: 13.5,
+                                  ),
+                                ),
+                                trailing: isCurrent
+                                    ? Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFFF9F1C),
+                                          borderRadius: BorderRadius.circular(10),
+                                        ),
+                                        child: const Text(
+                                          'READING',
+                                          style: TextStyle(
+                                            color: Colors.black,
+                                            fontSize: 9.5,
+                                            fontWeight: FontWeight.bold,
+                                            fontFamily: 'Outfit',
+                                          ),
+                                        ),
+                                      )
+                                    : (isHalfRead
+                                        ? Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                                            decoration: BoxDecoration(
+                                              color: const Color(0xFFFF9F1C).withValues(alpha: 0.15),
+                                              borderRadius: BorderRadius.circular(6),
+                                              border: Border.all(color: const Color(0xFFFF9F1C).withValues(alpha: 0.4), width: 0.8),
+                                            ),
+                                            child: Text(
+                                              'Page ${savedPage + 1}',
+                                              style: const TextStyle(
+                                                color: Color(0xFFFF9F1C),
+                                                fontSize: 10.0,
+                                                fontWeight: FontWeight.bold,
+                                                fontFamily: 'Outfit',
+                                              ),
+                                            ),
+                                          )
+                                        : null),
+                                onTap: () {
+                                  Navigator.pop(ctx);
+                                  if (!isCurrent) {
+                                    setState(() {
+                                      _currentChapterId = chId;
+                                      _currentChapterNumber = chNum;
+                                      _isLoading = true;
+                                      _pageUrls = [];
+                                      _currentPageIndex = 0;
+                                    });
+                                    _loadPages();
+                                    _updateLibraryProgress();
+                                  }
+                                },
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   Widget _buildTopOverlay() {
     return Container(
       decoration: BoxDecoration(
@@ -1475,7 +1669,7 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
                   ),
                 ),
                 Text(
-                  'Chapter $_currentChapterNumber',
+                  _currentChapterDisplayTitle,
                   style: const TextStyle(
                     color: Colors.white60,
                     fontSize: 12.0,
@@ -1484,6 +1678,11 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
                 ),
               ],
             ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.format_list_bulleted_rounded, color: Colors.white, size: 22.0),
+            tooltip: 'Chapters List',
+            onPressed: _showChaptersListBottomSheet,
           ),
           if (!kIsWeb && (Platform.isWindows || Platform.isMacOS || Platform.isLinux)) ...[
             FutureBuilder<bool>(
@@ -1590,9 +1789,32 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
                     onPressed: _navigateToPrevChapter,
                   ),
                   const SizedBox(width: 8.0),
-                  Text(
-                    'Ch. $_currentChapterNumber',
-                    style: const TextStyle(color: Colors.white, fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 13.0),
+                  GestureDetector(
+                    onTap: _showChaptersListBottomSheet,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 6.0),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(8.0),
+                        border: Border.all(color: Colors.white24, width: 0.8),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 160.0),
+                            child: Text(
+                              _currentChapterDisplayTitle,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(color: Colors.white, fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 13.0),
+                            ),
+                          ),
+                          const SizedBox(width: 4.0),
+                          const Icon(Icons.format_list_bulleted_rounded, color: Color(0xFFFF9F1C), size: 14.0),
+                        ],
+                      ),
+                    ),
                   ),
                   const SizedBox(width: 8.0),
                   IconButton(
