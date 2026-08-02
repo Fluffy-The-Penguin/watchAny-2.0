@@ -260,6 +260,8 @@ class ShellLayout extends StatelessWidget {
                   leading: null,
                   actions: [
                     if (!isDetailsOpen) ...[
+                      const UpdateCircularProgressBadge(),
+                      const SizedBox(width: 4.0),
                       ListenableBuilder(
                         listenable: AnilistAuthState(),
                         builder: (context, child) {
@@ -486,12 +488,6 @@ class ShellLayout extends StatelessWidget {
                                   ),
                                 ),
                               ),
-                            ),
-                          if (isMobile)
-                            const Positioned(
-                              top: 8.0,
-                              right: 12.0,
-                              child: UpdateCircularProgressBadge(),
                             ),
                         ],
                       ),
