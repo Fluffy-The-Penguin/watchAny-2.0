@@ -1060,41 +1060,46 @@ class PlayerState extends ChangeNotifier {
   }
 
   static Future<List<Map<String, dynamic>>> getHistoryList() async {
-    final database = PlayerState()._db;
+    try {
+      final database = PlayerState()._db;
 
-    final query = database.select(database.watchHistory)
-      ..orderBy([(tbl) => drift.OrderingTerm.desc(tbl.timestamp)]);
+      final query = database.select(database.watchHistory)
+        ..orderBy([(tbl) => drift.OrderingTerm.desc(tbl.timestamp)]);
 
-    final rows = await query.get();
-    final List<Map<String, dynamic>> records = [];
+      final rows = await query.get();
+      final List<Map<String, dynamic>> records = [];
 
-    for (final row in rows) {
-      List<int> eps = [];
-      try {
-        final List<dynamic> decodedEps = jsonDecode(row.episodes);
-        eps = decodedEps.map((e) => (e as num).toInt()).toList();
-      } catch (_) {}
+      for (final row in rows) {
+        List<int> eps = [];
+        try {
+          final List<dynamic> decodedEps = jsonDecode(row.episodes);
+          eps = decodedEps.map((e) => (e as num).toInt()).toList();
+        } catch (_) {}
 
-      records.add({
-        'id': row.mediaId,
-        'isAnime': row.isAnime == 1,
-        'isManga': row.isManga == 1,
-        'media': {
+        records.add({
           'id': row.mediaId,
-          'title': row.title,
-          'coverImage': row.coverImage,
-          'format': row.format,
-          'averageScore': row.averageScore,
-          'episodes': row.totalEpisodes > 0 ? row.totalEpisodes : null,
           'isAnime': row.isAnime == 1,
-          'type': row.mediaTypeHint,
-        },
-        'episodes': eps,
-        'timestamp': row.timestamp,
-      });
-    }
+          'isManga': row.isManga == 1,
+          'media': {
+            'id': row.mediaId,
+            'title': row.title,
+            'coverImage': row.coverImage,
+            'format': row.format,
+            'averageScore': row.averageScore,
+            'episodes': row.totalEpisodes > 0 ? row.totalEpisodes : null,
+            'isAnime': row.isAnime == 1,
+            'type': row.mediaTypeHint,
+          },
+          'episodes': eps,
+          'timestamp': row.timestamp,
+        });
+      }
 
-    return records;
+      return records;
+    } catch (e) {
+      debugPrint('Error getting watch history: $e');
+      return [];
+    }
   }
 
   static Future<void> clearHistory() async {

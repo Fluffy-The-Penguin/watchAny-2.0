@@ -26,34 +26,62 @@ class _HistoryPageState extends State<HistoryPage> {
   void initState() {
     super.initState();
     _loadHistory();
+    widget.navigationState.addListener(_onNavChange);
+  }
+
+  @override
+  void dispose() {
+    widget.navigationState.removeListener(_onNavChange);
+    super.dispose();
+  }
+
+  void _onNavChange() {
+    if (widget.navigationState.currentPage == TabPage.history && widget.navigationState.currentMode == widget.mode) {
+      _loadHistory();
+    }
   }
 
   Future<void> _loadHistory() async {
+    if (!mounted) return;
     setState(() {
       _isLoading = true;
     });
-    final items = await PlayerState.getHistoryList();
-    
-    // Filter history items by active mode partition
-    final filtered = items.where((item) {
-      final isAnime = item['isAnime'] ?? true;
-      final isManga = item['isManga'] ?? false;
-      if (widget.mode == AppMode.manga) {
-        return isManga;
-      } else if (widget.mode == AppMode.movies) {
-        return !isAnime && !isManga;
-      } else if (widget.mode == AppMode.anime) {
-        return isAnime && !isManga;
-      } else {
-        return false;
-      }
-    }).toList();
 
-    if (mounted) {
-      setState(() {
-        _historyItems = filtered;
-        _isLoading = false;
-      });
+    try {
+      final items = await PlayerState.getHistoryList();
+      
+      // Filter history items by active mode partition
+      final filtered = items.where((item) {
+        final isAnime = item['isAnime'] ?? true;
+        final isManga = item['isManga'] ?? false;
+        if (widget.mode == AppMode.manga) {
+          return isManga;
+        } else if (widget.mode == AppMode.movies) {
+          return !isAnime && !isManga;
+        } else if (widget.mode == AppMode.anime) {
+          return isAnime && !isManga;
+        } else {
+          return false;
+        }
+      }).toList();
+
+      if (mounted) {
+        setState(() {
+          _historyItems = filtered;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _historyItems = [];
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 

@@ -808,6 +808,9 @@ class _LazyPageStackState extends State<_LazyPageStack> {
     }
   }
 
+  // Track last active page index for each mode
+  final Map<AppMode, int> _lastPageIndex = {};
+
   @override
   Widget build(BuildContext context) {
     final currentMode = widget.currentMode;
@@ -816,27 +819,24 @@ class _LazyPageStackState extends State<_LazyPageStack> {
     final modeIndex = enabledModes.indexOf(currentMode).clamp(0, enabledModes.length - 1);
     final pageIndex = _pageIndex(currentPage, currentMode);
 
+    // Save active page index for current mode
+    _lastPageIndex[currentMode] = pageIndex;
+
     // Mark the current (mode, page) as visited so it gets built
     _builtKeys.add(_key(currentMode, pageIndex));
 
-    return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 200),
-      switchInCurve: Curves.easeOutCubic,
-      switchOutCurve: Curves.easeInCubic,
-      child: IndexedStack(
-        key: ValueKey('outer_indexed_stack_${currentMode.name}_$pageIndex'),
-        index: modeIndex,
-        children: enabledModes.map((mode) {
-          final isActive = mode == currentMode;
-          return _buildModeStack(mode, isActive ? pageIndex : null);
-        }).toList(),
-      ),
+    return IndexedStack(
+      key: const ValueKey('outer_indexed_stack'),
+      index: modeIndex,
+      children: enabledModes.map((mode) {
+        return _buildModeStack(mode);
+      }).toList(),
     );
   }
 
-  Widget _buildModeStack(AppMode mode, int? activePageIndex) {
+  Widget _buildModeStack(AppMode mode) {
     final pages = _pagesForMode(mode);
-    final displayIndex = activePageIndex ?? 0;
+    final displayIndex = (_lastPageIndex[mode] ?? 0).clamp(0, pages.length - 1);
 
     return IndexedStack(
       key: ValueKey('${mode.name}_pages_stack'),
@@ -873,28 +873,41 @@ class _HistoryPopupContentState extends State<_HistoryPopupContent> {
   }
 
   Future<void> _load() async {
-    final items = await PlayerState.getHistoryList();
-    
-    // Filter history items by active mode partition
-    final filtered = items.where((item) {
-      final isAnime = item['isAnime'] ?? true;
-      final isManga = item['isManga'] ?? false;
-      if (widget.mode == AppMode.manga) {
-        return isManga;
-      } else if (widget.mode == AppMode.movies) {
-        return !isAnime && !isManga;
-      } else if (widget.mode == AppMode.anime) {
-        return isAnime && !isManga;
-      } else {
-        return false;
-      }
-    }).toList();
+    try {
+      final items = await PlayerState.getHistoryList();
+      
+      // Filter history items by active mode partition
+      final filtered = items.where((item) {
+        final isAnime = item['isAnime'] ?? true;
+        final isManga = item['isManga'] ?? false;
+        if (widget.mode == AppMode.manga) {
+          return isManga;
+        } else if (widget.mode == AppMode.movies) {
+          return !isAnime && !isManga;
+        } else if (widget.mode == AppMode.anime) {
+          return isAnime && !isManga;
+        } else {
+          return false;
+        }
+      }).toList();
 
-    if (mounted) {
-      setState(() {
-        _items = filtered.take(4).toList();
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _items = filtered.take(4).toList();
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _items = [];
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
