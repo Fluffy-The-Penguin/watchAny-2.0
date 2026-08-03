@@ -234,7 +234,44 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
     }
   }
 
+  Future<void> _applySubtitleSettingsToMPV() async {
+    try {
+      final nativePlayer = player.platform;
+      if (nativePlayer is NativePlayer) {
+        final settings = AppSettings();
+        final bool isMobile = !kIsWeb && (Platform.isAndroid || Platform.isIOS);
+
+        // Subtitle Font Scale factor calculation
+        final double mobileBoost = isMobile ? 1.35 : 1.0;
+        final double scaleFactor = (settings.subtitlesFontSize / 22.0 * mobileBoost).clamp(0.7, 3.5);
+
+        await nativePlayer.setProperty('sub-scale', scaleFactor.toStringAsFixed(2));
+        await nativePlayer.setProperty('sub-font-size', (55.0 * scaleFactor).round().toString());
+        await nativePlayer.setProperty('sub-ass-override', 'scale');
+
+        // Subtitle Vertical Position (sub-pos)
+        final int subPos = (100 - (settings.subtitlesPositionOffset / 6.0)).round().clamp(75, 100);
+        await nativePlayer.setProperty('sub-pos', subPos.toString());
+
+        // Custom text colors and borders if custom styles enabled
+        if (settings.subtitlesCustomStylesEnabled) {
+          final textHex = '#${(settings.subtitlesTextColor & 0xFFFFFF).toRadixString(16).padLeft(6, '0').toUpperCase()}';
+          await nativePlayer.setProperty('sub-color', textHex);
+
+          if (settings.subtitlesShadowEnabled) {
+            final shadowHex = '#${(settings.subtitlesShadowColor & 0xFFFFFF).toRadixString(16).padLeft(6, '0').toUpperCase()}';
+            await nativePlayer.setProperty('sub-border-color', shadowHex);
+            await nativePlayer.setProperty('sub-border-size', (settings.subtitlesShadowOffset * 1.5).toStringAsFixed(1));
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Error syncing subtitle settings to MPV: $e');
+    }
+  }
+
   void _onSettingsChanged() {
+    _applySubtitleSettingsToMPV();
     if (mounted) {
       setState(() {});
     }
@@ -279,6 +316,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
     PlayerState().addListener(_handlePlayerStateChange);
     _handlePlayerStateChange();
     AppSettings().addListener(_onSettingsChanged);
+    _applySubtitleSettingsToMPV();
 
     _updateTorrentTimer();
 

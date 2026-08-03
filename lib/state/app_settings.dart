@@ -45,7 +45,7 @@ class AppSettings extends ChangeNotifier {
   int _subtitlesBgColor = 0xFF000000; // Base solid color (default black)
   double _subtitlesBgOpacity = 0.5;
   String _subtitlesFontFamily = 'Outfit';
-  double _subtitlesFontSize = 16.0;
+  double _subtitlesFontSize = 22.0;
   bool _subtitlesBold = false;
   bool _subtitlesItalic = false;
   double _subtitlesPositionOffset = 24.0;
@@ -197,7 +197,7 @@ class AppSettings extends ChangeNotifier {
     
     _subtitlesFontFamily = prefs.getString('subtitles_font_family') ?? 'Outfit';
     final rawFontSize = prefs.get('subtitles_font_size');
-    _subtitlesFontSize = rawFontSize is num ? rawFontSize.toDouble() : 16.0;
+    _subtitlesFontSize = rawFontSize is num ? rawFontSize.toDouble() : 22.0;
     _subtitlesBold = prefs.getBool('subtitles_bold') ?? false;
     _subtitlesItalic = prefs.getBool('subtitles_italic') ?? false;
     final rawPosOffset = prefs.get('subtitles_position_offset');
@@ -576,7 +576,7 @@ class AppSettings extends ChangeNotifier {
     _subtitlesBgColor = 0xFF000000;
     _subtitlesBgOpacity = 0.5;
     _subtitlesFontFamily = 'Outfit';
-    _subtitlesFontSize = 16.0;
+    _subtitlesFontSize = 22.0;
     _subtitlesBold = false;
     _subtitlesItalic = false;
     _subtitlesPositionOffset = 24.0;
@@ -595,7 +595,7 @@ class AppSettings extends ChangeNotifier {
     await prefs.setInt('subtitles_bg_color', 0xFF000000);
     await prefs.setDouble('subtitles_bg_opacity', 0.5);
     await prefs.setString('subtitles_font_family', 'Outfit');
-    await prefs.setDouble('subtitles_font_size', 16.0);
+    await prefs.setDouble('subtitles_font_size', 22.0);
     await prefs.setBool('subtitles_bold', false);
     await prefs.setBool('subtitles_italic', false);
     await prefs.setDouble('subtitles_position_offset', 24.0);
