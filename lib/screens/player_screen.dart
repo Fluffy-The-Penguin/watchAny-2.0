@@ -4580,7 +4580,7 @@ class _PlayerGestureOverlayState extends State<_PlayerGestureOverlay> with Ticke
   Timer? _leftRippleTimer;
   Timer? _rightRippleTimer;
 
-  // Last tap detection
+  // Single / Double tap detection
   DateTime? _lastTapTime;
   Offset? _lastTapPosition;
 
@@ -4621,7 +4621,7 @@ class _PlayerGestureOverlayState extends State<_PlayerGestureOverlay> with Ticke
       final timeDiff = now.difference(_lastTapTime!).inMilliseconds;
       final dist = (pos - _lastTapPosition!).distance;
 
-      if (timeDiff < 320 && dist < 55) {
+      if (timeDiff < 300 && dist < 60) {
         // Double tap confirmed!
         _onDoubleTap(pos, width);
         _lastTapTime = null;
@@ -4709,9 +4709,10 @@ class _PlayerGestureOverlayState extends State<_PlayerGestureOverlay> with Ticke
       setState(() {
         _softwareBrightness = (_softwareBrightness + deltaY * 1.5).clamp(0.15, 1.0);
         _showBrightnessIndicator = true;
+        _showVolumeIndicator = false;
       });
       _brightnessTimer?.cancel();
-      _brightnessTimer = Timer(const Duration(milliseconds: 1400), () {
+      _brightnessTimer = Timer(const Duration(milliseconds: 1200), () {
         if (mounted) setState(() => _showBrightnessIndicator = false);
       });
     } else {
@@ -4719,10 +4720,11 @@ class _PlayerGestureOverlayState extends State<_PlayerGestureOverlay> with Ticke
       setState(() {
         _volume = (_volume + deltaY * 150.0).clamp(0.0, 100.0);
         _showVolumeIndicator = true;
+        _showBrightnessIndicator = false;
       });
       widget.player.setVolume(_volume);
       _volumeTimer?.cancel();
-      _volumeTimer = Timer(const Duration(milliseconds: 1400), () {
+      _volumeTimer = Timer(const Duration(milliseconds: 1200), () {
         if (mounted) setState(() => _showVolumeIndicator = false);
       });
     }
@@ -4735,20 +4737,7 @@ class _PlayerGestureOverlayState extends State<_PlayerGestureOverlay> with Ticke
         return Stack(
           fit: StackFit.expand,
           children: [
-            // Base controls widget underneath
-            widget.controlsWidget,
-
-            // Software Brightness Dimming Tint Layer
-            if (_softwareBrightness < 1.0)
-              Positioned.fill(
-                child: IgnorePointer(
-                  child: Container(
-                    color: Colors.black.withOpacity(1.0 - _softwareBrightness),
-                  ),
-                ),
-              ),
-
-            // Transparent Gesture Interceptor Area
+            // 1. Transparent Gesture Interceptor Area (BEHIND controls widget)
             Positioned.fill(
               child: GestureDetector(
                 behavior: HitTestBehavior.translucent,
@@ -4758,6 +4747,19 @@ class _PlayerGestureOverlayState extends State<_PlayerGestureOverlay> with Ticke
                 child: Container(color: Colors.transparent),
               ),
             ),
+
+            // 2. Base controls widget ON TOP (single tap toggles controls natively, buttons clickable)
+            widget.controlsWidget,
+
+            // 3. Software Brightness Dimming Tint Layer
+            if (_softwareBrightness < 1.0)
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: Container(
+                    color: Colors.black.withValues(alpha: (1.0 - _softwareBrightness).clamp(0.0, 0.85)),
+                  ),
+                ),
+              ),
 
             // Left Ripple Bubble Animation (-10s, -20s...)
             if (_showLeftRipple)
@@ -4791,14 +4793,11 @@ class _PlayerGestureOverlayState extends State<_PlayerGestureOverlay> with Ticke
                 ),
               ),
 
-            // Left Vertical Glassmorphic Brightness Indicator
+            // Centered Circular Brightness Indicator
             if (_showBrightnessIndicator)
-              Positioned(
-                left: 28.0,
-                top: 80.0,
-                bottom: 100.0,
+              Positioned.fill(
                 child: IgnorePointer(
-                  child: _GlassmorphicSliderIndicator(
+                  child: _CenteredCircularGestureIndicator(
                     icon: Icons.brightness_6,
                     percentage: _softwareBrightness,
                     label: 'Brightness',
@@ -4806,14 +4805,11 @@ class _PlayerGestureOverlayState extends State<_PlayerGestureOverlay> with Ticke
                 ),
               ),
 
-            // Right Vertical Glassmorphic Volume Indicator
+            // Centered Circular Volume Indicator
             if (_showVolumeIndicator)
-              Positioned(
-                right: 28.0,
-                top: 80.0,
-                bottom: 100.0,
+              Positioned.fill(
                 child: IgnorePointer(
-                  child: _GlassmorphicSliderIndicator(
+                  child: _CenteredCircularGestureIndicator(
                     icon: _volume == 0 ? Icons.volume_off : Icons.volume_up,
                     percentage: _volume / 100.0,
                     label: 'Volume',
@@ -4856,14 +4852,14 @@ class _DoubleTapRippleOverlay extends StatelessWidget {
             filter: ui.ImageFilter.blur(sigmaX: 8, sigmaY: 8),
             child: Container(
               decoration: BoxDecoration(
-                color: const Color(0xFFFF9F1C).withOpacity(0.18 * opacity),
+                color: Colors.white.withValues(alpha: 0.06 * opacity),
                 borderRadius: BorderRadius.horizontal(
                   left: isLeft ? Radius.zero : const Radius.circular(280),
                   right: isLeft ? const Radius.circular(280) : Radius.zero,
                 ),
                 border: Border.all(
-                  color: const Color(0xFFFF9F1C).withOpacity(0.35 * opacity),
-                  width: 1.5,
+                  color: Colors.white.withValues(alpha: 0.15 * opacity),
+                  width: 1.0,
                 ),
               ),
               child: Center(
@@ -4877,29 +4873,28 @@ class _DoubleTapRippleOverlay extends StatelessWidget {
                         Container(
                           padding: const EdgeInsets.all(16.0),
                           decoration: BoxDecoration(
-                            color: Colors.black.withOpacity(0.65),
+                            color: Colors.black87,
                             shape: BoxShape.circle,
-                            border: Border.all(color: const Color(0xFFFF9F1C), width: 1.5),
+                            border: Border.all(color: Colors.white30, width: 1.0),
                             boxShadow: [
                               BoxShadow(
-                                color: const Color(0xFFFF9F1C).withOpacity(0.5),
-                                blurRadius: 18,
-                                spreadRadius: 2,
+                                color: Colors.black.withValues(alpha: 0.5),
+                                blurRadius: 16,
                               ),
                             ],
                           ),
                           child: Icon(
                             isLeft ? Icons.fast_rewind : Icons.fast_forward,
                             color: Colors.white,
-                            size: 32.0,
+                            size: 30.0,
                           ),
                         ),
-                        const SizedBox(height: 10.0),
+                        const SizedBox(height: 8.0),
                         Text(
                           isLeft ? '-${seconds}s' : '+${seconds}s',
                           style: const TextStyle(
                             color: Colors.white,
-                            fontSize: 16.0,
+                            fontSize: 15.0,
                             fontWeight: FontWeight.bold,
                             fontFamily: 'Outfit',
                             letterSpacing: 1.1,
@@ -4918,12 +4913,12 @@ class _DoubleTapRippleOverlay extends StatelessWidget {
   }
 }
 
-class _GlassmorphicSliderIndicator extends StatelessWidget {
+class _CenteredCircularGestureIndicator extends StatelessWidget {
   final IconData icon;
   final double percentage; // 0.0 to 1.0
   final String label;
 
-  const _GlassmorphicSliderIndicator({
+  const _CenteredCircularGestureIndicator({
     required this.icon,
     required this.percentage,
     required this.label,
@@ -4933,75 +4928,57 @@ class _GlassmorphicSliderIndicator extends StatelessWidget {
   Widget build(BuildContext context) {
     final int pctInt = (percentage.clamp(0.0, 1.0) * 100).round();
 
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(24.0),
-      child: BackdropFilter(
-        filter: ui.ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-        child: Container(
-          width: 48.0,
-          padding: const EdgeInsets.symmetric(vertical: 16.0, horizontal: 8.0),
-          decoration: BoxDecoration(
-            color: const Color(0xCC0F0F11),
-            borderRadius: BorderRadius.circular(24.0),
-            border: Border.all(color: Colors.white24, width: 1.0),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.5),
-                blurRadius: 12,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon, color: const Color(0xFFFF9F1C), size: 20.0),
-              const SizedBox(height: 12.0),
-              Expanded(
-                child: Stack(
-                  alignment: Alignment.bottomCenter,
-                  children: [
-                    Container(
-                      width: 6.0,
-                      decoration: BoxDecoration(
-                        color: Colors.white12,
-                        borderRadius: BorderRadius.circular(3.0),
-                      ),
-                    ),
-                    FractionallySizedBox(
-                      heightFactor: percentage.clamp(0.05, 1.0),
-                      child: Container(
-                        width: 6.0,
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            colors: [Color(0xFFFF9F1C), Color(0xFF2EC4B6)],
-                            begin: Alignment.bottomCenter,
-                            end: Alignment.topCenter,
-                          ),
-                          borderRadius: BorderRadius.circular(3.0),
-                          boxShadow: [
-                            BoxShadow(
-                              color: const Color(0xFFFF9F1C).withOpacity(0.6),
-                              blurRadius: 6,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
+    return Center(
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(20.0),
+        child: BackdropFilter(
+          filter: ui.ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+          child: Container(
+            width: 104.0,
+            height: 104.0,
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.85),
+              borderRadius: BorderRadius.circular(20.0),
+              border: Border.all(color: Colors.white24, width: 1.0),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.6),
+                  blurRadius: 16,
+                  offset: const Offset(0, 4),
                 ),
-              ),
-              const SizedBox(height: 12.0),
-              Text(
-                '$pctInt%',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 11.0,
-                  fontWeight: FontWeight.bold,
-                  fontFamily: 'Outfit',
+              ],
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                SizedBox(
+                  width: 44.0,
+                  height: 44.0,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      CircularProgressIndicator(
+                        value: percentage.clamp(0.0, 1.0),
+                        strokeWidth: 3.5,
+                        valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
+                        backgroundColor: Colors.white12,
+                      ),
+                      Icon(icon, color: Colors.white, size: 20.0),
+                    ],
+                  ),
                 ),
-              ),
-            ],
+                const SizedBox(height: 8.0),
+                Text(
+                  '$pctInt%',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 13.0,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: 'Outfit',
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
