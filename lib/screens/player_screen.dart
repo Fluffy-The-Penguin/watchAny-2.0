@@ -93,7 +93,6 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
   OverlayEntry? _overlayEntry;
   DateTime? _lastClosedTime;
   DateTime? _lastOpenedTime;
-  DateTime? _lastSeekTime;
 
 
   // Track settings open/close hover state
@@ -106,8 +105,6 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
   // AniSkip state
   List<SkipInterval> _skipIntervals = [];
   bool _hasFetchedSkipTimes = false;
-  bool _showSkipButton = false;
-  SkipInterval? _activeSkipInterval;
   StreamSubscription<Duration>? _positionSubscription;
   StreamSubscription<Duration>? _durationSubscription;
   int? _currentEpNum;
@@ -123,7 +120,6 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
   double _torrentSpeedBytes = 0.0;
   int _torrentActivePeers = 0;
   int _torrentTotalPeers = 0;
-  bool _showTorrentDashboard = false;
   final List<double> _torrentSpeedHistory = [];
 
 
@@ -1810,129 +1806,140 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
                         _resetHideControlsTimer();
                         return _handleKeyEvent(event);
                       },
-                      child: Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          controlsWidget,
-                        ListenableBuilder(
-                          listenable: PlayerState(),
-                          builder: (context, _) {
-                            final pState = PlayerState();
-                            if (!pState.showFitToastFlag) return const SizedBox.shrink();
-                            return Center(
-                              child: IgnorePointer(
-                                child: AnimatedOpacity(
-                                  opacity: pState.showFitToastFlag ? 1.0 : 0.0,
-                                  duration: const Duration(milliseconds: 200),
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 10.0),
-                                    decoration: BoxDecoration(
-                                      color: Colors.black.withValues(alpha: 0.8),
-                                      borderRadius: BorderRadius.circular(20.0),
-                                      border: Border.all(color: Colors.white24, width: 0.5),
-                                    ),
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        const Icon(Icons.aspect_ratio, color: Colors.white, size: 18.0),
-                                        const SizedBox(width: 8.0),
-                                        Text(
-                                          'Fit: ${pState.fitName}',
-                                          style: const TextStyle(
-                                            color: Colors.white,
-                                            fontSize: 14.0,
-                                            fontWeight: FontWeight.w600,
-                                            fontFamily: 'Outfit',
-                                          ),
+                      child: _PlayerGestureOverlay(
+                        player: player,
+                        resetControlsTimer: _resetHideControlsTimer,
+                        controlsWidget: Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            controlsWidget,
+                            ListenableBuilder(
+                              listenable: PlayerState(),
+                              builder: (context, _) {
+                                final pState = PlayerState();
+                                if (!pState.showFitToastFlag) return const SizedBox.shrink();
+                                return Center(
+                                  child: IgnorePointer(
+                                    child: AnimatedOpacity(
+                                      opacity: pState.showFitToastFlag ? 1.0 : 0.0,
+                                      duration: const Duration(milliseconds: 200),
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 10.0),
+                                        decoration: BoxDecoration(
+                                          color: Colors.black.withValues(alpha: 0.8),
+                                          borderRadius: BorderRadius.circular(20.0),
+                                          border: Border.all(color: Colors.white24, width: 0.5),
                                         ),
-                                      ],
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            const Icon(Icons.aspect_ratio, color: Colors.white, size: 18.0),
+                                            const SizedBox(width: 8.0),
+                                            Text(
+                                              'Fit: ${pState.fitName}',
+                                              style: const TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 14.0,
+                                                fontWeight: FontWeight.w600,
+                                                fontFamily: 'Outfit',
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
                                     ),
                                   ),
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                        ListenableBuilder(
-                          listenable: PlayerState(),
-                          builder: (context, _) {
-                            final pState = PlayerState();
-                            if (!pState.showTorrentDashboard) return const SizedBox.shrink();
-                            return Positioned(
-                              top: 80.0,
-                              right: 24.0,
-                              width: 320.0,
-                              child: _buildTorrentDashboardOverlay(),
-                            );
-                          },
-                        ),
-                        ListenableBuilder(
-                          listenable: PlayerState(),
-                          builder: (context, _) {
-                            final pState = PlayerState();
-                            final activeSkip = pState.activeSkipInterval;
-                            if (!pState.showSkipButton || activeSkip == null) return const SizedBox.shrink();
-                            return Positioned(
-                              bottom: 96.0,
-                              right: 24.0,
-                              child: AnimatedOpacity(
-                                opacity: pState.showSkipButton ? 1.0 : 0.0,
-                                duration: const Duration(milliseconds: 300),
-                                child: Material(
-                                  color: Colors.transparent,
-                                  child: InkWell(
-                                    onTap: _performSkip,
-                                    borderRadius: BorderRadius.circular(6.0),
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 6.0),
-                                      decoration: BoxDecoration(
-                                        color: Colors.black.withOpacity(0.5),
-                                        borderRadius: BorderRadius.circular(6.0),
-                                        border: Border.all(color: Colors.white.withOpacity(0.3), width: 1.0),
-                                        boxShadow: [
-                                          BoxShadow(
-                                            color: Colors.black.withOpacity(0.25),
-                                            blurRadius: 8,
-                                          )
-                                        ],
-                                      ),
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Icon(
-                                            activeSkip.skipType == 'ed'
-                                                ? Icons.skip_next
-                                                : Icons.fast_forward,
-                                            color: Colors.white,
-                                            size: 16,
-                                          ),
-                                          const SizedBox(width: 6.0),
-                                          Text(
-                                            activeSkip.skipType == 'ed'
-                                                ? 'Skip Ending'
-                                                : activeSkip.skipType == 'op'
-                                                    ? 'Skip Opening'
-                                                    : 'Skip Recap',
-                                            style: const TextStyle(
-                                              color: Colors.white,
-                                              fontFamily: 'Outfit',
-                                              fontSize: 12.0,
-                                              fontWeight: FontWeight.w600,
+                                );
+                              },
+                            ),
+                            ListenableBuilder(
+                              listenable: PlayerState(),
+                              builder: (context, _) {
+                                final pState = PlayerState();
+                                if (!pState.showTorrentDashboard) return const SizedBox.shrink();
+                                return Positioned(
+                                  top: 80.0,
+                                  right: 24.0,
+                                  width: 320.0,
+                                  child: _buildTorrentDashboardOverlay(),
+                                );
+                              },
+                            ),
+                            ListenableBuilder(
+                              listenable: PlayerState(),
+                              builder: (context, _) {
+                                final pState = PlayerState();
+                                final activeSkip = pState.activeSkipInterval;
+                                if (!pState.showSkipButton || activeSkip == null) return const SizedBox.shrink();
+                                final skipSec = (activeSkip.endTime - activeSkip.startTime).round();
+                                return Positioned(
+                                  bottom: 96.0,
+                                  right: 24.0,
+                                  child: AnimatedOpacity(
+                                    opacity: pState.showSkipButton ? 1.0 : 0.0,
+                                    duration: const Duration(milliseconds: 300),
+                                    child: Material(
+                                      color: Colors.transparent,
+                                      child: InkWell(
+                                        onTap: _performSkip,
+                                        borderRadius: BorderRadius.circular(24.0),
+                                        child: ClipRRect(
+                                          borderRadius: BorderRadius.circular(24.0),
+                                          child: BackdropFilter(
+                                            filter: ui.ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                                            child: Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 8.0),
+                                              decoration: BoxDecoration(
+                                                color: const Color(0xCC0F0F11),
+                                                borderRadius: BorderRadius.circular(24.0),
+                                                border: Border.all(color: const Color(0xFFFF9F1C).withValues(alpha: 0.6), width: 1.0),
+                                                boxShadow: [
+                                                  BoxShadow(
+                                                    color: const Color(0xFFFF9F1C).withValues(alpha: 0.3),
+                                                    blurRadius: 10,
+                                                  )
+                                                ],
+                                              ),
+                                              child: Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  Icon(
+                                                    activeSkip.skipType == 'ed'
+                                                        ? Icons.skip_next
+                                                        : Icons.fast_forward,
+                                                    color: const Color(0xFFFF9F1C),
+                                                    size: 18,
+                                                  ),
+                                                  const SizedBox(width: 6.0),
+                                                  Text(
+                                                    activeSkip.skipType == 'ed'
+                                                        ? 'Skip Ending (${skipSec}s)'
+                                                        : activeSkip.skipType == 'op'
+                                                            ? 'Skip Opening (${skipSec}s)'
+                                                            : 'Skip Recap (${skipSec}s)',
+                                                    style: const TextStyle(
+                                                      color: Colors.white,
+                                                      fontFamily: 'Outfit',
+                                                      fontSize: 12.5,
+                                                      fontWeight: FontWeight.bold,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
                                             ),
                                           ),
-                                        ],
+                                        ),
                                       ),
                                     ),
                                   ),
-                                ),
-                              ),
-                            );
-                          },
+                                );
+                              },
+                            ),
+                          ],
                         ),
-                      ],
+                      ),
                     ),
-                  ),
-                );
+                  );
                 },
               );
 
@@ -4538,90 +4545,365 @@ class _HoverSeekBarState extends State<HoverSeekBar> {
   }
 }
 
-class _DoubleTapSeekDetector extends StatefulWidget {
+class _PlayerGestureOverlay extends StatefulWidget {
   final Player player;
+  final Widget controlsWidget;
   final VoidCallback resetControlsTimer;
-  final Function(int offsetSeconds) performSeekOffset;
-  final VoidCallback toggleFullscreen;
 
-  const _DoubleTapSeekDetector({
+  const _PlayerGestureOverlay({
+    super.key,
     required this.player,
+    required this.controlsWidget,
     required this.resetControlsTimer,
-    required this.performSeekOffset,
-    required this.toggleFullscreen,
   });
 
   @override
-  State<_DoubleTapSeekDetector> createState() => _DoubleTapSeekDetectorState();
+  State<_PlayerGestureOverlay> createState() => _PlayerGestureOverlayState();
 }
 
-class _DoubleTapSeekDetectorState extends State<_DoubleTapSeekDetector> {
-  bool _showLeftIndicator = false;
-  bool _showRightIndicator = false;
-  Timer? _leftTimer;
-  Timer? _rightTimer;
+class _PlayerGestureOverlayState extends State<_PlayerGestureOverlay> with TickerProviderStateMixin {
+  // Software brightness (1.0 = normal, 0.2 = dimmed)
+  double _softwareBrightness = 1.0;
+  bool _showBrightnessIndicator = false;
+  Timer? _brightnessTimer;
 
-  void _triggerSeek(bool isLeft) {
+  // Volume slider
+  double _volume = 100.0;
+  bool _showVolumeIndicator = false;
+  Timer? _volumeTimer;
+
+  // Double tap seeking state
+  bool _showLeftRipple = false;
+  bool _showRightRipple = false;
+  int _leftSeekAccumulated = 0;
+  int _rightSeekAccumulated = 0;
+  Timer? _leftRippleTimer;
+  Timer? _rightRippleTimer;
+
+  // Last tap detection
+  DateTime? _lastTapTime;
+  Offset? _lastTapPosition;
+
+  late AnimationController _leftRippleAnim;
+  late AnimationController _rightRippleAnim;
+
+  @override
+  void initState() {
+    super.initState();
+    _volume = widget.player.state.volume;
+    _leftRippleAnim = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 600),
+    );
+    _rightRippleAnim = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 600),
+    );
+  }
+
+  @override
+  void dispose() {
+    _brightnessTimer?.cancel();
+    _volumeTimer?.cancel();
+    _leftRippleTimer?.cancel();
+    _rightRippleTimer?.cancel();
+    _leftRippleAnim.dispose();
+    _rightRippleAnim.dispose();
+    super.dispose();
+  }
+
+  void _handleTapDown(TapDownDetails details, BoxConstraints constraints) {
+    final now = DateTime.now();
+    final pos = details.localPosition;
+    final width = constraints.maxWidth;
+
+    if (_lastTapTime != null && _lastTapPosition != null) {
+      final timeDiff = now.difference(_lastTapTime!).inMilliseconds;
+      final dist = (pos - _lastTapPosition!).distance;
+
+      if (timeDiff < 320 && dist < 55) {
+        // Double tap confirmed!
+        _onDoubleTap(pos, width);
+        _lastTapTime = null;
+        _lastTapPosition = null;
+        return;
+      }
+    }
+
+    _lastTapTime = now;
+    _lastTapPosition = pos;
     widget.resetControlsTimer();
-    
-    if (isLeft) {
-      widget.performSeekOffset(-10);
+  }
+
+  void _onDoubleTap(Offset pos, double width) {
+    widget.resetControlsTimer();
+    final xRatio = pos.dx / width;
+
+    if (xRatio < 0.40) {
+      // Seek Left (-10s)
+      _leftSeekAccumulated += 10;
+      final currentPos = widget.player.state.position;
+      final newPos = currentPos - const Duration(seconds: 10);
+      widget.player.seek(newPos < Duration.zero ? Duration.zero : newPos);
+
       setState(() {
-        _showLeftIndicator = true;
+        _showLeftRipple = true;
       });
-      _leftTimer?.cancel();
-      _leftTimer = Timer(const Duration(milliseconds: 650), () {
-        if (mounted) setState(() => _showLeftIndicator = false);
+      _leftRippleAnim.forward(from: 0.0);
+
+      _leftRippleTimer?.cancel();
+      _leftRippleTimer = Timer(const Duration(milliseconds: 750), () {
+        if (mounted) {
+          setState(() {
+            _showLeftRipple = false;
+            _leftSeekAccumulated = 0;
+          });
+        }
+      });
+    } else if (xRatio > 0.60) {
+      // Seek Right (+10s)
+      _rightSeekAccumulated += 10;
+      final currentPos = widget.player.state.position;
+      final maxDur = widget.player.state.duration;
+      final newPos = currentPos + const Duration(seconds: 10);
+      widget.player.seek(newPos > maxDur ? maxDur : newPos);
+
+      setState(() {
+        _showRightRipple = true;
+      });
+      _rightRippleAnim.forward(from: 0.0);
+
+      _rightRippleTimer?.cancel();
+      _rightRippleTimer = Timer(const Duration(milliseconds: 750), () {
+        if (mounted) {
+          setState(() {
+            _showRightRipple = false;
+            _rightSeekAccumulated = 0;
+          });
+        }
       });
     } else {
-      widget.performSeekOffset(10);
+      // Center Double Tap: Play / Pause toggle
+      if (widget.player.state.playing) {
+        widget.player.pause();
+      } else {
+        widget.player.play();
+      }
+    }
+  }
+
+  bool _isDraggingLeft = false;
+
+  void _onVerticalDragStart(DragStartDetails details, BoxConstraints constraints) {
+    widget.resetControlsTimer();
+    final xRatio = details.localPosition.dx / constraints.maxWidth;
+    _isDraggingLeft = xRatio < 0.5;
+  }
+
+  void _onVerticalDragUpdate(DragUpdateDetails details, BoxConstraints constraints) {
+    widget.resetControlsTimer();
+    final deltaY = -details.primaryDelta! / constraints.maxHeight;
+
+    if (_isDraggingLeft) {
+      // Brightness update
       setState(() {
-        _showRightIndicator = true;
+        _softwareBrightness = (_softwareBrightness + deltaY * 1.5).clamp(0.15, 1.0);
+        _showBrightnessIndicator = true;
       });
-      _rightTimer?.cancel();
-      _rightTimer = Timer(const Duration(milliseconds: 650), () {
-        if (mounted) setState(() => _showRightIndicator = false);
+      _brightnessTimer?.cancel();
+      _brightnessTimer = Timer(const Duration(milliseconds: 1400), () {
+        if (mounted) setState(() => _showBrightnessIndicator = false);
+      });
+    } else {
+      // Volume update
+      setState(() {
+        _volume = (_volume + deltaY * 150.0).clamp(0.0, 100.0);
+        _showVolumeIndicator = true;
+      });
+      widget.player.setVolume(_volume);
+      _volumeTimer?.cancel();
+      _volumeTimer = Timer(const Duration(milliseconds: 1400), () {
+        if (mounted) setState(() => _showVolumeIndicator = false);
       });
     }
   }
 
   @override
-  void dispose() {
-    _leftTimer?.cancel();
-    _rightTimer?.cancel();
-    super.dispose();
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            // Base controls widget underneath
+            widget.controlsWidget,
+
+            // Software Brightness Dimming Tint Layer
+            if (_softwareBrightness < 1.0)
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: Container(
+                    color: Colors.black.withOpacity(1.0 - _softwareBrightness),
+                  ),
+                ),
+              ),
+
+            // Transparent Gesture Interceptor Area
+            Positioned.fill(
+              child: GestureDetector(
+                behavior: HitTestBehavior.translucent,
+                onTapDown: (details) => _handleTapDown(details, constraints),
+                onVerticalDragStart: (details) => _onVerticalDragStart(details, constraints),
+                onVerticalDragUpdate: (details) => _onVerticalDragUpdate(details, constraints),
+                child: Container(color: Colors.transparent),
+              ),
+            ),
+
+            // Left Ripple Bubble Animation (-10s, -20s...)
+            if (_showLeftRipple)
+              Positioned(
+                left: 0,
+                top: 0,
+                bottom: 0,
+                width: constraints.maxWidth * 0.42,
+                child: IgnorePointer(
+                  child: _DoubleTapRippleOverlay(
+                    isLeft: true,
+                    seconds: _leftSeekAccumulated,
+                    animation: _leftRippleAnim,
+                  ),
+                ),
+              ),
+
+            // Right Ripple Bubble Animation (+10s, +20s...)
+            if (_showRightRipple)
+              Positioned(
+                right: 0,
+                top: 0,
+                bottom: 0,
+                width: constraints.maxWidth * 0.42,
+                child: IgnorePointer(
+                  child: _DoubleTapRippleOverlay(
+                    isLeft: false,
+                    seconds: _rightSeekAccumulated,
+                    animation: _rightRippleAnim,
+                  ),
+                ),
+              ),
+
+            // Left Vertical Glassmorphic Brightness Indicator
+            if (_showBrightnessIndicator)
+              Positioned(
+                left: 28.0,
+                top: 80.0,
+                bottom: 100.0,
+                child: IgnorePointer(
+                  child: _GlassmorphicSliderIndicator(
+                    icon: Icons.brightness_6,
+                    percentage: _softwareBrightness,
+                    label: 'Brightness',
+                  ),
+                ),
+              ),
+
+            // Right Vertical Glassmorphic Volume Indicator
+            if (_showVolumeIndicator)
+              Positioned(
+                right: 28.0,
+                top: 80.0,
+                bottom: 100.0,
+                child: IgnorePointer(
+                  child: _GlassmorphicSliderIndicator(
+                    icon: _volume == 0 ? Icons.volume_off : Icons.volume_up,
+                    percentage: _volume / 100.0,
+                    label: 'Volume',
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
+    );
   }
+}
+
+class _DoubleTapRippleOverlay extends StatelessWidget {
+  final bool isLeft;
+  final int seconds;
+  final Animation<double> animation;
+
+  const _DoubleTapRippleOverlay({
+    required this.isLeft,
+    required this.seconds,
+    required this.animation,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        // Left Side (Double Click/Tap: Seek -10s)
-        Expanded(
-          flex: 2,
-          child: GestureDetector(
-            behavior: HitTestBehavior.translucent,
-            onDoubleTap: () => _triggerSeek(true),
+    return AnimatedBuilder(
+      animation: animation,
+      builder: (context, child) {
+        final double value = animation.value;
+        final double opacity = (1.0 - value).clamp(0.0, 1.0);
+        final double scale = 0.85 + (value * 0.35);
+
+        return ClipRRect(
+          borderRadius: BorderRadius.horizontal(
+            left: isLeft ? Radius.zero : const Radius.circular(280),
+            right: isLeft ? const Radius.circular(280) : Radius.zero,
+          ),
+          child: BackdropFilter(
+            filter: ui.ImageFilter.blur(sigmaX: 8, sigmaY: 8),
             child: Container(
-              color: Colors.transparent,
+              decoration: BoxDecoration(
+                color: const Color(0xFFFF9F1C).withOpacity(0.18 * opacity),
+                borderRadius: BorderRadius.horizontal(
+                  left: isLeft ? Radius.zero : const Radius.circular(280),
+                  right: isLeft ? const Radius.circular(280) : Radius.zero,
+                ),
+                border: Border.all(
+                  color: const Color(0xFFFF9F1C).withOpacity(0.35 * opacity),
+                  width: 1.5,
+                ),
+              ),
               child: Center(
-                child: AnimatedOpacity(
-                  opacity: _showLeftIndicator ? 1.0 : 0.0,
-                  duration: const Duration(milliseconds: 200),
-                  child: Container(
-                    padding: const EdgeInsets.all(16.0),
-                    decoration: const BoxDecoration(
-                      color: Colors.black54,
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Column(
+                child: Transform.scale(
+                  scale: scale,
+                  child: Opacity(
+                    opacity: opacity,
+                    child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.fast_rewind, color: Colors.white, size: 32.0),
-                        SizedBox(height: 4.0),
+                        Container(
+                          padding: const EdgeInsets.all(16.0),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withOpacity(0.65),
+                            shape: BoxShape.circle,
+                            border: Border.all(color: const Color(0xFFFF9F1C), width: 1.5),
+                            boxShadow: [
+                              BoxShadow(
+                                color: const Color(0xFFFF9F1C).withOpacity(0.5),
+                                blurRadius: 18,
+                                spreadRadius: 2,
+                              ),
+                            ],
+                          ),
+                          child: Icon(
+                            isLeft ? Icons.fast_rewind : Icons.fast_forward,
+                            color: Colors.white,
+                            size: 32.0,
+                          ),
+                        ),
+                        const SizedBox(height: 10.0),
                         Text(
-                          "-10s",
-                          style: TextStyle(color: Colors.white, fontSize: 12.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                          isLeft ? '-${seconds}s' : '+${seconds}s',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 16.0,
+                            fontWeight: FontWeight.bold,
+                            fontFamily: 'Outfit',
+                            letterSpacing: 1.1,
+                          ),
                         ),
                       ],
                     ),
@@ -4630,57 +4912,99 @@ class _DoubleTapSeekDetectorState extends State<_DoubleTapSeekDetector> {
               ),
             ),
           ),
-        ),
-        // Middle Zone (Double Click/Tap: Toggle Fullscreen)
-        Expanded(
-          flex: 3,
-          child: GestureDetector(
-            behavior: HitTestBehavior.translucent,
-            onDoubleTap: () {
-              widget.resetControlsTimer();
-              widget.toggleFullscreen();
-            },
-            child: Container(
-              color: Colors.transparent,
-            ),
+        );
+      },
+    );
+  }
+}
+
+class _GlassmorphicSliderIndicator extends StatelessWidget {
+  final IconData icon;
+  final double percentage; // 0.0 to 1.0
+  final String label;
+
+  const _GlassmorphicSliderIndicator({
+    required this.icon,
+    required this.percentage,
+    required this.label,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final int pctInt = (percentage.clamp(0.0, 1.0) * 100).round();
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(24.0),
+      child: BackdropFilter(
+        filter: ui.ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+        child: Container(
+          width: 48.0,
+          padding: const EdgeInsets.symmetric(vertical: 16.0, horizontal: 8.0),
+          decoration: BoxDecoration(
+            color: const Color(0xCC0F0F11),
+            borderRadius: BorderRadius.circular(24.0),
+            border: Border.all(color: Colors.white24, width: 1.0),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.5),
+                blurRadius: 12,
+                offset: const Offset(0, 4),
+              ),
+            ],
           ),
-        ),
-        // Right Side (Double Click/Tap: Seek +10s)
-        Expanded(
-          flex: 2,
-          child: GestureDetector(
-            behavior: HitTestBehavior.translucent,
-            onDoubleTap: () => _triggerSeek(false),
-            child: Container(
-              color: Colors.transparent,
-              child: Center(
-                child: AnimatedOpacity(
-                  opacity: _showRightIndicator ? 1.0 : 0.0,
-                  duration: const Duration(milliseconds: 200),
-                  child: Container(
-                    padding: const EdgeInsets.all(16.0),
-                    decoration: const BoxDecoration(
-                      color: Colors.black54,
-                      shape: BoxShape.circle,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, color: const Color(0xFFFF9F1C), size: 20.0),
+              const SizedBox(height: 12.0),
+              Expanded(
+                child: Stack(
+                  alignment: Alignment.bottomCenter,
+                  children: [
+                    Container(
+                      width: 6.0,
+                      decoration: BoxDecoration(
+                        color: Colors.white12,
+                        borderRadius: BorderRadius.circular(3.0),
+                      ),
                     ),
-                    child: const Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.fast_forward, color: Colors.white, size: 32.0),
-                        SizedBox(height: 4.0),
-                        Text(
-                          "+10s",
-                          style: TextStyle(color: Colors.white, fontSize: 12.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                    FractionallySizedBox(
+                      heightFactor: percentage.clamp(0.05, 1.0),
+                      child: Container(
+                        width: 6.0,
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            colors: [Color(0xFFFF9F1C), Color(0xFF2EC4B6)],
+                            begin: Alignment.bottomCenter,
+                            end: Alignment.topCenter,
+                          ),
+                          borderRadius: BorderRadius.circular(3.0),
+                          boxShadow: [
+                            BoxShadow(
+                              color: const Color(0xFFFF9F1C).withOpacity(0.6),
+                              blurRadius: 6,
+                            ),
+                          ],
                         ),
-                      ],
+                      ),
                     ),
-                  ),
+                  ],
                 ),
               ),
-            ),
+              const SizedBox(height: 12.0),
+              Text(
+                '$pctInt%',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 11.0,
+                  fontWeight: FontWeight.bold,
+                  fontFamily: 'Outfit',
+                ),
+              ),
+            ],
           ),
         ),
-      ],
+      ),
     );
   }
 }

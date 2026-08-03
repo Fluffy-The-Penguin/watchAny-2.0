@@ -41,6 +41,7 @@ class AniSkipService {
     if (_malIdCache.containsKey(anilistId)) {
       return _malIdCache[anilistId];
     }
+    // 1. Try AniZip Mappings API
     final url = Uri.parse('https://api.ani.zip/mappings?anilist_id=$anilistId');
     try {
       final response = await http.get(url).timeout(const Duration(seconds: 3));
@@ -54,7 +55,31 @@ class AniSkipService {
         }
       }
     } catch (_) {}
-    return null;
+
+    // 2. Fallback: AniList GraphQL API directly for idMal
+    try {
+      final gqlResponse = await http.post(
+        Uri.parse('https://graphql.anilist.co'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'query': r'query ($id: Int) { Media(id: $id, type: ANIME) { idMal } }',
+          'variables': {'id': anilistId},
+        }),
+      ).timeout(const Duration(seconds: 3));
+      if (gqlResponse.statusCode == 200) {
+        final data = jsonDecode(gqlResponse.body);
+        final malId = data['data']?['Media']?['idMal'];
+        if (malId != null) {
+          final mappedId = (malId as num).toInt();
+          _malIdCache[anilistId] = mappedId;
+          return mappedId;
+        }
+      }
+    } catch (_) {}
+
+    // 3. Fallback to using anilistId
+    _malIdCache[anilistId] = anilistId;
+    return anilistId;
   }
 
   Future<List<SkipInterval>> fetchSkipTimes({
