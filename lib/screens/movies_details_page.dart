@@ -20,6 +20,8 @@ import '../services/batch_mapping_service.dart';
 import '../services/torrserver_service.dart';
 import '../services/torrserver_manager.dart';
 import '../models/torrent.dart';
+import '../services/watch_together_service.dart';
+import '../widgets/watch_together_dialog.dart';
 
 // ─── Lightweight metadata cache (populated on home page card tap) ─────────────
 class MovieMetadataCache {
@@ -1160,10 +1162,12 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
     required String poster,
     required String? rating,
   }) {
+    Widget? primaryPlayBtn;
+
     if (!_isSeries) {
       // Movie — single play button
       if (_hasCheckedContinue && _continueStreamUrl != null) {
-        return ElevatedButton.icon(
+        primaryPlayBtn = ElevatedButton.icon(
           onPressed: () => PlayerState().startPlayback(
             streamUrl: _continueStreamUrl!,
             title: _continueStreamTitle ?? title,
@@ -1187,26 +1191,25 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
                   color: Colors.black, fontWeight: FontWeight.bold, fontSize: 16.0)),
           style: _playButtonStyle(Colors.amber),
         );
+      } else {
+        primaryPlayBtn = ElevatedButton.icon(
+          onPressed: () => _fetchStreamsAndPlay(),
+          icon: const Icon(Icons.play_arrow, color: Colors.black, size: 24.0),
+          label: const Text('Play',
+              style: TextStyle(
+                  color: Colors.black, fontWeight: FontWeight.bold, fontSize: 16.0)),
+          style: _playButtonStyle(Colors.white),
+        );
       }
-      return ElevatedButton.icon(
-        onPressed: () => _fetchStreamsAndPlay(),
-        icon: const Icon(Icons.play_arrow, color: Colors.black, size: 24.0),
-        label: const Text('Play',
-            style: TextStyle(
-                color: Colors.black, fontWeight: FontWeight.bold, fontSize: 16.0)),
-        style: _playButtonStyle(Colors.white),
-      );
-    }
-
-    // TV Series — continue/start button
-    if (_hasCheckedContinue) {
+    } else if (_hasCheckedContinue) {
+      // TV Series — continue/start button
       final label = _continueEpisode == 1 &&
               !_continueEpisodeFinished &&
               _continueStreamUrl == null
           ? 'Start Watching'
           : 'Continue — Ep $_continueEpisode';
 
-      return ElevatedButton.icon(
+      primaryPlayBtn = ElevatedButton.icon(
         onPressed: () {
           if (_continueStreamUrl != null && _continueStreamUrl!.isNotEmpty) {
             PlayerState().startPlayback(
@@ -1249,7 +1252,68 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
       );
     }
 
-    return const SizedBox.shrink();
+    final watchTogetherBtn = ElevatedButton.icon(
+      onPressed: () {
+        final payload = WatchMediaPayload(
+          title: title,
+          movieId: '$_type:$_realId',
+          episodeNumber: _isSeries ? _continueEpisode : 1,
+          season: _isSeries ? _selectedSeason : null,
+          isMovie: !_isSeries,
+          videoUrl: _continueStreamUrl,
+        );
+        showDialog(
+          context: context,
+          builder: (_) => WatchTogetherDialog(
+            mediaPayload: payload,
+            onStartPlayback: (media) {
+              if (media.videoUrl != null && media.videoUrl!.isNotEmpty) {
+                PlayerState().startPlayback(
+                  streamUrl: media.videoUrl!,
+                  title: media.title,
+                  movieId: media.movieId,
+                  episodeNumber: media.episodeNumber,
+                  isMovie: media.isMovie,
+                  media: {
+                    'id': media.movieId,
+                    'stremioId': media.movieId,
+                    'title': title,
+                    'coverImage': poster,
+                    'averageScore': double.tryParse(rating ?? '0') ?? 0.0,
+                    'format': media.isMovie ? 'MOVIE' : 'SERIES',
+                    'episodes': _isSeries && _hasVideos ? (_meta['videos'] as List).length : 1,
+                    'type': _type,
+                  },
+                );
+              } else {
+                _fetchStreamsAndPlay(
+                  episode: media.isMovie ? null : media.episodeNumber,
+                );
+              }
+            },
+          ),
+        );
+      },
+      icon: const Icon(Icons.groups_rounded, color: Colors.white, size: 20.0),
+      label: const Text(
+        'Watch Together',
+        style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15.0),
+      ),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: Colors.deepPurpleAccent,
+        padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
+      ),
+    );
+
+    return Wrap(
+      spacing: 12.0,
+      runSpacing: 12.0,
+      children: [
+        if (primaryPlayBtn != null) primaryPlayBtn,
+        watchTogetherBtn,
+      ],
+    );
   }
 
   ButtonStyle _playButtonStyle(Color color) {

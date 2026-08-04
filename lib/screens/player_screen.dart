@@ -27,6 +27,8 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../services/aniskip_service.dart';
 import '../state/navigation_state.dart';
 import 'settings_page.dart';
+import '../services/watch_together_service.dart';
+import '../widgets/watch_together_player_overlay.dart';
 
 class PlayerScreen extends StatefulWidget {
   final String streamUrl;
@@ -319,6 +321,41 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
     _applySubtitleSettingsToMPV();
 
     _updateTorrentTimer();
+
+    // Bind Watch Together sync if session is active
+    final wtService = WatchTogetherService();
+    if (wtService.isActive) {
+      wtService.setPlaybackSyncCallback((targetPos, targetIsPlaying) {
+        if (!mounted) return;
+        final currentPos = player.state.position;
+        if ((currentPos - targetPos).inSeconds.abs() > 2.5) {
+          player.seek(targetPos);
+        }
+        if (targetIsPlaying && !player.state.playing) {
+          player.play();
+        } else if (!targetIsPlaying && player.state.playing) {
+          player.pause();
+        }
+      });
+
+      _subscriptions.add(player.stream.position.listen((p) {
+        if (wtService.isActive) {
+          wtService.updateLocalPlaybackState(position: p, isPlaying: player.state.playing);
+        }
+      }));
+
+      _subscriptions.add(player.stream.playing.listen((isPlaying) {
+        if (wtService.isActive) {
+          wtService.updateLocalPlaybackState(position: player.state.position, isPlaying: isPlaying);
+        }
+      }));
+
+      _subscriptions.add(player.stream.buffering.listen((isBuffering) {
+        if (wtService.isActive) {
+          wtService.notifyLocalBuffering(isBuffering);
+        }
+      }));
+    }
 
     // Fetch skip times once duration is loaded
     if (widget.anilistId != null) {
@@ -2003,6 +2040,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
                                 );
                               },
                             ),
+                            const WatchTogetherPlayerOverlay(),
                           ],
                         ),
                       ),
