@@ -41,6 +41,8 @@ class MainActivity : FlutterActivity() {
                                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                     }
                                     startActivity(settingsIntent)
+                                    result.success(false)
+                                    return@setMethodCallHandler
                                 }
                             }
 
@@ -54,12 +56,10 @@ class MainActivity : FlutterActivity() {
                                 Uri.fromFile(file)
                             }
 
-                            @Suppress("DEPRECATION")
-                            val intent = Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
+                            val intent = Intent(Intent.ACTION_VIEW).apply {
                                 setDataAndType(apkUri, "application/vnd.android.package-archive")
                                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                putExtra(Intent.EXTRA_RETURN_RESULT, true)
                             }
                             
                             startActivity(intent)

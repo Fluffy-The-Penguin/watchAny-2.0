@@ -775,9 +775,6 @@ class _ConnectionChip extends StatelessWidget {
         label = 'Online';
         break;
       case WTConnectionStatus.connecting:
-      case WTConnectionStatus.generatingOffer:
-      case WTConnectionStatus.generatingAnswer:
-      case WTConnectionStatus.waitingForAnswer:
         color = Colors.amberAccent;
         label = 'Connecting...';
         break;

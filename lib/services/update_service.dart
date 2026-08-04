@@ -44,10 +44,10 @@ class UpdateInfo {
         }
       }
     } else {
-      // Locate zip asset for instant portable in-place extraction, fallback to .exe
+      // Prefer setup .exe installer for reliable Windows installation, fallback to zip
       for (final asset in assets) {
         final name = asset['name'] as String? ?? '';
-        if (name.endsWith('.zip') && name.contains('portable')) {
+        if (name.endsWith('.exe') && name.contains('setup')) {
           downloadUrl = asset['browser_download_url'] as String? ?? '';
           break;
         }
@@ -55,7 +55,7 @@ class UpdateInfo {
       if (downloadUrl.isEmpty) {
         for (final asset in assets) {
           final name = asset['name'] as String? ?? '';
-          if (name.endsWith('.zip')) {
+          if (name.endsWith('.exe')) {
             downloadUrl = asset['browser_download_url'] as String? ?? '';
             break;
           }
@@ -64,7 +64,7 @@ class UpdateInfo {
       if (downloadUrl.isEmpty) {
         for (final asset in assets) {
           final name = asset['name'] as String? ?? '';
-          if (name.endsWith('.exe')) {
+          if (name.endsWith('.zip') && name.contains('portable')) {
             downloadUrl = asset['browser_download_url'] as String? ?? '';
             break;
           }
@@ -88,7 +88,7 @@ class UpdateService extends ChangeNotifier {
   factory UpdateService() => _instance;
   UpdateService._internal();
 
-  static const String currentVersion = '2.2.07';
+  static const String currentVersion = '2.2.08';
   
   // GitHub Releases API Endpoint
   static const String gitHubReleasesUrl = 'https://api.github.com/repos/Fluffy-The-Penguin/watchAny-2.0/releases/latest';
@@ -442,23 +442,15 @@ Start-Process "$appExePath"
           await Process.start('powershell.exe', [
             '-ExecutionPolicy', 'Bypass',
             '-WindowStyle', 'Hidden',
-            '-File', psScriptPath,
+            '-Command', 'Start-Process powershell.exe -ArgumentList "-ExecutionPolicy Bypass -File `"$psScriptPath`"" -Verb RunAs'
           ]);
           exit(0);
         } else {
-          final psScriptPath = '${tempDir.path}\\watchany_exe_installer.ps1';
-          final psScriptContent = '''
-Start-Sleep -Seconds 1
-Get-Process -Name "watch_any" -ErrorAction SilentlyContinue | Stop-Process -Force
-Start-Sleep -Seconds 1
-Start-Process -FilePath "$filePath" -ArgumentList "/SILENT /CLOSEAPPLICATIONS /DIR=`"$appDir`"" -Wait
-Start-Process "$appExePath"
-''';
-          await File(psScriptPath).writeAsString(psScriptContent);
+          // Launch setup EXE installer directly with Admin elevation
           await Process.start('powershell.exe', [
             '-ExecutionPolicy', 'Bypass',
             '-WindowStyle', 'Hidden',
-            '-File', psScriptPath,
+            '-Command', 'Start-Process -FilePath `"$filePath`" -Verb RunAs'
           ]);
           await Future.delayed(const Duration(milliseconds: 300));
           exit(0);
