@@ -155,17 +155,15 @@ class _WatchTogetherDialogState extends State<WatchTogetherDialog>
     if (!mounted) return;
 
     if (result.isSuccess) {
-      setState(() => _guestStep = _GuestStep.waitingP2P);
-      // Watch for connected state
-      _service.addListener(_onServiceChange);
+      setState(() => _guestStep = _GuestStep.connected);
+      Future.delayed(const Duration(milliseconds: 500), () {
+        if (mounted) _openRoomScreen();
+      });
     } else {
       setState(() {
         _guestStep = _GuestStep.error;
         _lastJoinResult = result;
-        // Show URL fallback for room-not-found or network issues
-        _showUrlFallback = result == WTJoinResult.roomNotFound ||
-            result == WTJoinResult.networkError ||
-            result == WTJoinResult.error;
+        _showUrlFallback = true;
       });
     }
   }
