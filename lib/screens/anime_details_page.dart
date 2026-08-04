@@ -21,6 +21,7 @@ import '../services/hstream_service.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../models/torrent.dart';
 import '../widgets/poster_image_viewer.dart';
+import '../widgets/smooth_scroll_area.dart';
 import '../state/library_state.dart';
 
 class AnimeDetailsPage extends StatefulWidget {

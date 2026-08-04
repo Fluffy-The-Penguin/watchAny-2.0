@@ -44,10 +44,10 @@ class UpdateInfo {
         }
       }
     } else {
-      // Locate the first executable (.exe) or zip asset
+      // Locate zip asset for instant portable in-place extraction, fallback to .exe
       for (final asset in assets) {
         final name = asset['name'] as String? ?? '';
-        if (name.endsWith('.exe')) {
+        if (name.endsWith('.zip') && name.contains('portable')) {
           downloadUrl = asset['browser_download_url'] as String? ?? '';
           break;
         }
@@ -56,6 +56,15 @@ class UpdateInfo {
         for (final asset in assets) {
           final name = asset['name'] as String? ?? '';
           if (name.endsWith('.zip')) {
+            downloadUrl = asset['browser_download_url'] as String? ?? '';
+            break;
+          }
+        }
+      }
+      if (downloadUrl.isEmpty) {
+        for (final asset in assets) {
+          final name = asset['name'] as String? ?? '';
+          if (name.endsWith('.exe')) {
             downloadUrl = asset['browser_download_url'] as String? ?? '';
             break;
           }
@@ -79,7 +88,7 @@ class UpdateService extends ChangeNotifier {
   factory UpdateService() => _instance;
   UpdateService._internal();
 
-  static const String currentVersion = '2.1.92';
+  static const String currentVersion = '2.1.93';
   
   // GitHub Releases API Endpoint
   static const String gitHubReleasesUrl = 'https://api.github.com/repos/Fluffy-The-Penguin/watchAny-2.0/releases/latest';
@@ -424,6 +433,7 @@ class UpdateService extends ChangeNotifier {
           final psScriptContent = '''
 Start-Sleep -Seconds 1
 Get-Process -Name "watch_any" -ErrorAction SilentlyContinue | Stop-Process -Force
+Start-Sleep -Seconds 1
 Expand-Archive -Path "$filePath" -DestinationPath "$appDir" -Force
 Remove-Item "$filePath" -Force -ErrorAction SilentlyContinue
 Start-Process "$appExePath"
@@ -436,12 +446,13 @@ Start-Process "$appExePath"
           ]);
           exit(0);
         } else {
-          // Launch EXE installer via PowerShell with Administrator UAC prompt (-Verb RunAs)
           final psScriptPath = '${tempDir.path}\\watchany_exe_installer.ps1';
           final psScriptContent = '''
-Start-Sleep -Milliseconds 500
+Start-Sleep -Seconds 1
 Get-Process -Name "watch_any" -ErrorAction SilentlyContinue | Stop-Process -Force
-Start-Process -FilePath "$filePath" -ArgumentList "/DIR=`"$appDir`"" -Verb RunAs
+Start-Sleep -Seconds 1
+Start-Process -FilePath "$filePath" -ArgumentList "/SILENT /CLOSEAPPLICATIONS /DIR=`"$appDir`"" -Wait
+Start-Process "$appExePath"
 ''';
           await File(psScriptPath).writeAsString(psScriptContent);
           await Process.start('powershell.exe', [

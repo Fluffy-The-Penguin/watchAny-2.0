@@ -892,7 +892,7 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
             children: [
               // Poster thumbnail
               GestureDetector(
-                onTap: () => showPosterImageViewerDialog(context, imageUrl: poster, title: _title ?? 'Poster'),
+                onTap: () => showPosterImageViewerDialog(context, imageUrl: poster, title: title.isNotEmpty ? title : 'Poster'),
                 child: MouseRegion(
                   cursor: SystemMouseCursors.click,
                   child: Container(
