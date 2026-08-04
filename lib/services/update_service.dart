@@ -79,7 +79,7 @@ class UpdateService extends ChangeNotifier {
   factory UpdateService() => _instance;
   UpdateService._internal();
 
-  static const String currentVersion = '2.1.91';
+  static const String currentVersion = '2.1.92';
   
   // GitHub Releases API Endpoint
   static const String gitHubReleasesUrl = 'https://api.github.com/repos/Fluffy-The-Penguin/watchAny-2.0/releases/latest';
@@ -157,8 +157,7 @@ class UpdateService extends ChangeNotifier {
           _downloadedVersion = version;
           notifyListeners();
         } else {
-          await prefs.remove('downloaded_update_path');
-          await prefs.remove('downloaded_update_version');
+          await clearCachedUpdateFile();
         }
       }
     } catch (e) {
@@ -174,15 +173,15 @@ class UpdateService extends ChangeNotifier {
           await file.delete();
         }
       }
-      _downloadedFilePath = null;
-      _downloadedVersion = null;
+    } catch (_) {}
+    _downloadedFilePath = null;
+    _downloadedVersion = null;
+    try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove('downloaded_update_path');
       await prefs.remove('downloaded_update_version');
-      notifyListeners();
-    } catch (e) {
-      debugPrint('[UpdateService] Error clearing cached update file: $e');
-    }
+    } catch (_) {}
+    notifyListeners();
   }
 
   Future<void> skipVersion(String version) async {
@@ -396,21 +395,37 @@ class UpdateService extends ChangeNotifier {
 
   Future<void> launchInstaller() async {
     if (_downloadedFilePath == null) return;
+    final filePath = _downloadedFilePath!;
+    final version = _downloadedVersion ?? '';
+
+    // Immediately clear downloaded update keys from SharedPreferences to prevent prompt loops
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('downloaded_update_path');
+      await prefs.remove('downloaded_update_version');
+      if (version.isNotEmpty) {
+        await prefs.setString('installed_update_version', version);
+      }
+    } catch (_) {}
+
+    _downloadedFilePath = null;
+    _downloadedVersion = null;
+    notifyListeners();
+
     try {
       if (Platform.isWindows) {
-        final isZip = _downloadedFilePath!.toLowerCase().endsWith('.zip');
+        final isZip = filePath.toLowerCase().endsWith('.zip');
+        final appExePath = Platform.resolvedExecutable;
+        final appDir = File(appExePath).parent.path;
+        final tempDir = Directory.systemTemp;
 
         if (isZip) {
-          final tempDir = Directory.systemTemp;
           final psScriptPath = '${tempDir.path}\\watchany_update_runner.ps1';
-          final appExePath = Platform.resolvedExecutable;
-          final appDir = File(appExePath).parent.path;
-
           final psScriptContent = '''
 Start-Sleep -Seconds 1
 Get-Process -Name "watch_any" -ErrorAction SilentlyContinue | Stop-Process -Force
-Expand-Archive -Path "$_downloadedFilePath" -DestinationPath "$appDir" -Force
-Remove-Item "$_downloadedFilePath" -Force -ErrorAction SilentlyContinue
+Expand-Archive -Path "$filePath" -DestinationPath "$appDir" -Force
+Remove-Item "$filePath" -Force -ErrorAction SilentlyContinue
 Start-Process "$appExePath"
 ''';
           await File(psScriptPath).writeAsString(psScriptContent);
@@ -421,20 +436,25 @@ Start-Process "$appExePath"
           ]);
           exit(0);
         } else {
-          // Native 64-bit EXE installer - pass target app directory and silent flags so it updates current app location in-place
-          final appExePath = Platform.resolvedExecutable;
-          final appDir = File(appExePath).parent.path;
-          await Process.start(
-            _downloadedFilePath!,
-            ['/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/CLOSEAPPLICATIONS', '/DIR=$appDir'],
-            mode: ProcessStartMode.detached,
-          );
+          // Launch EXE installer via PowerShell with Administrator UAC prompt (-Verb RunAs)
+          final psScriptPath = '${tempDir.path}\\watchany_exe_installer.ps1';
+          final psScriptContent = '''
+Start-Sleep -Milliseconds 500
+Get-Process -Name "watch_any" -ErrorAction SilentlyContinue | Stop-Process -Force
+Start-Process -FilePath "$filePath" -ArgumentList "/DIR=`"$appDir`"" -Verb RunAs
+''';
+          await File(psScriptPath).writeAsString(psScriptContent);
+          await Process.start('powershell.exe', [
+            '-ExecutionPolicy', 'Bypass',
+            '-WindowStyle', 'Hidden',
+            '-File', psScriptPath,
+          ]);
           await Future.delayed(const Duration(milliseconds: 300));
           exit(0);
         }
       } else if (Platform.isAndroid) {
         const channel = MethodChannel('com.example.watch_any/native_path');
-        await channel.invokeMethod('installApk', {'filePath': _downloadedFilePath});
+        await channel.invokeMethod('installApk', {'filePath': filePath});
       } else {
         throw Exception('Auto update is only supported on Windows and Android.');
       }

@@ -1289,6 +1289,13 @@ class _StartupUpdateCheckerState extends State<StartupUpdateChecker> {
             ),
             actions: [
               TextButton(
+                onPressed: () async {
+                  Navigator.pop(context);
+                  await updateService.clearCachedUpdateFile();
+                },
+                child: const Text('Dismiss & Clear', style: TextStyle(color: Colors.redAccent, fontFamily: 'Outfit')),
+              ),
+              TextButton(
                 onPressed: () => Navigator.pop(context),
                 child: const Text('Install Later', style: TextStyle(color: Colors.white38, fontFamily: 'Outfit')),
               ),
