@@ -68,7 +68,7 @@ class _WatchTogetherDialogState extends State<WatchTogetherDialog> {
       if (widget.onStartPlayback != null) {
         widget.onStartPlayback!(widget.mediaPayload!);
       } else {
-        WatchTogetherService.launchMediaPayload(context, widget.mediaPayload!);
+        WatchTogetherService.resolveAndPlay(context, widget.mediaPayload!);
       }
     } else {
       setState(() => _errorMessage = 'Failed to create room. Please try again.');
@@ -95,7 +95,7 @@ class _WatchTogetherDialogState extends State<WatchTogetherDialog> {
       if (widget.onStartPlayback != null) {
         widget.onStartPlayback!(media);
       } else {
-        WatchTogetherService.launchMediaPayload(context, media);
+        WatchTogetherService.resolveAndPlay(context, media);
       }
     }
 

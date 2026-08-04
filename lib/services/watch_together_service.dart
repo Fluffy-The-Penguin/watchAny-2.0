@@ -4,7 +4,10 @@ import 'dart:developer' as developer;
 import 'dart:io';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import '../state/player_state.dart';
+import 'stremio_addon_service.dart';
 
 class WatchParticipant {
   final String id;
@@ -541,7 +544,10 @@ class WatchTogetherService extends ChangeNotifier {
     }
   }
 
-  static void launchMediaPayload(dynamic context, WatchMediaPayload media) {
+  static Future<void> resolveAndPlay(BuildContext context, WatchMediaPayload media) async {
+    final String type = media.isMovie ? 'movie' : 'series';
+
+    // 1. If videoUrl is already provided, start playback immediately!
     if (media.videoUrl != null && media.videoUrl!.isNotEmpty) {
       PlayerState().startPlayback(
         streamUrl: media.videoUrl!,
@@ -556,6 +562,113 @@ class WatchTogetherService extends ChangeNotifier {
           'title': media.title,
           'format': media.isMovie ? 'MOVIE' : 'SERIES',
         },
+      );
+      return;
+    }
+
+    // 2. If videoUrl is null, resolve streams!
+    String cleanId = media.movieId;
+    if (cleanId.contains(':')) {
+      final parts = cleanId.split(':');
+      if (parts.length > 1) {
+        cleanId = parts.last;
+      }
+    }
+
+    String targetId = cleanId;
+    if (!media.isMovie) {
+      targetId = '$cleanId:${media.season ?? 1}:${media.episodeNumber}';
+    }
+
+    // Show loading overlay
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => const Center(
+        child: Card(
+          color: Color(0xFF141417),
+          child: Padding(
+            padding: EdgeInsets.all(24.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(color: Colors.deepPurpleAccent),
+                SizedBox(height: 16),
+                Text(
+                  'Resolving stream for room...',
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    try {
+      final addonService = StremioAddonService();
+      await addonService.init();
+      final streamAddons = addonService.streamAddons
+          .where((a) => a.matchesId(targetId))
+          .where((a) => a.supportsType(type) || a.types.isEmpty)
+          .toList();
+
+      final List<Map<String, dynamic>> allStreams = [];
+      for (final addon in streamAddons) {
+        try {
+          final url = '${addon.baseUrl}/stream/$type/$targetId.json';
+          final response = await http.get(Uri.parse(url)).timeout(const Duration(seconds: 8));
+          if (response.statusCode == 200) {
+            final body = jsonDecode(response.body);
+            final List streams = body['streams'] ?? [];
+            for (final s in streams) {
+              if (s is Map) {
+                allStreams.add(Map<String, dynamic>.from(s));
+              }
+            }
+          }
+        } catch (_) {}
+      }
+
+      if (Navigator.canPop(context)) Navigator.pop(context);
+
+      if (allStreams.isNotEmpty) {
+        final bestStream = allStreams.first;
+        final url = bestStream['url']?.toString() ?? bestStream['externalUrl']?.toString();
+        if (url != null && url.isNotEmpty) {
+          PlayerState().startPlayback(
+            streamUrl: url,
+            title: media.title,
+            movieId: media.movieId,
+            episodeNumber: media.episodeNumber,
+            isMovie: media.isMovie,
+            headers: (bestStream['behaviorHints'] as Map?)?['requestHeaders'] != null
+                ? Map<String, String>.from((bestStream['behaviorHints']['requestHeaders'] as Map))
+                : null,
+            media: {
+              'id': media.movieId,
+              'stremioId': media.movieId,
+              'title': media.title,
+              'format': media.isMovie ? 'MOVIE' : 'SERIES',
+            },
+          );
+          return;
+        }
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('No active streams found for ${media.title}.'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+    } catch (e) {
+      if (Navigator.canPop(context)) Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error resolving stream: $e'),
+          backgroundColor: Colors.redAccent,
+        ),
       );
     }
   }
