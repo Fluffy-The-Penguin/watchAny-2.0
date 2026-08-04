@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/watch_together_service.dart';
@@ -16,9 +17,8 @@ class WatchTogetherDialog extends StatefulWidget {
   State<WatchTogetherDialog> createState() => _WatchTogetherDialogState();
 }
 
-class _WatchTogetherDialogState extends State<WatchTogetherDialog>
-    with SingleTickerProviderStateMixin {
-  late TabController _tabController;
+class _WatchTogetherDialogState extends State<WatchTogetherDialog> {
+  int _selectedTabIndex = 0; // 0: Create, 1: Join
   final TextEditingController _hostNameController =
       TextEditingController(text: 'Host');
   final TextEditingController _guestNameController =
@@ -31,12 +31,13 @@ class _WatchTogetherDialogState extends State<WatchTogetherDialog>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    if (widget.mediaPayload == null) {
+      _selectedTabIndex = 1; // Default to Join tab if opened globally without a host payload
+    }
   }
 
   @override
   void dispose() {
-    _tabController.dispose();
     _hostNameController.dispose();
     _guestNameController.dispose();
     _roomCodeController.dispose();
@@ -45,7 +46,7 @@ class _WatchTogetherDialogState extends State<WatchTogetherDialog>
 
   Future<void> _handleCreateRoom() async {
     if (widget.mediaPayload == null) {
-      setState(() => _errorMessage = 'No media payload available to stream.');
+      setState(() => _errorMessage = 'No media selected to host.');
       return;
     }
     setState(() {
@@ -66,9 +67,11 @@ class _WatchTogetherDialogState extends State<WatchTogetherDialog>
       Navigator.of(context).pop();
       if (widget.onStartPlayback != null) {
         widget.onStartPlayback!(widget.mediaPayload!);
+      } else {
+        WatchTogetherService.launchMediaPayload(context, widget.mediaPayload!);
       }
     } else {
-      setState(() => _errorMessage = 'Failed to connect host signaling server.');
+      setState(() => _errorMessage = 'Failed to create room. Please try again.');
     }
   }
 
@@ -85,16 +88,19 @@ class _WatchTogetherDialogState extends State<WatchTogetherDialog>
     });
 
     final service = WatchTogetherService();
-    
-    // Bind media received callback to launch player automatically for Guest!
-    service.setMediaReceivedCallback((media) {
-      if (mounted) {
-        Navigator.of(context).pop();
-        if (widget.onStartPlayback != null) {
-          widget.onStartPlayback!(media);
-        }
+
+    void launchPlayback(WatchMediaPayload media) {
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      if (widget.onStartPlayback != null) {
+        widget.onStartPlayback!(media);
+      } else {
+        WatchTogetherService.launchMediaPayload(context, media);
       }
-    });
+    }
+
+    // Bind callback FIRST before joining so we never miss incoming ROOM_STATE
+    service.setMediaReceivedCallback(launchPlayback);
 
     final success = await service.joinRoom(
       code: code,
@@ -105,29 +111,39 @@ class _WatchTogetherDialogState extends State<WatchTogetherDialog>
     setState(() => _isConnecting = false);
 
     if (success) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Joined Room $code! Syncing with host...'),
-          backgroundColor: Colors.deepPurple,
-        ),
-      );
+      // Check if host media is already populated
+      if (service.mediaPayload != null) {
+        launchPlayback(service.mediaPayload!);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Joined Room $code! Syncing stream with host...'),
+            backgroundColor: Colors.deepPurple,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
     } else {
-      setState(() => _errorMessage = 'Could not connect to room. Check room code.');
+      setState(() => _errorMessage = 'Could not join room $code. Verify code.');
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final double screenWidth = MediaQuery.of(context).size.width;
+    final double dialogWidth = min(screenWidth - 32.0, 430.0);
+
     return Dialog(
       backgroundColor: const Color(0xFF141417),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 24.0),
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16.0),
-        side: const BorderSide(color: Colors.white12),
+        borderRadius: BorderRadius.circular(20.0),
+        side: BorderSide(color: Colors.white.withValues(alpha: 0.12)),
       ),
       child: SingleChildScrollView(
         child: Container(
-          width: 440,
-          padding: const EdgeInsets.all(24.0),
+          width: dialogWidth,
+          padding: const EdgeInsets.all(22.0),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -138,8 +154,8 @@ class _WatchTogetherDialogState extends State<WatchTogetherDialog>
                   Container(
                     padding: const EdgeInsets.all(10.0),
                     decoration: BoxDecoration(
-                      color: Colors.deepPurple.withValues(alpha: 0.2),
-                      borderRadius: BorderRadius.circular(12.0),
+                      color: Colors.deepPurpleAccent.withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(14.0),
                     ),
                     child: const Icon(Icons.groups_rounded,
                         color: Colors.deepPurpleAccent, size: 24),
@@ -153,7 +169,7 @@ class _WatchTogetherDialogState extends State<WatchTogetherDialog>
                           'Watch Together',
                           style: TextStyle(
                             color: Colors.white,
-                            fontSize: 20.0,
+                            fontSize: 19.0,
                             fontWeight: FontWeight.bold,
                             fontFamily: 'Outfit',
                           ),
@@ -171,32 +187,75 @@ class _WatchTogetherDialogState extends State<WatchTogetherDialog>
                     ),
                   ),
                   IconButton(
-                    icon: const Icon(Icons.close, color: Colors.white54),
+                    icon: const Icon(Icons.close, color: Colors.white54, size: 20),
                     onPressed: () => Navigator.of(context).pop(),
                   ),
                 ],
               ),
               const SizedBox(height: 20.0),
 
-              // Tab Switcher
+              // Modern Custom Segmented Control (Zero Overflow)
               Container(
-                height: 42,
+                height: 44,
+                padding: const EdgeInsets.all(4.0),
                 decoration: BoxDecoration(
                   color: Colors.white.withValues(alpha: 0.05),
-                  borderRadius: BorderRadius.circular(10.0),
+                  borderRadius: BorderRadius.circular(12.0),
+                  border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
                 ),
-                child: TabBar(
-                  controller: _tabController,
-                  indicator: BoxDecoration(
-                    color: Colors.deepPurpleAccent,
-                    borderRadius: BorderRadius.circular(8.0),
-                  ),
-                  labelColor: Colors.white,
-                  unselectedLabelColor: Colors.white54,
-                  labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13.0),
-                  tabs: const [
-                    Tab(text: 'Create Room'),
-                    Tab(text: 'Join Room'),
+                child: Row(
+                  children: [
+                    if (widget.mediaPayload != null)
+                      Expanded(
+                        child: GestureDetector(
+                          onTap: () => setState(() => _selectedTabIndex = 0),
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 180),
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(
+                              color: _selectedTabIndex == 0
+                                  ? Colors.deepPurpleAccent
+                                  : Colors.transparent,
+                              borderRadius: BorderRadius.circular(9.0),
+                            ),
+                            child: Text(
+                              'Create Room',
+                              style: TextStyle(
+                                color: _selectedTabIndex == 0
+                                    ? Colors.white
+                                    : Colors.white60,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13.5,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () => setState(() => _selectedTabIndex = 1),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 180),
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: _selectedTabIndex == 1
+                                ? Colors.deepPurpleAccent
+                                : Colors.transparent,
+                            borderRadius: BorderRadius.circular(9.0),
+                          ),
+                          child: Text(
+                            'Join Room',
+                            style: TextStyle(
+                              color: _selectedTabIndex == 1
+                                  ? Colors.white
+                                  : Colors.white60,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 13.5,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -204,11 +263,11 @@ class _WatchTogetherDialogState extends State<WatchTogetherDialog>
 
               if (_errorMessage != null) ...[
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
                   decoration: BoxDecoration(
                     color: Colors.redAccent.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.redAccent.withValues(alpha: 0.4)),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Colors.redAccent.withValues(alpha: 0.35)),
                   ),
                   child: Row(
                     children: [
@@ -226,180 +285,178 @@ class _WatchTogetherDialogState extends State<WatchTogetherDialog>
                 const SizedBox(height: 16.0),
               ],
 
-              SizedBox(
-                height: 230,
-                child: TabBarView(
-                  controller: _tabController,
-                  children: [
-                    // Tab 1: Create Room
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Your Name / Alias',
-                          style: TextStyle(color: Colors.white70, fontSize: 12.0),
-                        ),
-                        const SizedBox(height: 6.0),
-                        TextField(
-                          controller: _hostNameController,
-                          style: const TextStyle(color: Colors.white, fontSize: 14.0),
-                          decoration: InputDecoration(
-                            hintText: 'Enter your name',
-                            hintStyle: const TextStyle(color: Colors.white30),
-                            filled: true,
-                            fillColor: Colors.white.withValues(alpha: 0.05),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(8.0),
-                              borderSide: const BorderSide(color: Colors.white12),
-                            ),
-                            contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 14.0, vertical: 12.0),
-                          ),
-                        ),
-                        const SizedBox(height: 12.0),
-                        ListenableBuilder(
-                          listenable: WatchTogetherService(),
-                          builder: (context, _) {
-                            final ip = WatchTogetherService().hostLocalIp;
-                            if (ip == null) return const SizedBox.shrink();
-                            return Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                              decoration: BoxDecoration(
-                                color: Colors.amber.withValues(alpha: 0.1),
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                              child: Text(
-                                'LAN Direct Sync IP: $ip:8492',
-                                style: const TextStyle(
-                                  color: Colors.amberAccent,
-                                  fontSize: 11.5,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                        const Spacer(),
-                        SizedBox(
-                          width: double.infinity,
-                          height: 46,
-                          child: ElevatedButton.icon(
-                            onPressed: _isConnecting ? null : _handleCreateRoom,
-                            icon: _isConnecting
-                                ? const SizedBox(
-                                    width: 18,
-                                    height: 18,
-                                    child: CircularProgressIndicator(
-                                        color: Colors.white, strokeWidth: 2))
-                                : const Icon(Icons.play_arrow_rounded, color: Colors.white),
-                            label: Text(
-                              _isConnecting ? 'Creating Room...' : 'Start Watch Together',
-                              style: const TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 15.0),
-                            ),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.deepPurpleAccent,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(10.0),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-
-                    // Tab 2: Join Room
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Your Name',
-                          style: TextStyle(color: Colors.white70, fontSize: 12.0),
-                        ),
-                        const SizedBox(height: 6.0),
-                        TextField(
-                          controller: _guestNameController,
-                          style: const TextStyle(color: Colors.white, fontSize: 14.0),
-                          decoration: InputDecoration(
-                            hintText: 'Enter your name',
-                            hintStyle: const TextStyle(color: Colors.white30),
-                            filled: true,
-                            fillColor: Colors.white.withValues(alpha: 0.05),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(8.0),
-                              borderSide: const BorderSide(color: Colors.white12),
-                            ),
-                            contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 14.0, vertical: 10.0),
-                          ),
-                        ),
-                        const SizedBox(height: 12.0),
-                        const Text(
-                          '6-Digit Room Code',
-                          style: TextStyle(color: Colors.white70, fontSize: 12.0),
-                        ),
-                        const SizedBox(height: 6.0),
-                        TextField(
-                          controller: _roomCodeController,
-                          keyboardType: TextInputType.number,
-                          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                          maxLength: 6,
-                          style: const TextStyle(
-                              color: Colors.amber,
-                              fontSize: 16.0,
-                              letterSpacing: 4.0,
-                              fontWeight: FontWeight.bold),
-                          decoration: InputDecoration(
-                            counterText: '',
-                            hintText: '849201',
-                            hintStyle: TextStyle(
-                                color: Colors.white.withValues(alpha: 0.2),
-                                letterSpacing: 4.0),
-                            filled: true,
-                            fillColor: Colors.white.withValues(alpha: 0.05),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(8.0),
-                              borderSide: const BorderSide(color: Colors.white12),
-                            ),
-                            contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 14.0, vertical: 10.0),
-                          ),
-                        ),
-                        const Spacer(),
-                        SizedBox(
-                          width: double.infinity,
-                          height: 46,
-                          child: ElevatedButton.icon(
-                            onPressed: _isConnecting ? null : _handleJoinRoom,
-                            icon: _isConnecting
-                                ? const SizedBox(
-                                    width: 18,
-                                    height: 18,
-                                    child: CircularProgressIndicator(
-                                        color: Colors.white, strokeWidth: 2))
-                                : const Icon(Icons.group_add_rounded, color: Colors.white),
-                            label: Text(
-                              _isConnecting ? 'Joining...' : 'Join Room & Watch',
-                              style: const TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 15.0),
-                            ),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.deepPurpleAccent,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(10.0),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
+              // Tab 1: Create Room
+              if (_selectedTabIndex == 0 && widget.mediaPayload != null) ...[
+                const Text(
+                  'Your Name / Alias',
+                  style: TextStyle(color: Colors.white70, fontSize: 12.0, fontWeight: FontWeight.w500),
                 ),
-              ),
+                const SizedBox(height: 6.0),
+                TextField(
+                  controller: _hostNameController,
+                  style: const TextStyle(color: Colors.white, fontSize: 14.0),
+                  decoration: InputDecoration(
+                    hintText: 'Enter your name',
+                    hintStyle: const TextStyle(color: Colors.white30),
+                    filled: true,
+                    fillColor: Colors.white.withValues(alpha: 0.05),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12.0),
+                      borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12.0),
+                      borderSide: const BorderSide(color: Colors.deepPurpleAccent),
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 14.0, vertical: 12.0),
+                  ),
+                ),
+                const SizedBox(height: 12.0),
+                ListenableBuilder(
+                  listenable: WatchTogetherService(),
+                  builder: (context, _) {
+                    final ip = WatchTogetherService().hostLocalIp;
+                    if (ip == null) return const SizedBox.shrink();
+                    return Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: Colors.amber.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        'LAN Direct Sync IP: $ip:8492',
+                        style: const TextStyle(
+                          color: Colors.amberAccent,
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+                const SizedBox(height: 24.0),
+                SizedBox(
+                  width: double.infinity,
+                  height: 48,
+                  child: ElevatedButton.icon(
+                    onPressed: _isConnecting ? null : _handleCreateRoom,
+                    icon: _isConnecting
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                                color: Colors.white, strokeWidth: 2))
+                        : const Icon(Icons.play_arrow_rounded, color: Colors.white),
+                    label: Text(
+                      _isConnecting ? 'Creating Room...' : 'Start Watch Together',
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 15.0),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.deepPurpleAccent,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12.0),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+
+              // Tab 2: Join Room
+              if (_selectedTabIndex == 1 || widget.mediaPayload == null) ...[
+                const Text(
+                  'Your Name',
+                  style: TextStyle(color: Colors.white70, fontSize: 12.0, fontWeight: FontWeight.w500),
+                ),
+                const SizedBox(height: 6.0),
+                TextField(
+                  controller: _guestNameController,
+                  style: const TextStyle(color: Colors.white, fontSize: 14.0),
+                  decoration: InputDecoration(
+                    hintText: 'Enter your name',
+                    hintStyle: const TextStyle(color: Colors.white30),
+                    filled: true,
+                    fillColor: Colors.white.withValues(alpha: 0.05),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12.0),
+                      borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12.0),
+                      borderSide: const BorderSide(color: Colors.deepPurpleAccent),
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 14.0, vertical: 11.0),
+                  ),
+                ),
+                const SizedBox(height: 14.0),
+                const Text(
+                  '6-Digit Room Code',
+                  style: TextStyle(color: Colors.white70, fontSize: 12.0, fontWeight: FontWeight.w500),
+                ),
+                const SizedBox(height: 6.0),
+                TextField(
+                  controller: _roomCodeController,
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  maxLength: 6,
+                  style: const TextStyle(
+                      color: Colors.amberAccent,
+                      fontSize: 18.0,
+                      letterSpacing: 6.0,
+                      fontWeight: FontWeight.bold),
+                  decoration: InputDecoration(
+                    counterText: '',
+                    hintText: '849201',
+                    hintStyle: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.2),
+                        letterSpacing: 6.0),
+                    filled: true,
+                    fillColor: Colors.white.withValues(alpha: 0.05),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12.0),
+                      borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12.0),
+                      borderSide: const BorderSide(color: Colors.deepPurpleAccent),
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 14.0, vertical: 11.0),
+                  ),
+                ),
+                const SizedBox(height: 24.0),
+                SizedBox(
+                  width: double.infinity,
+                  height: 48,
+                  child: ElevatedButton.icon(
+                    onPressed: _isConnecting ? null : _handleJoinRoom,
+                    icon: _isConnecting
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                                color: Colors.white, strokeWidth: 2))
+                        : const Icon(Icons.group_add_rounded, color: Colors.white),
+                    label: Text(
+                      _isConnecting ? 'Joining Room...' : 'Join Room & Watch',
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 15.0),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.deepPurpleAccent,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12.0),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ],
           ),
         ),

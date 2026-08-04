@@ -5,6 +5,7 @@ import '../state/app_settings.dart';
 import '../state/library_providers.dart';
 import '../state/user_profile_state.dart';
 import '../state/anilist_auth_state.dart';
+import 'watch_together_dialog.dart';
 
 class Sidebar extends StatelessWidget {
   final NavigationState state;
@@ -124,6 +125,19 @@ class Sidebar extends StatelessWidget {
                         isSelected: state.currentPage == TabPage.history,
                         isExpanded: isExpanded,
                         onTap: onHistoryTap ?? () => state.setPage(TabPage.history),
+                      ),
+                      _SidebarItem(
+                        icon: Icons.groups_rounded,
+                        customLeading: const Icon(Icons.groups_rounded, color: Colors.deepPurpleAccent, size: 20.0),
+                        label: 'Watch Together',
+                        isSelected: false,
+                        isExpanded: isExpanded,
+                        onTap: () {
+                          showDialog(
+                            context: context,
+                            builder: (_) => const WatchTogetherDialog(),
+                          );
+                        },
                       ),
                       const SizedBox(height: 8.0),
                       _SidebarItem(

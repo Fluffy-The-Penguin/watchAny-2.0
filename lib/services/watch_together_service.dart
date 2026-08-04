@@ -4,6 +4,7 @@ import 'dart:developer' as developer;
 import 'dart:io';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
+import '../state/player_state.dart';
 
 class WatchParticipant {
   final String id;
@@ -535,6 +536,28 @@ class WatchTogetherService extends ChangeNotifier {
 
   void setMediaReceivedCallback(Function(WatchMediaPayload media) callback) {
     _onMediaReceived = callback;
+    if (_mediaPayload != null) {
+      callback(_mediaPayload!);
+    }
+  }
+
+  static void launchMediaPayload(dynamic context, WatchMediaPayload media) {
+    if (media.videoUrl != null && media.videoUrl!.isNotEmpty) {
+      PlayerState().startPlayback(
+        streamUrl: media.videoUrl!,
+        title: media.title,
+        movieId: media.movieId,
+        episodeNumber: media.episodeNumber,
+        isMovie: media.isMovie,
+        headers: media.headers,
+        media: {
+          'id': media.movieId,
+          'stremioId': media.movieId,
+          'title': media.title,
+          'format': media.isMovie ? 'MOVIE' : 'SERIES',
+        },
+      );
+    }
   }
 
   void updateLocalPlaybackState({required Duration position, required bool isPlaying, bool forceBroadcast = false}) {

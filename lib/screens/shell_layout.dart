@@ -30,6 +30,7 @@ import 'movies_details_page.dart';
 import 'profile_page.dart';
 import '../state/anilist_auth_state.dart';
 import 'manga_details_page.dart';
+import '../widgets/watch_together_dialog.dart';
 
 class ShellLayout extends StatelessWidget {
   final NavigationState navigationState;
@@ -260,6 +261,16 @@ class ShellLayout extends StatelessWidget {
                   leading: null,
                   actions: [
                     if (!isDetailsOpen) ...[
+                      IconButton(
+                        icon: const Icon(Icons.groups_rounded, color: Colors.deepPurpleAccent),
+                        tooltip: 'Watch Together',
+                        onPressed: () {
+                          showDialog(
+                            context: context,
+                            builder: (_) => const WatchTogetherDialog(),
+                          );
+                        },
+                      ),
                       const UpdateCircularProgressBadge(),
                       const SizedBox(width: 4.0),
                       ListenableBuilder(
