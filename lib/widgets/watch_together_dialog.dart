@@ -687,9 +687,9 @@ class _WatchTogetherDialogState extends State<WatchTogetherDialog>
 
   Widget _buildStepProgress() => Column(
         children: [
-          _stepRow(icon: Icons.cloud_download_outlined, label: 'Looking up room on signaling server', done: true),
-          _stepRow(icon: Icons.cable_rounded, label: 'Generating WebRTC answer', done: true),
-          _stepRow(icon: Icons.router_outlined, label: 'Sending answer to host', loading: true),
+          _stepRow(icon: Icons.wifi_tethering_rounded, label: 'Connecting to room socket channel', done: true),
+          _stepRow(icon: Icons.send_rounded, label: 'Sending join request to host', done: true),
+          _stepRow(icon: Icons.sync_rounded, label: 'Syncing media & playback state', loading: true),
         ],
       );
 

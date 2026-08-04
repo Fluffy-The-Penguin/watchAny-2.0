@@ -12,12 +12,13 @@ import '../state/player_state.dart';
 // ARCHITECTURE (100% NAT/CGNAT Proof, Zero Hosting Cost, Sub-50ms Latency):
 //
 // 1. Host creates room -> gets 6-digit room code (e.g. 849201).
-// 2. Both Host and Guest connect to persistent WebSocket stream:
+// 2. Both Host and Guest subscribe to persistent WebSocket stream:
 //       wss://ntfy.sh/watchany_wt_849201/ws
-// 3. Connection is established instantly (<100ms) on ALL networks (4G/5G, WiFi).
-// 4. All playback sync, pause/play, seek, chat, and emoji reactions are relayed
-//    in real-time across the socket room in <50ms.
-// 5. Zero servers to manage, zero TURN/STUN costs, zero P2P handshake failures!
+// 3. Publishing is performed via HTTP POST -> ntfy broadcasts to all subscribers.
+// 4. Connection is established instantly (<100ms) on ALL networks (4G/5G, WiFi).
+// 5. All playback sync, pause/play, seek, chat, and emoji reactions are relayed
+//    in real-time across room participants in <50ms.
+// 6. Zero servers to manage, zero TURN/STUN costs, zero P2P handshake failures!
 // ═══════════════════════════════════════════════════════════════════════════════
 
 enum WTConnectionStatus {
@@ -249,6 +250,7 @@ class WatchTogetherService extends ChangeNotifier {
   StreamSubscription? _wsSub;
   Timer? _heartbeatTimer;
   Timer? _reconnectTimer;
+  Completer<bool>? _roomStateCompleter;
   int _lastPosBroadcastMs = 0;
 
   Function(Duration, bool)? _onExternalPlaybackSync;
@@ -294,7 +296,7 @@ class WatchTogetherService extends ChangeNotifier {
     addSystemMessage('🎬 Room created! Code: $_roomCode');
     _startHeartbeat();
 
-    // Send initial room state broadcast
+    // Broadcast initial room state
     _broadcastPayload({
       'type': 'ROOM_STATE',
       'senderId': _myId,
@@ -333,13 +335,16 @@ class WatchTogetherService extends ChangeNotifier {
     final connected = await _connectSocket();
     if (!connected) {
       _setStatus(WTConnectionStatus.disconnected,
-          'Could not connect to room. Check internet connection.');
+          'Could not connect to room server. Check internet connection.');
       notifyListeners();
       return WTJoinResult.networkError;
     }
 
+    final completer = Completer<bool>();
+    _roomStateCompleter = completer;
+
     // Send JOIN_ROOM request to host
-    _broadcastPayload({
+    await _broadcastPayload({
       'type': 'JOIN_ROOM',
       'senderId': _myId,
       'senderName': _myName,
@@ -347,11 +352,26 @@ class WatchTogetherService extends ChangeNotifier {
     });
 
     // Request current room state from host
-    _broadcastPayload({
+    await _broadcastPayload({
       'type': 'GET_ROOM_STATE',
       'senderId': _myId,
       'senderName': _myName,
     });
+
+    // Wait up to 5 seconds for host to respond with ROOM_STATE
+    final gotState = await completer.future.timeout(
+      const Duration(seconds: 5),
+      onTimeout: () => false,
+    );
+
+    _roomStateCompleter = null;
+
+    if (!gotState) {
+      _setStatus(WTConnectionStatus.disconnected, 'Room $cleanCode not found or host is offline.');
+      _teardown();
+      notifyListeners();
+      return WTJoinResult.roomNotFound;
+    }
 
     _setStatus(WTConnectionStatus.connected, 'Connected to room!');
     _startHeartbeat();
@@ -361,7 +381,7 @@ class WatchTogetherService extends ChangeNotifier {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // WEBSOCKET TRANSPORT ENGINE
+  // WEBSOCKET & HTTP TRANSPORT ENGINE
   // ═══════════════════════════════════════════════════════════════════════════
 
   Future<bool> _connectSocket() async {
@@ -369,7 +389,7 @@ class WatchTogetherService extends ChangeNotifier {
       _wsSub?.cancel();
       await _ws?.close();
 
-      developer.log('Connecting to WebSocket: $_wsUrl', name: 'WT');
+      developer.log('Subscribing to WebSocket stream: $_wsUrl', name: 'WT');
       _ws = await WebSocket.connect(_wsUrl).timeout(const Duration(seconds: 8));
 
       _wsSub = _ws!.listen(
@@ -379,7 +399,7 @@ class WatchTogetherService extends ChangeNotifier {
           _handleSocketDisconnect();
         },
         onDone: () {
-          developer.log('WebSocket connection closed.', name: 'WT');
+          developer.log('WebSocket stream closed.', name: 'WT');
           _handleSocketDisconnect();
         },
       );
@@ -396,7 +416,6 @@ class WatchTogetherService extends ChangeNotifier {
       if (rawData is! String) return;
       final wrapper = jsonDecode(rawData) as Map<String, dynamic>;
 
-      // ntfy.sh sends open events and message events
       final eventType = wrapper['event']?.toString();
       if (eventType == 'open') return;
       if (eventType != 'message') return;
@@ -490,23 +509,11 @@ class WatchTogetherService extends ChangeNotifier {
     });
   }
 
-  // ─── Message Broadcast ────────────────────────────────────────────────────
+  // ─── Message Broadcast (HTTP POST to ntfy pub/sub) ───────────────────────
 
   Future<void> _broadcastPayload(Map<String, dynamic> payload) async {
     final bodyStr = jsonEncode(payload);
-
-    // Send over persistent WebSocket if open
-    if (_ws != null && _ws!.readyState == WebSocket.open) {
-      try {
-        _ws!.add(bodyStr);
-        return;
-      } catch (e) {
-        developer.log('WS send failed: $e, falling back to HTTP POST', name: 'WT');
-      }
-    }
-
-    // Fallback: HTTP POST to ntfy topic
-    _httpPost(_httpUrl, bodyStr);
+    await _httpPost(_httpUrl, bodyStr);
   }
 
   static Future<void> _httpPost(String url, String bodyText) async {
@@ -559,6 +566,10 @@ class WatchTogetherService extends ChangeNotifier {
   }
 
   void _handleRoomState(Map<String, dynamic> msg) {
+    if (_roomStateCompleter != null && !_roomStateCompleter!.isCompleted) {
+      _roomStateCompleter!.complete(true);
+    }
+
     if (msg['participants'] is List) {
       for (final item in msg['participants'] as List) {
         if (item is Map) {
@@ -901,7 +912,7 @@ extension WTJoinResultX on WTJoinResult {
       case WTJoinResult.invalidCode:
         return 'Please enter a valid room code (4-6 digits).';
       case WTJoinResult.roomNotFound:
-        return 'Room not found. Make sure the host has created the room.';
+        return 'Room not found or host is offline.';
       case WTJoinResult.invalidOffer:
         return 'Invalid room message format.';
       case WTJoinResult.webrtcError:
