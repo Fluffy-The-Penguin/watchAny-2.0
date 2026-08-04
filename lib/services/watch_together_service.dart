@@ -466,6 +466,21 @@ class WatchTogetherService extends ChangeNotifier {
           }
           break;
 
+        case 'MEDIA_UPDATE':
+          if (!_isHost) {
+            if (msg['media'] is Map) {
+              _mediaPayload = WatchMediaPayload.fromJson(msg['media']);
+              addSystemMessage('Syncing stream with host: ${_mediaPayload!.title}');
+              if (_onMediaReceived != null && _mediaPayload != null) {
+                _onMediaReceived!(_mediaPayload!);
+              }
+            }
+            final double hostPos = (msg['positionSec'] as num?)?.toDouble() ?? 0.0;
+            final bool hostPlaying = msg['isPlaying'] == true;
+            _applyPlaybackSync(Duration(milliseconds: (hostPos * 1000).round()), hostPlaying);
+          }
+          break;
+
         case 'PLAYBACK_STATE':
           final double posSec = (msg['positionSec'] as num?)?.toDouble() ?? 0.0;
           final bool playing = msg['isPlaying'] == true;
@@ -676,6 +691,40 @@ class WatchTogetherService extends ChangeNotifier {
         ),
       );
     }
+  }
+
+  void updateHostMedia({
+    required String streamUrl,
+    required String title,
+    required String movieId,
+    int episodeNumber = 1,
+    int? season,
+    bool isMovie = true,
+    Map<String, String>? headers,
+    String? torrentHash,
+  }) {
+    if (!_isActive || !_isHost) return;
+
+    _mediaPayload = WatchMediaPayload(
+      title: title,
+      movieId: movieId,
+      videoUrl: streamUrl,
+      headers: headers,
+      torrentHash: torrentHash,
+      episodeNumber: episodeNumber,
+      season: season,
+      isMovie: isMovie,
+    );
+
+    _sendPayload({
+      'type': 'MEDIA_UPDATE',
+      'roomCode': _roomCode,
+      'senderId': _myId,
+      'senderName': _myName,
+      'media': _mediaPayload!.toJson(),
+      'positionSec': _currentPosition.inMilliseconds / 1000.0,
+      'isPlaying': _isPlaying,
+    });
   }
 
   void updateLocalPlaybackState({required Duration position, required bool isPlaying, bool forceBroadcast = false}) {

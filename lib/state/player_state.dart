@@ -17,6 +17,7 @@ import 'package:http/http.dart' as http;
 import '../services/hstream_service.dart';
 import '../services/log_service.dart';
 import '../services/torrserver_service.dart';
+import '../services/watch_together_service.dart';
 import '../database/app_database.dart' as db;
 import 'package:drift/drift.dart' as drift;
 
@@ -268,6 +269,19 @@ class PlayerState extends ChangeNotifier {
     _hstreamSources = hstreamSources;
     _hstreamSubtitleTracks = hstreamSubtitleTracks;
     _headers = headers;
+
+    // Broadcast stream URL to Watch Together room guests if I am host
+    final wtService = WatchTogetherService();
+    if (wtService.isActive && wtService.isHost) {
+      wtService.updateHostMedia(
+        streamUrl: streamUrl,
+        title: title,
+        movieId: movieId ?? 'media',
+        episodeNumber: episodeNumber ?? 1,
+        isMovie: isMovie ?? true,
+        headers: headers,
+      );
+    }
 
     LogService().info('Initializing player for stream: $streamUrl, title: $title');
     _player = Player();
