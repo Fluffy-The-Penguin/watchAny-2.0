@@ -1,27 +1,25 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:developer' as developer;
+import 'dart:io';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import '../state/player_state.dart';
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// WATCH TOGETHER — Pure WebRTC P2P, no servers, no tunnels, no accounts.
+// WATCH TOGETHER — Pure WebRTC P2P with 6-Digit Auto-Signaling (No servers to manage)
 //
-//  MULTI-GUEST (star topology):
-//    Host ←──── DataChannel ────► Guest 1
-//    Host ←──── DataChannel ────► Guest 2
-//    Host ←──── DataChannel ────► Guest 3  (up to ~8 guests practical)
+//  HOW IT WORKS:
+//    1. Host creates room → gets a 6-digit room code (e.g. 849201)
+//    2. Host posts SDP offer to public pub/sub channel: ntfy.sh/watchany_wt_849201_offer
+//    3. Guest enters 6-digit code '849201' → fetches SDP offer from ntfy.sh
+//    4. Guest generates SDP answer → posts to ntfy.sh/watchany_wt_849201_answer
+//    5. Host receives answer from ntfy.sh → WebRTC P2P DataChannel established ✅
 //
-//  HOST creates a NEW offer code for EACH guest.
-//  Guest messages arrive at host → host re-broadcasts to all other guests.
-//
-//  HOW TO ADD A GUEST:
-//    Host taps "Add Guest" → new offer code generated
-//    Guest pastes offer → sends back answer code
-//    Host pastes answer → P2P DataChannel established for that guest
-//    Repeat for each additional guest.
+//  After 1-second signaling handshake:
+//  ALL playback sync, chat, emoji reactions run 100% P2P through WebRTC.
+//  ntfy.sh is ONLY used for 1 second during initial room code lookup.
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const List<Map<String, dynamic>> _kIceServers = [
@@ -29,8 +27,6 @@ const List<Map<String, dynamic>> _kIceServers = [
   {'urls': 'stun:stun1.l.google.com:19302'},
   {'urls': 'stun:stun2.l.google.com:19302'},
 ];
-
-// ─── Enums ────────────────────────────────────────────────────────────────────
 
 enum WTConnectionStatus {
   disconnected,
@@ -44,20 +40,16 @@ enum WTConnectionStatus {
 
 enum WTRole { none, host, guest }
 
-// ─── Per-Guest Connection (host side) ────────────────────────────────────────
-
 class GuestConnection {
-  final String slotId;          // unique ID for this offer slot
+  final String slotId;
   RTCPeerConnection? pc;
   RTCDataChannel? dc;
-  String? pendingOfferCode;     // show to user → they paste to guest
+  String? pendingOfferCode;
   WTConnectionStatus status;
 
   GuestConnection({required this.slotId})
       : status = WTConnectionStatus.generatingOffer;
 }
-
-// ─── Data Models ─────────────────────────────────────────────────────────────
 
 class WatchParticipant {
   final String id;
@@ -187,10 +179,8 @@ class WatchEmojiReaction {
   });
 }
 
-// ─── Signaling Blob (the "code" exchanged manually) ──────────────────────────
-
 class _SignalingBlob {
-  final String type; // 'offer' or 'answer'
+  final String type;
   final String sdp;
   final List<Map<String, dynamic>> candidates;
 
@@ -220,15 +210,11 @@ class _SignalingBlob {
   }
 }
 
-// ─── Service ──────────────────────────────────────────────────────────────────
-
 class WatchTogetherService extends ChangeNotifier {
   static final WatchTogetherService _instance =
       WatchTogetherService._internal();
   factory WatchTogetherService() => _instance;
   WatchTogetherService._internal();
-
-  // ── Public State ─────────────────────────────────────────────────────────────
 
   WTConnectionStatus _connectionStatus = WTConnectionStatus.disconnected;
   WTConnectionStatus get connectionStatus => _connectionStatus;
@@ -247,14 +233,11 @@ class WatchTogetherService extends ChangeNotifier {
   String _roomCode = '';
   String get roomCode => _roomCode;
 
-  /// Guest-side: the answer code to send back to the host.
   String? _pendingAnswerCode;
   String? get pendingAnswerCode => _pendingAnswerCode;
 
-  /// Host-side: list of active guest slots (each has its own offer/answer).
   final List<GuestConnection> _guestSlots = [];
-  List<GuestConnection> get guestSlots =>
-      List.unmodifiable(_guestSlots);
+  List<GuestConnection> get guestSlots => List.unmodifiable(_guestSlots);
 
   String _statusMessage = '';
   String get statusMessage => _statusMessage;
@@ -263,12 +246,10 @@ class WatchTogetherService extends ChangeNotifier {
   WatchMediaPayload? get mediaPayload => _mediaPayload;
 
   final List<WatchParticipant> _participants = [];
-  List<WatchParticipant> get participants =>
-      List.unmodifiable(_participants);
+  List<WatchParticipant> get participants => List.unmodifiable(_participants);
 
   final List<WatchChatMessage> _chatMessages = [];
-  List<WatchChatMessage> get chatMessages =>
-      List.unmodifiable(_chatMessages);
+  List<WatchChatMessage> get chatMessages => List.unmodifiable(_chatMessages);
 
   int _unreadChatCount = 0;
   int get unreadChatCount => _unreadChatCount;
@@ -285,8 +266,6 @@ class WatchTogetherService extends ChangeNotifier {
   String? _syncNotice;
   String? get syncNotice => _syncNotice;
 
-  // ── Streams ──────────────────────────────────────────────────────────────────
-
   final StreamController<WatchEmojiReaction> _reactionCtrl =
       StreamController<WatchEmojiReaction>.broadcast();
   Stream<WatchEmojiReaction> get reactionStream => _reactionCtrl.stream;
@@ -295,38 +274,32 @@ class WatchTogetherService extends ChangeNotifier {
       StreamController<WatchChatMessage>.broadcast();
   Stream<WatchChatMessage> get toastChatStream => _toastChatCtrl.stream;
 
-  // ── Guest-side WebRTC (single PC for the guest) ───────────────────────────
   RTCPeerConnection? _guestPc;
   RTCDataChannel? _guestDc;
   List<RTCIceCandidate> _guestCandidates = [];
   Completer<void>? _guestIceCompleter;
 
-  // ── Misc ──────────────────────────────────────────────────────────────────
   Timer? _heartbeatTimer;
+  Timer? _signalingPollTimer;
   int _lastPositionBroadcastMs = 0;
   Function(Duration position, bool isPlaying)? _onExternalPlaybackSync;
   Function(WatchMediaPayload media)? _onMediaReceived;
 
-  // ── Helpers ───────────────────────────────────────────────────────────────
-
   static String generateRoomCode() =>
       (100000 + Random().nextInt(900000)).toString();
 
-  static String generateId() =>
-      'usr${Random().nextInt(89999) + 10000}';
+  static String generateId() => 'usr${Random().nextInt(89999) + 10000}';
 
-  static String _slotId() =>
-      'slot_${Random().nextInt(999999)}';
+  static String _slotId() => 'slot_${Random().nextInt(999999)}';
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // HOST FLOW
+  // AUTO 6-DIGIT ROOM HOST FLOW
   // ═══════════════════════════════════════════════════════════════════════════
 
-  /// Step 0 (Host): Start the session. Call once when creating a room.
-  void startHostSession({
+  Future<bool> createRoom({
     required String hostName,
     required WatchMediaPayload media,
-  }) {
+  }) async {
     _teardown();
     _role = WTRole.host;
     _roomCode = generateRoomCode();
@@ -334,13 +307,56 @@ class WatchTogetherService extends ChangeNotifier {
     _myName = hostName.trim().isNotEmpty ? hostName.trim() : 'Host';
     _mediaPayload = media;
     _participants.add(WatchParticipant(id: _myId, name: _myName, isHost: true));
-    _connectionStatus = WTConnectionStatus.waitingForAnswer;
-    _statusMessage = 'Session ready. Tap "Add Guest" to invite someone.';
+    _setStatus(WTConnectionStatus.generatingOffer, 'Creating room $_roomCode...');
     notifyListeners();
+
+    try {
+      final slot = await addGuest();
+      if (slot.pendingOfferCode != null) {
+        // Publish host offer to public pub/sub for this 6-digit room code
+        await _httpPost('https://ntfy.sh/watchany_wt_${_roomCode}_offer', slot.pendingOfferCode!);
+        
+        _setStatus(WTConnectionStatus.waitingForAnswer, 'Waiting for guest to join room $_roomCode...');
+        notifyListeners();
+
+        // Listen for guest answer on ntfy.sh
+        _pollForAnswer(slot);
+        return true;
+      }
+    } catch (e) {
+      developer.log('createRoom error: $e', name: 'WT');
+    }
+    _setStatus(WTConnectionStatus.disconnected, 'Failed to create room.');
+    notifyListeners();
+    return false;
   }
 
-  /// Step 1 (Host): Generate a new offer code for ONE guest.
-  /// Returns a [_GuestConnection] whose [pendingOfferCode] you show to the user.
+  void _pollForAnswer(GuestConnection slot) {
+    _signalingPollTimer?.cancel();
+    _signalingPollTimer = Timer.periodic(const Duration(seconds: 1), (timer) async {
+      if (_connectionStatus == WTConnectionStatus.connected || _role != WTRole.host) {
+        timer.cancel();
+        return;
+      }
+      try {
+        final answerCode = await _httpGetLast('https://ntfy.sh/watchany_wt_${_roomCode}_answer');
+        if (answerCode != null && answerCode.isNotEmpty) {
+          timer.cancel();
+          await completeGuestConnection(slot.slotId, answerCode);
+        }
+      } catch (e) {
+        developer.log('Poll answer error: $e', name: 'WT');
+      }
+    });
+  }
+
+  void startHostSession({
+    required String hostName,
+    required WatchMediaPayload media,
+  }) {
+    createRoom(hostName: hostName, media: media);
+  }
+
   Future<GuestConnection> addGuest() async {
     assert(_role == WTRole.host, 'Only host can add guests');
 
@@ -369,7 +385,6 @@ class WatchTogetherService extends ChangeNotifier {
         }
       };
 
-      // Host creates the DataChannel
       final dc = await pc.createDataChannel(
         'watchSync',
         RTCDataChannelInit()
@@ -380,11 +395,9 @@ class WatchTogetherService extends ChangeNotifier {
       _setupHostDataChannel(dc, slot);
 
       pc.onConnectionState = (s) {
-        developer.log(
-            'Guest ${slot.slotId} connection state: $s', name: 'WT');
+        developer.log('Guest ${slot.slotId} state: $s', name: 'WT');
         if (s == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
           slot.status = WTConnectionStatus.connected;
-          // If at least one guest is connected, we're "connected"
           _connectionStatus = WTConnectionStatus.connected;
           _startHeartbeat();
           notifyListeners();
@@ -399,10 +412,8 @@ class WatchTogetherService extends ChangeNotifier {
       final offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
 
-      // Wait for ICE (up to 6s)
       await Future.delayed(const Duration(milliseconds: 100));
-      await iceCompleter.future.timeout(const Duration(seconds: 6),
-          onTimeout: () {});
+      await iceCompleter.future.timeout(const Duration(seconds: 6), onTimeout: () {});
 
       final blob = _SignalingBlob(
         type: 'offer',
@@ -428,7 +439,6 @@ class WatchTogetherService extends ChangeNotifier {
     return slot;
   }
 
-  /// Step 2 (Host): Paste the guest's Answer Code for a specific slot.
   Future<void> completeGuestConnection(String slotId, String answerCode) async {
     final GuestConnection slot = _guestSlots.firstWhere((s) => s.slotId == slotId,
         orElse: () => throw Exception('Slot not found'));
@@ -439,8 +449,7 @@ class WatchTogetherService extends ChangeNotifier {
         throw Exception('Expected answer, got ${blob.type}');
       }
 
-      await slot.pc!
-          .setRemoteDescription(RTCSessionDescription(blob.sdp, 'answer'));
+      await slot.pc!.setRemoteDescription(RTCSessionDescription(blob.sdp, 'answer'));
       for (final c in blob.candidates) {
         await slot.pc!.addCandidate(RTCIceCandidate(
           c['candidate']?.toString(),
@@ -459,7 +468,6 @@ class WatchTogetherService extends ChangeNotifier {
   void _setupHostDataChannel(RTCDataChannel dc, GuestConnection slot) {
     dc.onDataChannelState = (s) {
       if (s == RTCDataChannelState.RTCDataChannelOpen) {
-        // Announce ourselves and send current room state
         _sendOnChannel(dc, {
           'type': 'ROOM_STATE',
           'senderId': _myId,
@@ -471,17 +479,49 @@ class WatchTogetherService extends ChangeNotifier {
         });
       }
     };
-
-    dc.onMessage = (msg) {
-      _onHostReceive(msg.text, fromSlot: slot);
-    };
+    dc.onMessage = (msg) => _onHostReceive(msg.text, fromSlot: slot);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // GUEST FLOW
+  // AUTO 6-DIGIT ROOM GUEST FLOW
   // ═══════════════════════════════════════════════════════════════════════════
 
-  /// Guest: paste the host's Offer Code → generates Answer Code.
+  Future<bool> joinRoom({
+    required String code,
+    required String guestName,
+  }) async {
+    final cleanCode = code.trim();
+    if (cleanCode.length < 4) return false;
+
+    _setStatus(WTConnectionStatus.connecting, 'Looking for room $cleanCode...');
+    notifyListeners();
+
+    try {
+      // 1. Fetch host offer from public topic
+      final offerCode = await _httpGetLast('https://ntfy.sh/watchany_wt_${cleanCode}_offer');
+      if (offerCode == null || offerCode.isEmpty) {
+        _setStatus(WTConnectionStatus.disconnected, 'Room $cleanCode not found or expired.');
+        notifyListeners();
+        return false;
+      }
+
+      _roomCode = cleanCode;
+      await joinWithOffer(offerCode: offerCode, guestName: guestName);
+
+      if (_pendingAnswerCode != null) {
+        // 2. Publish guest answer to public topic
+        await _httpPost('https://ntfy.sh/watchany_wt_${cleanCode}_answer', _pendingAnswerCode!);
+        return true;
+      }
+    } catch (e) {
+      developer.log('joinRoom error: $e', name: 'WT');
+    }
+
+    _setStatus(WTConnectionStatus.disconnected, 'Could not join room $cleanCode.');
+    notifyListeners();
+    return false;
+  }
+
   Future<void> joinWithOffer({
     required String offerCode,
     required String guestName,
@@ -492,7 +532,7 @@ class WatchTogetherService extends ChangeNotifier {
     _myName = guestName.trim().isNotEmpty ? guestName.trim() : 'Guest';
     _participants.add(WatchParticipant(id: _myId, name: _myName, isHost: false));
     _connectionStatus = WTConnectionStatus.generatingAnswer;
-    _statusMessage = '🔧 Processing offer...';
+    _statusMessage = 'Connecting to room...';
     notifyListeners();
 
     try {
@@ -541,9 +581,7 @@ class WatchTogetherService extends ChangeNotifier {
         _setupGuestDataChannel(channel);
       };
 
-      // Apply host offer + ICE
-      await _guestPc!.setRemoteDescription(
-          RTCSessionDescription(blob.sdp, 'offer'));
+      await _guestPc!.setRemoteDescription(RTCSessionDescription(blob.sdp, 'offer'));
       for (final c in blob.candidates) {
         await _guestPc!.addCandidate(RTCIceCandidate(
           c['candidate']?.toString(),
@@ -552,14 +590,11 @@ class WatchTogetherService extends ChangeNotifier {
         ));
       }
 
-      // Generate answer
       final answer = await _guestPc!.createAnswer();
       await _guestPc!.setLocalDescription(answer);
 
-      // Wait for ICE
       await Future.delayed(const Duration(milliseconds: 100));
-      await _guestIceCompleter!.future
-          .timeout(const Duration(seconds: 6), onTimeout: () {});
+      await _guestIceCompleter!.future.timeout(const Duration(seconds: 6), onTimeout: () {});
 
       final answerBlob = _SignalingBlob(
         type: 'answer',
@@ -575,13 +610,12 @@ class WatchTogetherService extends ChangeNotifier {
 
       _pendingAnswerCode = answerBlob.encode();
       _connectionStatus = WTConnectionStatus.connecting;
-      _statusMessage =
-          '📋 Send your answer code to the host.\nConnection completes automatically.';
+      _statusMessage = 'Connecting P2P...';
       notifyListeners();
     } catch (e) {
       developer.log('joinWithOffer error: $e', name: 'WT');
       _connectionStatus = WTConnectionStatus.disconnected;
-      _statusMessage = '❌ Invalid offer code: $e';
+      _statusMessage = '❌ Connection failed: $e';
       notifyListeners();
     }
   }
@@ -589,7 +623,6 @@ class WatchTogetherService extends ChangeNotifier {
   void _setupGuestDataChannel(RTCDataChannel dc) {
     dc.onDataChannelState = (s) {
       if (s == RTCDataChannelState.RTCDataChannelOpen) {
-        // Announce ourselves to host
         _sendOnChannel(dc, {
           'type': 'JOIN_ROOM',
           'senderId': _myId,
@@ -602,7 +635,52 @@ class WatchTogetherService extends ChangeNotifier {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // HOST MESSAGE HANDLING
+  // HTTP SIGNALING HELPERS (ntfy.sh pub/sub)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  static Future<void> _httpPost(String url, String bodyText) async {
+    final client = HttpClient();
+    try {
+      final req = await client.postUrl(Uri.parse(url));
+      req.write(bodyText);
+      final res = await req.close();
+      await res.drain();
+    } catch (e) {
+      developer.log('_httpPost error: $e', name: 'WT');
+    } finally {
+      client.close();
+    }
+  }
+
+  static Future<String?> _httpGetLast(String url) async {
+    final client = HttpClient();
+    try {
+      final req = await client.getUrl(Uri.parse('$url/json?poll=1'));
+      final res = await req.close();
+      if (res.statusCode == 200) {
+        final body = await res.transform(utf8.decoder).join();
+        final lines = body.trim().split('\n');
+        for (final line in lines.reversed) {
+          if (line.trim().isEmpty) continue;
+          final json = jsonDecode(line.trim());
+          if (json is Map && json['message'] != null) {
+            final msg = json['message'].toString();
+            if (msg.isNotEmpty && !msg.contains('v=0')) {
+              return msg;
+            }
+          }
+        }
+      }
+    } catch (e) {
+      developer.log('_httpGetLast error: $e', name: 'WT');
+    } finally {
+      client.close();
+    }
+    return null;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // HOST / GUEST RECEIVE & BROADCAST
   // ═══════════════════════════════════════════════════════════════════════════
 
   void _onHostReceive(String rawData, {required GuestConnection fromSlot}) {
@@ -616,7 +694,6 @@ class WatchTogetherService extends ChangeNotifier {
       switch (type) {
         case 'JOIN_ROOM':
           _handleJoinRoom(msg, senderId);
-          // Re-broadcast JOIN to all OTHER guests so they know someone joined
           _broadcastExcept(msg, exceptSlotId: fromSlot.slotId);
           break;
         case 'CHAT_MESSAGE':
@@ -639,17 +716,12 @@ class WatchTogetherService extends ChangeNotifier {
           _broadcastExcept(msg, exceptSlotId: fromSlot.slotId);
           break;
         default:
-          // Unknown message — just re-broadcast
           _broadcastExcept(msg, exceptSlotId: fromSlot.slotId);
       }
     } catch (e) {
       developer.log('Host receive error: $e', name: 'WT');
     }
   }
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // GUEST MESSAGE HANDLING
-  // ═══════════════════════════════════════════════════════════════════════════
 
   void _onGuestReceive(String rawData) {
     try {
@@ -692,10 +764,6 @@ class WatchTogetherService extends ChangeNotifier {
       developer.log('Guest receive error: $e', name: 'WT');
     }
   }
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // SHARED MESSAGE HANDLERS
-  // ═══════════════════════════════════════════════════════════════════════════
 
   void _handleJoinRoom(Map<String, dynamic> msg, String senderId) {
     final name = msg['senderName']?.toString() ?? 'Guest';
@@ -804,10 +872,6 @@ class WatchTogetherService extends ChangeNotifier {
     }
   }
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // SENDING
-  // ═══════════════════════════════════════════════════════════════════════════
-
   void _sendOnChannel(RTCDataChannel dc, Map<String, dynamic> payload) {
     if (dc.state != RTCDataChannelState.RTCDataChannelOpen) return;
     try {
@@ -817,14 +881,12 @@ class WatchTogetherService extends ChangeNotifier {
     }
   }
 
-  /// Host: broadcast to ALL connected guests (used for host-originated messages).
   void _broadcastAll(Map<String, dynamic> payload) {
     for (final slot in _guestSlots) {
       if (slot.dc != null) _sendOnChannel(slot.dc!, payload);
     }
   }
 
-  /// Host: broadcast to all guests EXCEPT one slot (relay from another guest).
   void _broadcastExcept(Map<String, dynamic> payload,
       {required String exceptSlotId}) {
     for (final slot in _guestSlots) {
@@ -834,7 +896,6 @@ class WatchTogetherService extends ChangeNotifier {
     }
   }
 
-  /// Send from THIS peer: host broadcasts to all, guest sends to host.
   void _sendPayload(Map<String, dynamic> payload) {
     if (isHost) {
       _broadcastAll(payload);
@@ -842,10 +903,6 @@ class WatchTogetherService extends ChangeNotifier {
       if (_guestDc != null) _sendOnChannel(_guestDc!, payload);
     }
   }
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // PUBLIC API
-  // ═══════════════════════════════════════════════════════════════════════════
 
   void leaveRoom() {
     if (!isActive) return;
@@ -985,9 +1042,10 @@ class WatchTogetherService extends ChangeNotifier {
 
   void clearMediaReceivedCallback() => _onMediaReceived = null;
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // INTERNALS
-  // ═══════════════════════════════════════════════════════════════════════════
+  void _setStatus(WTConnectionStatus status, String message) {
+    _connectionStatus = status;
+    _statusMessage = message;
+  }
 
   void _applyPlaybackSync(Duration pos, bool playing) {
     _currentPosition = pos;
@@ -1034,17 +1092,18 @@ class WatchTogetherService extends ChangeNotifier {
 
     _heartbeatTimer?.cancel();
     _heartbeatTimer = null;
+    _signalingPollTimer?.cancel();
+    _signalingPollTimer = null;
+
     _onMediaReceived = null;
     _onExternalPlaybackSync = null;
 
-    // Close all host guest slots
     for (final slot in _guestSlots) {
       try { slot.dc?.close(); } catch (_) {}
       try { slot.pc?.close(); } catch (_) {}
     }
     _guestSlots.clear();
 
-    // Close guest-side PC
     if (!(_guestIceCompleter?.isCompleted ?? true)) {
       _guestIceCompleter!.complete();
     }
@@ -1061,10 +1120,6 @@ class WatchTogetherService extends ChangeNotifier {
     _unreadChatCount = 0;
     _isChatDrawerOpen = false;
   }
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // STATIC: Play helper (direct URL only — page handles addon resolution)
-  // ═══════════════════════════════════════════════════════════════════════════
 
   static void playDirect(WatchMediaPayload media) {
     if (media.videoUrl == null || media.videoUrl!.isEmpty) return;
