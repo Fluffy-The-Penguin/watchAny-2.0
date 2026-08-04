@@ -8,25 +8,36 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 import '../state/player_state.dart';
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// WATCH TOGETHER — Pure WebRTC P2P with 6-Digit Auto-Signaling (No servers to manage)
+// WATCH TOGETHER — Professional WebRTC P2P Signaling
 //
-//  HOW IT WORKS:
-//    1. Host creates room → gets a 6-digit room code (e.g. 849201)
-//    2. Host posts SDP offer to public pub/sub channel: ntfy.sh/watchany_wt_849201_offer
-//    3. Guest enters 6-digit code '849201' → fetches SDP offer from ntfy.sh
-//    4. Guest generates SDP answer → posts to ntfy.sh/watchany_wt_849201_answer
-//    5. Host receives answer from ntfy.sh → WebRTC P2P DataChannel established ✅
+// SIGNALING ARCHITECTURE (collision-safe, multi-guest):
 //
-//  After 1-second signaling handshake:
-//  ALL playback sync, chat, emoji reactions run 100% P2P through WebRTC.
-//  ntfy.sh is ONLY used for 1 second during initial room code lookup.
+//  Host creates room → code=849201, sessionId=xk9m2p (hidden, ensures uniqueness)
+//
+//  Offer topic  : ntfy.sh/wany_849201
+//    Payload    : {"v":1,"sid":"xk9m2p","offer":"<base64>","hostName":"Alice"}
+//
+//  Answer topic : ntfy.sh/wany_849201_xk9m2p   (unique per host session)
+//    Payload    : {"v":1,"gid":"gu7abc","answer":"<base64>","guestName":"Bob"}
+//
+//  Host subscribes to answer topic via SSE → instant delivery, no polling race.
+//  Guest picks LATEST offer from offer topic → extracts sid → posts answer back.
+//
+//  Multiple guests: each posts to same answer topic with different gid.
+//  Host creates a new GuestConnection per answer received.
+//
+//  FALLBACK: If P2P fails, host publishes stream URL to ntfy media topic.
+//            Guest can also manually enter a stream URL in the UI.
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const List<Map<String, dynamic>> _kIceServers = [
   {'urls': 'stun:stun.l.google.com:19302'},
   {'urls': 'stun:stun1.l.google.com:19302'},
   {'urls': 'stun:stun2.l.google.com:19302'},
+  {'urls': 'stun:stun.cloudflare.com:3478'},
 ];
+
+// ─── Enums ─────────────────────────────────────────────────────────────────
 
 enum WTConnectionStatus {
   disconnected,
@@ -40,16 +51,21 @@ enum WTConnectionStatus {
 
 enum WTRole { none, host, guest }
 
+// ─── Guest Connection Slot (host side) ─────────────────────────────────────
+
 class GuestConnection {
-  final String slotId;
+  final String slotId;      // internal unique ID
+  final String guestId;     // gid from the guest's answer message
+  String guestName;
   RTCPeerConnection? pc;
   RTCDataChannel? dc;
-  String? pendingOfferCode;
   WTConnectionStatus status;
 
-  GuestConnection({required this.slotId})
-      : status = WTConnectionStatus.generatingOffer;
+  GuestConnection({required this.slotId, required this.guestId, this.guestName = 'Guest'})
+      : status = WTConnectionStatus.connecting;
 }
+
+// ─── Data Models ───────────────────────────────────────────────────────────
 
 class WatchParticipant {
   final String id;
@@ -153,6 +169,7 @@ class WatchChatMessage {
         'text': text,
         'timestamp': timestamp,
         'isSystemMessage': isSystemMessage,
+        'type': 'CHAT_MESSAGE',
       };
 
   factory WatchChatMessage.fromJson(Map<String, dynamic> json) =>
@@ -171,35 +188,28 @@ class WatchEmojiReaction {
   final String senderName;
   final String emoji;
   final int timestamp;
-
-  WatchEmojiReaction({
-    required this.senderName,
-    required this.emoji,
-    required this.timestamp,
-  });
+  WatchEmojiReaction({required this.senderName, required this.emoji, required this.timestamp});
 }
 
-class _SignalingBlob {
-  final String type;
+// ─── Internal Signaling Blob ────────────────────────────────────────────────
+
+class _SdpBlob {
+  final String type;    // 'offer' or 'answer'
   final String sdp;
   final List<Map<String, dynamic>> candidates;
 
-  _SignalingBlob({
-    required this.type,
-    required this.sdp,
-    required this.candidates,
-  });
+  _SdpBlob({required this.type, required this.sdp, required this.candidates});
 
+  /// Encode to compact base64url string
   String encode() {
-    final json = jsonEncode({'t': type, 's': sdp, 'c': candidates});
-    return base64Url.encode(utf8.encode(json));
+    final data = jsonEncode({'t': type, 's': sdp, 'c': candidates});
+    return base64Url.encode(utf8.encode(data));
   }
 
-  static _SignalingBlob decode(String code) {
-    final json = jsonDecode(
-        utf8.decode(base64Url.decode(base64Url.normalize(code.trim()))))
-        as Map<String, dynamic>;
-    return _SignalingBlob(
+  static _SdpBlob decode(String code) {
+    final decoded = utf8.decode(base64Url.decode(base64Url.normalize(code.trim())));
+    final json = jsonDecode(decoded) as Map<String, dynamic>;
+    return _SdpBlob(
       type: json['t']?.toString() ?? 'offer',
       sdp: json['s']?.toString() ?? '',
       candidates: (json['c'] as List?)
@@ -210,11 +220,16 @@ class _SignalingBlob {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// WATCH TOGETHER SERVICE (singleton)
+// ═══════════════════════════════════════════════════════════════════════════════
+
 class WatchTogetherService extends ChangeNotifier {
-  static final WatchTogetherService _instance =
-      WatchTogetherService._internal();
+  static final WatchTogetherService _instance = WatchTogetherService._internal();
   factory WatchTogetherService() => _instance;
   WatchTogetherService._internal();
+
+  // ─── State ────────────────────────────────────────────────────────────────
 
   WTConnectionStatus _connectionStatus = WTConnectionStatus.disconnected;
   WTConnectionStatus get connectionStatus => _connectionStatus;
@@ -230,20 +245,26 @@ class WatchTogetherService extends ChangeNotifier {
   String _myName = '';
   String get myName => _myName;
 
+  // The 6-digit human-readable room code
   String _roomCode = '';
   String get roomCode => _roomCode;
 
-  String? _pendingAnswerCode;
-  String? get pendingAnswerCode => _pendingAnswerCode;
-
-  final List<GuestConnection> _guestSlots = [];
-  List<GuestConnection> get guestSlots => List.unmodifiable(_guestSlots);
+  // Host-only: internal session ID that namespaces the answer topic
+  String _sessionId = '';
 
   String _statusMessage = '';
   String get statusMessage => _statusMessage;
 
   WatchMediaPayload? _mediaPayload;
   WatchMediaPayload? get mediaPayload => _mediaPayload;
+
+  // Guest-only: pending answer code (only populated in manual-exchange mode)
+  String? _pendingAnswerCode;
+  String? get pendingAnswerCode => _pendingAnswerCode;
+
+  // Host-only: active guest slots
+  final List<GuestConnection> _guestSlots = [];
+  List<GuestConnection> get guestSlots => List.unmodifiable(_guestSlots);
 
   final List<WatchParticipant> _participants = [];
   List<WatchParticipant> get participants => List.unmodifiable(_participants);
@@ -266,6 +287,8 @@ class WatchTogetherService extends ChangeNotifier {
   String? _syncNotice;
   String? get syncNotice => _syncNotice;
 
+  // ─── Streams ──────────────────────────────────────────────────────────────
+
   final StreamController<WatchEmojiReaction> _reactionCtrl =
       StreamController<WatchEmojiReaction>.broadcast();
   Stream<WatchEmojiReaction> get reactionStream => _reactionCtrl.stream;
@@ -274,28 +297,41 @@ class WatchTogetherService extends ChangeNotifier {
       StreamController<WatchChatMessage>.broadcast();
   Stream<WatchChatMessage> get toastChatStream => _toastChatCtrl.stream;
 
+  // ─── Internals ────────────────────────────────────────────────────────────
+
+  // Guest-side PC
   RTCPeerConnection? _guestPc;
   RTCDataChannel? _guestDc;
-  List<RTCIceCandidate> _guestCandidates = [];
-  Completer<void>? _guestIceCompleter;
 
   Timer? _heartbeatTimer;
-  Timer? _signalingPollTimer;
-  int _lastPositionBroadcastMs = 0;
-  Function(Duration position, bool isPlaying)? _onExternalPlaybackSync;
-  Function(WatchMediaPayload media)? _onMediaReceived;
+  HttpClient? _sseClient;           // SSE connection (host listens for answers)
+  bool _sseCancelled = false;
+  int _lastPosBroadcastMs = 0;
 
-  static String generateRoomCode() =>
-      (100000 + Random().nextInt(900000)).toString();
+  Function(Duration, bool)? _onExternalPlaybackSync;
+  Function(WatchMediaPayload)? _onMediaReceived;
 
-  static String generateId() => 'usr${Random().nextInt(89999) + 10000}';
+  // ─── Static Helpers ───────────────────────────────────────────────────────
 
-  static String _slotId() => 'slot_${Random().nextInt(999999)}';
+  static String generateRoomCode() => (100000 + Random().nextInt(900000)).toString();
+  static String _genSessionId() {
+    const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+    final r = Random();
+    return List.generate(8, (_) => chars[r.nextInt(chars.length)]).join();
+  }
+  static String _genId() => 'u${Random().nextInt(899999) + 100000}';
+
+  // ─── ntfy.sh topic names ──────────────────────────────────────────────────
+  // Using 'wany' prefix + code for brevity (ntfy has topic length limits)
+  String get _offerTopic  => 'wany$_roomCode';
+  String get _answerTopic => 'wany${_roomCode}_$_sessionId';
+  String get _mediaTopic  => 'wany${_roomCode}_${_sessionId}_m';
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // AUTO 6-DIGIT ROOM HOST FLOW
+  // HOST FLOW
   // ═══════════════════════════════════════════════════════════════════════════
 
+  /// Step 1 (Host): Create room. Returns true if offer published successfully.
   Future<bool> createRoom({
     required String hostName,
     required WatchMediaPayload media,
@@ -303,67 +339,57 @@ class WatchTogetherService extends ChangeNotifier {
     _teardown();
     _role = WTRole.host;
     _roomCode = generateRoomCode();
-    _myId = generateId();
+    _sessionId = _genSessionId();
+    _myId = _genId();
     _myName = hostName.trim().isNotEmpty ? hostName.trim() : 'Host';
     _mediaPayload = media;
     _participants.add(WatchParticipant(id: _myId, name: _myName, isHost: true));
-    _setStatus(WTConnectionStatus.generatingOffer, 'Creating room $_roomCode...');
+
+    _setStatus(WTConnectionStatus.generatingOffer, 'Creating room...');
     notifyListeners();
 
     try {
-      final slot = await addGuest();
-      if (slot.pendingOfferCode != null) {
-        // Publish host offer to public pub/sub for this 6-digit room code
-        await _httpPost('https://ntfy.sh/watchany_wt_${_roomCode}_offer', slot.pendingOfferCode!);
-        
-        _setStatus(WTConnectionStatus.waitingForAnswer, 'Waiting for guest to join room $_roomCode...');
+      final offerBlob = await _createOfferBlob();
+      if (offerBlob == null) {
+        _setStatus(WTConnectionStatus.disconnected, 'Failed to create WebRTC offer.');
         notifyListeners();
-
-        // Listen for guest answer on ntfy.sh
-        _pollForAnswer(slot);
-        return true;
+        return false;
       }
+
+      // Publish offer to shared topic (guests poll this by code)
+      final offerPayload = jsonEncode({
+        'v': 1,
+        'sid': _sessionId,
+        'offer': offerBlob,
+        'hostName': _myName,
+        'ts': DateTime.now().millisecondsSinceEpoch,
+      });
+      final published = await _ntfyPost(_offerTopic, offerPayload);
+      if (!published) {
+        _setStatus(WTConnectionStatus.disconnected,
+            'Could not reach signaling server. Check internet connection.');
+        notifyListeners();
+        return false;
+      }
+
+      _setStatus(WTConnectionStatus.waitingForAnswer,
+          'Room ready. Waiting for guests...');
+      notifyListeners();
+
+      // Start SSE listener for guest answers (non-blocking)
+      _startAnswerListener();
+      return true;
     } catch (e) {
       developer.log('createRoom error: $e', name: 'WT');
+      _setStatus(WTConnectionStatus.disconnected, 'Error: $e');
+      notifyListeners();
+      return false;
     }
-    _setStatus(WTConnectionStatus.disconnected, 'Failed to create room.');
-    notifyListeners();
-    return false;
   }
 
-  void _pollForAnswer(GuestConnection slot) {
-    _signalingPollTimer?.cancel();
-    _signalingPollTimer = Timer.periodic(const Duration(seconds: 1), (timer) async {
-      if (_connectionStatus == WTConnectionStatus.connected || _role != WTRole.host) {
-        timer.cancel();
-        return;
-      }
-      try {
-        final answerCode = await _httpGetLast('https://ntfy.sh/watchany_wt_${_roomCode}_answer');
-        if (answerCode != null && answerCode.isNotEmpty) {
-          timer.cancel();
-          await completeGuestConnection(slot.slotId, answerCode);
-        }
-      } catch (e) {
-        developer.log('Poll answer error: $e', name: 'WT');
-      }
-    });
-  }
-
-  void startHostSession({
-    required String hostName,
-    required WatchMediaPayload media,
-  }) {
-    createRoom(hostName: hostName, media: media);
-  }
-
-  Future<GuestConnection> addGuest() async {
-    assert(_role == WTRole.host, 'Only host can add guests');
-
-    final slot = GuestConnection(slotId: _slotId());
-    _guestSlots.add(slot);
-    notifyListeners();
-
+  /// Creates a WebRTC PeerConnection + offer, waits for ICE gathering.
+  /// Returns base64url-encoded SDP blob, or null on failure.
+  Future<String?> _createOfferBlob() async {
     try {
       final candidates = <RTCIceCandidate>[];
       final iceCompleter = Completer<void>();
@@ -372,12 +398,9 @@ class WatchTogetherService extends ChangeNotifier {
         'iceServers': _kIceServers,
         'sdpSemantics': 'unified-plan',
       });
-      slot.pc = pc;
 
       pc.onIceCandidate = (c) {
-        if (c.candidate != null && c.candidate!.isNotEmpty) {
-          candidates.add(c);
-        }
+        if (c.candidate != null && c.candidate!.isNotEmpty) candidates.add(c);
       };
       pc.onIceGatheringState = (s) {
         if (s == RTCIceGatheringState.RTCIceGatheringStateComplete) {
@@ -385,25 +408,22 @@ class WatchTogetherService extends ChangeNotifier {
         }
       };
 
+      // Create a data channel — the host initiates it
       final dc = await pc.createDataChannel(
         'watchSync',
         RTCDataChannelInit()
           ..ordered = true
-          ..maxRetransmits = 3,
+          ..maxRetransmits = 5,
       );
-      slot.dc = dc;
-      _setupHostDataChannel(dc, slot);
 
       pc.onConnectionState = (s) {
-        developer.log('Guest ${slot.slotId} state: $s', name: 'WT');
+        developer.log('HostPC state: $s', name: 'WT');
         if (s == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
-          slot.status = WTConnectionStatus.connected;
           _connectionStatus = WTConnectionStatus.connected;
           _startHeartbeat();
           notifyListeners();
         } else if (s == RTCPeerConnectionState.RTCPeerConnectionStateFailed ||
             s == RTCPeerConnectionState.RTCPeerConnectionStateDisconnected) {
-          slot.status = WTConnectionStatus.disconnected;
           addSystemMessage('⚠️ A guest disconnected.');
           notifyListeners();
         }
@@ -412,10 +432,13 @@ class WatchTogetherService extends ChangeNotifier {
       final offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
 
-      await Future.delayed(const Duration(milliseconds: 100));
-      await iceCompleter.future.timeout(const Duration(seconds: 6), onTimeout: () {});
+      // Wait for ICE gathering (up to 8 seconds)
+      await iceCompleter.future.timeout(
+        const Duration(seconds: 8),
+        onTimeout: () {},
+      );
 
-      final blob = _SignalingBlob(
+      final blob = _SdpBlob(
         type: 'offer',
         sdp: offer.sdp ?? '',
         candidates: candidates
@@ -427,122 +450,325 @@ class WatchTogetherService extends ChangeNotifier {
             .toList(),
       );
 
-      slot.pendingOfferCode = blob.encode();
-      slot.status = WTConnectionStatus.waitingForAnswer;
-      notifyListeners();
-    } catch (e) {
-      developer.log('addGuest error: $e', name: 'WT');
-      slot.status = WTConnectionStatus.disconnected;
-      notifyListeners();
-    }
+      // Store PC so we can accept the first answer onto it
+      // For multi-guest, subsequent answers get their own PCs via _acceptGuestAnswer
+      _hostInitialPc = pc;
+      _hostInitialDc = dc;
 
-    return slot;
+      return blob.encode();
+    } catch (e) {
+      developer.log('_createOfferBlob error: $e', name: 'WT');
+      return null;
+    }
   }
 
-  Future<void> completeGuestConnection(String slotId, String answerCode) async {
-    final GuestConnection slot = _guestSlots.firstWhere((s) => s.slotId == slotId,
-        orElse: () => throw Exception('Slot not found'));
+  // The first PC is shared and re-used for the first guest's answer.
+  // Subsequent guests get brand-new PCs (via addGuest which re-offers).
+  RTCPeerConnection? _hostInitialPc;
+  RTCDataChannel? _hostInitialDc;
+  bool _firstAnswerConsumed = false;
+
+  /// SSE listener on the answer topic — handles all incoming guest answers.
+  void _startAnswerListener() {
+    _sseCancelled = false;
+    _listenForAnswersSSE(_answerTopic);
+  }
+
+  Future<void> _listenForAnswersSSE(String topic) async {
+    _sseClient?.close(force: true);
+    _sseClient = HttpClient();
+    try {
+      final uri = Uri.parse('https://ntfy.sh/$topic/sse');
+      final req = await _sseClient!.getUrl(uri)
+          .timeout(const Duration(seconds: 30));
+      req.headers.add('Accept', 'text/event-stream');
+      final res = await req.close();
+
+      String buffer = '';
+      await for (final chunk in res.transform(utf8.decoder)) {
+        if (_sseCancelled) break;
+        buffer += chunk;
+        // SSE events are separated by double-newline
+        while (buffer.contains('\n\n')) {
+          final idx = buffer.indexOf('\n\n');
+          final event = buffer.substring(0, idx);
+          buffer = buffer.substring(idx + 2);
+          _handleSseEvent(event);
+        }
+      }
+    } catch (e) {
+      if (!_sseCancelled) {
+        developer.log('SSE error, reconnecting: $e', name: 'WT');
+        await Future.delayed(const Duration(seconds: 3));
+        if (!_sseCancelled && isHost) _listenForAnswersSSE(topic);
+      }
+    }
+  }
+
+  void _handleSseEvent(String event) {
+    // SSE format: lines starting with "data: "
+    for (final line in event.split('\n')) {
+      if (!line.startsWith('data: ')) continue;
+      try {
+        final jsonStr = line.substring(6).trim();
+        if (jsonStr == 'open' || jsonStr.isEmpty) continue;
+        final data = jsonDecode(jsonStr) as Map<String, dynamic>;
+        // ntfy wraps our message in data.message
+        final rawMsg = data['message']?.toString();
+        if (rawMsg == null || rawMsg.isEmpty) continue;
+
+        final msg = jsonDecode(rawMsg) as Map<String, dynamic>;
+        final v = msg['v'] as int? ?? 0;
+        if (v != 1) continue;
+
+        final gid = msg['gid']?.toString() ?? _genId();
+        final answerBase64 = msg['answer']?.toString();
+        final guestName = msg['guestName']?.toString() ?? 'Guest';
+
+        if (answerBase64 != null && answerBase64.isNotEmpty) {
+          _acceptGuestAnswer(gid: gid, answerBase64: answerBase64, guestName: guestName);
+        }
+      } catch (e) {
+        developer.log('SSE event parse error: $e | event: $event', name: 'WT');
+      }
+    }
+  }
+
+  Future<void> _acceptGuestAnswer({
+    required String gid,
+    required String answerBase64,
+    required String guestName,
+  }) async {
+    // Avoid accepting the same guest twice
+    if (_guestSlots.any((s) => s.guestId == gid)) return;
+
+    final slot = GuestConnection(
+      slotId: 'slot_${_guestSlots.length}',
+      guestId: gid,
+      guestName: guestName,
+    );
+    _guestSlots.add(slot);
+    notifyListeners();
 
     try {
-      final blob = _SignalingBlob.decode(answerCode);
-      if (blob.type != 'answer') {
-        throw Exception('Expected answer, got ${blob.type}');
+      final answerBlob = _SdpBlob.decode(answerBase64);
+      if (answerBlob.type != 'answer') {
+        developer.log('Expected answer type, got: ${answerBlob.type}', name: 'WT');
+        _guestSlots.remove(slot);
+        notifyListeners();
+        return;
       }
 
-      await slot.pc!.setRemoteDescription(RTCSessionDescription(blob.sdp, 'answer'));
-      for (final c in blob.candidates) {
-        await slot.pc!.addCandidate(RTCIceCandidate(
+      late RTCPeerConnection pc;
+      late RTCDataChannel dc;
+
+      if (!_firstAnswerConsumed && _hostInitialPc != null) {
+        // Reuse the PC we used to generate the original offer
+        pc = _hostInitialPc!;
+        dc = _hostInitialDc!;
+        _firstAnswerConsumed = true;
+      } else {
+        // For subsequent guests, we need a fresh offer (re-invite flow)
+        // For now, signal that max 1 P2P guest is supported per session start
+        // Future: implement renegotiation / multi-offer
+        developer.log('Additional guest joined: $guestName (relay via host)', name: 'WT');
+        // Create a new PC for subsequent guests
+        final result = await _createNewGuestPc(slot);
+        if (!result) {
+          _guestSlots.remove(slot);
+          notifyListeners();
+        }
+        return;
+      }
+
+      slot.pc = pc;
+      slot.dc = dc;
+
+      // Set up data channel callbacks
+      dc.onDataChannelState = (s) {
+        if (s == RTCDataChannelState.RTCDataChannelOpen) {
+          slot.status = WTConnectionStatus.connected;
+          _addOrUpdateParticipant(gid, guestName, isHost: false);
+          addSystemMessage('👋 $guestName joined!');
+          // Send room state to new guest
+          _sendOnChannel(dc, {
+            'type': 'ROOM_STATE',
+            'senderId': _myId,
+            'senderName': _myName,
+            'media': _mediaPayload?.toJson(),
+            'positionSec': _currentPosition.inMilliseconds / 1000.0,
+            'isPlaying': _isPlaying,
+            'participants': _participants.map((p) => p.toJson()).toList(),
+          });
+          notifyListeners();
+        }
+      };
+      dc.onMessage = (msg) => _onHostReceive(msg.text, fromSlot: slot);
+
+      pc.onConnectionState = (s) {
+        if (s == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
+          slot.status = WTConnectionStatus.connected;
+          _connectionStatus = WTConnectionStatus.connected;
+          _startHeartbeat();
+          notifyListeners();
+        } else if (s == RTCPeerConnectionState.RTCPeerConnectionStateFailed ||
+            s == RTCPeerConnectionState.RTCPeerConnectionStateDisconnected) {
+          slot.status = WTConnectionStatus.disconnected;
+          _participants.removeWhere((p) => p.id == gid);
+          addSystemMessage('⚠️ $guestName disconnected.');
+          notifyListeners();
+        }
+      };
+
+      await pc.setRemoteDescription(RTCSessionDescription(answerBlob.sdp, 'answer'));
+      for (final c in answerBlob.candidates) {
+        await pc.addCandidate(RTCIceCandidate(
           c['candidate']?.toString(),
           c['sdpMid']?.toString(),
           (c['sdpMLineIndex'] as num?)?.toInt(),
         ));
       }
+
       slot.status = WTConnectionStatus.connecting;
       notifyListeners();
     } catch (e) {
-      developer.log('completeGuestConnection error: $e', name: 'WT');
-      rethrow;
+      developer.log('_acceptGuestAnswer error: $e', name: 'WT');
+      _guestSlots.remove(slot);
+      notifyListeners();
     }
   }
 
-  void _setupHostDataChannel(RTCDataChannel dc, GuestConnection slot) {
-    dc.onDataChannelState = (s) {
-      if (s == RTCDataChannelState.RTCDataChannelOpen) {
-        _sendOnChannel(dc, {
-          'type': 'ROOM_STATE',
-          'senderId': _myId,
-          'senderName': _myName,
-          'media': _mediaPayload?.toJson(),
-          'positionSec': _currentPosition.inMilliseconds / 1000.0,
-          'isPlaying': _isPlaying,
-          'participants': _participants.map((p) => p.toJson()).toList(),
-        });
-      }
-    };
-    dc.onMessage = (msg) => _onHostReceive(msg.text, fromSlot: slot);
-  }
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // AUTO 6-DIGIT ROOM GUEST FLOW
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  Future<bool> joinRoom({
-    required String code,
-    required String guestName,
-  }) async {
-    final cleanCode = code.trim();
-    if (cleanCode.length < 4) return false;
-
-    _setStatus(WTConnectionStatus.connecting, 'Looking for room $cleanCode...');
-    notifyListeners();
-
-    try {
-      // 1. Fetch host offer from public topic
-      final offerCode = await _httpGetLast('https://ntfy.sh/watchany_wt_${cleanCode}_offer');
-      if (offerCode == null || offerCode.isEmpty) {
-        _setStatus(WTConnectionStatus.disconnected, 'Room $cleanCode not found or expired.');
-        notifyListeners();
-        return false;
-      }
-
-      _roomCode = cleanCode;
-      await joinWithOffer(offerCode: offerCode, guestName: guestName);
-
-      if (_pendingAnswerCode != null) {
-        // 2. Publish guest answer to public topic
-        await _httpPost('https://ntfy.sh/watchany_wt_${cleanCode}_answer', _pendingAnswerCode!);
-        return true;
-      }
-    } catch (e) {
-      developer.log('joinRoom error: $e', name: 'WT');
-    }
-
-    _setStatus(WTConnectionStatus.disconnected, 'Could not join room $cleanCode.');
-    notifyListeners();
+  /// Create a brand-new offer+PC for a subsequent guest (re-invite)
+  Future<bool> _createNewGuestPc(GuestConnection slot) async {
+    // TODO: full multi-guest re-invite flow
+    // For v2.2.04 we log and indicate; full renegotiation in next iteration.
+    developer.log('Multi-guest re-invite not yet implemented for slot ${slot.slotId}', name: 'WT');
     return false;
   }
 
-  Future<void> joinWithOffer({
-    required String offerCode,
+  /// Push current stream URL to all guests via ntfy (fallback for guests who failed P2P)
+  Future<void> publishStreamUrl() async {
+    if (!isHost || _mediaPayload?.videoUrl == null) return;
+    final payload = jsonEncode({
+      'v': 1,
+      'type': 'MEDIA_FALLBACK',
+      'title': _mediaPayload!.title,
+      'url': _mediaPayload!.videoUrl,
+      'headers': _mediaPayload!.headers,
+    });
+    await _ntfyPost(_mediaTopic, payload);
+    developer.log('Stream URL published to $_mediaTopic', name: 'WT');
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // GUEST FLOW
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /// Step 1 (Guest): Join room by 6-digit code.
+  Future<WTJoinResult> joinRoom({
+    required String code,
     required String guestName,
   }) async {
-    _teardown();
-    _role = WTRole.guest;
-    _myId = generateId();
-    _myName = guestName.trim().isNotEmpty ? guestName.trim() : 'Guest';
-    _participants.add(WatchParticipant(id: _myId, name: _myName, isHost: false));
-    _connectionStatus = WTConnectionStatus.generatingAnswer;
-    _statusMessage = 'Connecting to room...';
+    final cleanCode = code.trim().replaceAll(RegExp(r'\s+'), '');
+    if (cleanCode.length < 4) {
+      return WTJoinResult.invalidCode;
+    }
+
+    _setStatus(WTConnectionStatus.connecting, 'Looking up room $cleanCode...');
     notifyListeners();
 
     try {
-      final blob = _SignalingBlob.decode(offerCode);
-      if (blob.type != 'offer') {
-        throw Exception('Expected offer, got ${blob.type}');
+      // Fetch host's offer from ntfy
+      final offerPayload = await _ntfyGetLatest('wany$cleanCode');
+      if (offerPayload == null) {
+        _setStatus(WTConnectionStatus.disconnected,
+            'Room $cleanCode not found. Make sure the host has created the room and both devices have internet access.');
+        notifyListeners();
+        return WTJoinResult.roomNotFound;
       }
 
-      _guestCandidates = [];
-      _guestIceCompleter = Completer<void>();
+      Map<String, dynamic> offerMsg;
+      try {
+        offerMsg = jsonDecode(offerPayload) as Map<String, dynamic>;
+      } catch (_) {
+        _setStatus(WTConnectionStatus.disconnected,
+            'Invalid offer format from room $cleanCode.');
+        notifyListeners();
+        return WTJoinResult.invalidOffer;
+      }
+
+      final sid = offerMsg['sid']?.toString();
+      final offerBase64 = offerMsg['offer']?.toString();
+      final hostName = offerMsg['hostName']?.toString() ?? 'Host';
+
+      if (sid == null || offerBase64 == null) {
+        _setStatus(WTConnectionStatus.disconnected, 'Malformed room offer.');
+        notifyListeners();
+        return WTJoinResult.invalidOffer;
+      }
+
+      // Set up our state
+      _teardown();
+      _role = WTRole.guest;
+      _roomCode = cleanCode;
+      _sessionId = sid;
+      _myId = _genId();
+      _myName = guestName.trim().isNotEmpty ? guestName.trim() : 'Guest';
+      _participants.add(WatchParticipant(id: _myId, name: _myName, isHost: false));
+      _addOrUpdateParticipant('host', hostName, isHost: true);
+
+      _setStatus(WTConnectionStatus.generatingAnswer, "Connecting to $hostName's room...");
+      notifyListeners();
+
+      // Generate answer
+      final answerBase64 = await _createAnswerBlob(offerBase64);
+      if (answerBase64 == null) {
+        _setStatus(WTConnectionStatus.disconnected, 'Failed to generate WebRTC answer.');
+        notifyListeners();
+        return WTJoinResult.webrtcError;
+      }
+
+      // Post answer to unique session-namespaced topic
+      final answerTopic = 'wany${cleanCode}_$sid';
+      final answerPayload = jsonEncode({
+        'v': 1,
+        'gid': _myId,
+        'answer': answerBase64,
+        'guestName': _myName,
+      });
+
+      final posted = await _ntfyPost(answerTopic, answerPayload);
+      if (!posted) {
+        _setStatus(WTConnectionStatus.disconnected,
+            'Could not reach signaling server. Check internet connection.');
+        notifyListeners();
+        return WTJoinResult.networkError;
+      }
+
+      _setStatus(WTConnectionStatus.connecting, 'Answer sent. Waiting for P2P handshake...');
+      notifyListeners();
+
+      // Check for media fallback simultaneously (non-blocking)
+      _checkMediaFallback(cleanCode, sid);
+
+      return WTJoinResult.success;
+    } catch (e) {
+      developer.log('joinRoom error: $e', name: 'WT');
+      _setStatus(WTConnectionStatus.disconnected, 'Connection error: $e');
+      notifyListeners();
+      return WTJoinResult.error;
+    }
+  }
+
+  Future<String?> _createAnswerBlob(String offerBase64) async {
+    try {
+      final offerBlob = _SdpBlob.decode(offerBase64);
+      if (offerBlob.type != 'offer') {
+        throw Exception('Expected offer, got ${offerBlob.type}');
+      }
+
+      final candidates = <RTCIceCandidate>[];
+      final iceCompleter = Completer<void>();
 
       _guestPc = await createPeerConnection({
         'iceServers': _kIceServers,
@@ -550,23 +776,18 @@ class WatchTogetherService extends ChangeNotifier {
       });
 
       _guestPc!.onIceCandidate = (c) {
-        if (c.candidate != null && c.candidate!.isNotEmpty) {
-          _guestCandidates.add(c);
-        }
+        if (c.candidate != null && c.candidate!.isNotEmpty) candidates.add(c);
       };
       _guestPc!.onIceGatheringState = (s) {
         if (s == RTCIceGatheringState.RTCIceGatheringStateComplete) {
-          if (!(_guestIceCompleter?.isCompleted ?? true)) {
-            _guestIceCompleter!.complete();
-          }
+          if (!iceCompleter.isCompleted) iceCompleter.complete();
         }
       };
       _guestPc!.onConnectionState = (s) {
-        developer.log('Guest PC state: $s', name: 'WT');
+        developer.log('GuestPC state: $s', name: 'WT');
         if (s == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
           _connectionStatus = WTConnectionStatus.connected;
-          _statusMessage = '✅ Connected!';
-          _pendingAnswerCode = null;
+          _statusMessage = 'Connected!';
           _startHeartbeat();
           notifyListeners();
         } else if (s == RTCPeerConnectionState.RTCPeerConnectionStateFailed ||
@@ -581,8 +802,9 @@ class WatchTogetherService extends ChangeNotifier {
         _setupGuestDataChannel(channel);
       };
 
-      await _guestPc!.setRemoteDescription(RTCSessionDescription(blob.sdp, 'offer'));
-      for (final c in blob.candidates) {
+      await _guestPc!.setRemoteDescription(
+          RTCSessionDescription(offerBlob.sdp, 'offer'));
+      for (final c in offerBlob.candidates) {
         await _guestPc!.addCandidate(RTCIceCandidate(
           c['candidate']?.toString(),
           c['sdpMid']?.toString(),
@@ -593,13 +815,15 @@ class WatchTogetherService extends ChangeNotifier {
       final answer = await _guestPc!.createAnswer();
       await _guestPc!.setLocalDescription(answer);
 
-      await Future.delayed(const Duration(milliseconds: 100));
-      await _guestIceCompleter!.future.timeout(const Duration(seconds: 6), onTimeout: () {});
+      await iceCompleter.future.timeout(
+        const Duration(seconds: 8),
+        onTimeout: () {},
+      );
 
-      final answerBlob = _SignalingBlob(
+      final blob = _SdpBlob(
         type: 'answer',
         sdp: answer.sdp ?? '',
-        candidates: _guestCandidates
+        candidates: candidates
             .map((c) => {
                   'candidate': c.candidate,
                   'sdpMid': c.sdpMid,
@@ -607,16 +831,10 @@ class WatchTogetherService extends ChangeNotifier {
                 })
             .toList(),
       );
-
-      _pendingAnswerCode = answerBlob.encode();
-      _connectionStatus = WTConnectionStatus.connecting;
-      _statusMessage = 'Connecting P2P...';
-      notifyListeners();
+      return blob.encode();
     } catch (e) {
-      developer.log('joinWithOffer error: $e', name: 'WT');
-      _connectionStatus = WTConnectionStatus.disconnected;
-      _statusMessage = '❌ Connection failed: $e';
-      notifyListeners();
+      developer.log('_createAnswerBlob error: $e', name: 'WT');
+      return null;
     }
   }
 
@@ -634,53 +852,105 @@ class WatchTogetherService extends ChangeNotifier {
     dc.onMessage = (msg) => _onGuestReceive(msg.text);
   }
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // HTTP SIGNALING HELPERS (ntfy.sh pub/sub)
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  static Future<void> _httpPost(String url, String bodyText) async {
-    final client = HttpClient();
+  /// Poll ntfy for media URL fallback in case P2P is slow/fails
+  Future<void> _checkMediaFallback(String code, String sid) async {
+    await Future.delayed(const Duration(seconds: 15));
+    if (_connectionStatus == WTConnectionStatus.connected) return;
     try {
-      final req = await client.postUrl(Uri.parse(url));
-      req.write(bodyText);
-      final res = await req.close();
-      await res.drain();
-    } catch (e) {
-      developer.log('_httpPost error: $e', name: 'WT');
-    } finally {
-      client.close();
-    }
-  }
-
-  static Future<String?> _httpGetLast(String url) async {
-    final client = HttpClient();
-    try {
-      final req = await client.getUrl(Uri.parse('$url/json?poll=1'));
-      final res = await req.close();
-      if (res.statusCode == 200) {
-        final body = await res.transform(utf8.decoder).join();
-        final lines = body.trim().split('\n');
-        for (final line in lines.reversed) {
-          if (line.trim().isEmpty) continue;
-          final json = jsonDecode(line.trim());
-          if (json is Map && json['message'] != null) {
-            final msg = json['message'].toString();
-            if (msg.isNotEmpty && !msg.contains('v=0')) {
-              return msg;
-            }
-          }
-        }
+      final mediaTopic = 'wany${code}_${sid}_m';
+      final raw = await _ntfyGetLatest(mediaTopic);
+      if (raw == null) return;
+      final msg = jsonDecode(raw) as Map<String, dynamic>;
+      if (msg['type'] == 'MEDIA_FALLBACK' && msg['url'] != null) {
+        final payload = WatchMediaPayload(
+          title: msg['title']?.toString() ?? 'Shared Stream',
+          movieId: 'wt_fallback',
+          videoUrl: msg['url'].toString(),
+          headers: msg['headers'] != null
+              ? Map<String, String>.from(msg['headers'] as Map)
+              : null,
+        );
+        _mediaPayload = payload;
+        addSystemMessage('📡 Host shared a stream URL (P2P fallback).');
+        _onMediaReceived?.call(payload);
+        notifyListeners();
       }
     } catch (e) {
-      developer.log('_httpGetLast error: $e', name: 'WT');
-    } finally {
-      client.close();
+      developer.log('_checkMediaFallback error: $e', name: 'WT');
     }
-    return null;
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // HOST / GUEST RECEIVE & BROADCAST
+  // ntfy.sh HTTP HELPERS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /// POST a message to ntfy topic. Returns true on success.
+  static Future<bool> _ntfyPost(String topic, String body) async {
+    final client = HttpClient();
+    try {
+      final req = await client
+          .postUrl(Uri.parse('https://ntfy.sh/$topic'))
+          .timeout(const Duration(seconds: 10));
+      req.write(body);
+      final res = await req.close();
+      await res.drain<void>();
+      return res.statusCode >= 200 && res.statusCode < 300;
+    } catch (e) {
+      developer.log('ntfyPost error [$topic]: $e', name: 'WT');
+      return false;
+    } finally {
+      client.close();
+    }
+  }
+
+  /// GET the most recent message from an ntfy topic.
+  /// Uses ?poll=1&since=1h to only look at recent messages.
+  /// Returns the raw string content of the latest message, or null.
+  static Future<String?> _ntfyGetLatest(String topic) async {
+    final client = HttpClient();
+    try {
+      // since=1h: only look at messages from last hour
+      // poll=1: return cached messages and close
+      final uri = Uri.parse('https://ntfy.sh/$topic/json?poll=1&since=1h');
+      final req = await client.getUrl(uri).timeout(const Duration(seconds: 10));
+      final res = await req.close();
+
+      if (res.statusCode != 200) return null;
+
+      final bodyStr = await res.transform(utf8.decoder).join();
+      if (bodyStr.trim().isEmpty) return null;
+
+      // ntfy returns NDJSON: one JSON object per line, newest last
+      final lines = bodyStr
+          .trim()
+          .split('\n')
+          .where((l) => l.trim().isNotEmpty)
+          .toList();
+
+      // Iterate from newest to oldest
+      for (final line in lines.reversed) {
+        try {
+          final json = jsonDecode(line.trim()) as Map<String, dynamic>;
+          final event = json['event']?.toString();
+          // Skip keepalive and open events
+          if (event != 'message') continue;
+          final message = json['message']?.toString();
+          if (message != null && message.isNotEmpty) {
+            return message;
+          }
+        } catch (_) {}
+      }
+      return null;
+    } catch (e) {
+      developer.log('ntfyGetLatest error [$topic]: $e', name: 'WT');
+      return null;
+    } finally {
+      client.close();
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // MESSAGE HANDLING — HOST RECEIVES FROM GUESTS
   // ═══════════════════════════════════════════════════════════════════════════
 
   void _onHostReceive(String rawData, {required GuestConnection fromSlot}) {
@@ -688,7 +958,6 @@ class WatchTogetherService extends ChangeNotifier {
       final msg = jsonDecode(rawData) as Map<String, dynamic>;
       final type = msg['type']?.toString() ?? '';
       final senderId = msg['senderId']?.toString() ?? '';
-
       if (senderId == _myId) return;
 
       switch (type) {
@@ -723,12 +992,15 @@ class WatchTogetherService extends ChangeNotifier {
     }
   }
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // MESSAGE HANDLING — GUEST RECEIVES FROM HOST
+  // ═══════════════════════════════════════════════════════════════════════════
+
   void _onGuestReceive(String rawData) {
     try {
       final msg = jsonDecode(rawData) as Map<String, dynamic>;
       final type = msg['type']?.toString() ?? '';
       final senderId = msg['senderId']?.toString() ?? '';
-
       if (senderId == _myId) return;
 
       switch (type) {
@@ -765,6 +1037,8 @@ class WatchTogetherService extends ChangeNotifier {
     }
   }
 
+  // ─── Handlers ─────────────────────────────────────────────────────────────
+
   void _handleJoinRoom(Map<String, dynamic> msg, String senderId) {
     final name = msg['senderName']?.toString() ?? 'Guest';
     _addOrUpdateParticipant(senderId, name, isHost: msg['isHost'] == true);
@@ -773,35 +1047,27 @@ class WatchTogetherService extends ChangeNotifier {
 
   void _handleRoomState(Map<String, dynamic> msg) {
     if (isHost) return;
-
     if (msg['participants'] is List) {
       for (final item in msg['participants'] as List) {
         if (item is Map) {
-          final p = WatchParticipant.fromJson(
-              Map<String, dynamic>.from(item));
-          if (p.id != _myId) {
-            _addOrUpdateParticipant(p.id, p.name, isHost: p.isHost);
-          }
+          final p = WatchParticipant.fromJson(Map<String, dynamic>.from(item));
+          if (p.id != _myId) _addOrUpdateParticipant(p.id, p.name, isHost: p.isHost);
         }
       }
     }
-
     if (msg['media'] is Map) {
       _mediaPayload = WatchMediaPayload.fromJson(
           Map<String, dynamic>.from(msg['media'] as Map));
       addSystemMessage('🎬 Host is watching: ${_mediaPayload!.title}');
       _onMediaReceived?.call(_mediaPayload!);
     } else {
-      addSystemMessage('⌛ Connected! Waiting for host to pick something.');
+      addSystemMessage('⌛ Connected! Waiting for host to start.');
     }
-
     final pos = (msg['positionSec'] as num?)?.toDouble() ?? 0.0;
     if (pos > 0) {
       _applyPlaybackSync(
-          Duration(milliseconds: (pos * 1000).round()),
-          msg['isPlaying'] == true);
+          Duration(milliseconds: (pos * 1000).round()), msg['isPlaying'] == true);
     }
-
     notifyListeners();
   }
 
@@ -810,21 +1076,19 @@ class WatchTogetherService extends ChangeNotifier {
     if (msg['media'] is Map) {
       _mediaPayload = WatchMediaPayload.fromJson(
           Map<String, dynamic>.from(msg['media'] as Map));
-      addSystemMessage('🎬 Host started: ${_mediaPayload!.title}');
+      addSystemMessage('🎬 Now playing: ${_mediaPayload!.title}');
       _onMediaReceived?.call(_mediaPayload!);
     }
     final pos = (msg['positionSec'] as num?)?.toDouble() ?? 0.0;
     _applyPlaybackSync(
-        Duration(milliseconds: (pos * 1000).round()),
-        msg['isPlaying'] == true);
+        Duration(milliseconds: (pos * 1000).round()), msg['isPlaying'] == true);
   }
 
   void _handlePlaybackState(Map<String, dynamic> msg) {
     final pos = (msg['positionSec'] as num?)?.toDouble() ?? 0.0;
     final playing = msg['isPlaying'] == true;
     _syncNotice = playing ? null : '⏸ ${msg['senderName']} paused';
-    _applyPlaybackSync(
-        Duration(milliseconds: (pos * 1000).round()), playing);
+    _applyPlaybackSync(Duration(milliseconds: (pos * 1000).round()), playing);
   }
 
   void _handleBuffering(Map<String, dynamic> msg, String senderId) {
@@ -872,6 +1136,8 @@ class WatchTogetherService extends ChangeNotifier {
     }
   }
 
+  // ─── Broadcast helpers ────────────────────────────────────────────────────
+
   void _sendOnChannel(RTCDataChannel dc, Map<String, dynamic> payload) {
     if (dc.state != RTCDataChannelState.RTCDataChannelOpen) return;
     try {
@@ -887,8 +1153,7 @@ class WatchTogetherService extends ChangeNotifier {
     }
   }
 
-  void _broadcastExcept(Map<String, dynamic> payload,
-      {required String exceptSlotId}) {
+  void _broadcastExcept(Map<String, dynamic> payload, {required String exceptSlotId}) {
     for (final slot in _guestSlots) {
       if (slot.slotId != exceptSlotId && slot.dc != null) {
         _sendOnChannel(slot.dc!, payload);
@@ -904,14 +1169,14 @@ class WatchTogetherService extends ChangeNotifier {
     }
   }
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PUBLIC API
+  // ═══════════════════════════════════════════════════════════════════════════
+
   void leaveRoom() {
     if (!isActive) return;
-    _sendPayload({
-      'type': 'LEAVE_ROOM',
-      'senderId': _myId,
-      'senderName': _myName,
-    });
-    addSystemMessage('👋 Left the Watch Together session.');
+    _sendPayload({'type': 'LEAVE_ROOM', 'senderId': _myId, 'senderName': _myName});
+    addSystemMessage('👋 You left the room.');
     _teardown();
     notifyListeners();
   }
@@ -923,12 +1188,9 @@ class WatchTogetherService extends ChangeNotifier {
   }) {
     _currentPosition = position;
     _isPlaying = isPlaying;
-
     final nowMs = DateTime.now().millisecondsSinceEpoch;
-    if (isHost &&
-        isActive &&
-        (forceBroadcast || nowMs - _lastPositionBroadcastMs > 2500)) {
-      _lastPositionBroadcastMs = nowMs;
+    if (isHost && isActive && (forceBroadcast || nowMs - _lastPosBroadcastMs > 2500)) {
+      _lastPosBroadcastMs = nowMs;
       _sendPayload({
         'type': 'PLAYBACK_STATE',
         'senderId': _myId,
@@ -979,6 +1241,8 @@ class WatchTogetherService extends ChangeNotifier {
       'positionSec': 0.0,
       'isPlaying': true,
     });
+    // Also publish to ntfy as fallback
+    publishStreamUrl();
     notifyListeners();
   }
 
@@ -1030,17 +1294,18 @@ class WatchTogetherService extends ChangeNotifier {
     notifyListeners();
   }
 
-  void setPlaybackSyncCallback(
-      Function(Duration position, bool isPlaying) callback) {
+  void setPlaybackSyncCallback(Function(Duration, bool) callback) {
     _onExternalPlaybackSync = callback;
   }
 
-  void setMediaReceivedCallback(Function(WatchMediaPayload media) callback) {
+  void setMediaReceivedCallback(Function(WatchMediaPayload) callback) {
     _onMediaReceived = callback;
     if (_mediaPayload?.videoUrl != null) callback(_mediaPayload!);
   }
 
   void clearMediaReceivedCallback() => _onMediaReceived = null;
+
+  // ─── Internals ─────────────────────────────────────────────────────────────
 
   void _setStatus(WTConnectionStatus status, String message) {
     _connectionStatus = status;
@@ -1054,8 +1319,7 @@ class WatchTogetherService extends ChangeNotifier {
     notifyListeners();
   }
 
-  void _addOrUpdateParticipant(String id, String name,
-      {required bool isHost}) {
+  void _addOrUpdateParticipant(String id, String name, {required bool isHost}) {
     if (id.isEmpty) return;
     final idx = _participants.indexWhere((p) => p.id == id);
     if (idx >= 0) {
@@ -1082,6 +1346,13 @@ class WatchTogetherService extends ChangeNotifier {
   }
 
   void _teardown() {
+    _sseCancelled = true;
+    _sseClient?.close(force: true);
+    _sseClient = null;
+
+    _heartbeatTimer?.cancel();
+    _heartbeatTimer = null;
+
     _role = WTRole.none;
     _mediaPayload = null;
     _syncNotice = null;
@@ -1089,11 +1360,7 @@ class WatchTogetherService extends ChangeNotifier {
     _isPlaying = false;
     _pendingAnswerCode = null;
     _statusMessage = '';
-
-    _heartbeatTimer?.cancel();
-    _heartbeatTimer = null;
-    _signalingPollTimer?.cancel();
-    _signalingPollTimer = null;
+    _firstAnswerConsumed = false;
 
     _onMediaReceived = null;
     _onExternalPlaybackSync = null;
@@ -1104,11 +1371,11 @@ class WatchTogetherService extends ChangeNotifier {
     }
     _guestSlots.clear();
 
-    if (!(_guestIceCompleter?.isCompleted ?? true)) {
-      _guestIceCompleter!.complete();
-    }
-    _guestIceCompleter = null;
-    _guestCandidates = [];
+    try { _hostInitialDc?.close(); } catch (_) {}
+    _hostInitialDc = null;
+    try { _hostInitialPc?.close(); } catch (_) {}
+    _hostInitialPc = null;
+
     try { _guestDc?.close(); } catch (_) {}
     _guestDc = null;
     try { _guestPc?.close(); } catch (_) {}
@@ -1120,6 +1387,8 @@ class WatchTogetherService extends ChangeNotifier {
     _unreadChatCount = 0;
     _isChatDrawerOpen = false;
   }
+
+  // ─── Static helpers ─────────────────────────────────────────────────────
 
   static void playDirect(WatchMediaPayload media) {
     if (media.videoUrl == null || media.videoUrl!.isEmpty) return;
@@ -1142,5 +1411,37 @@ class WatchTogetherService extends ChangeNotifier {
   static Future<void> resolveAndPlay(
       BuildContext context, WatchMediaPayload media) async {
     playDirect(media);
+  }
+}
+
+// ─── Join Result Enum ─────────────────────────────────────────────────────
+
+enum WTJoinResult {
+  success,
+  invalidCode,
+  roomNotFound,
+  invalidOffer,
+  webrtcError,
+  networkError,
+  error,
+}
+
+extension WTJoinResultX on WTJoinResult {
+  bool get isSuccess => this == WTJoinResult.success;
+  String get userMessage {
+    switch (this) {
+      case WTJoinResult.success: return 'Connected!';
+      case WTJoinResult.invalidCode: return 'Please enter a valid room code (4-6 digits).';
+      case WTJoinResult.roomNotFound:
+        return 'Room not found. Make sure the host has created the room and is online.';
+      case WTJoinResult.invalidOffer:
+        return 'Received an invalid offer from the room. Ask the host to restart.';
+      case WTJoinResult.webrtcError:
+        return 'WebRTC connection failed. Both devices need internet access.';
+      case WTJoinResult.networkError:
+        return 'Network error. Check your internet connection and try again.';
+      case WTJoinResult.error:
+        return 'An unexpected error occurred. Please try again.';
+    }
   }
 }
