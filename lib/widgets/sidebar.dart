@@ -6,6 +6,8 @@ import '../state/library_providers.dart';
 import '../state/user_profile_state.dart';
 import '../state/anilist_auth_state.dart';
 import 'watch_together_dialog.dart';
+import '../services/watch_together_service.dart';
+import '../screens/watch_together_room_screen.dart';
 
 class Sidebar extends StatelessWidget {
   final NavigationState state;
@@ -126,16 +128,48 @@ class Sidebar extends StatelessWidget {
                         isExpanded: isExpanded,
                         onTap: onHistoryTap ?? () => state.setPage(TabPage.history),
                       ),
-                      _SidebarItem(
-                        icon: Icons.groups_rounded,
-                        customLeading: const Icon(Icons.groups_rounded, color: Colors.deepPurpleAccent, size: 20.0),
-                        label: 'Watch Together',
-                        isSelected: false,
-                        isExpanded: isExpanded,
-                        onTap: () {
-                          showDialog(
-                            context: context,
-                            builder: (_) => const WatchTogetherDialog(),
+                      ListenableBuilder(
+                        listenable: WatchTogetherService(),
+                        builder: (ctx, _) {
+                          final wt = WatchTogetherService();
+                          return _SidebarItem(
+                            icon: Icons.groups_rounded,
+                            customLeading: Stack(
+                              clipBehavior: Clip.none,
+                              children: [
+                                const Icon(Icons.groups_rounded, color: Colors.deepPurpleAccent, size: 20.0),
+                                if (wt.isActive)
+                                  Positioned(
+                                    top: -2,
+                                    right: -2,
+                                    child: Container(
+                                      width: 7,
+                                      height: 7,
+                                      decoration: const BoxDecoration(
+                                        color: Colors.greenAccent,
+                                        shape: BoxShape.circle,
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                            label: wt.isActive ? 'Room Active' : 'Watch Together',
+                            isSelected: false,
+                            isExpanded: isExpanded,
+                            onTap: () {
+                              if (wt.isActive) {
+                                Navigator.of(context, rootNavigator: true).push(
+                                  MaterialPageRoute(
+                                    builder: (_) => const WatchTogetherRoomScreen(),
+                                  ),
+                                );
+                              } else {
+                                showDialog(
+                                  context: context,
+                                  builder: (_) => const WatchTogetherDialog(),
+                                );
+                              }
+                            },
                           );
                         },
                       ),

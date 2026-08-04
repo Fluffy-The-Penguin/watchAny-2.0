@@ -1,13 +1,63 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:developer' as developer;
-import 'dart:io';
 import 'dart:math';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
+import 'package:flutter_webrtc/flutter_webrtc.dart';
 import '../state/player_state.dart';
-import 'stremio_addon_service.dart';
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// WATCH TOGETHER — Pure WebRTC P2P, no servers, no tunnels, no accounts.
+//
+//  MULTI-GUEST (star topology):
+//    Host ←──── DataChannel ────► Guest 1
+//    Host ←──── DataChannel ────► Guest 2
+//    Host ←──── DataChannel ────► Guest 3  (up to ~8 guests practical)
+//
+//  HOST creates a NEW offer code for EACH guest.
+//  Guest messages arrive at host → host re-broadcasts to all other guests.
+//
+//  HOW TO ADD A GUEST:
+//    Host taps "Add Guest" → new offer code generated
+//    Guest pastes offer → sends back answer code
+//    Host pastes answer → P2P DataChannel established for that guest
+//    Repeat for each additional guest.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const List<Map<String, dynamic>> _kIceServers = [
+  {'urls': 'stun:stun.l.google.com:19302'},
+  {'urls': 'stun:stun1.l.google.com:19302'},
+  {'urls': 'stun:stun2.l.google.com:19302'},
+];
+
+// ─── Enums ────────────────────────────────────────────────────────────────────
+
+enum WTConnectionStatus {
+  disconnected,
+  generatingOffer,
+  waitingForAnswer,
+  generatingAnswer,
+  connecting,
+  connected,
+  reconnecting,
+}
+
+enum WTRole { none, host, guest }
+
+// ─── Per-Guest Connection (host side) ────────────────────────────────────────
+
+class GuestConnection {
+  final String slotId;          // unique ID for this offer slot
+  RTCPeerConnection? pc;
+  RTCDataChannel? dc;
+  String? pendingOfferCode;     // show to user → they paste to guest
+  WTConnectionStatus status;
+
+  GuestConnection({required this.slotId})
+      : status = WTConnectionStatus.generatingOffer;
+}
+
+// ─── Data Models ─────────────────────────────────────────────────────────────
 
 class WatchParticipant {
   final String id;
@@ -31,11 +81,59 @@ class WatchParticipant {
         'isBuffering': isBuffering,
       };
 
-  factory WatchParticipant.fromJson(Map<String, dynamic> json) => WatchParticipant(
+  factory WatchParticipant.fromJson(Map<String, dynamic> json) =>
+      WatchParticipant(
         id: json['id']?.toString() ?? '',
         name: json['name']?.toString() ?? 'Guest',
         isHost: json['isHost'] == true,
         isBuffering: json['isBuffering'] == true,
+      );
+}
+
+class WatchMediaPayload {
+  final String title;
+  final String movieId;
+  final String? videoUrl;
+  final Map<String, String>? headers;
+  final String? torrentHash;
+  final int episodeNumber;
+  final int? season;
+  final bool isMovie;
+
+  WatchMediaPayload({
+    required this.title,
+    required this.movieId,
+    this.videoUrl,
+    this.headers,
+    this.torrentHash,
+    this.episodeNumber = 1,
+    this.season,
+    this.isMovie = true,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'title': title,
+        'movieId': movieId,
+        'videoUrl': videoUrl,
+        'headers': headers,
+        'torrentHash': torrentHash,
+        'episodeNumber': episodeNumber,
+        'season': season,
+        'isMovie': isMovie,
+      };
+
+  factory WatchMediaPayload.fromJson(Map<String, dynamic> json) =>
+      WatchMediaPayload(
+        title: json['title']?.toString() ?? 'Unknown',
+        movieId: json['movieId']?.toString() ?? '',
+        videoUrl: json['videoUrl']?.toString(),
+        headers: json['headers'] != null
+            ? Map<String, String>.from(json['headers'] as Map)
+            : null,
+        torrentHash: json['torrentHash']?.toString(),
+        episodeNumber: (json['episodeNumber'] as num?)?.toInt() ?? 1,
+        season: (json['season'] as num?)?.toInt(),
+        isMovie: json['isMovie'] != false,
       );
 }
 
@@ -65,12 +163,14 @@ class WatchChatMessage {
         'isSystemMessage': isSystemMessage,
       };
 
-  factory WatchChatMessage.fromJson(Map<String, dynamic> json) => WatchChatMessage(
-        id: json['id']?.toString() ?? Random().nextInt(9999999).toString(),
+  factory WatchChatMessage.fromJson(Map<String, dynamic> json) =>
+      WatchChatMessage(
+        id: json['id']?.toString() ?? '',
         senderId: json['senderId']?.toString() ?? '',
-        senderName: json['senderName']?.toString() ?? 'User',
+        senderName: json['senderName']?.toString() ?? 'Unknown',
         text: json['text']?.toString() ?? '',
-        timestamp: (json['timestamp'] as num?)?.toInt() ?? DateTime.now().millisecondsSinceEpoch,
+        timestamp: (json['timestamp'] as num?)?.toInt() ??
+            DateTime.now().millisecondsSinceEpoch,
         isSystemMessage: json['isSystemMessage'] == true,
       );
 }
@@ -87,90 +187,88 @@ class WatchEmojiReaction {
   });
 }
 
-class WatchMediaPayload {
-  final String title;
-  final String movieId;
-  final String? videoUrl;
-  final Map<String, String>? headers;
-  final String? torrentHash;
-  final int episodeNumber;
-  final int? season;
-  final bool isMovie;
+// ─── Signaling Blob (the "code" exchanged manually) ──────────────────────────
 
-  WatchMediaPayload({
-    required this.title,
-    required this.movieId,
-    this.videoUrl,
-    this.headers,
-    this.torrentHash,
-    required this.episodeNumber,
-    this.season,
-    required this.isMovie,
+class _SignalingBlob {
+  final String type; // 'offer' or 'answer'
+  final String sdp;
+  final List<Map<String, dynamic>> candidates;
+
+  _SignalingBlob({
+    required this.type,
+    required this.sdp,
+    required this.candidates,
   });
 
-  Map<String, dynamic> toJson() => {
-        'title': title,
-        'movieId': movieId,
-        'videoUrl': videoUrl,
-        'headers': headers,
-        'torrentHash': torrentHash,
-        'episodeNumber': episodeNumber,
-        'season': season,
-        'isMovie': isMovie,
-      };
+  String encode() {
+    final json = jsonEncode({'t': type, 's': sdp, 'c': candidates});
+    return base64Url.encode(utf8.encode(json));
+  }
 
-  factory WatchMediaPayload.fromJson(Map<String, dynamic> json) => WatchMediaPayload(
-        title: json['title']?.toString() ?? 'Shared Media',
-        movieId: json['movieId']?.toString() ?? '',
-        videoUrl: json['videoUrl']?.toString(),
-        headers: (json['headers'] as Map?)?.map((k, v) => MapEntry(k.toString(), v.toString())),
-        torrentHash: json['torrentHash']?.toString(),
-        episodeNumber: (json['episodeNumber'] as num?)?.toInt() ?? 1,
-        season: (json['season'] as num?)?.toInt(),
-        isMovie: json['isMovie'] == true,
-      );
+  static _SignalingBlob decode(String code) {
+    final json = jsonDecode(
+        utf8.decode(base64Url.decode(base64Url.normalize(code.trim()))))
+        as Map<String, dynamic>;
+    return _SignalingBlob(
+      type: json['t']?.toString() ?? 'offer',
+      sdp: json['s']?.toString() ?? '',
+      candidates: (json['c'] as List?)
+              ?.map((c) => Map<String, dynamic>.from(c as Map))
+              .toList() ??
+          [],
+    );
+  }
 }
 
+// ─── Service ──────────────────────────────────────────────────────────────────
+
 class WatchTogetherService extends ChangeNotifier {
-  static final WatchTogetherService _instance = WatchTogetherService._internal();
+  static final WatchTogetherService _instance =
+      WatchTogetherService._internal();
   factory WatchTogetherService() => _instance;
   WatchTogetherService._internal();
 
-  // Connection State
-  bool _isActive = false;
-  bool get isActive => _isActive;
+  // ── Public State ─────────────────────────────────────────────────────────────
 
-  bool _isHost = false;
-  bool get isHost => _isHost;
+  WTConnectionStatus _connectionStatus = WTConnectionStatus.disconnected;
+  WTConnectionStatus get connectionStatus => _connectionStatus;
+
+  WTRole _role = WTRole.none;
+  WTRole get role => _role;
+  bool get isHost => _role == WTRole.host;
+  bool get isActive => _role != WTRole.none;
+  bool get isConnected => _connectionStatus == WTConnectionStatus.connected;
+
+  String _myId = '';
+  String get myId => _myId;
+  String _myName = '';
+  String get myName => _myName;
 
   String _roomCode = '';
   String get roomCode => _roomCode;
 
-  String _myId = '';
-  String get myId => _myId;
+  /// Guest-side: the answer code to send back to the host.
+  String? _pendingAnswerCode;
+  String? get pendingAnswerCode => _pendingAnswerCode;
 
-  String _myName = 'User';
-  String get myName => _myName;
+  /// Host-side: list of active guest slots (each has its own offer/answer).
+  final List<GuestConnection> _guestSlots = [];
+  List<GuestConnection> get guestSlots =>
+      List.unmodifiable(_guestSlots);
 
-  bool _isConnected = false;
-  bool get isConnected => _isConnected;
+  String _statusMessage = '';
+  String get statusMessage => _statusMessage;
 
-  String? _syncNotice;
-  String? get syncNotice => _syncNotice;
-
-  String? _hostLocalIp;
-  String? get hostLocalIp => _hostLocalIp;
-
-  // Media Payload
   WatchMediaPayload? _mediaPayload;
   WatchMediaPayload? get mediaPayload => _mediaPayload;
 
-  // Participants & Messaging
   final List<WatchParticipant> _participants = [];
-  List<WatchParticipant> get participants => List.unmodifiable(_participants);
+  List<WatchParticipant> get participants =>
+      List.unmodifiable(_participants);
 
   final List<WatchChatMessage> _chatMessages = [];
-  List<WatchChatMessage> get chatMessages => List.unmodifiable(_chatMessages);
+  List<WatchChatMessage> get chatMessages =>
+      List.unmodifiable(_chatMessages);
 
   int _unreadChatCount = 0;
   int get unreadChatCount => _unreadChatCount;
@@ -178,519 +276,620 @@ class WatchTogetherService extends ChangeNotifier {
   bool _isChatDrawerOpen = false;
   bool get isChatDrawerOpen => _isChatDrawerOpen;
 
-  // Reaction Broadcast Stream
-  final StreamController<WatchEmojiReaction> _reactionStreamController =
-      StreamController<WatchEmojiReaction>.broadcast();
-  Stream<WatchEmojiReaction> get reactionStream => _reactionStreamController.stream;
-
-  // Toast Chat Message Stream
-  final StreamController<WatchChatMessage> _toastChatStreamController =
-      StreamController<WatchChatMessage>.broadcast();
-  Stream<WatchChatMessage> get toastChatStream => _toastChatStreamController.stream;
-
-  // Playback Control Callbacks
-  Function(Duration position, bool isPlaying)? _onExternalPlaybackSync;
-  Function(WatchMediaPayload media)? _onMediaReceived;
-
-  WebSocket? _relaySocket;
-  HttpServer? _localServer;
-  final List<WebSocket> _localClients = [];
-  Timer? _heartbeatTimer;
-  int _lastPositionBroadcastMs = 0;
-
-  // Sync state tracking
   Duration _currentPosition = Duration.zero;
   Duration get currentPosition => _currentPosition;
 
   bool _isPlaying = false;
   bool get isPlaying => _isPlaying;
 
-  // ── Helper: Random 6-digit Code ───────────────────────────────────────────
-  static String generateRoomCode() {
-    final rng = Random();
-    return (100000 + rng.nextInt(900000)).toString();
-  }
+  String? _syncNotice;
+  String? get syncNotice => _syncNotice;
 
-  static String generateId() {
-    return 'usr_${Random().nextInt(899999) + 100000}';
-  }
+  // ── Streams ──────────────────────────────────────────────────────────────────
 
-  // ── Create Room (Host) ────────────────────────────────────────────────────
-  Future<bool> createRoom({
+  final StreamController<WatchEmojiReaction> _reactionCtrl =
+      StreamController<WatchEmojiReaction>.broadcast();
+  Stream<WatchEmojiReaction> get reactionStream => _reactionCtrl.stream;
+
+  final StreamController<WatchChatMessage> _toastChatCtrl =
+      StreamController<WatchChatMessage>.broadcast();
+  Stream<WatchChatMessage> get toastChatStream => _toastChatCtrl.stream;
+
+  // ── Guest-side WebRTC (single PC for the guest) ───────────────────────────
+  RTCPeerConnection? _guestPc;
+  RTCDataChannel? _guestDc;
+  List<RTCIceCandidate> _guestCandidates = [];
+  Completer<void>? _guestIceCompleter;
+
+  // ── Misc ──────────────────────────────────────────────────────────────────
+  Timer? _heartbeatTimer;
+  int _lastPositionBroadcastMs = 0;
+  Function(Duration position, bool isPlaying)? _onExternalPlaybackSync;
+  Function(WatchMediaPayload media)? _onMediaReceived;
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+
+  static String generateRoomCode() =>
+      (100000 + Random().nextInt(900000)).toString();
+
+  static String generateId() =>
+      'usr${Random().nextInt(89999) + 10000}';
+
+  static String _slotId() =>
+      'slot_${Random().nextInt(999999)}';
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // HOST FLOW
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /// Step 0 (Host): Start the session. Call once when creating a room.
+  void startHostSession({
     required String hostName,
     required WatchMediaPayload media,
-  }) async {
-    _leaveCurrentRoomSilent();
-    _isHost = true;
+  }) {
+    _teardown();
+    _role = WTRole.host;
     _roomCode = generateRoomCode();
     _myId = generateId();
     _myName = hostName.trim().isNotEmpty ? hostName.trim() : 'Host';
     _mediaPayload = media;
-    _isActive = true;
-    _unreadChatCount = 0;
-    _chatMessages.clear();
-
-    _participants.clear();
     _participants.add(WatchParticipant(id: _myId, name: _myName, isHost: true));
-
-    addSystemMessage('Room created! Share code $_roomCode with friends.');
-
-    await _startLocalServer();
-    await _connectRelaySocket();
-
+    _connectionStatus = WTConnectionStatus.waitingForAnswer;
+    _statusMessage = 'Session ready. Tap "Add Guest" to invite someone.';
     notifyListeners();
-    return true;
   }
 
-  // ── Join Room (Guest) ─────────────────────────────────────────────────────
-  Future<bool> joinRoom({
-    required String code,
-    required String guestName,
-  }) async {
-    _leaveCurrentRoomSilent();
-    _isHost = false;
-    _roomCode = code.trim();
-    _myId = generateId();
-    _myName = guestName.trim().isNotEmpty ? guestName.trim() : 'Guest';
-    _isActive = true;
-    _unreadChatCount = 0;
-    _chatMessages.clear();
-    _mediaPayload = null;
+  /// Step 1 (Host): Generate a new offer code for ONE guest.
+  /// Returns a [_GuestConnection] whose [pendingOfferCode] you show to the user.
+  Future<GuestConnection> addGuest() async {
+    assert(_role == WTRole.host, 'Only host can add guests');
 
-    _participants.clear();
-    _participants.add(WatchParticipant(id: _myId, name: _myName, isHost: false));
+    final slot = GuestConnection(slotId: _slotId());
+    _guestSlots.add(slot);
+    notifyListeners();
 
-    addSystemMessage('Joining room $_roomCode...');
+    try {
+      final candidates = <RTCIceCandidate>[];
+      final iceCompleter = Completer<void>();
 
-    final success = await _connectRelaySocket();
-    if (success) {
-      _sendPayload({
-        'type': 'JOIN_ROOM',
-        'roomCode': _roomCode,
-        'senderId': _myId,
-        'senderName': _myName,
+      final pc = await createPeerConnection({
+        'iceServers': _kIceServers,
+        'sdpSemantics': 'unified-plan',
       });
-    }
-    notifyListeners();
-    return success;
-  }
+      slot.pc = pc;
 
-  // ── Leave Room ────────────────────────────────────────────────────────────
-  void leaveRoom() {
-    if (!_isActive) return;
-    addSystemMessage('Left Watch Together session.');
-    _sendPayload({
-      'type': 'LEAVE_ROOM',
-      'roomCode': _roomCode,
-      'senderId': _myId,
-      'senderName': _myName,
-    });
-    _leaveCurrentRoomSilent();
-    notifyListeners();
-  }
-
-  void _leaveCurrentRoomSilent() {
-    _isActive = false;
-    _isConnected = false;
-    _isHost = false;
-    _roomCode = '';
-    _syncNotice = null;
-    _hostLocalIp = null;
-    _heartbeatTimer?.cancel();
-    
-    for (final client in _localClients) {
-      client.close();
-    }
-    _localClients.clear();
-    _localServer?.close(force: true);
-    _localServer = null;
-
-    _relaySocket?.close();
-    _relaySocket = null;
-  }
-
-  // ── Local Host WebSocket Server (LAN Sync) ────────────────────────────────
-  Future<void> _startLocalServer() async {
-    if (kIsWeb) return;
-    try {
-      _localServer = await HttpServer.bind(InternetAddress.anyIPv4, 8492);
-      _findHostLocalIp();
-
-      _localServer!.listen((HttpRequest request) async {
-        if (WebSocketTransformer.isUpgradeRequest(request)) {
-          final socket = await WebSocketTransformer.upgrade(request);
-          _localClients.add(socket);
-
-          socket.listen(
-            (data) => _onSocketData(data),
-            onDone: () => _localClients.remove(socket),
-            onError: (_) => _localClients.remove(socket),
-          );
+      pc.onIceCandidate = (c) {
+        if (c.candidate != null && c.candidate!.isNotEmpty) {
+          candidates.add(c);
         }
-      });
-    } catch (e) {
-      developer.log('Local WS server bind error (port 8492 in use?): $e', name: 'WatchTogetherService');
-    }
-  }
-
-  Future<void> _findHostLocalIp() async {
-    try {
-      final interfaces = await NetworkInterface.list(type: InternetAddressType.IPv4);
-      for (final interface in interfaces) {
-        for (final addr in interface.addresses) {
-          if (!addr.isLoopback && (addr.address.startsWith('192.168.') || addr.address.startsWith('10.'))) {
-            _hostLocalIp = addr.address;
-            return;
-          }
+      };
+      pc.onIceGatheringState = (s) {
+        if (s == RTCIceGatheringState.RTCIceGatheringStateComplete) {
+          if (!iceCompleter.isCompleted) iceCompleter.complete();
         }
-      }
-    } catch (_) {}
-  }
+      };
 
-  // ── Public WebSocket Relay Client (Internet Sync) ─────────────────────────
-  Future<bool> _connectRelaySocket() async {
-    try {
-      final wsUri = Uri.parse('wss://demo.piesocket.com/v3/channel_1?api_key=VCXSpRycMzldJybd2WnnSAuhMsZaWtToxBHvZRYD');
-      _relaySocket = await WebSocket.connect(wsUri.toString()).timeout(const Duration(seconds: 6));
-      _isConnected = true;
+      // Host creates the DataChannel
+      final dc = await pc.createDataChannel(
+        'watchSync',
+        RTCDataChannelInit()
+          ..ordered = true
+          ..maxRetransmits = 3,
+      );
+      slot.dc = dc;
+      _setupHostDataChannel(dc, slot);
 
-      _relaySocket!.listen(
-        (data) => _onSocketData(data),
-        onError: (err) {
-          developer.log('Relay error: $err', name: 'WatchTogetherService');
-          _isConnected = false;
+      pc.onConnectionState = (s) {
+        developer.log(
+            'Guest ${slot.slotId} connection state: $s', name: 'WT');
+        if (s == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
+          slot.status = WTConnectionStatus.connected;
+          // If at least one guest is connected, we're "connected"
+          _connectionStatus = WTConnectionStatus.connected;
+          _startHeartbeat();
           notifyListeners();
-        },
-        onDone: () {
-          _isConnected = false;
+        } else if (s == RTCPeerConnectionState.RTCPeerConnectionStateFailed ||
+            s == RTCPeerConnectionState.RTCPeerConnectionStateDisconnected) {
+          slot.status = WTConnectionStatus.disconnected;
+          addSystemMessage('⚠️ A guest disconnected.');
           notifyListeners();
-        },
+        }
+      };
+
+      final offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+
+      // Wait for ICE (up to 6s)
+      await Future.delayed(const Duration(milliseconds: 100));
+      await iceCompleter.future.timeout(const Duration(seconds: 6),
+          onTimeout: () {});
+
+      final blob = _SignalingBlob(
+        type: 'offer',
+        sdp: offer.sdp ?? '',
+        candidates: candidates
+            .map((c) => {
+                  'candidate': c.candidate,
+                  'sdpMid': c.sdpMid,
+                  'sdpMLineIndex': c.sdpMLineIndex,
+                })
+            .toList(),
       );
 
-      _startHeartbeat();
-      return true;
+      slot.pendingOfferCode = blob.encode();
+      slot.status = WTConnectionStatus.waitingForAnswer;
+      notifyListeners();
     } catch (e) {
-      developer.log('Relay socket connection error: $e', name: 'WatchTogetherService');
-      _isConnected = true; 
-      _startHeartbeat();
-      return true;
+      developer.log('addGuest error: $e', name: 'WT');
+      slot.status = WTConnectionStatus.disconnected;
+      notifyListeners();
+    }
+
+    return slot;
+  }
+
+  /// Step 2 (Host): Paste the guest's Answer Code for a specific slot.
+  Future<void> completeGuestConnection(String slotId, String answerCode) async {
+    final GuestConnection slot = _guestSlots.firstWhere((s) => s.slotId == slotId,
+        orElse: () => throw Exception('Slot not found'));
+
+    try {
+      final blob = _SignalingBlob.decode(answerCode);
+      if (blob.type != 'answer') {
+        throw Exception('Expected answer, got ${blob.type}');
+      }
+
+      await slot.pc!
+          .setRemoteDescription(RTCSessionDescription(blob.sdp, 'answer'));
+      for (final c in blob.candidates) {
+        await slot.pc!.addCandidate(RTCIceCandidate(
+          c['candidate']?.toString(),
+          c['sdpMid']?.toString(),
+          (c['sdpMLineIndex'] as num?)?.toInt(),
+        ));
+      }
+      slot.status = WTConnectionStatus.connecting;
+      notifyListeners();
+    } catch (e) {
+      developer.log('completeGuestConnection error: $e', name: 'WT');
+      rethrow;
     }
   }
 
-  void _startHeartbeat() {
-    _heartbeatTimer?.cancel();
-    _heartbeatTimer = Timer.periodic(const Duration(seconds: 5), (_) {
-      if (_isActive) {
-        _sendPayload({
-          'type': 'HEARTBEAT',
-          'roomCode': _roomCode,
+  void _setupHostDataChannel(RTCDataChannel dc, GuestConnection slot) {
+    dc.onDataChannelState = (s) {
+      if (s == RTCDataChannelState.RTCDataChannelOpen) {
+        // Announce ourselves and send current room state
+        _sendOnChannel(dc, {
+          'type': 'ROOM_STATE',
           'senderId': _myId,
           'senderName': _myName,
-          'isHost': _isHost,
-          'timestamp': DateTime.now().millisecondsSinceEpoch,
+          'media': _mediaPayload?.toJson(),
+          'positionSec': _currentPosition.inMilliseconds / 1000.0,
+          'isPlaying': _isPlaying,
+          'participants': _participants.map((p) => p.toJson()).toList(),
         });
       }
-    });
+    };
+
+    dc.onMessage = (msg) {
+      _onHostReceive(msg.text, fromSlot: slot);
+    };
   }
 
-  void _sendPayload(Map<String, dynamic> payload) {
-    final encoded = jsonEncode(payload);
+  // ═══════════════════════════════════════════════════════════════════════════
+  // GUEST FLOW
+  // ═══════════════════════════════════════════════════════════════════════════
 
-    // 1. Send via Relay Socket
-    if (_relaySocket != null && _isConnected) {
-      try {
-        _relaySocket!.add(encoded);
-      } catch (e) {
-        developer.log('Relay send error: $e', name: 'WatchTogetherService');
-      }
-    }
+  /// Guest: paste the host's Offer Code → generates Answer Code.
+  Future<void> joinWithOffer({
+    required String offerCode,
+    required String guestName,
+  }) async {
+    _teardown();
+    _role = WTRole.guest;
+    _myId = generateId();
+    _myName = guestName.trim().isNotEmpty ? guestName.trim() : 'Guest';
+    _participants.add(WatchParticipant(id: _myId, name: _myName, isHost: false));
+    _connectionStatus = WTConnectionStatus.generatingAnswer;
+    _statusMessage = '🔧 Processing offer...';
+    notifyListeners();
 
-    // 2. Broadcast to connected local P2P clients if host
-    if (_isHost && _localClients.isNotEmpty) {
-      for (final client in List<WebSocket>.from(_localClients)) {
-        try {
-          client.add(encoded);
-        } catch (_) {
-          _localClients.remove(client);
-        }
-      }
-    }
-  }
-
-  // ── Socket Message Handler ────────────────────────────────────────────────
-  void _onSocketData(dynamic rawData) {
     try {
-      final Map<String, dynamic> msg = jsonDecode(rawData.toString());
-      final String? msgRoomCode = msg['roomCode']?.toString();
-
-      // Filter messages strictly for this room
-      if (msgRoomCode != _roomCode) return;
-
-      final String type = msg['type']?.toString() ?? '';
-      final String senderId = msg['senderId']?.toString() ?? '';
-
-      // Ignore self-emitted broadcast messages
-      if (senderId == _myId && type != 'JOIN_ROOM') return;
-
-      switch (type) {
-        case 'JOIN_ROOM':
-          final String newUserName = msg['senderName']?.toString() ?? 'Guest';
-          _addParticipantIfMissing(senderId, newUserName, isHost: false);
-          addSystemMessage('$newUserName joined the room!');
-          
-          // If I am Host, send the current room state & media payload to the new guest
-          if (_isHost && _mediaPayload != null) {
-            _sendPayload({
-              'type': 'ROOM_STATE',
-              'roomCode': _roomCode,
-              'senderId': _myId,
-              'media': _mediaPayload!.toJson(),
-              'positionSec': _currentPosition.inMilliseconds / 1000.0,
-              'isPlaying': _isPlaying,
-              'participants': _participants.map((p) => p.toJson()).toList(),
-            });
-          }
-          break;
-
-        case 'ROOM_STATE':
-          if (!_isHost) {
-            if (msg['media'] is Map) {
-              _mediaPayload = WatchMediaPayload.fromJson(msg['media']);
-              if (_onMediaReceived != null && _mediaPayload != null) {
-                _onMediaReceived!(_mediaPayload!);
-              }
-            }
-            final double hostPos = (msg['positionSec'] as num?)?.toDouble() ?? 0.0;
-            final bool hostPlaying = msg['isPlaying'] == true;
-            _applyPlaybackSync(Duration(milliseconds: (hostPos * 1000).round()), hostPlaying);
-          }
-          break;
-
-        case 'MEDIA_UPDATE':
-          if (!_isHost) {
-            if (msg['media'] is Map) {
-              _mediaPayload = WatchMediaPayload.fromJson(msg['media']);
-              addSystemMessage('Syncing stream with host: ${_mediaPayload!.title}');
-              if (_onMediaReceived != null && _mediaPayload != null) {
-                _onMediaReceived!(_mediaPayload!);
-              }
-            }
-            final double hostPos = (msg['positionSec'] as num?)?.toDouble() ?? 0.0;
-            final bool hostPlaying = msg['isPlaying'] == true;
-            _applyPlaybackSync(Duration(milliseconds: (hostPos * 1000).round()), hostPlaying);
-          }
-          break;
-
-        case 'PLAYBACK_STATE':
-          final double posSec = (msg['positionSec'] as num?)?.toDouble() ?? 0.0;
-          final bool playing = msg['isPlaying'] == true;
-          _syncNotice = playing ? null : '${msg['senderName'] ?? "Host"} paused playback';
-          _applyPlaybackSync(Duration(milliseconds: (posSec * 1000).round()), playing);
-          break;
-
-        case 'BUFFERING':
-          final bool isBuffering = msg['isBuffering'] == true;
-          final String name = msg['senderName']?.toString() ?? 'Participant';
-          final p = _participants.firstWhere((element) => element.id == senderId,
-              orElse: () => WatchParticipant(id: senderId, name: name, isHost: false));
-          p.isBuffering = isBuffering;
-          _syncNotice = isBuffering ? 'Waiting for $name to buffer...' : null;
-          notifyListeners();
-          break;
-
-        case 'CHAT_MESSAGE':
-          final chat = WatchChatMessage.fromJson(msg);
-          _chatMessages.add(chat);
-          if (!_isChatDrawerOpen) {
-            _unreadChatCount++;
-            _toastChatStreamController.add(chat);
-          }
-          notifyListeners();
-          break;
-
-        case 'EMOJI_REACTION':
-          final String emoji = msg['emoji']?.toString() ?? '❤️';
-          final String sender = msg['senderName']?.toString() ?? 'Friend';
-          _reactionStreamController.add(WatchEmojiReaction(
-            senderName: sender,
-            emoji: emoji,
-            timestamp: DateTime.now().millisecondsSinceEpoch,
-          ));
-          break;
-
-        case 'HEARTBEAT':
-          final String name = msg['senderName']?.toString() ?? 'Guest';
-          final bool isHost = msg['isHost'] == true;
-          _addParticipantIfMissing(senderId, name, isHost: isHost);
-          break;
-
-        case 'LEAVE_ROOM':
-          final String leftName = msg['senderName']?.toString() ?? 'Participant';
-          _participants.removeWhere((p) => p.id == senderId);
-          addSystemMessage('$leftName left the room.');
-          notifyListeners();
-          break;
+      final blob = _SignalingBlob.decode(offerCode);
+      if (blob.type != 'offer') {
+        throw Exception('Expected offer, got ${blob.type}');
       }
-    } catch (e) {
-      // Ignored malformed noise
-    }
-  }
 
-  void _addParticipantIfMissing(String id, String name, {required bool isHost}) {
-    if (id.isEmpty) return;
-    final idx = _participants.indexWhere((p) => p.id == id);
-    if (idx >= 0) {
-      _participants[idx].lastSeen = DateTime.now();
-    } else {
-      _participants.add(WatchParticipant(id: id, name: name, isHost: isHost));
+      _guestCandidates = [];
+      _guestIceCompleter = Completer<void>();
+
+      _guestPc = await createPeerConnection({
+        'iceServers': _kIceServers,
+        'sdpSemantics': 'unified-plan',
+      });
+
+      _guestPc!.onIceCandidate = (c) {
+        if (c.candidate != null && c.candidate!.isNotEmpty) {
+          _guestCandidates.add(c);
+        }
+      };
+      _guestPc!.onIceGatheringState = (s) {
+        if (s == RTCIceGatheringState.RTCIceGatheringStateComplete) {
+          if (!(_guestIceCompleter?.isCompleted ?? true)) {
+            _guestIceCompleter!.complete();
+          }
+        }
+      };
+      _guestPc!.onConnectionState = (s) {
+        developer.log('Guest PC state: $s', name: 'WT');
+        if (s == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
+          _connectionStatus = WTConnectionStatus.connected;
+          _statusMessage = '✅ Connected!';
+          _pendingAnswerCode = null;
+          _startHeartbeat();
+          notifyListeners();
+        } else if (s == RTCPeerConnectionState.RTCPeerConnectionStateFailed ||
+            s == RTCPeerConnectionState.RTCPeerConnectionStateDisconnected) {
+          _connectionStatus = WTConnectionStatus.disconnected;
+          addSystemMessage('⚠️ Connection to host lost.');
+          notifyListeners();
+        }
+      };
+      _guestPc!.onDataChannel = (channel) {
+        _guestDc = channel;
+        _setupGuestDataChannel(channel);
+      };
+
+      // Apply host offer + ICE
+      await _guestPc!.setRemoteDescription(
+          RTCSessionDescription(blob.sdp, 'offer'));
+      for (final c in blob.candidates) {
+        await _guestPc!.addCandidate(RTCIceCandidate(
+          c['candidate']?.toString(),
+          c['sdpMid']?.toString(),
+          (c['sdpMLineIndex'] as num?)?.toInt(),
+        ));
+      }
+
+      // Generate answer
+      final answer = await _guestPc!.createAnswer();
+      await _guestPc!.setLocalDescription(answer);
+
+      // Wait for ICE
+      await Future.delayed(const Duration(milliseconds: 100));
+      await _guestIceCompleter!.future
+          .timeout(const Duration(seconds: 6), onTimeout: () {});
+
+      final answerBlob = _SignalingBlob(
+        type: 'answer',
+        sdp: answer.sdp ?? '',
+        candidates: _guestCandidates
+            .map((c) => {
+                  'candidate': c.candidate,
+                  'sdpMid': c.sdpMid,
+                  'sdpMLineIndex': c.sdpMLineIndex,
+                })
+            .toList(),
+      );
+
+      _pendingAnswerCode = answerBlob.encode();
+      _connectionStatus = WTConnectionStatus.connecting;
+      _statusMessage =
+          '📋 Send your answer code to the host.\nConnection completes automatically.';
+      notifyListeners();
+    } catch (e) {
+      developer.log('joinWithOffer error: $e', name: 'WT');
+      _connectionStatus = WTConnectionStatus.disconnected;
+      _statusMessage = '❌ Invalid offer code: $e';
       notifyListeners();
     }
   }
 
-  // ── Sync Callbacks & Local State Updates ──────────────────────────────────
-  void setPlaybackSyncCallback(Function(Duration position, bool isPlaying) callback) {
-    _onExternalPlaybackSync = callback;
-  }
-
-  void setMediaReceivedCallback(Function(WatchMediaPayload media) callback) {
-    _onMediaReceived = callback;
-    if (_mediaPayload != null) {
-      callback(_mediaPayload!);
-    }
-  }
-
-  static Future<void> resolveAndPlay(BuildContext context, WatchMediaPayload media) async {
-    final String type = media.isMovie ? 'movie' : 'series';
-
-    // 1. If videoUrl is already provided, start playback immediately!
-    if (media.videoUrl != null && media.videoUrl!.isNotEmpty) {
-      PlayerState().startPlayback(
-        streamUrl: media.videoUrl!,
-        title: media.title,
-        movieId: media.movieId,
-        episodeNumber: media.episodeNumber,
-        isMovie: media.isMovie,
-        headers: media.headers,
-        media: {
-          'id': media.movieId,
-          'stremioId': media.movieId,
-          'title': media.title,
-          'format': media.isMovie ? 'MOVIE' : 'SERIES',
-        },
-      );
-      return;
-    }
-
-    // 2. If videoUrl is null, resolve streams!
-    String cleanId = media.movieId;
-    if (cleanId.contains(':')) {
-      final parts = cleanId.split(':');
-      if (parts.length > 1) {
-        cleanId = parts.last;
+  void _setupGuestDataChannel(RTCDataChannel dc) {
+    dc.onDataChannelState = (s) {
+      if (s == RTCDataChannelState.RTCDataChannelOpen) {
+        // Announce ourselves to host
+        _sendOnChannel(dc, {
+          'type': 'JOIN_ROOM',
+          'senderId': _myId,
+          'senderName': _myName,
+          'isHost': false,
+        });
       }
-    }
+    };
+    dc.onMessage = (msg) => _onGuestReceive(msg.text);
+  }
 
-    String targetId = cleanId;
-    if (!media.isMovie) {
-      targetId = '$cleanId:${media.season ?? 1}:${media.episodeNumber}';
-    }
+  // ═══════════════════════════════════════════════════════════════════════════
+  // HOST MESSAGE HANDLING
+  // ═══════════════════════════════════════════════════════════════════════════
 
-    // Show loading overlay
-    showDialog(
-      context: context,
-      useRootNavigator: true,
-      barrierDismissible: false,
-      builder: (ctx) => const Center(
-        child: Card(
-          color: Color(0xFF141417),
-          child: Padding(
-            padding: EdgeInsets.all(24.0),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                CircularProgressIndicator(color: Colors.deepPurpleAccent),
-                SizedBox(height: 16),
-                Text(
-                  'Resolving stream for room...',
-                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-
+  void _onHostReceive(String rawData, {required GuestConnection fromSlot}) {
     try {
-      final addonService = StremioAddonService();
-      await addonService.init();
-      final streamAddons = addonService.streamAddons
-          .where((a) => a.matchesId(targetId))
-          .where((a) => a.supportsType(type) || a.types.isEmpty)
-          .toList();
+      final msg = jsonDecode(rawData) as Map<String, dynamic>;
+      final type = msg['type']?.toString() ?? '';
+      final senderId = msg['senderId']?.toString() ?? '';
 
-      final List<Map<String, dynamic>> allStreams = [];
-      for (final addon in streamAddons) {
-        try {
-          final url = '${addon.baseUrl}/stream/$type/$targetId.json';
-          final response = await http.get(Uri.parse(url)).timeout(const Duration(seconds: 8));
-          if (response.statusCode == 200) {
-            final body = jsonDecode(response.body);
-            final List streams = body['streams'] ?? [];
-            for (final s in streams) {
-              if (s is Map) {
-                allStreams.add(Map<String, dynamic>.from(s));
-              }
-            }
+      if (senderId == _myId) return;
+
+      switch (type) {
+        case 'JOIN_ROOM':
+          _handleJoinRoom(msg, senderId);
+          // Re-broadcast JOIN to all OTHER guests so they know someone joined
+          _broadcastExcept(msg, exceptSlotId: fromSlot.slotId);
+          break;
+        case 'CHAT_MESSAGE':
+          _handleChatMessage(msg);
+          _broadcastExcept(msg, exceptSlotId: fromSlot.slotId);
+          break;
+        case 'EMOJI_REACTION':
+          _handleEmojiReaction(msg);
+          _broadcastExcept(msg, exceptSlotId: fromSlot.slotId);
+          break;
+        case 'BUFFERING':
+          _handleBuffering(msg, senderId);
+          _broadcastExcept(msg, exceptSlotId: fromSlot.slotId);
+          break;
+        case 'HEARTBEAT':
+          _handleHeartbeat(msg, senderId);
+          break;
+        case 'LEAVE_ROOM':
+          _handleLeave(msg, senderId);
+          _broadcastExcept(msg, exceptSlotId: fromSlot.slotId);
+          break;
+        default:
+          // Unknown message — just re-broadcast
+          _broadcastExcept(msg, exceptSlotId: fromSlot.slotId);
+      }
+    } catch (e) {
+      developer.log('Host receive error: $e', name: 'WT');
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // GUEST MESSAGE HANDLING
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  void _onGuestReceive(String rawData) {
+    try {
+      final msg = jsonDecode(rawData) as Map<String, dynamic>;
+      final type = msg['type']?.toString() ?? '';
+      final senderId = msg['senderId']?.toString() ?? '';
+
+      if (senderId == _myId) return;
+
+      switch (type) {
+        case 'ROOM_STATE':
+          _handleRoomState(msg);
+          break;
+        case 'JOIN_ROOM':
+          _handleJoinRoom(msg, senderId);
+          break;
+        case 'MEDIA_UPDATE':
+          _handleMediaUpdate(msg);
+          break;
+        case 'PLAYBACK_STATE':
+          _handlePlaybackState(msg);
+          break;
+        case 'BUFFERING':
+          _handleBuffering(msg, senderId);
+          break;
+        case 'CHAT_MESSAGE':
+          _handleChatMessage(msg);
+          break;
+        case 'EMOJI_REACTION':
+          _handleEmojiReaction(msg);
+          break;
+        case 'HEARTBEAT':
+          _handleHeartbeat(msg, senderId);
+          break;
+        case 'LEAVE_ROOM':
+          _handleLeave(msg, senderId);
+          break;
+      }
+    } catch (e) {
+      developer.log('Guest receive error: $e', name: 'WT');
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SHARED MESSAGE HANDLERS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  void _handleJoinRoom(Map<String, dynamic> msg, String senderId) {
+    final name = msg['senderName']?.toString() ?? 'Guest';
+    _addOrUpdateParticipant(senderId, name, isHost: msg['isHost'] == true);
+    addSystemMessage('👋 $name joined!');
+  }
+
+  void _handleRoomState(Map<String, dynamic> msg) {
+    if (isHost) return;
+
+    if (msg['participants'] is List) {
+      for (final item in msg['participants'] as List) {
+        if (item is Map) {
+          final p = WatchParticipant.fromJson(
+              Map<String, dynamic>.from(item));
+          if (p.id != _myId) {
+            _addOrUpdateParticipant(p.id, p.name, isHost: p.isHost);
           }
-        } catch (_) {}
-      }
-
-      if (Navigator.of(context, rootNavigator: true).canPop()) {
-        Navigator.of(context, rootNavigator: true).pop();
-      }
-
-      if (allStreams.isNotEmpty) {
-        final bestStream = allStreams.first;
-        final url = bestStream['url']?.toString() ?? bestStream['externalUrl']?.toString();
-        if (url != null && url.isNotEmpty) {
-          PlayerState().startPlayback(
-            streamUrl: url,
-            title: media.title,
-            movieId: media.movieId,
-            episodeNumber: media.episodeNumber,
-            isMovie: media.isMovie,
-            headers: (bestStream['behaviorHints'] as Map?)?['requestHeaders'] != null
-                ? Map<String, String>.from((bestStream['behaviorHints']['requestHeaders'] as Map))
-                : null,
-            media: {
-              'id': media.movieId,
-              'stremioId': media.movieId,
-              'title': media.title,
-              'format': media.isMovie ? 'MOVIE' : 'SERIES',
-            },
-          );
-          return;
         }
       }
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('No active streams found for ${media.title}.'),
-          backgroundColor: Colors.redAccent,
-        ),
-      );
-    } catch (e) {
-      if (Navigator.of(context, rootNavigator: true).canPop()) {
-        Navigator.of(context, rootNavigator: true).pop();
-      }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error resolving stream: $e'),
-          backgroundColor: Colors.redAccent,
-        ),
-      );
     }
+
+    if (msg['media'] is Map) {
+      _mediaPayload = WatchMediaPayload.fromJson(
+          Map<String, dynamic>.from(msg['media'] as Map));
+      addSystemMessage('🎬 Host is watching: ${_mediaPayload!.title}');
+      _onMediaReceived?.call(_mediaPayload!);
+    } else {
+      addSystemMessage('⌛ Connected! Waiting for host to pick something.');
+    }
+
+    final pos = (msg['positionSec'] as num?)?.toDouble() ?? 0.0;
+    if (pos > 0) {
+      _applyPlaybackSync(
+          Duration(milliseconds: (pos * 1000).round()),
+          msg['isPlaying'] == true);
+    }
+
+    notifyListeners();
+  }
+
+  void _handleMediaUpdate(Map<String, dynamic> msg) {
+    if (isHost) return;
+    if (msg['media'] is Map) {
+      _mediaPayload = WatchMediaPayload.fromJson(
+          Map<String, dynamic>.from(msg['media'] as Map));
+      addSystemMessage('🎬 Host started: ${_mediaPayload!.title}');
+      _onMediaReceived?.call(_mediaPayload!);
+    }
+    final pos = (msg['positionSec'] as num?)?.toDouble() ?? 0.0;
+    _applyPlaybackSync(
+        Duration(milliseconds: (pos * 1000).round()),
+        msg['isPlaying'] == true);
+  }
+
+  void _handlePlaybackState(Map<String, dynamic> msg) {
+    final pos = (msg['positionSec'] as num?)?.toDouble() ?? 0.0;
+    final playing = msg['isPlaying'] == true;
+    _syncNotice = playing ? null : '⏸ ${msg['senderName']} paused';
+    _applyPlaybackSync(
+        Duration(milliseconds: (pos * 1000).round()), playing);
+  }
+
+  void _handleBuffering(Map<String, dynamic> msg, String senderId) {
+    final buffering = msg['isBuffering'] == true;
+    final name = msg['senderName']?.toString() ?? 'Participant';
+    final idx = _participants.indexWhere((p) => p.id == senderId);
+    if (idx >= 0) _participants[idx].isBuffering = buffering;
+    _syncNotice = buffering ? '⏳ Waiting for $name...' : null;
+    notifyListeners();
+  }
+
+  void _handleChatMessage(Map<String, dynamic> msg) {
+    final chat = WatchChatMessage.fromJson(msg);
+    _chatMessages.add(chat);
+    if (!_isChatDrawerOpen) {
+      _unreadChatCount++;
+      _toastChatCtrl.add(chat);
+    }
+    notifyListeners();
+  }
+
+  void _handleEmojiReaction(Map<String, dynamic> msg) {
+    _reactionCtrl.add(WatchEmojiReaction(
+      senderName: msg['senderName']?.toString() ?? 'Friend',
+      emoji: msg['emoji']?.toString() ?? '❤️',
+      timestamp: DateTime.now().millisecondsSinceEpoch,
+    ));
+  }
+
+  void _handleHeartbeat(Map<String, dynamic> msg, String senderId) {
+    _addOrUpdateParticipant(
+      senderId,
+      msg['senderName']?.toString() ?? 'Guest',
+      isHost: msg['isHost'] == true,
+    );
+  }
+
+  void _handleLeave(Map<String, dynamic> msg, String senderId) {
+    final name = msg['senderName']?.toString() ?? 'Participant';
+    final before = _participants.length;
+    _participants.removeWhere((p) => p.id == senderId);
+    if (_participants.length < before) {
+      addSystemMessage('$name left the room.');
+      notifyListeners();
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SENDING
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  void _sendOnChannel(RTCDataChannel dc, Map<String, dynamic> payload) {
+    if (dc.state != RTCDataChannelState.RTCDataChannelOpen) return;
+    try {
+      dc.send(RTCDataChannelMessage(jsonEncode(payload)));
+    } catch (e) {
+      developer.log('DataChannel send error: $e', name: 'WT');
+    }
+  }
+
+  /// Host: broadcast to ALL connected guests (used for host-originated messages).
+  void _broadcastAll(Map<String, dynamic> payload) {
+    for (final slot in _guestSlots) {
+      if (slot.dc != null) _sendOnChannel(slot.dc!, payload);
+    }
+  }
+
+  /// Host: broadcast to all guests EXCEPT one slot (relay from another guest).
+  void _broadcastExcept(Map<String, dynamic> payload,
+      {required String exceptSlotId}) {
+    for (final slot in _guestSlots) {
+      if (slot.slotId != exceptSlotId && slot.dc != null) {
+        _sendOnChannel(slot.dc!, payload);
+      }
+    }
+  }
+
+  /// Send from THIS peer: host broadcasts to all, guest sends to host.
+  void _sendPayload(Map<String, dynamic> payload) {
+    if (isHost) {
+      _broadcastAll(payload);
+    } else {
+      if (_guestDc != null) _sendOnChannel(_guestDc!, payload);
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PUBLIC API
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  void leaveRoom() {
+    if (!isActive) return;
+    _sendPayload({
+      'type': 'LEAVE_ROOM',
+      'senderId': _myId,
+      'senderName': _myName,
+    });
+    addSystemMessage('👋 Left the Watch Together session.');
+    _teardown();
+    notifyListeners();
+  }
+
+  void updateLocalPlaybackState({
+    required Duration position,
+    required bool isPlaying,
+    bool forceBroadcast = false,
+  }) {
+    _currentPosition = position;
+    _isPlaying = isPlaying;
+
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    if (isHost &&
+        isActive &&
+        (forceBroadcast || nowMs - _lastPositionBroadcastMs > 2500)) {
+      _lastPositionBroadcastMs = nowMs;
+      _sendPayload({
+        'type': 'PLAYBACK_STATE',
+        'senderId': _myId,
+        'senderName': _myName,
+        'positionSec': position.inMilliseconds / 1000.0,
+        'isPlaying': isPlaying,
+      });
+    }
+  }
+
+  void notifyLocalBuffering(bool isBuffering) {
+    if (!isActive) return;
+    _sendPayload({
+      'type': 'BUFFERING',
+      'senderId': _myId,
+      'senderName': _myName,
+      'isBuffering': isBuffering,
+    });
   }
 
   void updateHostMedia({
@@ -703,8 +902,7 @@ class WatchTogetherService extends ChangeNotifier {
     Map<String, String>? headers,
     String? torrentHash,
   }) {
-    if (!_isActive || !_isHost) return;
-
+    if (!isActive || !isHost) return;
     _mediaPayload = WatchMediaPayload(
       title: title,
       movieId: movieId,
@@ -715,63 +913,21 @@ class WatchTogetherService extends ChangeNotifier {
       season: season,
       isMovie: isMovie,
     );
-
+    addSystemMessage('🎬 Sharing "$title" with the room...');
     _sendPayload({
       'type': 'MEDIA_UPDATE',
-      'roomCode': _roomCode,
       'senderId': _myId,
       'senderName': _myName,
       'media': _mediaPayload!.toJson(),
-      'positionSec': _currentPosition.inMilliseconds / 1000.0,
-      'isPlaying': _isPlaying,
+      'positionSec': 0.0,
+      'isPlaying': true,
     });
-  }
-
-  void updateLocalPlaybackState({required Duration position, required bool isPlaying, bool forceBroadcast = false}) {
-    _currentPosition = position;
-    _isPlaying = isPlaying;
-
-    final nowMs = DateTime.now().millisecondsSinceEpoch;
-    // Host broadcasts state updates every 2500ms or instantly if forced (play/pause/seek)
-    if (_isHost && _isActive && (forceBroadcast || (nowMs - _lastPositionBroadcastMs) > 2500)) {
-      _lastPositionBroadcastMs = nowMs;
-      _sendPayload({
-        'type': 'PLAYBACK_STATE',
-        'roomCode': _roomCode,
-        'senderId': _myId,
-        'senderName': _myName,
-        'positionSec': position.inMilliseconds / 1000.0,
-        'isPlaying': isPlaying,
-      });
-    }
-  }
-
-  void notifyLocalBuffering(bool isBuffering) {
-    if (!_isActive) return;
-    _sendPayload({
-      'type': 'BUFFERING',
-      'roomCode': _roomCode,
-      'senderId': _myId,
-      'senderName': _myName,
-      'isBuffering': isBuffering,
-    });
-  }
-
-  void _applyPlaybackSync(Duration targetPosition, bool targetIsPlaying) {
-    _currentPosition = targetPosition;
-    _isPlaying = targetIsPlaying;
-
-    if (_onExternalPlaybackSync != null) {
-      _onExternalPlaybackSync!(targetPosition, targetIsPlaying);
-    }
     notifyListeners();
   }
 
-  // ── Chat & Emoji Actions ──────────────────────────────────────────────────
   void sendChatMessage(String text) {
     final trimmed = text.trim();
-    if (trimmed.isEmpty || !_isActive) return;
-
+    if (trimmed.isEmpty || !isActive) return;
     final chat = WatchChatMessage(
       id: Random().nextInt(9999999).toString(),
       senderId: _myId,
@@ -779,29 +935,20 @@ class WatchTogetherService extends ChangeNotifier {
       text: trimmed,
       timestamp: DateTime.now().millisecondsSinceEpoch,
     );
-
     _chatMessages.add(chat);
     notifyListeners();
-
-    _sendPayload({
-      ...chat.toJson(),
-      'type': 'CHAT_MESSAGE',
-      'roomCode': _roomCode,
-    });
+    _sendPayload({...chat.toJson(), 'type': 'CHAT_MESSAGE'});
   }
 
   void sendEmojiReaction(String emoji) {
-    if (!_isActive) return;
-
-    _reactionStreamController.add(WatchEmojiReaction(
+    if (!isActive) return;
+    _reactionCtrl.add(WatchEmojiReaction(
       senderName: _myName,
       emoji: emoji,
       timestamp: DateTime.now().millisecondsSinceEpoch,
     ));
-
     _sendPayload({
       'type': 'EMOJI_REACTION',
-      'roomCode': _roomCode,
       'senderId': _myId,
       'senderName': _myName,
       'emoji': emoji,
@@ -822,9 +969,123 @@ class WatchTogetherService extends ChangeNotifier {
 
   void setChatDrawerOpen(bool isOpen) {
     _isChatDrawerOpen = isOpen;
-    if (isOpen) {
-      _unreadChatCount = 0;
-    }
+    if (isOpen) _unreadChatCount = 0;
     notifyListeners();
+  }
+
+  void setPlaybackSyncCallback(
+      Function(Duration position, bool isPlaying) callback) {
+    _onExternalPlaybackSync = callback;
+  }
+
+  void setMediaReceivedCallback(Function(WatchMediaPayload media) callback) {
+    _onMediaReceived = callback;
+    if (_mediaPayload?.videoUrl != null) callback(_mediaPayload!);
+  }
+
+  void clearMediaReceivedCallback() => _onMediaReceived = null;
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // INTERNALS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  void _applyPlaybackSync(Duration pos, bool playing) {
+    _currentPosition = pos;
+    _isPlaying = playing;
+    _onExternalPlaybackSync?.call(pos, playing);
+    notifyListeners();
+  }
+
+  void _addOrUpdateParticipant(String id, String name,
+      {required bool isHost}) {
+    if (id.isEmpty) return;
+    final idx = _participants.indexWhere((p) => p.id == id);
+    if (idx >= 0) {
+      _participants[idx].lastSeen = DateTime.now();
+    } else {
+      _participants.add(WatchParticipant(id: id, name: name, isHost: isHost));
+      notifyListeners();
+    }
+  }
+
+  void _startHeartbeat() {
+    _heartbeatTimer?.cancel();
+    _heartbeatTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+      if (isActive) {
+        _sendPayload({
+          'type': 'HEARTBEAT',
+          'senderId': _myId,
+          'senderName': _myName,
+          'isHost': isHost,
+          'timestamp': DateTime.now().millisecondsSinceEpoch,
+        });
+      }
+    });
+  }
+
+  void _teardown() {
+    _role = WTRole.none;
+    _mediaPayload = null;
+    _syncNotice = null;
+    _currentPosition = Duration.zero;
+    _isPlaying = false;
+    _pendingAnswerCode = null;
+    _statusMessage = '';
+
+    _heartbeatTimer?.cancel();
+    _heartbeatTimer = null;
+    _onMediaReceived = null;
+    _onExternalPlaybackSync = null;
+
+    // Close all host guest slots
+    for (final slot in _guestSlots) {
+      try { slot.dc?.close(); } catch (_) {}
+      try { slot.pc?.close(); } catch (_) {}
+    }
+    _guestSlots.clear();
+
+    // Close guest-side PC
+    if (!(_guestIceCompleter?.isCompleted ?? true)) {
+      _guestIceCompleter!.complete();
+    }
+    _guestIceCompleter = null;
+    _guestCandidates = [];
+    try { _guestDc?.close(); } catch (_) {}
+    _guestDc = null;
+    try { _guestPc?.close(); } catch (_) {}
+    _guestPc = null;
+
+    _connectionStatus = WTConnectionStatus.disconnected;
+    _participants.clear();
+    _chatMessages.clear();
+    _unreadChatCount = 0;
+    _isChatDrawerOpen = false;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // STATIC: Play helper (direct URL only — page handles addon resolution)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  static void playDirect(WatchMediaPayload media) {
+    if (media.videoUrl == null || media.videoUrl!.isEmpty) return;
+    PlayerState().startPlayback(
+      streamUrl: media.videoUrl!,
+      title: media.title,
+      movieId: media.movieId,
+      episodeNumber: media.episodeNumber,
+      isMovie: media.isMovie,
+      headers: media.headers,
+      media: {
+        'id': media.movieId,
+        'stremioId': media.movieId,
+        'title': media.title,
+        'format': media.isMovie ? 'MOVIE' : 'SERIES',
+      },
+    );
+  }
+
+  static Future<void> resolveAndPlay(
+      BuildContext context, WatchMediaPayload media) async {
+    playDirect(media);
   }
 }

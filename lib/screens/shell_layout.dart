@@ -31,6 +31,8 @@ import 'profile_page.dart';
 import '../state/anilist_auth_state.dart';
 import 'manga_details_page.dart';
 import '../widgets/watch_together_dialog.dart';
+import '../services/watch_together_service.dart';
+import 'watch_together_room_screen.dart';
 
 class ShellLayout extends StatelessWidget {
   final NavigationState navigationState;
@@ -261,13 +263,45 @@ class ShellLayout extends StatelessWidget {
                   leading: null,
                   actions: [
                     if (!isDetailsOpen) ...[
-                      IconButton(
-                        icon: const Icon(Icons.groups_rounded, color: Colors.deepPurpleAccent),
-                        tooltip: 'Watch Together',
-                        onPressed: () {
-                          showDialog(
-                            context: context,
-                            builder: (_) => const WatchTogetherDialog(),
+                      ListenableBuilder(
+                        listenable: WatchTogetherService(),
+                        builder: (ctx, _) {
+                          final wt = WatchTogetherService();
+                          return IconButton(
+                            icon: Stack(
+                              clipBehavior: Clip.none,
+                              children: [
+                                const Icon(Icons.groups_rounded, color: Colors.deepPurpleAccent),
+                                if (wt.isActive)
+                                  Positioned(
+                                    top: -2,
+                                    right: -2,
+                                    child: Container(
+                                      width: 8,
+                                      height: 8,
+                                      decoration: const BoxDecoration(
+                                        color: Colors.greenAccent,
+                                        shape: BoxShape.circle,
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                            tooltip: wt.isActive ? 'Watch Together Room (Active)' : 'Watch Together',
+                            onPressed: () {
+                              if (wt.isActive) {
+                                Navigator.of(context, rootNavigator: true).push(
+                                  MaterialPageRoute(
+                                    builder: (_) => const WatchTogetherRoomScreen(),
+                                  ),
+                                );
+                              } else {
+                                showDialog(
+                                  context: context,
+                                  builder: (_) => const WatchTogetherDialog(),
+                                );
+                              }
+                            },
                           );
                         },
                       ),

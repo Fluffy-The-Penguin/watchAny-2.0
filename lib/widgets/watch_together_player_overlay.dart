@@ -90,7 +90,17 @@ class _WatchTogetherPlayerOverlayState
   @override
   Widget build(BuildContext context) {
     final double screenWidth = MediaQuery.of(context).size.width;
+    final double screenHeight = MediaQuery.of(context).size.height;
     final bool isMobile = screenWidth < 650;
+    // On mobile (portrait or landscape), the native controls header is ~48–56px tall.
+    // We need to sit just below it. Use the shorter dimension as a landscape check.
+    final bool isLandscape = screenWidth > screenHeight;
+    // Header offset: account for status bar + controls bar height
+    final double statusBarH = MediaQuery.of(context).padding.top;
+    // Native player top bar is ~50px; push WT header below it
+    final double headerTop = isMobile
+        ? (isLandscape ? (statusBarH + 50) : (statusBarH + 52))
+        : 64.0;
 
     return ListenableBuilder(
       listenable: WatchTogetherService(),
@@ -100,11 +110,11 @@ class _WatchTogetherPlayerOverlayState
 
         return Stack(
           children: [
-            // 1. Single Non-Overlapping Top Header Row (Positioned below top app bar to prevent title overlap)
+            // 1. Top Header Row — positioned below native player controls header
             Positioned(
-              top: isMobile ? 54 : 60,
-              left: isMobile ? 16 : 24,
-              right: isMobile ? 16 : 24,
+              top: headerTop,
+              left: isMobile ? 12 : 24,
+              right: isMobile ? 12 : 24,
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -263,10 +273,10 @@ class _WatchTogetherPlayerOverlayState
               ),
             ),
 
-            // 2. Sync Notice Banner (Top Center Below Header)
+            // 2. Sync Notice Banner — below the header
             if (service.syncNotice != null)
               Positioned(
-                top: 54,
+                top: headerTop + 42,
                 left: 0,
                 right: 0,
                 child: Center(
@@ -358,8 +368,9 @@ class _WatchTogetherPlayerOverlayState
             // 5. Slide-Out / Responsive Live Chat Panel
             if (service.isChatDrawerOpen)
               Positioned(
-                top: isMobile ? 54 : 0,
-                bottom: isMobile ? 64 : 0,
+                // On mobile start from below native header; fullscreen starts from top
+                top: isMobile ? headerTop : 0,
+                bottom: isMobile ? 72 : 0,
                 right: 0,
                 width: isMobile ? min(screenWidth * 0.85, 300.0) : 310.0,
                 child: Container(

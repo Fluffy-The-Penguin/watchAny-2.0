@@ -1,0 +1,18 @@
+﻿# Koyeb deployment config
+name: watchany-relay
+type: web
+git:
+  repository: ""       # fill in your GitHub repo URL
+  branch: main
+  workdir: relay_server
+build:
+  buildpack: nodejs
+run:
+  command: "node server.js"
+ports:
+  - port: 8080
+    protocol: http
+health_checks:
+  - type: http
+    path: /health
+    port: 8080
