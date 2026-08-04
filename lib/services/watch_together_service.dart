@@ -261,7 +261,7 @@ class WatchTogetherService extends ChangeNotifier {
   static String generateRoomCode() => (100000 + Random().nextInt(900000)).toString();
   static String _genId() => 'u${Random().nextInt(899999) + 100000}';
 
-  String get _topicName => 'watchany_wt_$_roomCode';
+  String get _topicName => 'watchany_wt_${_roomCode.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '')}';
   String get _wsUrl => 'wss://ntfy.sh/$_topicName/ws';
   String get _httpUrl => 'https://ntfy.sh/$_topicName';
 
@@ -319,7 +319,7 @@ class WatchTogetherService extends ChangeNotifier {
     required String code,
     required String guestName,
   }) async {
-    final cleanCode = code.trim().replaceAll(RegExp(r'\s+'), '');
+    final cleanCode = code.trim().replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
     if (cleanCode.length < 4) return WTJoinResult.invalidCode;
 
     _teardown();
@@ -788,6 +788,8 @@ class WatchTogetherService extends ChangeNotifier {
   void setPlaybackSyncCallback(Function(Duration, bool) callback) {
     _onExternalPlaybackSync = callback;
   }
+
+  void clearPlaybackSyncCallback() => _onExternalPlaybackSync = null;
 
   void setMediaReceivedCallback(Function(WatchMediaPayload) callback) {
     _onMediaReceived = callback;

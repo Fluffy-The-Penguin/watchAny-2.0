@@ -279,6 +279,60 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
     }
   }
 
+  StreamSubscription? _wtPosSub;
+  StreamSubscription? _wtPlayingSub;
+  StreamSubscription? _wtBufferingSub;
+
+  void _bindWatchTogetherSync() {
+    final wtService = WatchTogetherService();
+    _wtPosSub?.cancel();
+    _wtPlayingSub?.cancel();
+    _wtBufferingSub?.cancel();
+
+    if (!wtService.isActive) return;
+
+    wtService.setPlaybackSyncCallback((targetPos, targetIsPlaying) {
+      if (!mounted) return;
+      final currentPos = player.state.position;
+      if ((currentPos - targetPos).inSeconds.abs() > 2.5) {
+        player.seek(targetPos);
+      }
+      if (targetIsPlaying && !player.state.playing) {
+        player.play();
+      } else if (!targetIsPlaying && player.state.playing) {
+        player.pause();
+      }
+    });
+
+    _wtPosSub = player.stream.position.listen((p) {
+      if (wtService.isActive) {
+        wtService.updateLocalPlaybackState(position: p, isPlaying: player.state.playing);
+      }
+    });
+
+    _wtPlayingSub = player.stream.playing.listen((isPlaying) {
+      if (wtService.isActive) {
+        wtService.updateLocalPlaybackState(position: player.state.position, isPlaying: isPlaying);
+      }
+    });
+
+    _wtBufferingSub = player.stream.buffering.listen((isBuffering) {
+      if (wtService.isActive) {
+        wtService.notifyLocalBuffering(isBuffering);
+      }
+    });
+
+    if (wtService.isHost) {
+      wtService.updateHostMedia(
+        streamUrl: _currentStreamUrl ?? widget.streamUrl,
+        title: widget.title,
+        movieId: widget.media?['id']?.toString() ?? widget.title,
+        episodeNumber: _currentEpNum ?? widget.episodeNumber ?? 1,
+        isMovie: widget.isMovie ?? true,
+      );
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -322,40 +376,10 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
 
     _updateTorrentTimer();
 
-    // Bind Watch Together sync if session is active
+    // Bind Watch Together sync dynamically
     final wtService = WatchTogetherService();
-    if (wtService.isActive) {
-      wtService.setPlaybackSyncCallback((targetPos, targetIsPlaying) {
-        if (!mounted) return;
-        final currentPos = player.state.position;
-        if ((currentPos - targetPos).inSeconds.abs() > 2.5) {
-          player.seek(targetPos);
-        }
-        if (targetIsPlaying && !player.state.playing) {
-          player.play();
-        } else if (!targetIsPlaying && player.state.playing) {
-          player.pause();
-        }
-      });
-
-      _subscriptions.add(player.stream.position.listen((p) {
-        if (wtService.isActive) {
-          wtService.updateLocalPlaybackState(position: p, isPlaying: player.state.playing);
-        }
-      }));
-
-      _subscriptions.add(player.stream.playing.listen((isPlaying) {
-        if (wtService.isActive) {
-          wtService.updateLocalPlaybackState(position: player.state.position, isPlaying: isPlaying);
-        }
-      }));
-
-      _subscriptions.add(player.stream.buffering.listen((isBuffering) {
-        if (wtService.isActive) {
-          wtService.notifyLocalBuffering(isBuffering);
-        }
-      }));
-    }
+    wtService.addListener(_bindWatchTogetherSync);
+    _bindWatchTogetherSync();
 
     // Fetch skip times once duration is loaded
     if (widget.anilistId != null) {
@@ -443,6 +467,13 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
 
   @override
   void dispose() {
+    final wtService = WatchTogetherService();
+    wtService.removeListener(_bindWatchTogetherSync);
+    wtService.clearPlaybackSyncCallback();
+    _wtPosSub?.cancel();
+    _wtPlayingSub?.cancel();
+    _wtBufferingSub?.cancel();
+
     _torrentStatsTimer?.cancel();
     _hideControlsTimer?.cancel();
     _pendingSeekTimer?.cancel();
