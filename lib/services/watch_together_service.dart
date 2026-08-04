@@ -583,6 +583,7 @@ class WatchTogetherService extends ChangeNotifier {
     // Show loading overlay
     showDialog(
       context: context,
+      useRootNavigator: true,
       barrierDismissible: false,
       builder: (ctx) => const Center(
         child: Card(
@@ -630,7 +631,9 @@ class WatchTogetherService extends ChangeNotifier {
         } catch (_) {}
       }
 
-      if (Navigator.canPop(context)) Navigator.pop(context);
+      if (Navigator.of(context, rootNavigator: true).canPop()) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
 
       if (allStreams.isNotEmpty) {
         final bestStream = allStreams.first;
@@ -663,7 +666,9 @@ class WatchTogetherService extends ChangeNotifier {
         ),
       );
     } catch (e) {
-      if (Navigator.canPop(context)) Navigator.pop(context);
+      if (Navigator.of(context, rootNavigator: true).canPop()) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Error resolving stream: $e'),

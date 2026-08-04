@@ -44,6 +44,12 @@ class _WatchTogetherDialogState extends State<WatchTogetherDialog> {
     super.dispose();
   }
 
+  void _closeModal() {
+    if (mounted && Navigator.of(context, rootNavigator: true).canPop()) {
+      Navigator.of(context, rootNavigator: true).pop();
+    }
+  }
+
   Future<void> _handleCreateRoom() async {
     if (widget.mediaPayload == null) {
       setState(() => _errorMessage = 'No media selected to host.');
@@ -64,7 +70,7 @@ class _WatchTogetherDialogState extends State<WatchTogetherDialog> {
     setState(() => _isConnecting = false);
 
     if (success) {
-      Navigator.of(context).pop();
+      _closeModal();
       if (widget.onStartPlayback != null) {
         widget.onStartPlayback!(widget.mediaPayload!);
       } else {
@@ -88,10 +94,12 @@ class _WatchTogetherDialogState extends State<WatchTogetherDialog> {
     });
 
     final service = WatchTogetherService();
+    bool didLaunch = false;
 
     void launchPlayback(WatchMediaPayload media) {
-      if (!mounted) return;
-      Navigator.of(context).pop();
+      if (didLaunch) return;
+      didLaunch = true;
+      _closeModal();
       if (widget.onStartPlayback != null) {
         widget.onStartPlayback!(media);
       } else {
@@ -111,20 +119,20 @@ class _WatchTogetherDialogState extends State<WatchTogetherDialog> {
     setState(() => _isConnecting = false);
 
     if (success) {
-      // Check if host media is already populated
+      _closeModal(); // Unconditionally pop dialog modal on successful join
       if (service.mediaPayload != null) {
         launchPlayback(service.mediaPayload!);
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Joined Room $code! Syncing stream with host...'),
+            content: Text('Joined Room $code! Connecting to host stream...'),
             backgroundColor: Colors.deepPurple,
             duration: const Duration(seconds: 4),
           ),
         );
       }
     } else {
-      setState(() => _errorMessage = 'Could not join room $code. Verify code.');
+      setState(() => _errorMessage = 'Could not join room $code. Verify room code.');
     }
   }
 
@@ -188,7 +196,7 @@ class _WatchTogetherDialogState extends State<WatchTogetherDialog> {
                   ),
                   IconButton(
                     icon: const Icon(Icons.close, color: Colors.white54, size: 20),
-                    onPressed: () => Navigator.of(context).pop(),
+                    onPressed: _closeModal,
                   ),
                 ],
               ),
