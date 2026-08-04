@@ -100,11 +100,11 @@ class _WatchTogetherPlayerOverlayState
 
         return Stack(
           children: [
-            // 1. Single Non-Overlapping Top Header Row (Positioned between left back button & right menu)
+            // 1. Single Non-Overlapping Top Header Row (Positioned below top app bar to prevent title overlap)
             Positioned(
-              top: 12,
-              left: isMobile ? 64 : 76,
-              right: isMobile ? 64 : 76,
+              top: isMobile ? 54 : 60,
+              left: isMobile ? 16 : 24,
+              right: isMobile ? 16 : 24,
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [

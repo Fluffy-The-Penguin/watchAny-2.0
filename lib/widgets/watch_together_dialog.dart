@@ -2,6 +2,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/watch_together_service.dart';
+import '../screens/watch_together_room_screen.dart';
 
 class WatchTogetherDialog extends StatefulWidget {
   final WatchMediaPayload? mediaPayload;
@@ -50,20 +51,30 @@ class _WatchTogetherDialogState extends State<WatchTogetherDialog> {
     }
   }
 
+  void _openRoomScreen() {
+    if (!mounted) return;
+    Navigator.of(context, rootNavigator: true).push(
+      MaterialPageRoute(builder: (_) => const WatchTogetherRoomScreen()),
+    );
+  }
+
   Future<void> _handleCreateRoom() async {
-    if (widget.mediaPayload == null) {
-      setState(() => _errorMessage = 'No media selected to host.');
-      return;
-    }
     setState(() {
       _isConnecting = true;
       _errorMessage = null;
     });
 
     final service = WatchTogetherService();
+    final defaultPayload = WatchMediaPayload(
+      title: 'Watch Together Session',
+      movieId: 'room_${WatchTogetherService.generateRoomCode()}',
+      episodeNumber: 1,
+      isMovie: true,
+    );
+
     final success = await service.createRoom(
       hostName: _hostNameController.text,
-      media: widget.mediaPayload!,
+      media: widget.mediaPayload ?? defaultPayload,
     );
 
     if (!mounted) return;
@@ -71,10 +82,9 @@ class _WatchTogetherDialogState extends State<WatchTogetherDialog> {
 
     if (success) {
       _closeModal();
-      if (widget.onStartPlayback != null) {
+      _openRoomScreen();
+      if (widget.onStartPlayback != null && widget.mediaPayload != null) {
         widget.onStartPlayback!(widget.mediaPayload!);
-      } else {
-        WatchTogetherService.resolveAndPlay(context, widget.mediaPayload!);
       }
     } else {
       setState(() => _errorMessage = 'Failed to create room. Please try again.');
@@ -94,21 +104,6 @@ class _WatchTogetherDialogState extends State<WatchTogetherDialog> {
     });
 
     final service = WatchTogetherService();
-    bool didLaunch = false;
-
-    void launchPlayback(WatchMediaPayload media) {
-      if (didLaunch) return;
-      didLaunch = true;
-      _closeModal();
-      if (widget.onStartPlayback != null) {
-        widget.onStartPlayback!(media);
-      } else {
-        WatchTogetherService.resolveAndPlay(context, media);
-      }
-    }
-
-    // Bind callback FIRST before joining so we never miss incoming ROOM_STATE
-    service.setMediaReceivedCallback(launchPlayback);
 
     final success = await service.joinRoom(
       code: code,
@@ -119,18 +114,8 @@ class _WatchTogetherDialogState extends State<WatchTogetherDialog> {
     setState(() => _isConnecting = false);
 
     if (success) {
-      _closeModal(); // Unconditionally pop dialog modal on successful join
-      if (service.mediaPayload != null) {
-        launchPlayback(service.mediaPayload!);
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Joined Room $code! Connecting to host stream...'),
-            backgroundColor: Colors.deepPurple,
-            duration: const Duration(seconds: 4),
-          ),
-        );
-      }
+      _closeModal();
+      _openRoomScreen();
     } else {
       setState(() => _errorMessage = 'Could not join room $code. Verify room code.');
     }
@@ -213,32 +198,31 @@ class _WatchTogetherDialogState extends State<WatchTogetherDialog> {
                 ),
                 child: Row(
                   children: [
-                    if (widget.mediaPayload != null)
-                      Expanded(
-                        child: GestureDetector(
-                          onTap: () => setState(() => _selectedTabIndex = 0),
-                          child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 180),
-                            alignment: Alignment.center,
-                            decoration: BoxDecoration(
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () => setState(() => _selectedTabIndex = 0),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 180),
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: _selectedTabIndex == 0
+                                ? Colors.deepPurpleAccent
+                                : Colors.transparent,
+                            borderRadius: BorderRadius.circular(9.0),
+                          ),
+                          child: Text(
+                            'Create Room',
+                            style: TextStyle(
                               color: _selectedTabIndex == 0
-                                  ? Colors.deepPurpleAccent
-                                  : Colors.transparent,
-                              borderRadius: BorderRadius.circular(9.0),
-                            ),
-                            child: Text(
-                              'Create Room',
-                              style: TextStyle(
-                                color: _selectedTabIndex == 0
-                                    ? Colors.white
-                                    : Colors.white60,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 13.5,
-                              ),
+                                  ? Colors.white
+                                  : Colors.white60,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 13.5,
                             ),
                           ),
                         ),
                       ),
+                    ),
                     Expanded(
                       child: GestureDetector(
                         onTap: () => setState(() => _selectedTabIndex = 1),
@@ -294,7 +278,7 @@ class _WatchTogetherDialogState extends State<WatchTogetherDialog> {
               ],
 
               // Tab 1: Create Room
-              if (_selectedTabIndex == 0 && widget.mediaPayload != null) ...[
+              if (_selectedTabIndex == 0) ...[
                 const Text(
                   'Your Name / Alias',
                   style: TextStyle(color: Colors.white70, fontSize: 12.0, fontWeight: FontWeight.w500),
@@ -374,7 +358,7 @@ class _WatchTogetherDialogState extends State<WatchTogetherDialog> {
               ],
 
               // Tab 2: Join Room
-              if (_selectedTabIndex == 1 || widget.mediaPayload == null) ...[
+              if (_selectedTabIndex == 1) ...[
                 const Text(
                   'Your Name',
                   style: TextStyle(color: Colors.white70, fontSize: 12.0, fontWeight: FontWeight.w500),
