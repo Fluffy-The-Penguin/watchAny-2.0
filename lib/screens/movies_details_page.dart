@@ -15,6 +15,7 @@ import '../widgets/torrent_selector_panel.dart';
 import '../widgets/movie_stream_selector_panel.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../widgets/smooth_scroll_area.dart';
+import '../widgets/poster_image_viewer.dart';
 import '../services/batch_mapping_service.dart';
 import '../services/torrserver_service.dart';
 import '../services/torrserver_manager.dart';
@@ -890,22 +891,28 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               // Poster thumbnail
-              Container(
-                height: 180.0,
-                width: 125.0,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(8.0),
-                  border: Border.all(color: Colors.white24),
-                  image: poster.isNotEmpty
-                      ? DecorationImage(
-                          image: CachedNetworkImageProvider(poster), fit: BoxFit.cover)
-                      : null,
-                  color: Colors.white10,
+              GestureDetector(
+                onTap: () => showPosterImageViewerDialog(context, imageUrl: poster, title: _title ?? 'Poster'),
+                child: MouseRegion(
+                  cursor: SystemMouseCursors.click,
+                  child: Container(
+                    height: 180.0,
+                    width: 125.0,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(8.0),
+                      border: Border.all(color: Colors.white24),
+                      image: poster.isNotEmpty
+                          ? DecorationImage(
+                              image: CachedNetworkImageProvider(poster), fit: BoxFit.cover)
+                          : null,
+                      color: Colors.white10,
+                    ),
+                    child: poster.isEmpty
+                        ? const Center(
+                            child: Icon(Icons.movie, color: Colors.white24, size: 32))
+                        : null,
+                  ),
                 ),
-                child: poster.isEmpty
-                    ? const Center(
-                        child: Icon(Icons.movie, color: Colors.white24, size: 32))
-                    : null,
               ),
               const SizedBox(width: 20.0),
               Expanded(

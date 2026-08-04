@@ -47,6 +47,7 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
   String _readingFormat = 'webtoon'; // 'webtoon', 'paging_ltr', 'paging_rtl', 'paging_double'
   String _colorFilterMode = 'none'; // 'none', 'grayscale', 'sepia', 'warm', 'inverted', 'boost'
   int _currentPageIndex = 0;
+  final ValueNotifier<int> _currentPageNotifier = ValueNotifier<int>(0);
   MangaPageLoader? _pageLoader;
   // Actual pixel heights reported by each rendered webtoon page widget.
   // Used by _onScroll for ground-truth page detection without any estimation.
@@ -72,6 +73,10 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
   @override
   void initState() {
     super.initState();
+    // Expand Flutter ImageCache to 256MB to prevent image eviction blackouts during scrolling
+    PaintingBinding.instance.imageCache.maximumSizeBytes = 256 * 1024 * 1024;
+    PaintingBinding.instance.imageCache.maximumSize = 100;
+
     // Hide status bar and system navigation bar for full screen reading
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     
@@ -122,6 +127,7 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
     _webtoonTransformationController.dispose();
     _webtoonScaleController.dispose();
     _saveDebounce?.cancel();
+    _currentPageNotifier.dispose();
     super.dispose();
   }
 
@@ -230,9 +236,8 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
     if (index < 0 || index >= _pageUrls.length) return;
     if (_currentPageIndex == index && !jump) return;
     
-    setState(() {
-      _currentPageIndex = index;
-    });
+    _currentPageIndex = index;
+    _currentPageNotifier.value = index;
     
     _pageLoader?.setPriorityIndex(index);
     _precacheUpcomingPages(index);
@@ -240,15 +245,19 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
     final bool isLastPage = index >= _pageUrls.length - 1 && _pageUrls.isNotEmpty;
     _scheduleSave(index, isLastPage: isLastPage);
 
-    if (jump && _readingFormat != 'webtoon' && _pageController.hasClients) {
-      if (_readingFormat == 'paging_double') {
-        final groups = _getDoublePageIndices();
-        final groupIdx = groups.indexWhere((g) => g.contains(index));
-        if (groupIdx != -1) {
-          _pageController.jumpToPage(groupIdx);
+    if (jump) {
+      if (_readingFormat != 'webtoon' && _pageController.hasClients) {
+        if (_readingFormat == 'paging_double') {
+          final groups = _getDoublePageIndices();
+          final groupIdx = groups.indexWhere((g) => g.contains(index));
+          if (groupIdx != -1) {
+            _pageController.jumpToPage(groupIdx);
+          }
+        } else {
+          _pageController.jumpToPage(index);
         }
-      } else {
-        _pageController.jumpToPage(index);
+      } else if (_readingFormat == 'webtoon') {
+        _scrollToSavedPageWebtoon();
       }
     }
   }
@@ -866,13 +875,14 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
                       borderRadius: BorderRadius.circular(16.0),
                       border: Border.all(color: Colors.white24, width: 0.8),
                     ),
-                    child: Builder(
-                      builder: (context) {
+                    child: ValueListenableBuilder<int>(
+                      valueListenable: _currentPageNotifier,
+                      builder: (context, currentPage, _) {
                         final bool isDouble = _readingFormat == 'paging_double';
                         String pageText;
                         if (isDouble) {
                           final groups = _getDoublePageIndices();
-                          final groupIdx = groups.indexWhere((g) => g.contains(_currentPageIndex));
+                          final groupIdx = groups.indexWhere((g) => g.contains(currentPage));
                           if (groupIdx != -1) {
                             final group = groups[groupIdx];
                             if (group.length == 2) {
@@ -881,10 +891,10 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
                               pageText = '${group[0] + 1}/${_pageUrls.length}';
                             }
                           } else {
-                            pageText = '${_currentPageIndex + 1}/${_pageUrls.length}';
+                            pageText = '${currentPage + 1}/${_pageUrls.length}';
                           }
                         } else {
-                          pageText = '${_currentPageIndex + 1}/${_pageUrls.length}';
+                          pageText = '${currentPage + 1}/${_pageUrls.length}';
                         }
                         return Row(
                           mainAxisSize: MainAxisSize.min,
@@ -1058,58 +1068,61 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
   }
 
   Widget _buildPageImage(int index, {bool isWebtoon = false}) {
-    final localPath = _pageLoader?.localPaths[index];
-    final isDownloading = _pageLoader?.isDownloading(index) ?? false;
-    final double? progress = _pageLoader?.getProgress(index);
+    return ValueListenableBuilder<int>(
+      valueListenable: _pageLoader?.onPageDownloadedNotifier ?? ValueNotifier(-1),
+      builder: (context, downloadedIdx, _) {
+        final localPath = _pageLoader?.localPaths[index];
+        final isDownloading = _pageLoader?.isDownloading(index) ?? false;
+        final double? progress = _pageLoader?.getProgress(index);
 
-    return LayoutBuilder(
-      key: ValueKey('page_${_currentChapterId}_$index'),
-      builder: (context, constraints) {
-        final double w = constraints.maxWidth.isFinite ? constraints.maxWidth : MediaQuery.of(context).size.width;
-        final double defaultAspect = _getAverageWebtoonAspectRatio();
-        final dims = _pageLoader?.pageDimensions[index];
-        final double aspectRatio = (dims != null && dims.height > 0) ? (dims.width / dims.height) : defaultAspect;
+        return LayoutBuilder(
+          key: ValueKey('page_${_currentChapterId}_$index'),
+          builder: (context, constraints) {
+            final double w = constraints.maxWidth.isFinite ? constraints.maxWidth : MediaQuery.of(context).size.width;
+            final double defaultAspect = _getAverageWebtoonAspectRatio();
+            final dims = _pageLoader?.pageDimensions[index];
+            final double aspectRatio = (dims != null && dims.height > 0) ? (dims.width / dims.height) : defaultAspect;
 
-        Widget content;
-        if (localPath != null) {
-          content = _WebtoonImageWithSize(
-            file: File(localPath),
-            index: index,
-            currentChapterId: _currentChapterId,
-            isWebtoon: isWebtoon,
-            maxWidth: w,
-            pageLoader: _pageLoader,
-            onDimensionResolved: () {
-              if (mounted) setState(() {});
-            },
-            errorBuilder: (context, error, stackTrace) => _buildPageError(index),
-          );
-        } else {
-          final double h = w / aspectRatio;
-          content = _MihonPagePlaceholder(
-            width: w,
-            height: isWebtoon ? h : null,
-            pageNumber: index + 1,
-            isDownloading: isDownloading,
-            progress: progress,
-          );
-        }
+            Widget content;
+            if (localPath != null) {
+              content = _WebtoonImageWithSize(
+                file: File(localPath),
+                index: index,
+                currentChapterId: _currentChapterId,
+                isWebtoon: isWebtoon,
+                maxWidth: w,
+                pageLoader: _pageLoader,
+                onDimensionResolved: () {},
+                errorBuilder: (context, error, stackTrace) => _buildPageError(index),
+              );
+            } else {
+              final double h = w / aspectRatio;
+              content = _MihonPagePlaceholder(
+                width: w,
+                height: isWebtoon ? h : null,
+                pageNumber: index + 1,
+                isDownloading: isDownloading,
+                progress: progress,
+              );
+            }
 
-        if (isWebtoon) {
-          return SizedBox(
-            key: ValueKey('sizedbox_$index'),
-            width: w,
-            child: content,
-          );
-        }
+            if (isWebtoon) {
+              return SizedBox(
+                key: ValueKey('sizedbox_$index'),
+                width: w,
+                child: content,
+              );
+            }
 
-        return SizedBox(
-          key: ValueKey('sizedbox_$index'),
-          width: w,
-          child: AspectRatio(
-            aspectRatio: aspectRatio,
-            child: content,
-          ),
+            return SizedBox(
+              key: ValueKey('sizedbox_$index'),
+              width: w,
+              child: AspectRatio(
+                aspectRatio: aspectRatio,
+                child: content,
+              ),
+            );
+          },
         );
       },
     );
@@ -1849,6 +1862,7 @@ class MangaPageLoader {
   final int chapterId;
   final List<String> urls;
   final void Function(int index) onPageDownloaded;
+  final ValueNotifier<int> onPageDownloadedNotifier = ValueNotifier<int>(-1);
   
   final List<String?> localPaths;
   final List<ImageDimension?> pageDimensions;
@@ -1922,6 +1936,7 @@ class MangaPageLoader {
   void dispose() {
     _isDisposed = true;
     _cancelAll();
+    onPageDownloadedNotifier.dispose();
   }
 
   Future<void> _startDownloadLoop() async {
@@ -1981,6 +1996,7 @@ class MangaPageLoader {
           ImageDimension? dims = _parseImageDimensions(bytes);
           pageDimensions[index] = dims;
         } catch (_) {}
+        onPageDownloadedNotifier.value = index;
         onPageDownloaded(index);
         return;
       } else {
@@ -2012,6 +2028,7 @@ class MangaPageLoader {
         pageDimensions[index] = dims;
       } catch (_) {}
       
+      onPageDownloadedNotifier.value = index;
       onPageDownloaded(index);
       return;
     }
@@ -2046,6 +2063,7 @@ class MangaPageLoader {
             } catch (_) {}
             
             _progress[index] = 1.0;
+            onPageDownloadedNotifier.value = index;
             onPageDownloaded(index);
           } else {
             _failedCounts[index]++;
@@ -2438,7 +2456,6 @@ class _WebtoonImageWithSizeState extends State<_WebtoonImageWithSize> {
       width: widget.isWebtoon ? double.infinity : null,
       gaplessPlayback: true,
       filterQuality: FilterQuality.medium,
-      cacheWidth: (widget.maxWidth * 2.0).toInt().clamp(800, 2048),
       frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
         if (wasSynchronouslyLoaded || frame != null) {
           return child;

@@ -9,6 +9,7 @@ import '../services/manga_download_service.dart';
 import 'manga_reader_page.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../widgets/smooth_scroll_area.dart';
+import '../widgets/poster_image_viewer.dart';
 
 class MangaDetailsPage extends StatefulWidget {
   final String mangaId;
@@ -397,26 +398,32 @@ class _MangaDetailsPageState extends State<MangaDetailsPage> {
                                     children: [
                                       // Cover on LEFT
                                       if (coverUrl.isNotEmpty)
-                                        Container(
-                                          height: isMobile ? 165.0 : 210.0,
-                                          width: isMobile ? 110.0 : 145.0,
-                                          decoration: BoxDecoration(
-                                            borderRadius: BorderRadius.circular(8.0),
-                                            boxShadow: [
-                                              BoxShadow(
-                                                color: Colors.black.withValues(alpha: 0.8),
-                                                blurRadius: 12.0,
-                                                offset: const Offset(0, 4),
-                                              )
-                                            ],
-                                            border: Border.all(color: Colors.white10),
-                                          ),
-                                          child: ClipRRect(
-                                            borderRadius: BorderRadius.circular(7.0),
-                                            child: CachedNetworkImage(
-                                              imageUrl: coverUrl,
-                                              fit: BoxFit.cover,
-                                              memCacheWidth: isMobile ? 230 : 300,
+                                        GestureDetector(
+                                          onTap: () => showPosterImageViewerDialog(context, imageUrl: coverUrl, title: title),
+                                          child: MouseRegion(
+                                            cursor: SystemMouseCursors.click,
+                                            child: Container(
+                                              height: isMobile ? 165.0 : 210.0,
+                                              width: isMobile ? 110.0 : 145.0,
+                                              decoration: BoxDecoration(
+                                                borderRadius: BorderRadius.circular(8.0),
+                                                boxShadow: [
+                                                  BoxShadow(
+                                                    color: Colors.black.withValues(alpha: 0.8),
+                                                    blurRadius: 12.0,
+                                                    offset: const Offset(0, 4),
+                                                  )
+                                                ],
+                                                border: Border.all(color: Colors.white10),
+                                              ),
+                                              child: ClipRRect(
+                                                borderRadius: BorderRadius.circular(7.0),
+                                                child: CachedNetworkImage(
+                                                  imageUrl: coverUrl,
+                                                  fit: BoxFit.cover,
+                                                  memCacheWidth: isMobile ? 230 : 300,
+                                                ),
+                                              ),
                                             ),
                                           ),
                                         ),

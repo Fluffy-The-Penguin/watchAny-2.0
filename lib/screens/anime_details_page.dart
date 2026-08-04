@@ -20,7 +20,7 @@ import '../widgets/torrent_selector_panel.dart';
 import '../services/hstream_service.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../models/torrent.dart';
-import '../widgets/smooth_scroll_area.dart';
+import '../widgets/poster_image_viewer.dart';
 import '../state/library_state.dart';
 
 class AnimeDetailsPage extends StatefulWidget {
@@ -158,15 +158,20 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
           });
         }
 
-        totalCount = data['episodes'] ?? 0;
-        if (totalCount == 0 && data['nextAiringEpisode'] != null) {
-          totalCount = (data['nextAiringEpisode']['episode'] as int) - 1;
+        int? maxAiredEp;
+        if (data['nextAiringEpisode'] != null && data['nextAiringEpisode']['episode'] != null) {
+          maxAiredEp = (data['nextAiringEpisode']['episode'] as int) - 1;
         }
+
+        totalCount = data['episodes'] ?? (maxAiredEp ?? 0);
         if (localAniZipMap.isNotEmpty) {
           final maxZip = localAniZipMap.keys.reduce(max);
-          if (maxZip > totalCount) {
+          if (maxZip > totalCount && maxAiredEp == null) {
             totalCount = maxZip;
           }
+        }
+        if (maxAiredEp != null && maxAiredEp > 0) {
+          totalCount = maxAiredEp;
         }
         if (totalCount == 0 && streaming.isNotEmpty) {
           totalCount = streaming.length;
@@ -1563,28 +1568,34 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
                                     children: [
                                       // Poster Cover
                                       if (coverUrl.isNotEmpty)
-                                        Container(
-                                          height: 180.0,
-                                          width: 125.0,
-                                          decoration: BoxDecoration(
-                                            borderRadius: BorderRadius.circular(8.0),
-                                            boxShadow: [
-                                              BoxShadow(
-                                                color: Colors.black.withValues(alpha: 0.8),
-                                                blurRadius: 12.0,
-                                                offset: const Offset(0, 4),
-                                              )
-                                            ],
-                                            border: Border.all(color: Colors.white10, width: 1.0),
-                                          ),
-                                          child: ClipRRect(
-                                            borderRadius: BorderRadius.circular(7.0),
-                                            child: CachedNetworkImage(
-                                              imageUrl: coverUrl, 
-                                              fit: BoxFit.cover,
-                                              memCacheWidth: 250,
-                                              placeholder: (context, url) => Container(color: Colors.grey[950]),
-                                              errorWidget: (context, url, error) => Container(color: Colors.grey[950]),
+                                        GestureDetector(
+                                          onTap: () => showPosterImageViewerDialog(context, imageUrl: coverUrl, title: title),
+                                          child: MouseRegion(
+                                            cursor: SystemMouseCursors.click,
+                                            child: Container(
+                                              height: 180.0,
+                                              width: 125.0,
+                                              decoration: BoxDecoration(
+                                                borderRadius: BorderRadius.circular(8.0),
+                                                boxShadow: [
+                                                  BoxShadow(
+                                                    color: Colors.black.withValues(alpha: 0.8),
+                                                    blurRadius: 12.0,
+                                                    offset: const Offset(0, 4),
+                                                  )
+                                                ],
+                                                border: Border.all(color: Colors.white10, width: 1.0),
+                                              ),
+                                              child: ClipRRect(
+                                                borderRadius: BorderRadius.circular(7.0),
+                                                child: CachedNetworkImage(
+                                                  imageUrl: coverUrl, 
+                                                  fit: BoxFit.cover,
+                                                  memCacheWidth: 250,
+                                                  placeholder: (context, url) => Container(color: Colors.grey[950]),
+                                                  errorWidget: (context, url, error) => Container(color: Colors.grey[950]),
+                                                ),
+                                              ),
                                             ),
                                           ),
                                         ),
