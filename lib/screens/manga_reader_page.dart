@@ -12,6 +12,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:http/http.dart' as http;
 import 'dart:io';
 import 'dart:async';
+import 'dart:math';
 import 'package:window_manager/window_manager.dart';
 import 'package:async/async.dart';
 
@@ -925,6 +926,17 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
   } // build
 
   void _showPageJumpBottomSheet() {
+    final double screenWidth = MediaQuery.of(context).size.width;
+    const double itemWidth = 55.0;
+    const double itemMargin = 8.0;
+    const double totalItemWidth = itemWidth + itemMargin; // 63.0
+
+    final int startIdx = _currentPageIndex.clamp(0, max(0, _pageUrls.length - 1)).toInt();
+    final double initialOffset = max(0.0, (startIdx * totalItemWidth) - (screenWidth / 2) + (itemWidth / 2));
+    final ScrollController listScrollController = ScrollController(
+      initialScrollOffset: initialOffset,
+    );
+
     showModalBottomSheet(
       context: context,
       backgroundColor: const Color(0xFF141417),
@@ -932,7 +944,7 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
         borderRadius: BorderRadius.vertical(top: Radius.circular(16.0)),
       ),
       builder: (ctx) {
-        double tempPage = (_currentPageIndex + 1).toDouble();
+        double tempPage = (startIdx + 1).toDouble();
         return StatefulBuilder(
           builder: (context, setModalState) {
             return Padding(
@@ -984,13 +996,19 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
                       setModalState(() {
                         tempPage = val;
                       });
-                      _updatePageIndex(val.toInt() - 1, jump: true);
+                      final newIdx = val.toInt() - 1;
+                      if (listScrollController.hasClients) {
+                        final newOffset = max(0.0, (newIdx * totalItemWidth) - (screenWidth / 2) + (itemWidth / 2));
+                        listScrollController.jumpTo(newOffset.clamp(0.0, listScrollController.position.maxScrollExtent));
+                      }
+                      _updatePageIndex(newIdx, jump: true);
                     },
                   ),
                   const SizedBox(height: 12.0),
                   SizedBox(
                     height: 90.0,
                     child: ListView.builder(
+                      controller: listScrollController,
                       scrollDirection: Axis.horizontal,
                       itemCount: _pageUrls.length,
                       itemBuilder: (context, idx) {
@@ -1469,6 +1487,11 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
   }
 
   void _showChaptersListBottomSheet() {
+    final int currentChIdx = max(0, widget.chapters.indexWhere((ch) => (ch['id']?.toString() ?? '') == _currentChapterId));
+    final double sheetHeight = MediaQuery.of(context).size.height * 0.75;
+    final double initialChOffset = max(0.0, (currentChIdx * 48.0) - (sheetHeight / 2) + 24.0);
+    final ScrollController chListController = ScrollController(initialScrollOffset: initialChOffset);
+
     showModalBottomSheet(
       context: context,
       backgroundColor: const Color(0xFF141417),
@@ -1492,7 +1515,7 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
             }).toList();
 
             return Container(
-              height: MediaQuery.of(context).size.height * 0.75,
+              height: sheetHeight,
               padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
               child: Column(
                 children: [
@@ -1555,6 +1578,7 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
                             ),
                           )
                         : ListView.builder(
+                            controller: chListController,
                             itemCount: filtered.length,
                             itemBuilder: (context, idx) {
                               final ch = filtered[idx];
@@ -1567,82 +1591,107 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
                               final savedPage = _prefs?.getInt('manga_chapter_page_$chId');
                               final bool isHalfRead = !isRead && !isCurrent && savedPage != null && savedPage > 0;
 
-                              return ListTile(
-                                dense: true,
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
-                                tileColor: isCurrent ? const Color(0xFFFF9F1C).withValues(alpha: 0.15) : null,
-                                leading: Icon(
-                                  isCurrent
-                                      ? Icons.play_circle_fill_rounded
-                                      : (isRead ? Icons.check_circle_rounded : Icons.radio_button_unchecked),
+                              return Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 3.0, horizontal: 2.0),
+                                child: Material(
                                   color: isCurrent
-                                      ? const Color(0xFFFF9F1C)
-                                      : (isRead ? Colors.greenAccent : Colors.white30),
-                                  size: 20,
-                                ),
-                                title: Text(
-                                  chName,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    color: isCurrent
-                                        ? const Color(0xFFFF9F1C)
-                                        : (isRead ? Colors.white54 : Colors.white),
-                                    fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
-                                    fontFamily: 'Outfit',
-                                    fontSize: 13.5,
-                                  ),
-                                ),
-                                trailing: isCurrent
-                                    ? Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                        decoration: BoxDecoration(
-                                          color: const Color(0xFFFF9F1C),
-                                          borderRadius: BorderRadius.circular(10),
+                                      ? const Color(0xFFFF9F1C).withValues(alpha: 0.15)
+                                      : Colors.white.withValues(alpha: 0.03),
+                                  borderRadius: BorderRadius.circular(8.0),
+                                  child: InkWell(
+                                    borderRadius: BorderRadius.circular(8.0),
+                                    onTap: () {
+                                      Navigator.pop(ctx);
+                                      if (!isCurrent) {
+                                        setState(() {
+                                          _currentChapterId = chId;
+                                          _currentChapterNumber = chNum;
+                                          _isLoading = true;
+                                          _pageUrls = [];
+                                          _currentPageIndex = 0;
+                                        });
+                                        _loadPages();
+                                        _updateLibraryProgress();
+                                      }
+                                    },
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 10.0),
+                                      decoration: BoxDecoration(
+                                        borderRadius: BorderRadius.circular(8.0),
+                                        border: Border.all(
+                                          color: isCurrent
+                                              ? const Color(0xFFFF9F1C).withValues(alpha: 0.4)
+                                              : Colors.white10,
+                                          width: isCurrent ? 1.5 : 1.0,
                                         ),
-                                        child: const Text(
-                                          'READING',
-                                          style: TextStyle(
-                                            color: Colors.black,
-                                            fontSize: 9.5,
-                                            fontWeight: FontWeight.bold,
-                                            fontFamily: 'Outfit',
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          Icon(
+                                            isCurrent
+                                                ? Icons.play_circle_fill_rounded
+                                                : (isRead ? Icons.check_circle_rounded : Icons.radio_button_unchecked),
+                                            color: isCurrent
+                                                ? const Color(0xFFFF9F1C)
+                                                : (isRead ? Colors.greenAccent : Colors.white30),
+                                            size: 20,
                                           ),
-                                        ),
-                                      )
-                                    : (isHalfRead
-                                        ? Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                                            decoration: BoxDecoration(
-                                              color: const Color(0xFFFF9F1C).withValues(alpha: 0.15),
-                                              borderRadius: BorderRadius.circular(6),
-                                              border: Border.all(color: const Color(0xFFFF9F1C).withValues(alpha: 0.4), width: 0.8),
-                                            ),
+                                          const SizedBox(width: 12.0),
+                                          Expanded(
                                             child: Text(
-                                              'Page ${savedPage + 1}',
-                                              style: const TextStyle(
-                                                color: Color(0xFFFF9F1C),
-                                                fontSize: 10.0,
-                                                fontWeight: FontWeight.bold,
+                                              chName,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: TextStyle(
+                                                color: isCurrent
+                                                    ? const Color(0xFFFF9F1C)
+                                                    : (isRead ? Colors.white54 : Colors.white),
+                                                fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
                                                 fontFamily: 'Outfit',
+                                                fontSize: 13.5,
                                               ),
                                             ),
-                                          )
-                                        : null),
-                                onTap: () {
-                                  Navigator.pop(ctx);
-                                  if (!isCurrent) {
-                                    setState(() {
-                                      _currentChapterId = chId;
-                                      _currentChapterNumber = chNum;
-                                      _isLoading = true;
-                                      _pageUrls = [];
-                                      _currentPageIndex = 0;
-                                    });
-                                    _loadPages();
-                                    _updateLibraryProgress();
-                                  }
-                                },
+                                          ),
+                                          if (isCurrent)
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                              decoration: BoxDecoration(
+                                                color: const Color(0xFFFF9F1C),
+                                                borderRadius: BorderRadius.circular(10),
+                                              ),
+                                              child: const Text(
+                                                'READING',
+                                                style: TextStyle(
+                                                  color: Colors.black,
+                                                  fontSize: 9.5,
+                                                  fontWeight: FontWeight.bold,
+                                                  fontFamily: 'Outfit',
+                                                ),
+                                              ),
+                                            )
+                                          else if (isHalfRead)
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                                              decoration: BoxDecoration(
+                                                color: const Color(0xFFFF9F1C).withValues(alpha: 0.15),
+                                                borderRadius: BorderRadius.circular(6),
+                                                border: Border.all(color: const Color(0xFFFF9F1C).withValues(alpha: 0.4), width: 0.8),
+                                              ),
+                                              child: Text(
+                                                'Page ${savedPage + 1}',
+                                                style: const TextStyle(
+                                                  color: Color(0xFFFF9F1C),
+                                                  fontSize: 10.0,
+                                                  fontWeight: FontWeight.bold,
+                                                  fontFamily: 'Outfit',
+                                                ),
+                                              ),
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
                               );
                             },
                           ),
