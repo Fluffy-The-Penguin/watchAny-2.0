@@ -228,6 +228,7 @@ class _WatchTogetherDialogState extends State<WatchTogetherDialog>
             children: [
               _buildHeader(),
               const SizedBox(height: 18.0),
+              if (_service.isActive) _buildActiveRoomBanner(),
               _buildTabs(),
               const SizedBox(height: 22.0),
               if (_tabIndex == 0) _buildHostFlow(),
@@ -235,6 +236,86 @@ class _WatchTogetherDialogState extends State<WatchTogetherDialog>
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildActiveRoomBanner() {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 18),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.teal.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.tealAccent.withValues(alpha: 0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.sensors, color: Colors.tealAccent, size: 20),
+              const SizedBox(width: 8),
+              Text(
+                'Active Room: ${_service.roomCode}',
+                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+              ),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: Colors.tealAccent.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  _service.isHost ? 'HOST' : 'GUEST',
+                  style: const TextStyle(color: Colors.tealAccent, fontSize: 10, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Participants: ${_service.participants.length} connected',
+            style: TextStyle(color: Colors.white.withValues(alpha: 0.7), fontSize: 12),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.teal.shade700,
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                  ),
+                  icon: const Icon(Icons.open_in_new, size: 16),
+                  label: const Text('Open Room', style: TextStyle(fontSize: 12)),
+                  onPressed: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const WatchTogetherRoomScreen()),
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(width: 8),
+              OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.redAccent,
+                  side: BorderSide(color: Colors.redAccent.withValues(alpha: 0.4)),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                ),
+                icon: const Icon(Icons.exit_to_app, size: 16),
+                label: const Text('Leave', style: TextStyle(fontSize: 12)),
+                onPressed: () {
+                  _service.leaveRoom();
+                  setState(() {});
+                },
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }

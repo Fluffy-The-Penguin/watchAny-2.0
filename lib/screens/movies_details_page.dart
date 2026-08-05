@@ -22,6 +22,7 @@ import '../services/torrserver_manager.dart';
 import '../models/torrent.dart';
 import '../services/watch_together_service.dart';
 import '../widgets/watch_together_dialog.dart';
+import 'watch_together_room_screen.dart';
 
 // ─── Lightweight metadata cache (populated on home page card tap) ─────────────
 class MovieMetadataCache {
@@ -1252,58 +1253,75 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
       );
     }
 
-    final watchTogetherBtn = ElevatedButton.icon(
-      onPressed: () {
-        final payload = WatchMediaPayload(
-          title: title,
-          movieId: '$_type:$_realId',
-          episodeNumber: _isSeries ? _continueEpisode : 1,
-          season: _isSeries ? _selectedSeason : null,
-          isMovie: !_isSeries,
-          videoUrl: _continueStreamUrl,
-        );
-        showDialog(
-          context: context,
-          builder: (_) => WatchTogetherDialog(
-            mediaPayload: payload,
-            onStartPlayback: (media) {
-              if (media.videoUrl != null && media.videoUrl!.isNotEmpty) {
-                PlayerState().startPlayback(
-                  streamUrl: media.videoUrl!,
-                  title: media.title,
-                  movieId: media.movieId,
-                  episodeNumber: media.episodeNumber,
-                  isMovie: media.isMovie,
-                  media: {
-                    'id': media.movieId,
-                    'stremioId': media.movieId,
-                    'title': title,
-                    'coverImage': poster,
-                    'averageScore': double.tryParse(rating ?? '0') ?? 0.0,
-                    'format': media.isMovie ? 'MOVIE' : 'SERIES',
-                    'episodes': _isSeries && _hasVideos ? (_meta['videos'] as List).length : 1,
-                    'type': _type,
+    final watchTogetherBtn = ListenableBuilder(
+      listenable: WatchTogetherService(),
+      builder: (context, _) {
+        final wtService = WatchTogetherService();
+        final bool inRoom = wtService.isActive;
+
+        return ElevatedButton.icon(
+          onPressed: () {
+            final payload = WatchMediaPayload(
+              title: title,
+              movieId: '$_type:$_realId',
+              episodeNumber: _isSeries ? _continueEpisode : 1,
+              season: _isSeries ? _selectedSeason : null,
+              isMovie: !_isSeries,
+              videoUrl: _continueStreamUrl,
+            );
+
+            if (inRoom) {
+              _showActiveRoomOptionsDialog(context, payload, wtService);
+            } else {
+              showDialog(
+                context: context,
+                builder: (_) => WatchTogetherDialog(
+                  mediaPayload: payload,
+                  onStartPlayback: (media) {
+                    if (media.videoUrl != null && media.videoUrl!.isNotEmpty) {
+                      PlayerState().startPlayback(
+                        streamUrl: media.videoUrl!,
+                        title: media.title,
+                        movieId: media.movieId,
+                        episodeNumber: media.episodeNumber,
+                        isMovie: media.isMovie,
+                        media: {
+                          'id': media.movieId,
+                          'stremioId': media.movieId,
+                          'title': title,
+                          'coverImage': poster,
+                          'averageScore': double.tryParse(rating ?? '0') ?? 0.0,
+                          'format': media.isMovie ? 'MOVIE' : 'SERIES',
+                          'episodes': _isSeries && _hasVideos ? (_meta['videos'] as List).length : 1,
+                          'type': _type,
+                        },
+                      );
+                    } else {
+                      _fetchStreamsAndPlay(
+                        episode: media.isMovie ? null : media.episodeNumber,
+                      );
+                    }
                   },
-                );
-              } else {
-                _fetchStreamsAndPlay(
-                  episode: media.isMovie ? null : media.episodeNumber,
-                );
-              }
-            },
+                ),
+              );
+            }
+          },
+          icon: Icon(
+            inRoom ? Icons.sensors : Icons.groups_rounded,
+            color: Colors.white,
+            size: 20.0,
+          ),
+          label: Text(
+            inRoom ? 'In Room (${wtService.roomCode})' : 'Watch Together',
+            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15.0),
+          ),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: inRoom ? Colors.teal.shade700 : Colors.deepPurpleAccent,
+            padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
           ),
         );
       },
-      icon: const Icon(Icons.groups_rounded, color: Colors.white, size: 20.0),
-      label: const Text(
-        'Watch Together',
-        style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15.0),
-      ),
-      style: ElevatedButton.styleFrom(
-        backgroundColor: Colors.deepPurpleAccent,
-        padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
-      ),
     );
 
     return Wrap(
@@ -1313,6 +1331,88 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
         if (primaryPlayBtn != null) primaryPlayBtn,
         watchTogetherBtn,
       ],
+    );
+  }
+
+  void _showActiveRoomOptionsDialog(BuildContext context, WatchMediaPayload payload, WatchTogetherService wtService) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF141419),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            const Icon(Icons.sensors, color: Colors.tealAccent, size: 22),
+            const SizedBox(width: 10),
+            Text(
+              'Room ${wtService.roomCode}',
+              style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              wtService.isHost
+                  ? 'You are the Host of Room ${wtService.roomCode}.'
+                  : 'You are connected as a Guest in Room ${wtService.roomCode}.',
+              style: TextStyle(color: Colors.white.withValues(alpha: 0.7), fontSize: 13),
+            ),
+            const SizedBox(height: 16),
+            if (wtService.isHost) ...[
+              ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.deepPurpleAccent,
+                  minimumSize: const Size(double.infinity, 44),
+                ),
+                icon: const Icon(Icons.movie_creation, size: 18),
+                label: Text('Set "${payload.title}" for Room'),
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  _fetchStreamsAndPlay(
+                    episode: payload.isMovie ? null : payload.episodeNumber,
+                  );
+                },
+              ),
+              const SizedBox(height: 10),
+            ],
+            OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.white,
+                side: BorderSide(color: Colors.white.withValues(alpha: 0.2)),
+                minimumSize: const Size(double.infinity, 44),
+              ),
+              icon: const Icon(Icons.open_in_new, size: 18),
+              label: const Text('Open Room Screen'),
+              onPressed: () {
+                Navigator.pop(ctx);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const WatchTogetherRoomScreen()),
+                );
+              },
+            ),
+            const SizedBox(height: 10),
+            TextButton.icon(
+              style: TextButton.styleFrom(
+                foregroundColor: Colors.redAccent,
+                minimumSize: const Size(double.infinity, 40),
+              ),
+              icon: const Icon(Icons.exit_to_app, size: 18),
+              label: const Text('Manage / Leave Room'),
+              onPressed: () {
+                Navigator.pop(ctx);
+                showDialog(
+                  context: context,
+                  builder: (_) => WatchTogetherDialog(mediaPayload: payload),
+                );
+              },
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -2445,13 +2545,22 @@ class _DirectPlaybackProgressDialogState extends State<_DirectPlaybackProgressDi
   void _navigateToPlayer(String hash, TorrentFile file) {
     final streamUrl = _torrServerService.getStreamUrl(hash, file.index);
     final fileName = file.path.split('/').last.split('\\').last;
+    final displayName = fileName.isNotEmpty ? fileName : file.name;
+
+    PlayerState().startPlayback(
+      streamUrl: streamUrl,
+      title: displayName,
+      episodeNumber: widget.episodeNumber,
+      isMovie: widget.isMovie,
+      media: widget.media,
+    );
     
     final navigator = Navigator.of(widget.parentContext);
     navigator.push(
       MaterialPageRoute(
         builder: (context) => PlayerScreen(
           streamUrl: streamUrl,
-          title: fileName.isNotEmpty ? fileName : file.name,
+          title: displayName,
           anilistId: null, // Stremio media has no AniList ID
           titles: widget.titles,
           episodeCount: widget.episodeCount,
