@@ -386,13 +386,30 @@ class WatchTogetherService extends ChangeNotifier {
     return WTJoinResult.success;
   }
 
+  Future<void> initSupabase() async {
+    try {
+      Supabase.instance;
+    } catch (_) {
+      await Supabase.initialize(
+        url: _supabaseUrl,
+        anonKey: _supabaseAnonKey,
+      );
+    }
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   // SUPABASE REALTIME CHANNEL ENGINE
   // ═══════════════════════════════════════════════════════════════════════════
 
   Future<bool> _connectChannel() async {
     try {
+      await initSupabase();
       final client = Supabase.instance.client;
+      
+      if (!client.realtime.isConnected) {
+        client.realtime.connect();
+      }
+
       final roomName = 'wt_$_roomCode';
       developer.log('Connecting to Supabase Realtime channel: $roomName', name: 'WT');
 
@@ -415,6 +432,7 @@ class WatchTogetherService extends ChangeNotifier {
 
       final completer = Completer<bool>();
       _channel!.subscribe((status, error) {
+        developer.log('Supabase channel status: $status, error: $error', name: 'WT');
         if (status == RealtimeSubscribeStatus.subscribed) {
           developer.log('Subscribed to Supabase Realtime channel!', name: 'WT');
           if (!completer.isCompleted) completer.complete(true);
@@ -427,8 +445,10 @@ class WatchTogetherService extends ChangeNotifier {
           } catch (e) {
             developer.log('Presence track exception: $e', name: 'WT');
           }
-        } else if (status == RealtimeSubscribeStatus.closed || status == RealtimeSubscribeStatus.timedOut) {
-          developer.log('Supabase channel closed or timed out: $error', name: 'WT');
+        } else if (status == RealtimeSubscribeStatus.closed ||
+                   status == RealtimeSubscribeStatus.timedOut ||
+                   status == RealtimeSubscribeStatus.channelError) {
+          developer.log('Supabase channel error: $status | $error', name: 'WT');
           if (!completer.isCompleted) completer.complete(false);
           _handleChannelDisconnect();
         }

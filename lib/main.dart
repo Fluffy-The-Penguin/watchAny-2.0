@@ -26,6 +26,8 @@ import 'state/library_providers.dart';
 import 'services/android_background_sync.dart';
 import 'services/notification_service.dart';
 
+import 'services/watch_together_service.dart';
+
 class MyCustomScrollBehavior extends MaterialScrollBehavior {
   @override
   Set<PointerDeviceKind> get dragDevices => {
@@ -51,6 +53,7 @@ void main() async {
 
   // Initialize LogService
   await LogService().init();
+  WatchTogetherService().initSupabase();
   
   // Catch unhandled errors
   FlutterError.onError = (FlutterErrorDetails details) {
