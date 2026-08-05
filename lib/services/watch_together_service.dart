@@ -208,6 +208,8 @@ class WatchTogetherService extends ChangeNotifier {
   String _statusMessage = '';
   String get statusMessage => _statusMessage;
 
+  String _lastErrorMessage = '';
+
   WatchMediaPayload? _mediaPayload;
   WatchMediaPayload? get mediaPayload => _mediaPayload;
 
@@ -293,8 +295,10 @@ class WatchTogetherService extends ChangeNotifier {
 
     final connected = await _connectChannel();
     if (!connected) {
-      _setStatus(WTConnectionStatus.disconnected,
-          'Could not open Supabase room. Check internet connection.');
+      final msg = _lastErrorMessage.isNotEmpty
+          ? _lastErrorMessage
+          : 'Could not open Supabase room. Check internet connection.';
+      _setStatus(WTConnectionStatus.disconnected, msg);
       notifyListeners();
       return false;
     }
@@ -341,8 +345,10 @@ class WatchTogetherService extends ChangeNotifier {
 
     final connected = await _connectChannel();
     if (!connected) {
-      _setStatus(WTConnectionStatus.disconnected,
-          'Could not connect to room server. Check internet connection.');
+      final msg = _lastErrorMessage.isNotEmpty
+          ? _lastErrorMessage
+          : 'Could not connect to room server. Check internet connection.';
+      _setStatus(WTConnectionStatus.disconnected, msg);
       notifyListeners();
       return WTJoinResult.networkError;
     }
@@ -402,12 +408,25 @@ class WatchTogetherService extends ChangeNotifier {
   // ═══════════════════════════════════════════════════════════════════════════
 
   Future<bool> _connectChannel() async {
+    _lastErrorMessage = '';
     try {
       await initSupabase();
       final client = Supabase.instance.client;
       
       if (!client.realtime.isConnected) {
+        developer.log('Connecting Supabase WebSocket realtime engine...', name: 'WT');
         client.realtime.connect();
+        int waitMs = 0;
+        while (!client.realtime.isConnected && waitMs < 3000) {
+          await Future.delayed(const Duration(milliseconds: 100));
+          waitMs += 100;
+        }
+      }
+
+      if (!client.realtime.isConnected) {
+        _lastErrorMessage = 'Supabase socket failed to connect (State: ${client.realtime.status})';
+        developer.log(_lastErrorMessage, name: 'WT');
+        return false;
       }
 
       final roomName = 'wt_$_roomCode';
@@ -435,6 +454,7 @@ class WatchTogetherService extends ChangeNotifier {
         developer.log('Supabase channel status: $status, error: $error', name: 'WT');
         if (status == RealtimeSubscribeStatus.subscribed) {
           developer.log('Subscribed to Supabase Realtime channel!', name: 'WT');
+          _lastErrorMessage = '';
           if (!completer.isCompleted) completer.complete(true);
           try {
             _channel?.track({
@@ -448,14 +468,22 @@ class WatchTogetherService extends ChangeNotifier {
         } else if (status == RealtimeSubscribeStatus.closed ||
                    status == RealtimeSubscribeStatus.timedOut ||
                    status == RealtimeSubscribeStatus.channelError) {
-          developer.log('Supabase channel error: $status | $error', name: 'WT');
+          _lastErrorMessage = 'Supabase channel subscription failed ($status): ${error ?? "No details"}';
+          developer.log('Supabase channel error: $_lastErrorMessage', name: 'WT');
           if (!completer.isCompleted) completer.complete(false);
           _handleChannelDisconnect();
         }
       });
 
-      return await completer.future.timeout(const Duration(seconds: 8), onTimeout: () => false);
+      return await completer.future.timeout(
+        const Duration(seconds: 8),
+        onTimeout: () {
+          _lastErrorMessage = 'Supabase channel timed out after 8s (Socket state: ${client.realtime.status})';
+          return false;
+        },
+      );
     } catch (e) {
+      _lastErrorMessage = 'Supabase Exception: $e';
       developer.log('Failed to connect to Supabase Realtime: $e', name: 'WT');
       return false;
     }

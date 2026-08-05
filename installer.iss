@@ -1,10 +1,10 @@
 [Setup]
 AppName=watchAny
-AppVersion=2.2.13
+AppVersion=2.2.14
 DefaultDirName={autopf}\watchAny
 DefaultGroupName=watchAny
 OutputDir=build\windows
-OutputBaseFilename=watchany_setup_2.2.13
+OutputBaseFilename=watchany_setup_2.2.14
 Compression=lzma2
 SolidCompression=yes
 ArchitecturesAllowed=x64
