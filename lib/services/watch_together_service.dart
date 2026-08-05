@@ -785,6 +785,14 @@ class WatchTogetherService extends ChangeNotifier {
     String? torrentHash,
   }) {
     if (!isActive || !isHost) return;
+
+    if (_mediaPayload != null &&
+        _mediaPayload!.videoUrl == streamUrl &&
+        _mediaPayload!.title == title &&
+        _mediaPayload!.episodeNumber == episodeNumber) {
+      return;
+    }
+
     _mediaPayload = WatchMediaPayload(
       title: title,
       movieId: movieId,

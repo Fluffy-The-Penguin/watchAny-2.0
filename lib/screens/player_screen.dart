@@ -285,11 +285,16 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
 
   void _bindWatchTogetherSync() {
     final wtService = WatchTogetherService();
-    _wtPosSub?.cancel();
-    _wtPlayingSub?.cancel();
-    _wtBufferingSub?.cancel();
 
-    if (!wtService.isActive) return;
+    if (!wtService.isActive) {
+      _wtPosSub?.cancel();
+      _wtPlayingSub?.cancel();
+      _wtBufferingSub?.cancel();
+      _wtPosSub = null;
+      _wtPlayingSub = null;
+      _wtBufferingSub = null;
+      return;
+    }
 
     wtService.setPlaybackSyncCallback((targetPos, targetIsPlaying) {
       if (!mounted) return;
@@ -304,23 +309,29 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
       }
     });
 
-    _wtPosSub = player.stream.position.listen((p) {
-      if (wtService.isActive) {
-        wtService.updateLocalPlaybackState(position: p, isPlaying: player.state.playing);
-      }
-    });
+    if (_wtPosSub == null) {
+      _wtPosSub = player.stream.position.listen((p) {
+        if (wtService.isActive) {
+          wtService.updateLocalPlaybackState(position: p, isPlaying: player.state.playing);
+        }
+      });
+    }
 
-    _wtPlayingSub = player.stream.playing.listen((isPlaying) {
-      if (wtService.isActive) {
-        wtService.updateLocalPlaybackState(position: player.state.position, isPlaying: isPlaying);
-      }
-    });
+    if (_wtPlayingSub == null) {
+      _wtPlayingSub = player.stream.playing.listen((isPlaying) {
+        if (wtService.isActive) {
+          wtService.updateLocalPlaybackState(position: player.state.position, isPlaying: isPlaying);
+        }
+      });
+    }
 
-    _wtBufferingSub = player.stream.buffering.listen((isBuffering) {
-      if (wtService.isActive) {
-        wtService.notifyLocalBuffering(isBuffering);
-      }
-    });
+    if (_wtBufferingSub == null) {
+      _wtBufferingSub = player.stream.buffering.listen((isBuffering) {
+        if (wtService.isActive) {
+          wtService.notifyLocalBuffering(isBuffering);
+        }
+      });
+    }
 
     if (wtService.isHost) {
       wtService.updateHostMedia(
