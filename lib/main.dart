@@ -53,7 +53,7 @@ void main() async {
 
   // Initialize LogService
   await LogService().init();
-  WatchTogetherService().initSupabase();
+  await WatchTogetherService().initSupabase();
   
   // Catch unhandled errors
   FlutterError.onError = (FlutterErrorDetails details) {

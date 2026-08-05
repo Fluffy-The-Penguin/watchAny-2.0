@@ -392,14 +392,23 @@ class WatchTogetherService extends ChangeNotifier {
     return WTJoinResult.success;
   }
 
+  bool _isSupabaseInitialized = false;
+
   Future<void> initSupabase() async {
+    if (_isSupabaseInitialized) return;
     try {
-      Supabase.instance;
+      Supabase.instance.client;
+      _isSupabaseInitialized = true;
     } catch (_) {
-      await Supabase.initialize(
-        url: _supabaseUrl,
-        anonKey: _supabaseAnonKey,
-      );
+      try {
+        await Supabase.initialize(
+          url: _supabaseUrl,
+          anonKey: _supabaseAnonKey,
+        );
+        _isSupabaseInitialized = true;
+      } catch (e) {
+        developer.log('Supabase.initialize error: $e', name: 'WT');
+      }
     }
   }
 
