@@ -414,16 +414,19 @@ class WatchTogetherService extends ChangeNotifier {
       _channel!.onPresenceSync((_) => _syncPresenceFromSupabase());
 
       final completer = Completer<bool>();
-      _channel!.subscribe((status, error) async {
+      _channel!.subscribe((status, error) {
         if (status == RealtimeSubscribeStatus.subscribed) {
           developer.log('Subscribed to Supabase Realtime channel!', name: 'WT');
-          // Track presence
-          await _channel!.track({
-            'id': _myId,
-            'name': _myName,
-            'isHost': isHost,
-          });
           if (!completer.isCompleted) completer.complete(true);
+          try {
+            _channel?.track({
+              'id': _myId,
+              'name': _myName,
+              'isHost': isHost,
+            });
+          } catch (e) {
+            developer.log('Presence track exception: $e', name: 'WT');
+          }
         } else if (status == RealtimeSubscribeStatus.closed || status == RealtimeSubscribeStatus.timedOut) {
           developer.log('Supabase channel closed or timed out: $error', name: 'WT');
           if (!completer.isCompleted) completer.complete(false);
