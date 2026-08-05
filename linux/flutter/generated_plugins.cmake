@@ -4,7 +4,7 @@
 
 list(APPEND FLUTTER_PLUGIN_LIST
   flutter_js
-  flutter_webrtc
+  gtk
   media_kit_libs_linux
   media_kit_video
   screen_retriever_linux
