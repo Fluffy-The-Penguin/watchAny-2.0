@@ -424,7 +424,7 @@ class WatchTogetherService extends ChangeNotifier {
       }
 
       if (!client.realtime.isConnected) {
-        _lastErrorMessage = 'Supabase socket failed to connect (State: ${client.realtime.status})';
+        _lastErrorMessage = 'Supabase socket failed to connect (isConnected: ${client.realtime.isConnected})';
         developer.log(_lastErrorMessage, name: 'WT');
         return false;
       }
@@ -478,7 +478,7 @@ class WatchTogetherService extends ChangeNotifier {
       return await completer.future.timeout(
         const Duration(seconds: 8),
         onTimeout: () {
-          _lastErrorMessage = 'Supabase channel timed out after 8s (Socket state: ${client.realtime.status})';
+          _lastErrorMessage = 'Supabase channel timed out after 8s (isConnected: ${client.realtime.isConnected})';
           return false;
         },
       );
