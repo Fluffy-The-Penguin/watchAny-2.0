@@ -1303,11 +1303,13 @@ class PlaybackProgressDialogState extends State<PlaybackProgressDialog> {
           _status = "Starting playback...";
         });
 
-        await _torrServerService.preloadTorrentFile(torrentInfo.hash, file.index);
-        await Future.delayed(const Duration(milliseconds: 800));
+        await _torrServerService.preloadTorrentFile(torrentInfo.hash, file.index).timeout(const Duration(seconds: 4), onTimeout: () {});
+        await Future.delayed(const Duration(milliseconds: 300));
 
         if (!mounted) return;
-        Navigator.of(context).pop(); // pop progress dialog
+        if (Navigator.of(context).canPop()) {
+          Navigator.of(context).pop(); // pop progress dialog
+        }
         _navigateToPlayer(torrentInfo.hash, file, shouldPopParent: true);
       } else {
         // Pop the progress dialog first

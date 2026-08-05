@@ -28,6 +28,8 @@ import 'services/notification_service.dart';
 
 import 'services/watch_together_service.dart';
 
+final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
+
 class MyCustomScrollBehavior extends MaterialScrollBehavior {
   @override
   Set<PointerDeviceKind> get dragDevices => {
@@ -256,6 +258,7 @@ class _MyAppState extends State<MyApp> with WindowListener, WidgetsBindingObserv
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: appNavigatorKey,
       title: 'watchAny 2.0',
       scrollBehavior: MyCustomScrollBehavior(),
       debugShowCheckedModeBanner: false,

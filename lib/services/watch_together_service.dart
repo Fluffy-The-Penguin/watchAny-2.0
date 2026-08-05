@@ -4,6 +4,8 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../state/player_state.dart';
+import '../main.dart';
+import '../screens/player_screen.dart';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // WATCH TOGETHER — Supabase Realtime Engine (2-Way WebSockets & Presence)
@@ -425,21 +427,16 @@ class WatchTogetherService extends ChangeNotifier {
       if (!client.realtime.isConnected) {
         developer.log('Connecting Supabase WebSocket realtime engine...', name: 'WT');
         client.realtime.connect();
-        int waitMs = 0;
-        while (!client.realtime.isConnected && waitMs < 3000) {
-          await Future.delayed(const Duration(milliseconds: 100));
-          waitMs += 100;
-        }
-      }
-
-      if (!client.realtime.isConnected) {
-        _lastErrorMessage = 'Supabase socket failed to connect (isConnected: ${client.realtime.isConnected})';
-        developer.log(_lastErrorMessage, name: 'WT');
-        return false;
       }
 
       final roomName = 'wt_$_roomCode';
       developer.log('Connecting to Supabase Realtime channel: $roomName', name: 'WT');
+
+      if (_channel != null) {
+        try {
+          await client.removeChannel(_channel!);
+        } catch (_) {}
+      }
 
       _channel = client.channel(roomName, opts: const RealtimeChannelConfig(self: true));
 
@@ -925,8 +922,9 @@ class WatchTogetherService extends ChangeNotifier {
 
   // ─── Static Helpers ──────────────────────────────────────────────────────
 
-  static void playDirect(WatchMediaPayload media) {
+  static void playDirect(WatchMediaPayload media, {BuildContext? context}) {
     if (media.videoUrl == null || media.videoUrl!.isEmpty) return;
+    
     PlayerState().startPlayback(
       streamUrl: media.videoUrl!,
       title: media.title,
@@ -941,6 +939,23 @@ class WatchTogetherService extends ChangeNotifier {
         'format': media.isMovie ? 'MOVIE' : 'SERIES',
       },
     );
+
+    final targetContext = context ?? appNavigatorKey.currentContext;
+    if (targetContext != null) {
+      Navigator.of(targetContext).push(
+        MaterialPageRoute(
+          builder: (_) => PlayerScreen(
+            streamUrl: media.videoUrl!,
+            title: media.title,
+            anilistId: null,
+            titles: [media.title],
+            episodeCount: 1,
+            episodeNumber: media.episodeNumber,
+            isMovie: media.isMovie,
+          ),
+        ),
+      );
+    }
   }
 
   static Future<void> resolveAndPlay(

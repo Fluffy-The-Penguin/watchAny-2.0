@@ -2517,20 +2517,19 @@ class _DirectPlaybackProgressDialogState extends State<_DirectPlaybackProgressDi
 
       final file = torrentInfo.files.firstWhere((f) => f.index == fileIndex);
 
-      _playingFile = file;
-      _playingHash = torrentInfo.hash;
-
-      if (!mounted) return;
-
       setState(() {
+        _playingFile = file;
+        _playingHash = torrentInfo.hash;
         _status = "Starting playback...";
       });
 
-      await _torrServerService.preloadTorrentFile(torrentInfo.hash, file.index);
-      await Future.delayed(const Duration(milliseconds: 800));
+      await _torrServerService.preloadTorrentFile(torrentInfo.hash, file.index).timeout(const Duration(seconds: 4), onTimeout: () {});
+      await Future.delayed(const Duration(milliseconds: 300));
 
       if (!mounted) return;
-      Navigator.of(context).pop(); // pop progress dialog
+      if (Navigator.of(context).canPop()) {
+        Navigator.of(context).pop();
+      }
       _navigateToPlayer(torrentInfo.hash, file);
     } catch (e) {
       if (mounted) {
@@ -2575,8 +2574,8 @@ class _DirectPlaybackProgressDialogState extends State<_DirectPlaybackProgressDi
 
   @override
   Widget build(BuildContext context) {
-    return PopScope(
-      canPop: _hasError,
+    return Dialog(
+      backgroundColor: Colors.transparent,
       child: AlertDialog(
         backgroundColor: const Color(0xFF0F0F11),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
@@ -2597,17 +2596,24 @@ class _DirectPlaybackProgressDialogState extends State<_DirectPlaybackProgressDi
                   textAlign: TextAlign.center,
                   style: const TextStyle(color: Colors.white, fontSize: 13.0, height: 1.4),
                 ),
-                const SizedBox(height: 16.0),
-                TextButton(
-                  onPressed: () {
-                    _torrServerService.cancelAllPreloads();
-                    Navigator.pop(context);
-                  },
-                  child: const Text(
-                    "Cancel",
-                    style: TextStyle(color: Colors.white38, fontSize: 12.0),
+                if (_playingFile != null && _playingHash != null) ...[
+                  TextButton(
+                    onPressed: () {
+                      _torrServerService.cancelAllPreloads();
+                      if (Navigator.of(context).canPop()) Navigator.pop(context);
+                      _navigateToPlayer(_playingHash!, _playingFile!);
+                    },
+                    child: const Text("Skip Buffering", style: TextStyle(color: Colors.white54, fontSize: 12.0)),
                   ),
-                ),
+                ] else ...[
+                  TextButton(
+                    onPressed: () {
+                      _torrServerService.cancelAllPreloads();
+                      if (Navigator.of(context).canPop()) Navigator.pop(context);
+                    },
+                    child: const Text("Cancel", style: TextStyle(color: Colors.white38, fontSize: 12.0)),
+                  ),
+                ],
               ] else ...[
                 const Icon(Icons.error_outline, color: Colors.redAccent, size: 36.0),
                 const SizedBox(height: 16.0),
