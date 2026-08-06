@@ -298,14 +298,44 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
 
     wtService.setPlaybackSyncCallback((targetPos, targetIsPlaying) {
       if (!mounted) return;
+      
+      // Host NEVER syncs to incoming targetPos! Host plays uninterrupted.
+      if (wtService.isHost) return;
+
       final currentPos = player.state.position;
-      if ((currentPos - targetPos).inSeconds.abs() > 2.5) {
-        player.seek(targetPos);
+      final driftSec = (currentPos.inMilliseconds - targetPos.inMilliseconds) / 1000.0;
+
+      if (!targetIsPlaying) {
+        if (player.state.playing) {
+          player.pause();
+        }
+        if (driftSec.abs() > 1.0) {
+          player.seek(targetPos);
+        }
+        player.setRate(1.0);
+        return;
       }
-      if (targetIsPlaying && !player.state.playing) {
-        player.play();
-      } else if (!targetIsPlaying && player.state.playing) {
-        player.pause();
+
+      // Host is PLAYING
+      if (driftSec.abs() > 3.0 || !player.state.playing) {
+        // Large drift or Guest is paused: Hard Seek + Play
+        player.seek(targetPos);
+        if (!player.state.playing) player.play();
+        player.setRate(1.0);
+      } else if (driftSec < -0.6) {
+        // Guest is BEHIND Host by 0.6s to 3.0s: Micro speed-up (1.05x)
+        player.setRate(1.05);
+        if (!player.state.playing) player.play();
+      } else if (driftSec > 0.6) {
+        // Guest is AHEAD of Host by 0.6s to 3.0s: Micro slow-down (0.95x)
+        player.setRate(0.95);
+        if (!player.state.playing) player.play();
+      } else {
+        // In Sync (within +-0.6s): Standard 1.0x rate
+        if (player.state.rate != 1.0) {
+          player.setRate(1.0);
+        }
+        if (!player.state.playing) player.play();
       }
     });
 

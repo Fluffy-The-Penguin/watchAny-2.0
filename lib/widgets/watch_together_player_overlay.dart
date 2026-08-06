@@ -250,6 +250,47 @@ class _WatchTogetherPlayerOverlayState
                         ],
                       ),
 
+                      if (!service.isHost) ...[
+                        const SizedBox(width: 6),
+                        InkWell(
+                          onTap: () {
+                            service.requestRoomState();
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('⚡ Syncing to Host...'),
+                                duration: Duration(seconds: 1),
+                              ),
+                            );
+                          },
+                          borderRadius: BorderRadius.circular(20),
+                          child: Container(
+                            padding: EdgeInsets.symmetric(
+                                horizontal: isMobile ? 8.0 : 10.0, vertical: 5.0),
+                            decoration: BoxDecoration(
+                              color: Colors.amberAccent.withValues(alpha: 0.25),
+                              borderRadius: BorderRadius.circular(20.0),
+                              border: Border.all(color: Colors.amberAccent.withValues(alpha: 0.6)),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.bolt_rounded, color: Colors.amberAccent, size: 14),
+                                if (!isMobile) ...[
+                                  const SizedBox(width: 4),
+                                  const Text(
+                                    'Sync',
+                                    style: TextStyle(
+                                        color: Colors.amberAccent,
+                                        fontSize: 11.5,
+                                        fontWeight: FontWeight.bold),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+
                       const SizedBox(width: 6),
 
                       // Leave Room Button

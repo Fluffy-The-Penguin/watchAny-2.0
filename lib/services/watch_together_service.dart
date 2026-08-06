@@ -51,6 +51,7 @@ class WatchParticipant {
   final String name;
   final bool isHost;
   bool isBuffering;
+  double lastPositionSec;
   DateTime lastSeen;
 
   WatchParticipant({
@@ -58,6 +59,7 @@ class WatchParticipant {
     required this.name,
     required this.isHost,
     this.isBuffering = false,
+    this.lastPositionSec = 0.0,
     DateTime? lastSeen,
   }) : lastSeen = lastSeen ?? DateTime.now();
 
@@ -680,17 +682,29 @@ class WatchTogetherService extends ChangeNotifier {
       _onMediaReceived?.call(_mediaPayload!);
     }
     final pos = (msg['positionSec'] as num?)?.toDouble() ?? 0.0;
-    _applyPlaybackSync(
-        Duration(milliseconds: (pos * 1000).round()), msg['isPlaying'] == true);
+    if (!isHost) {
+      _applyPlaybackSync(
+          Duration(milliseconds: (pos * 1000).round()), msg['isPlaying'] == true);
+    }
   }
 
   void _handlePlaybackState(Map<String, dynamic> msg) {
     final pos = (msg['positionSec'] as num?)?.toDouble() ?? 0.0;
     final playing = msg['isPlaying'] == true;
     final senderName = msg['senderName']?.toString() ?? 'Someone';
+    final senderId = msg['senderId']?.toString() ?? '';
+
+    final idx = _participants.indexWhere((p) => p.id == senderId);
+    if (idx >= 0) {
+      _participants[idx].lastPositionSec = pos;
+    }
 
     _syncNotice = playing ? null : '⏸ $senderName paused';
-    _applyPlaybackSync(Duration(milliseconds: (pos * 1000).round()), playing);
+
+    // HOST NEVER APPLIES PLAYBACK SYNC TO ITSELF! Host is the master timeline authority.
+    if (!isHost) {
+      _applyPlaybackSync(Duration(milliseconds: (pos * 1000).round()), playing);
+    }
   }
 
   void _handleBuffering(Map<String, dynamic> msg, String senderId) {
@@ -741,6 +755,11 @@ class WatchTogetherService extends ChangeNotifier {
     addSystemMessage('👋 You left the room.');
     _teardown();
     notifyListeners();
+  }
+
+  void requestRoomState() {
+    if (!isActive) return;
+    _broadcastPayload({'type': 'REQUEST_SYNC', 'senderId': _myId, 'senderName': _myName});
   }
 
   void updateLocalPlaybackState({
