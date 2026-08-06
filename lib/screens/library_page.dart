@@ -678,7 +678,7 @@ class _LibraryPageState extends State<LibraryPage> {
                 } else if (widget.mode == AppMode.manga) {
                   widget.navigationState.selectManga(id.toString());
                 } else {
-                  final type = media['format'] == 'MOVIE' ? 'movie' : 'series';
+                  final type = _getMediaType(id, media);
                   final rawIdStr = id.toString();
                   final isNumericOnly = RegExp(r'^\d+$').hasMatch(rawIdStr);
                   final realId = isNumericOnly ? 'tt${rawIdStr.padLeft(7, '0')}' : rawIdStr;
@@ -1280,7 +1280,7 @@ class _LibraryPageState extends State<LibraryPage> {
                                     }
                                   });
                                 } else {
-                                  final type = media['format'] == 'MOVIE' ? 'movie' : 'series';
+                                  final type = _getMediaType(id, media);
                                   final rawIdStr = id.toString();
                                   final isNumericOnly = RegExp(r'^\d+$').hasMatch(rawIdStr);
                                   final realId = isNumericOnly ? 'tt${rawIdStr.padLeft(7, '0')}' : rawIdStr;
@@ -1412,7 +1412,7 @@ class _LibraryPageState extends State<LibraryPage> {
                                   if (widget.mode == AppMode.anime) {
                                     widget.navigationState.selectAnime(id);
                                   } else {
-                                    final type = media['format'] == 'MOVIE' ? 'movie' : 'series';
+                                    final type = _getMediaType(id, media);
                                     final rawIdStr = id.toString();
                                     final isNumericOnly = RegExp(r'^\d+$').hasMatch(rawIdStr);
                                     final realId = isNumericOnly ? 'tt${rawIdStr.padLeft(7, '0')}' : rawIdStr;
@@ -2384,6 +2384,21 @@ class _LibraryPageState extends State<LibraryPage> {
     );
   }
 
+  String _getMediaType(dynamic rawId, Map<String, dynamic> media) {
+    final intId = int.tryParse(rawId.toString()) ?? 0;
+    final savedItem = LibraryState().getItem(intId, widget.mode.name);
+    final savedFormat = (savedItem?.format ?? '').toUpperCase();
+    final mediaFormat = (media['format'] ?? '').toString().toUpperCase();
+    final mediaType = (media['type'] ?? '').toString().toLowerCase();
+
+    if (savedFormat == 'MOVIE' || mediaFormat == 'MOVIE' || mediaType == 'movie') {
+      return 'movie';
+    }
+    if (savedFormat == 'SERIES' || savedFormat == 'TV' || mediaFormat == 'TV' || mediaFormat == 'SERIES' || mediaType == 'series' || mediaType == 'tv') {
+      return 'series';
+    }
+    return 'movie';
+  }
 }
 
 class _LibraryMediaCard extends StatefulWidget {

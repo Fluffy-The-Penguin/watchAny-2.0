@@ -1,10 +1,12 @@
+#define MyAppVersion "2.2.21"
+
 [Setup]
 AppName=watchAny
-AppVersion=2.2.20
+AppVersion=2.2.21
 DefaultDirName={autopf}\watchAny
 DefaultGroupName=watchAny
 OutputDir=build\windows
-OutputBaseFilename=watchany_setup_2.2.20
+OutputBaseFilename=watchany_setup_2.2.21
 Compression=lzma2
 SolidCompression=yes
 ArchitecturesAllowed=x64

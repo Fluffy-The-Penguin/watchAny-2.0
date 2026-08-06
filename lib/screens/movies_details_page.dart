@@ -282,7 +282,10 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
         // Save metadata to library sqlite cache if bookmarked
         final libId = _imdbToLibraryId(_realId);
         if (LibraryState().isSaved(libId, 'movies')) {
-          LibraryState().updateMovieCache(libId, metaData!);
+          final updatedCache = Map<String, dynamic>.from(metaData!);
+          updatedCache['format'] = _isSeries ? 'SERIES' : 'MOVIE';
+          updatedCache['type'] = _type;
+          LibraryState().updateMovieCache(libId, updatedCache);
         }
 
         await _loadPlaybackProgress();
@@ -2402,7 +2405,9 @@ class _MovieLibraryEditPanelState extends State<_MovieLibraryEditPanel> {
                                   totalEpisodes: widget.totalEpisodes,
                                 );
                                  if (widget.metaData.isNotEmpty) {
-                                   await LibraryState().updateMovieCache(widget.libId, widget.metaData);
+                                   final updatedCache = Map<String, dynamic>.from(widget.metaData);
+                                   updatedCache['format'] = widget.format;
+                                   await LibraryState().updateMovieCache(widget.libId, updatedCache);
                                  }
                                 if (context.mounted) Navigator.pop(context);
                             },
