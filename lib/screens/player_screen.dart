@@ -363,6 +363,16 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
       });
     }
 
+    wtService.setOnHostLeftCallback(() {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('👑 Host has closed the Watch Together room.'),
+          duration: Duration(seconds: 3),
+        ),
+      );
+    });
+
     if (wtService.isHost) {
       wtService.updateHostMedia(
         streamUrl: _currentStreamUrl ?? widget.streamUrl,

@@ -18,6 +18,7 @@ class _WatchTogetherPlayerOverlayState
   final ScrollController _chatScrollController = ScrollController();
   final List<_FloatingEmojiParticle> _floatingParticles = [];
   final List<WatchChatMessage> _toastMessages = [];
+  bool _showRoomInfoCard = false;
   StreamSubscription<WatchEmojiReaction>? _reactionSub;
   StreamSubscription<WatchChatMessage>? _toastSub;
 
@@ -26,12 +27,10 @@ class _WatchTogetherPlayerOverlayState
     super.initState();
     final service = WatchTogetherService();
 
-    // Listen to reactions
     _reactionSub = service.reactionStream.listen((reaction) {
       _spawnEmojiParticle(reaction.emoji);
     });
 
-    // Listen to toast popups
     _toastSub = service.toastChatStream.listen((chat) {
       if (!mounted) return;
       setState(() {
@@ -92,12 +91,8 @@ class _WatchTogetherPlayerOverlayState
     final double screenWidth = MediaQuery.of(context).size.width;
     final double screenHeight = MediaQuery.of(context).size.height;
     final bool isMobile = screenWidth < 650;
-    // On mobile (portrait or landscape), the native controls header is ~48–56px tall.
-    // We need to sit just below it. Use the shorter dimension as a landscape check.
     final bool isLandscape = screenWidth > screenHeight;
-    // Header offset: account for status bar + controls bar height
     final double statusBarH = MediaQuery.of(context).padding.top;
-    // Native player top bar is ~50px; push WT header below it
     final double headerTop = isMobile
         ? (isLandscape ? (statusBarH + 50) : (statusBarH + 52))
         : 64.0;
@@ -110,7 +105,7 @@ class _WatchTogetherPlayerOverlayState
 
         return Stack(
           children: [
-            // 1. Top Header Row — positioned below native player controls header
+            // 1. Top Minimal Room Bar
             Positioned(
               top: headerTop,
               left: isMobile ? 12 : 24,
@@ -118,69 +113,135 @@ class _WatchTogetherPlayerOverlayState
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  // Left Badge: Room Status
-                  Flexible(
-                    child: Container(
-                      padding: EdgeInsets.symmetric(
-                          horizontal: isMobile ? 8.0 : 12.0, vertical: 5.0),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.75),
-                        borderRadius: BorderRadius.circular(20.0),
-                        border: Border.all(color: Colors.white24),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(Icons.groups_rounded,
-                              color: Colors.deepPurpleAccent, size: 15),
-                          const SizedBox(width: 5),
-                          Text(
-                            isMobile ? '${service.participants.length}' : '${service.participants.length} Watching',
-                            style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 11.5,
-                                fontWeight: FontWeight.bold),
-                          ),
-                          const SizedBox(width: 6),
-                          Container(width: 1, height: 11, color: Colors.white24),
-                          const SizedBox(width: 6),
-                          Text(
-                            service.roomCode,
-                            style: TextStyle(
-                                color: Colors.amberAccent,
-                                fontSize: isMobile ? 11.5 : 12.5,
-                                fontWeight: FontWeight.bold,
-                                letterSpacing: 1.0),
-                          ),
-                          const SizedBox(width: 4),
-                          InkWell(
-                            onTap: () {
-                              Clipboard.setData(
-                                  ClipboardData(text: service.roomCode));
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('Room code copied!'),
-                                  duration: Duration(seconds: 2),
-                                ),
-                              );
-                            },
-                            child: const Padding(
-                              padding: EdgeInsets.all(2.0),
-                              child: Icon(Icons.copy_rounded,
-                                  color: Colors.white70, size: 13),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-
-                  const SizedBox(width: 8),
-
-                  // Right Side Controls: Chat Toggle & Leave
+                  // Left Badge: Participant Count + Sync Button
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      InkWell(
+                        onTap: () {
+                          setState(() {
+                            _showRoomInfoCard = !_showRoomInfoCard;
+                          });
+                        },
+                        borderRadius: BorderRadius.circular(20),
+                        child: Container(
+                          padding: EdgeInsets.symmetric(
+                              horizontal: isMobile ? 8.0 : 12.0, vertical: 5.0),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.85),
+                            borderRadius: BorderRadius.circular(20.0),
+                            border: Border.all(color: Colors.white24),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.groups_rounded,
+                                  color: Colors.amberAccent, size: 15),
+                              const SizedBox(width: 5),
+                              Text(
+                                '${service.participants.length}',
+                                style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 12.0,
+                                    fontWeight: FontWeight.bold),
+                              ),
+                              const SizedBox(width: 6),
+                              Container(width: 1, height: 11, color: Colors.white24),
+                              const SizedBox(width: 6),
+                              Text(
+                                service.roomCode,
+                                style: const TextStyle(
+                                    color: Colors.amberAccent,
+                                    fontSize: 12.0,
+                                    fontWeight: FontWeight.bold,
+                                    letterSpacing: 1.0),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      if (!service.isHost) ...[
+                        const SizedBox(width: 6),
+                        InkWell(
+                          onTap: () {
+                            service.requestRoomState();
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('⚡ Syncing to Host...'),
+                                duration: Duration(seconds: 1),
+                              ),
+                            );
+                          },
+                          borderRadius: BorderRadius.circular(20),
+                          child: Container(
+                            padding: EdgeInsets.symmetric(
+                                horizontal: isMobile ? 8.0 : 10.0, vertical: 5.0),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withValues(alpha: 0.85),
+                              borderRadius: BorderRadius.circular(20.0),
+                              border: Border.all(color: Colors.amberAccent.withValues(alpha: 0.6)),
+                            ),
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.bolt_rounded, color: Colors.amberAccent, size: 14),
+                                SizedBox(width: 3),
+                                Text(
+                                  'Sync',
+                                  style: TextStyle(
+                                      color: Colors.amberAccent,
+                                      fontSize: 11.5,
+                                      fontWeight: FontWeight.bold),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+
+                  // Right Controls: Room Dashboard Toggle & Leave Button
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Room Dashboard Button
+                      InkWell(
+                        onTap: () {
+                          setState(() {
+                            _showRoomInfoCard = !_showRoomInfoCard;
+                          });
+                        },
+                        borderRadius: BorderRadius.circular(20),
+                        child: Container(
+                          padding: EdgeInsets.symmetric(
+                              horizontal: isMobile ? 10.0 : 12.0, vertical: 5.0),
+                          decoration: BoxDecoration(
+                            color: _showRoomInfoCard
+                                ? Colors.white24
+                                : Colors.black.withValues(alpha: 0.85),
+                            borderRadius: BorderRadius.circular(20.0),
+                            border: Border.all(color: Colors.white24),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.dashboard_rounded, color: Colors.white, size: 14),
+                              SizedBox(width: 5),
+                              Text(
+                                'Room',
+                                style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 12.0,
+                                    fontWeight: FontWeight.bold),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+
+                      const SizedBox(width: 6),
+
                       // Chat Toggle Button with Unread Badge
                       Stack(
                         clipBehavior: Clip.none,
@@ -194,36 +255,20 @@ class _WatchTogetherPlayerOverlayState
                             },
                             borderRadius: BorderRadius.circular(20),
                             child: Container(
-                              padding: EdgeInsets.symmetric(
-                                  horizontal: isMobile ? 10.0 : 12.0, vertical: 5.0),
+                              padding: const EdgeInsets.all(6),
                               decoration: BoxDecoration(
                                 color: service.isChatDrawerOpen
-                                    ? Colors.deepPurpleAccent
-                                    : Colors.black.withValues(alpha: 0.75),
-                                borderRadius: BorderRadius.circular(20.0),
+                                    ? Colors.white24
+                                    : Colors.black.withValues(alpha: 0.85),
+                                shape: BoxShape.circle,
                                 border: Border.all(color: Colors.white24),
                               ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    service.isChatDrawerOpen
-                                        ? Icons.chat_bubble
-                                        : Icons.chat_bubble_outline,
-                                    color: Colors.white,
-                                    size: 14,
-                                  ),
-                                  if (!isMobile) ...[
-                                    const SizedBox(width: 6),
-                                    Text(
-                                      service.isChatDrawerOpen ? 'Close Chat' : 'Chat',
-                                      style: const TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 12.0,
-                                          fontWeight: FontWeight.bold),
-                                    ),
-                                  ],
-                                ],
+                              child: Icon(
+                                service.isChatDrawerOpen
+                                    ? Icons.chat_bubble
+                                    : Icons.chat_bubble_outline,
+                                color: Colors.white,
+                                size: 14,
                               ),
                             ),
                           ),
@@ -250,47 +295,6 @@ class _WatchTogetherPlayerOverlayState
                         ],
                       ),
 
-                      if (!service.isHost) ...[
-                        const SizedBox(width: 6),
-                        InkWell(
-                          onTap: () {
-                            service.requestRoomState();
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('⚡ Syncing to Host...'),
-                                duration: Duration(seconds: 1),
-                              ),
-                            );
-                          },
-                          borderRadius: BorderRadius.circular(20),
-                          child: Container(
-                            padding: EdgeInsets.symmetric(
-                                horizontal: isMobile ? 8.0 : 10.0, vertical: 5.0),
-                            decoration: BoxDecoration(
-                              color: Colors.amberAccent.withValues(alpha: 0.25),
-                              borderRadius: BorderRadius.circular(20.0),
-                              border: Border.all(color: Colors.amberAccent.withValues(alpha: 0.6)),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Icon(Icons.bolt_rounded, color: Colors.amberAccent, size: 14),
-                                if (!isMobile) ...[
-                                  const SizedBox(width: 4),
-                                  const Text(
-                                    'Sync',
-                                    style: TextStyle(
-                                        color: Colors.amberAccent,
-                                        fontSize: 11.5,
-                                        fontWeight: FontWeight.bold),
-                                  ),
-                                ],
-                              ],
-                            ),
-                          ),
-                        ),
-                      ],
-
                       const SizedBox(width: 6),
 
                       // Leave Room Button
@@ -300,12 +304,12 @@ class _WatchTogetherPlayerOverlayState
                         child: Container(
                           padding: const EdgeInsets.all(6),
                           decoration: BoxDecoration(
-                            color: Colors.redAccent.withValues(alpha: 0.25),
+                            color: Colors.black.withValues(alpha: 0.85),
                             shape: BoxShape.circle,
                             border: Border.all(color: Colors.redAccent.withValues(alpha: 0.5)),
                           ),
                           child: const Icon(Icons.logout_rounded,
-                              color: Colors.white, size: 14),
+                              color: Colors.redAccent, size: 14),
                         ),
                       ),
                     ],
@@ -314,7 +318,149 @@ class _WatchTogetherPlayerOverlayState
               ),
             ),
 
-            // 2. Sync Notice Banner — below the header
+            // 2. Floating Pure Black Room Stats Info Card (Similar to Stats Overlay)
+            if (_showRoomInfoCard)
+              Positioned(
+                top: headerTop + 38,
+                left: isMobile ? 12 : 24,
+                child: Container(
+                  width: 260,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.92),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: Colors.white24),
+                    boxShadow: const [
+                      BoxShadow(color: Colors.black54, blurRadius: 10)
+                    ],
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Row(
+                            children: [
+                              Icon(Icons.video_library_rounded, color: Colors.amberAccent, size: 16),
+                              SizedBox(width: 6),
+                              Text(
+                                'Watch Together',
+                                style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 13),
+                              ),
+                            ],
+                          ),
+                          InkWell(
+                            onTap: () => setState(() => _showRoomInfoCard = false),
+                            child: const Icon(Icons.close_rounded, color: Colors.white54, size: 16),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      const Divider(color: Colors.white10, height: 1),
+                      const SizedBox(height: 8),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text('Room Code: ${service.roomCode}',
+                              style: const TextStyle(
+                                  color: Colors.white70, fontSize: 12)),
+                          InkWell(
+                            onTap: () {
+                              Clipboard.setData(
+                                  ClipboardData(text: service.roomCode));
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                    content: Text('Room code copied!'),
+                                    duration: Duration(seconds: 1)),
+                              );
+                            },
+                            child: const Text('Copy',
+                                style: TextStyle(
+                                    color: Colors.amberAccent,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold)),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Role: ${service.isHost ? "👑 Room Host" : "👤 Guest"}',
+                        style: const TextStyle(color: Colors.white70, fontSize: 12),
+                      ),
+                      const SizedBox(height: 8),
+                      const Divider(color: Colors.white10, height: 1),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Participants:',
+                        style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 4),
+                      ...service.participants.map((p) => Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 2.0),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  p.isHost ? Icons.king_bed_rounded : Icons.person_outline,
+                                  color: p.isHost ? Colors.amberAccent : Colors.white70,
+                                  size: 13,
+                                ),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: Text(
+                                    p.name,
+                                    style: const TextStyle(
+                                        color: Colors.white, fontSize: 12),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                if (p.isBuffering)
+                                  const Text('⏳ buffering',
+                                      style: TextStyle(
+                                          color: Colors.amberAccent, fontSize: 10)),
+                              ],
+                            ),
+                          )),
+                    ],
+                  ),
+                ),
+              ),
+
+            // 3. Floating Quick Emoji Reaction Bar (Direct 1-tap access on player screen)
+            Positioned(
+              bottom: isMobile ? 85 : 95,
+              right: isMobile ? 12 : 24,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.85),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: Colors.white24),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: ['❤️', '🔥', '😂', '👏', '🍿', '😮'].map((emoji) {
+                    return InkWell(
+                      onTap: () => service.sendEmojiReaction(emoji),
+                      borderRadius: BorderRadius.circular(15),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 4.0, vertical: 2.0),
+                        child: Text(emoji, style: const TextStyle(fontSize: 18)),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ),
+            ),
+
+            // 4. Sync Notice Banner
             if (service.syncNotice != null)
               Positioned(
                 top: headerTop + 42,
@@ -325,9 +471,9 @@ class _WatchTogetherPlayerOverlayState
                     padding: const EdgeInsets.symmetric(
                         horizontal: 14.0, vertical: 6.0),
                     decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.85),
+                      color: Colors.black.withValues(alpha: 0.90),
                       borderRadius: BorderRadius.circular(20.0),
-                      border: Border.all(color: Colors.amber.withValues(alpha: 0.6)),
+                      border: Border.all(color: Colors.amberAccent.withValues(alpha: 0.6)),
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
@@ -336,7 +482,7 @@ class _WatchTogetherPlayerOverlayState
                           width: 12,
                           height: 12,
                           child: CircularProgressIndicator(
-                            color: Colors.amber,
+                            color: Colors.amberAccent,
                             strokeWidth: 2,
                           ),
                         ),
@@ -355,7 +501,7 @@ class _WatchTogetherPlayerOverlayState
                 ),
               ),
 
-            // 3. Floating Emoji Particles
+            // 5. Floating Emoji Particles
             ..._floatingParticles.map((p) => Positioned(
                   key: ValueKey(p.id),
                   bottom: 120,
@@ -363,7 +509,7 @@ class _WatchTogetherPlayerOverlayState
                   child: _AnimatedEmojiBubble(emoji: p.emoji),
                 )),
 
-            // 4. Toast Popups when Chat Drawer is Closed
+            // 6. Toast Popups when Chat Drawer is Closed
             if (!service.isChatDrawerOpen && _toastMessages.isNotEmpty)
               Positioned(
                 bottom: 130,
@@ -376,7 +522,7 @@ class _WatchTogetherPlayerOverlayState
                       padding: const EdgeInsets.symmetric(
                           horizontal: 12, vertical: 6),
                       decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.85),
+                        color: Colors.black.withValues(alpha: 0.90),
                         borderRadius: BorderRadius.circular(10),
                         border: Border.all(color: Colors.white24),
                       ),
@@ -406,17 +552,16 @@ class _WatchTogetherPlayerOverlayState
                 ),
               ),
 
-            // 5. Slide-Out / Responsive Live Chat Panel
+            // 7. Slide-Out Pure Black Live Chat Drawer
             if (service.isChatDrawerOpen)
               Positioned(
-                // On mobile start from below native header; fullscreen starts from top
                 top: isMobile ? headerTop : 0,
                 bottom: isMobile ? 72 : 0,
                 right: 0,
                 width: isMobile ? min(screenWidth * 0.85, 300.0) : 310.0,
                 child: Container(
                   decoration: BoxDecoration(
-                    color: const Color(0xFF141417).withValues(alpha: 0.96),
+                    color: Colors.black.withValues(alpha: 0.96),
                     borderRadius: isMobile
                         ? const BorderRadius.horizontal(left: Radius.circular(16))
                         : BorderRadius.zero,
@@ -424,7 +569,7 @@ class _WatchTogetherPlayerOverlayState
                   ),
                   child: Column(
                     children: [
-                      // Panel Header
+                      // Chat Header
                       Container(
                         padding: const EdgeInsets.symmetric(
                             horizontal: 14, vertical: 10),
@@ -435,7 +580,7 @@ class _WatchTogetherPlayerOverlayState
                         child: Row(
                           children: [
                             const Icon(Icons.chat_rounded,
-                                color: Colors.deepPurpleAccent, size: 16),
+                                color: Colors.amberAccent, size: 16),
                             const SizedBox(width: 8),
                             const Expanded(
                               child: Text(
@@ -456,7 +601,7 @@ class _WatchTogetherPlayerOverlayState
                         ),
                       ),
 
-                      // Chat Messages View
+                      // Chat Messages
                       Expanded(
                         child: ListView.builder(
                           controller: _chatScrollController,
@@ -495,13 +640,12 @@ class _WatchTogetherPlayerOverlayState
                                     horizontal: 10, vertical: 7),
                                 decoration: BoxDecoration(
                                   color: isMe
-                                      ? Colors.deepPurpleAccent
-                                          .withValues(alpha: 0.85)
+                                      ? Colors.white24
                                       : Colors.white.withValues(alpha: 0.08),
                                   borderRadius: BorderRadius.circular(10),
                                   border: Border.all(
                                       color: isMe
-                                          ? Colors.deepPurpleAccent
+                                          ? Colors.white38
                                           : Colors.white10),
                                 ),
                                 child: Column(
@@ -528,23 +672,6 @@ class _WatchTogetherPlayerOverlayState
                               ),
                             );
                           },
-                        ),
-                      ),
-
-                      // Emoji Quick Bar inside Chat Panel
-                      Container(
-                        height: 36,
-                        color: Colors.black.withValues(alpha: 0.3),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceAround,
-                          children:
-                              ['❤️', '😂', '😱', '🔥', '👏', '🍿'].map((emoji) {
-                            return InkWell(
-                              onTap: () => service.sendEmojiReaction(emoji),
-                              child: Text(emoji,
-                                  style: const TextStyle(fontSize: 18)),
-                            );
-                          }).toList(),
                         ),
                       ),
 
@@ -588,7 +715,7 @@ class _WatchTogetherPlayerOverlayState
                             const SizedBox(width: 4),
                             IconButton(
                               icon: const Icon(Icons.send_rounded,
-                                  color: Colors.deepPurpleAccent, size: 18),
+                                  color: Colors.amberAccent, size: 18),
                               onPressed: () {
                                 final text = _chatInputController.text.trim();
                                 if (text.isNotEmpty) {

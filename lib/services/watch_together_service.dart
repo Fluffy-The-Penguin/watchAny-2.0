@@ -734,8 +734,24 @@ class WatchTogetherService extends ChangeNotifier {
     ));
   }
 
+  VoidCallback? _onHostLeftCallback;
+
+  void setOnHostLeftCallback(VoidCallback callback) {
+    _onHostLeftCallback = callback;
+  }
+
   void _handleLeave(Map<String, dynamic> msg, String senderId) {
     final name = msg['senderName']?.toString() ?? 'Participant';
+    final wasHost = _participants.any((p) => p.id == senderId && p.isHost);
+
+    if (wasHost || msg['type'] == 'ROOM_CLOSED') {
+      addSystemMessage('👑 Host has closed the Watch Together room.');
+      _onHostLeftCallback?.call();
+      _teardown();
+      notifyListeners();
+      return;
+    }
+
     final before = _participants.length;
     _participants.removeWhere((p) => p.id == senderId);
     _guestSlots.removeWhere((s) => s.guestId == senderId);
@@ -749,10 +765,21 @@ class WatchTogetherService extends ChangeNotifier {
   // PUBLIC API
   // ═══════════════════════════════════════════════════════════════════════════
 
+  Future<void> pingHeartbeat() async {
+    try {
+      await Supabase.instance.client.from('watch_together_rooms').select('id').limit(1);
+    } catch (_) {}
+  }
+
   void leaveRoom() {
     if (!isActive) return;
-    _broadcastPayload({'type': 'LEAVE_ROOM', 'senderId': _myId, 'senderName': _myName});
-    addSystemMessage('👋 You left the room.');
+    if (isHost) {
+      _broadcastPayload({'type': 'ROOM_CLOSED', 'senderId': _myId, 'senderName': _myName});
+      addSystemMessage('👑 You closed the room.');
+    } else {
+      _broadcastPayload({'type': 'LEAVE_ROOM', 'senderId': _myId, 'senderName': _myName});
+      addSystemMessage('👋 You left the room.');
+    }
     _teardown();
     notifyListeners();
   }
@@ -925,6 +952,7 @@ class WatchTogetherService extends ChangeNotifier {
       try {
         _channel!.untrack();
         _channel!.unsubscribe();
+        Supabase.instance.client.removeChannel(_channel!);
       } catch (_) {}
       _channel = null;
     }
