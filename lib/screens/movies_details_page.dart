@@ -23,6 +23,7 @@ import '../models/torrent.dart';
 import '../services/watch_together_service.dart';
 import '../widgets/watch_together_dialog.dart';
 import 'watch_together_room_screen.dart';
+import '../services/download_service.dart';
 
 // ─── Lightweight metadata cache (populated on home page card tap) ─────────────
 class MovieMetadataCache {
@@ -282,7 +283,7 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
         // Save metadata to library sqlite cache if bookmarked
         final libId = _imdbToLibraryId(_realId);
         if (LibraryState().isSaved(libId, 'movies')) {
-          final updatedCache = Map<String, dynamic>.from(metaData!);
+          final updatedCache = Map<String, dynamic>.from(metaData);
           updatedCache['format'] = _isSeries ? 'SERIES' : 'MOVIE';
           updatedCache['type'] = _type;
           LibraryState().updateMovieCache(libId, updatedCache);
@@ -374,7 +375,7 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
     return '$baseId:${episode ?? 1}';
   }
 
-  Future<void> _fetchStreamsAndPlay({int? episode, String? episodeId}) async {
+  Future<void> _fetchStreamsAndPlay({int? episode, String? episodeId, bool isDownload = false}) async {
     final String mediaId = widget.movieId;
     final int epNum = episode ?? 1;
     final mapping = BatchMappingService().getMapping(mediaId, epNum);
@@ -440,12 +441,12 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
       return;
     }
 
-    if (mounted) _showStreamSheet(allStreams, episode);
+    if (mounted) _showStreamSheet(allStreams, episode, isDownload: isDownload);
   }
 
   // ── Stream Selector Bottom Sheet ──────────────────────────────────────────
 
-  void _showStreamSheet(List<dynamic> streams, int? episode) {
+  void _showStreamSheet(List<dynamic> streams, int? episode, {bool isDownload = false}) {
     final mediaTitle = _meta['name']?.toString() ?? _meta['title']?.toString() ?? 'Media';
     final panelTitle = episode != null ? '$mediaTitle — Episode $episode' : mediaTitle;
 
@@ -483,7 +484,7 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
               child: MovieStreamSelectorPanel(
                 streams: streams,
                 title: panelTitle,
-                onStreamSelected: (stream, {isDownload = false}) {
+                onStreamSelected: (stream, {bool isDownload = false}) {
                   Navigator.pop(context); // close bottom sheet
                   _playStream(stream, episode, isDownload: isDownload);
                 },
@@ -617,6 +618,24 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
     }
     if (headers == null && stream['headers'] is Map) {
       headers = (stream['headers'] as Map).map((k, v) => MapEntry(k.toString(), v.toString()));
+    }
+
+    if (isDownload) {
+      final taskTitle = episode != null ? '$mediaTitle — Episode $episode' : mediaTitle;
+      DownloadService().addDownloadTask(
+        hash: 'mov_${streamUrl.hashCode}_${episode ?? 1}',
+        fileIndex: episode ?? 1,
+        title: taskTitle,
+        streamUrl: streamUrl,
+        episodeNumber: episode,
+        season: _selectedSeason,
+        isMovie: !_isSeries,
+        mediaJson: jsonEncode(media),
+        episodesJson: _isSeries && _hasVideos ? jsonEncode(_meta['videos']) : null,
+        headers: headers,
+      );
+      NotificationService().show(context, 'Added "$taskTitle" to download queue.');
+      return;
     }
 
     PlayerState().startPlayback(
@@ -1501,7 +1520,8 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
                     epNum: epNum,
                     title: epTitle.isNotEmpty ? epTitle : 'Episode $epNum',
                     thumbnail: thumbnail,
-                    onTap: () => _fetchStreamsAndPlay(episode: epNum, episodeId: epId),
+                    onTap: () => _fetchStreamsAndPlay(episode: epNum, episodeId: epId, isDownload: false),
+                    onDownload: () => _fetchStreamsAndPlay(episode: epNum, episodeId: epId, isDownload: true),
                   );
                 },
               );
@@ -1513,8 +1533,6 @@ class _MovieDetailsPageState extends State<MovieDetailsPage> {
   }
 
   void _showBatchMappingPlayDialog(Map<String, dynamic> mapping, int epNum) {
-    final mediaTitle = _meta['name']?.toString() ?? _meta['title']?.toString() ?? 'Media';
-    
     showDialog(
       context: context,
       builder: (dialogCtx) {
@@ -1635,6 +1653,7 @@ class _MovieEpisodeCard extends StatefulWidget {
   final String title;
   final String thumbnail;
   final VoidCallback onTap;
+  final VoidCallback? onDownload;
 
   const _MovieEpisodeCard({
     required this.movieId,
@@ -1642,6 +1661,7 @@ class _MovieEpisodeCard extends StatefulWidget {
     required this.title,
     required this.thumbnail,
     required this.onTap,
+    this.onDownload,
   });
 
   @override
@@ -1761,6 +1781,31 @@ class _MovieEpisodeCardState extends State<_MovieEpisodeCard> {
                                 ),
                               ),
                             ),
+                            if (widget.onDownload != null)
+                              Positioned(
+                                top: 6,
+                                right: 6,
+                                child: Material(
+                                  color: Colors.transparent,
+                                  child: InkWell(
+                                    onTap: widget.onDownload,
+                                    borderRadius: BorderRadius.circular(12),
+                                    child: Container(
+                                      padding: const EdgeInsets.all(5),
+                                      decoration: BoxDecoration(
+                                        color: Colors.black.withValues(alpha: 0.75),
+                                        shape: BoxShape.circle,
+                                        border: Border.all(color: Colors.white24, width: 1.0),
+                                      ),
+                                      child: const Icon(
+                                        Icons.download_rounded,
+                                        color: Colors.white,
+                                        size: 14.0,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
                             // Progress bar
                             if (ratio > 0.0 && ratio < 0.90)
                               Positioned(

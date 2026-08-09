@@ -91,6 +91,167 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
+  bool _isClearingDownloads = false;
+  bool _isClearingCompleted = false;
+
+  Future<void> _showClearDownloadsDialog(BuildContext context) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF18181B),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
+        title: const Row(
+          children: [
+            Icon(Icons.delete_forever_outlined, color: Colors.redAccent, size: 22),
+            SizedBox(width: 8),
+            Text('Delete All Downloads?', style: TextStyle(color: Colors.white, fontFamily: 'Outfit', fontSize: 16)),
+          ],
+        ),
+        content: const Text(
+          'This will permanently delete all downloaded files (videos, episodes, manga chapters) and cancel active tasks to free up disk space.',
+          style: TextStyle(color: Colors.white70, fontSize: 13),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel', style: TextStyle(color: Colors.white54)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6.0)),
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete All', style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      setState(() => _isClearingDownloads = true);
+      await DownloadService().removeAllDownloads(deleteFiles: true);
+      await _updateStorageSizes();
+      if (mounted) {
+        setState(() => _isClearingDownloads = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('All downloads and stored media deleted.'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _showClearCompletedDialog(BuildContext context) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF18181B),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
+        title: const Row(
+          children: [
+            Icon(Icons.cleaning_services_outlined, color: Color(0xFFFF9F1C), size: 22),
+            SizedBox(width: 8),
+            Text('Clear Completed Downloads?', style: TextStyle(color: Colors.white, fontFamily: 'Outfit', fontSize: 16)),
+          ],
+        ),
+        content: const Text(
+          'This will delete all completed downloaded files from disk to free space. Active and queued downloads will remain untouched.',
+          style: TextStyle(color: Colors.white70, fontSize: 13),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel', style: TextStyle(color: Colors.white54)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFFF9F1C),
+              foregroundColor: Colors.black,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6.0)),
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Clear Completed', style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      setState(() => _isClearingCompleted = true);
+      await DownloadService().removeCompletedDownloads(deleteFiles: true);
+      await _updateStorageSizes();
+      if (mounted) {
+        setState(() => _isClearingCompleted = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Completed downloads cleared successfully.'),
+            backgroundColor: Color(0xFFFF9F1C),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _freeAllStorage(BuildContext context) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF18181B),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
+        title: const Row(
+          children: [
+            Icon(Icons.auto_fix_high_rounded, color: Color(0xFF6366F1), size: 22),
+            SizedBox(width: 8),
+            Text('Free Storage Space?', style: TextStyle(color: Colors.white, fontFamily: 'Outfit', fontSize: 16)),
+          ],
+        ),
+        content: const Text(
+          'This will clear temporary cache files and remove completed download files to instantly free up maximum storage.',
+          style: TextStyle(color: Colors.white70, fontSize: 13),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel', style: TextStyle(color: Colors.white54)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF6366F1),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6.0)),
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Free Space Now', style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      setState(() {
+        _isClearingCompleted = true;
+      });
+      await CacheService().clearCache();
+      await DownloadService().removeCompletedDownloads(deleteFiles: true);
+      await _updateStorageSizes();
+      if (mounted) {
+        setState(() {
+          _isClearingCompleted = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Storage space freed successfully!'),
+            backgroundColor: Color(0xFF6366F1),
+          ),
+        );
+      }
+    }
+  }
+
   List<SettingsCategory> _getAvailableCategories() {
     switch (widget.mode) {
       case AppMode.anime:
@@ -1721,12 +1882,12 @@ class _SettingsPageState extends State<SettingsPage> {
 
             // Downloads Path
             FutureBuilder<String>(
-              future: Future.value(settings.downloadPath.isNotEmpty ? settings.downloadPath : "Default Downloads Folder"),
+              future: DownloadService().getEffectiveDownloadPath(),
               builder: (context, snapshot) {
                 return _SettingsTile(
                   icon: Icons.folder_open_outlined,
                   title: 'Downloads Folder',
-                  subtitle: snapshot.data ?? 'Resolving path...',
+                  subtitle: snapshot.data ?? (settings.downloadPath.isNotEmpty ? settings.downloadPath : 'Resolving path...'),
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -1741,11 +1902,16 @@ class _SettingsPageState extends State<SettingsPage> {
                       const SizedBox(width: 8.0),
                       IconButton(
                         icon: const Icon(Icons.drive_file_move_outlined, color: Colors.white70),
+                        tooltip: "Select Download Folder",
                         onPressed: () async {
-                          final path = await FilePicker.getDirectoryPath();
-                          if (path != null) {
-                            await settings.setDownloadPath(path);
-                            await _updateStorageSizes();
+                          try {
+                            final path = await FilePicker.getDirectoryPath();
+                            if (path != null && path.isNotEmpty) {
+                              await settings.setDownloadPath(path);
+                              await _updateStorageSizes();
+                            }
+                          } catch (e) {
+                            debugPrint("Error selecting download folder: $e");
                           }
                         },
                       ),
@@ -1857,11 +2023,16 @@ class _SettingsPageState extends State<SettingsPage> {
                       const SizedBox(width: 8.0),
                       IconButton(
                         icon: const Icon(Icons.drive_file_move_outlined, color: Colors.white70),
+                        tooltip: "Select Cache Folder",
                         onPressed: () async {
-                          final path = await FilePicker.getDirectoryPath();
-                          if (path != null) {
-                            await settings.setCachePath(path);
-                            await _updateStorageSizes();
+                          try {
+                            final path = await FilePicker.getDirectoryPath();
+                            if (path != null && path.isNotEmpty) {
+                              await settings.setCachePath(path);
+                              await _updateStorageSizes();
+                            }
+                          } catch (e) {
+                            debugPrint("Error selecting cache folder: $e");
                           }
                         },
                       ),

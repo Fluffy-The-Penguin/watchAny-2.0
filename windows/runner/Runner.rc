@@ -89,13 +89,13 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "com.example" "\0"
-            VALUE "FileDescription", "watch_any" "\0"
+            VALUE "CompanyName", "watchAny" "\0"
+            VALUE "FileDescription", "watchAny - Stream Anything" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "watch_any" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2026 com.example. All rights reserved." "\0"
-            VALUE "OriginalFilename", "watch_any.exe" "\0"
-            VALUE "ProductName", "watch_any" "\0"
+            VALUE "InternalName", "watchAny" "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 watchAny. All rights reserved." "\0"
+            VALUE "OriginalFilename", "watchAny.exe" "\0"
+            VALUE "ProductName", "watchAny" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

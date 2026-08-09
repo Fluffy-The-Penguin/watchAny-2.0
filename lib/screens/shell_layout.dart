@@ -23,6 +23,7 @@ import 'player_screen.dart';
 import 'schedule_page.dart';
 import 'history_page.dart';
 import 'notifications_page.dart';
+import '../services/download_service.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../state/library_providers.dart';
@@ -69,14 +70,38 @@ class ShellLayout extends StatelessWidget {
 
 
   List<BottomNavigationBarItem> _buildBottomTabs(AppMode mode) {
+    final ds = DownloadService();
+    Widget downloadsIcon;
+    if (ds.isDownloading) {
+      downloadsIcon = Badge(
+        label: Text('${ds.activeDownloadingCount}', style: const TextStyle(color: Colors.white, fontSize: 9)),
+        backgroundColor: const Color(0xFF2EC4B6),
+        child: const Icon(Icons.downloading_rounded, color: Color(0xFF2EC4B6)),
+      );
+    } else if (ds.hasFailed) {
+      downloadsIcon = const Badge(
+        smallSize: 8,
+        backgroundColor: Colors.redAccent,
+        child: Icon(Icons.download_for_offline_outlined, color: Colors.redAccent),
+      );
+    } else if (ds.hasUnseenCompletions) {
+      downloadsIcon = const Badge(
+        smallSize: 8,
+        backgroundColor: Colors.greenAccent,
+        child: Icon(Icons.task_alt_rounded, color: Colors.greenAccent),
+      );
+    } else {
+      downloadsIcon = const Icon(Icons.download_for_offline);
+    }
+
     if (mode == AppMode.anime) {
-      return const [
-        BottomNavigationBarItem(icon: Icon(Icons.home_filled), label: 'Home'),
-        BottomNavigationBarItem(icon: Icon(Icons.search), label: 'Search'),
-        BottomNavigationBarItem(icon: Icon(Icons.video_library), label: 'Library'),
-        BottomNavigationBarItem(icon: Icon(Icons.calendar_today), label: 'Schedule'),
-        BottomNavigationBarItem(icon: Icon(Icons.download_for_offline), label: 'Downloads'),
-        BottomNavigationBarItem(icon: Icon(Icons.settings), label: 'Settings'),
+      return [
+        const BottomNavigationBarItem(icon: Icon(Icons.home_filled), label: 'Home'),
+        const BottomNavigationBarItem(icon: Icon(Icons.search), label: 'Search'),
+        const BottomNavigationBarItem(icon: Icon(Icons.video_library), label: 'Library'),
+        const BottomNavigationBarItem(icon: Icon(Icons.calendar_today), label: 'Schedule'),
+        BottomNavigationBarItem(icon: downloadsIcon, label: 'Downloads'),
+        const BottomNavigationBarItem(icon: Icon(Icons.settings), label: 'Settings'),
       ];
     } else if (mode == AppMode.manga) {
       return const [
@@ -86,12 +111,12 @@ class ShellLayout extends StatelessWidget {
         BottomNavigationBarItem(icon: Icon(Icons.settings), label: 'Settings'),
       ];
     } else {
-      return const [
-        BottomNavigationBarItem(icon: Icon(Icons.home_filled), label: 'Home'),
-        BottomNavigationBarItem(icon: Icon(Icons.search), label: 'Search'),
-        BottomNavigationBarItem(icon: Icon(Icons.video_library), label: 'Library'),
-        BottomNavigationBarItem(icon: Icon(Icons.download_for_offline), label: 'Downloads'),
-        BottomNavigationBarItem(icon: Icon(Icons.settings), label: 'Settings'),
+      return [
+        const BottomNavigationBarItem(icon: Icon(Icons.home_filled), label: 'Home'),
+        const BottomNavigationBarItem(icon: Icon(Icons.search), label: 'Search'),
+        const BottomNavigationBarItem(icon: Icon(Icons.video_library), label: 'Library'),
+        BottomNavigationBarItem(icon: downloadsIcon, label: 'Downloads'),
+        const BottomNavigationBarItem(icon: Icon(Icons.settings), label: 'Settings'),
       ];
     }
   }
@@ -229,7 +254,6 @@ class ShellLayout extends StatelessWidget {
 
         final playerState = PlayerState();
         final showFullPlayer = playerState.isActive && !playerState.isMinimized;
-        final showMiniPlayer = playerState.isActive && playerState.isMinimized;
 
         final bool isDetailsOpen = selectedAnimeId != null ||
             navigationState.selectedMovieId != null ||
@@ -413,17 +437,26 @@ class ShellLayout extends StatelessWidget {
                 )
               : null,
           bottomNavigationBar: isMobile && selectedAnimeId == null && !showFullPlayer
-              ? BottomNavigationBar(
-                  backgroundColor: const Color(0xFF0F0F11),
-                  selectedItemColor: Colors.white,
-                  unselectedItemColor: Colors.white30,
-                  currentIndex: _getTabIndexMobile(currentPage, currentMode),
-                  type: BottomNavigationBarType.fixed,
-                  selectedLabelStyle: const TextStyle(fontFamily: 'Outfit', fontSize: 11),
-                  unselectedLabelStyle: const TextStyle(fontFamily: 'Outfit', fontSize: 11),
-                  items: _buildBottomTabs(currentMode),
-                  onTap: (index) {
-                    navigationState.setPage(_getTabPageFromIndex(index, currentMode));
+              ? ListenableBuilder(
+                  listenable: DownloadService(),
+                  builder: (context, _) {
+                    return BottomNavigationBar(
+                      backgroundColor: const Color(0xFF0F0F11),
+                      selectedItemColor: Colors.white,
+                      unselectedItemColor: Colors.white30,
+                      currentIndex: _getTabIndexMobile(currentPage, currentMode),
+                      type: BottomNavigationBarType.fixed,
+                      selectedLabelStyle: const TextStyle(fontFamily: 'Outfit', fontSize: 11),
+                      unselectedLabelStyle: const TextStyle(fontFamily: 'Outfit', fontSize: 11),
+                      items: _buildBottomTabs(currentMode),
+                      onTap: (index) {
+                        final targetPage = _getTabPageFromIndex(index, currentMode);
+                        if (targetPage == TabPage.downloads) {
+                          DownloadService().clearUnseenCompletions();
+                        }
+                        navigationState.setPage(targetPage);
+                      },
+                    );
                   },
                 )
               : null,

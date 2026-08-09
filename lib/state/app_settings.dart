@@ -38,6 +38,7 @@ class AppSettings extends ChangeNotifier {
   double _cacheLimitGB = 10.0;
   String _cachePath = '';
   bool _autoManageStorage = false;
+  int _maxConcurrentDownloads = 2;
 
   // Custom Subtitles configuration
   bool _subtitlesCustomStylesEnabled = true;
@@ -83,6 +84,7 @@ class AppSettings extends ChangeNotifier {
   double get downloadsLimitGB => _downloadsLimitGB;
   double get cacheLimitGB => _cacheLimitGB;
   String get cachePath => _cachePath;
+  int get maxConcurrentDownloads => _maxConcurrentDownloads;
   bool get autoManageStorage => _autoManageStorage;
   bool get offlineMode => _offlineMode;
 
@@ -174,6 +176,7 @@ class AppSettings extends ChangeNotifier {
     _cacheLimitGB = rawCacheLimit is num ? rawCacheLimit.toDouble() : defaultLimitGB;
     _cachePath = prefs.getString('cache_path') ?? '';
     _autoManageStorage = prefs.getBool('auto_manage_storage') ?? false;
+    _maxConcurrentDownloads = prefs.getInt('max_concurrent_downloads') ?? 2;
 
     // Subtitles settings initialization
     _subtitlesCustomStylesEnabled = prefs.getBool('subtitles_custom_styles_enabled') ?? true;
@@ -395,6 +398,14 @@ class AppSettings extends ChangeNotifier {
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('auto_manage_storage', value);
+  }
+
+  Future<void> setMaxConcurrentDownloads(int value) async {
+    if (_maxConcurrentDownloads == value) return;
+    _maxConcurrentDownloads = value;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('max_concurrent_downloads', value);
   }
 
   Future<void> setHardwareAccelerationEnabled(bool value) async {

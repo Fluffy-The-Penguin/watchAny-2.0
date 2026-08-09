@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import '../state/app_settings.dart';
@@ -27,14 +27,16 @@ class DownloadTask {
   DownloadStatus status;
   double downloadSpeed; // Bytes per second
 
-  // Anime metadata fields to unify player interfaces
+  // Anime / Movies / TV metadata fields to unify player interfaces
   final int? anilistId;
   final List<String>? titles;
   final int? episodeCount;
   final int? episodeNumber;
+  final int? season;
   final bool? isMovie;
   final String? mediaJson;
   final String? episodesJson;
+  final Map<String, String>? headers;
 
   DownloadTask({
     required this.id,
@@ -51,9 +53,11 @@ class DownloadTask {
     this.titles,
     this.episodeCount,
     this.episodeNumber,
+    this.season,
     this.isMovie,
     this.mediaJson,
     this.episodesJson,
+    this.headers,
   });
 
   Map<String, dynamic> toJson() => {
@@ -70,9 +74,11 @@ class DownloadTask {
         'titles': titles,
         'episodeCount': episodeCount,
         'episodeNumber': episodeNumber,
+        'season': season,
         'isMovie': isMovie,
         'mediaJson': mediaJson,
         'episodesJson': episodesJson,
+        'headers': headers,
       };
 
   factory DownloadTask.fromJson(Map<String, dynamic> json) => DownloadTask(
@@ -89,10 +95,33 @@ class DownloadTask {
         titles: (json['titles'] as List<dynamic>?)?.map((e) => e as String).toList(),
         episodeCount: json['episodeCount'] as int?,
         episodeNumber: json['episodeNumber'] as int?,
+        season: json['season'] as int?,
         isMovie: json['isMovie'] as bool?,
         mediaJson: json['mediaJson'] as String?,
         episodesJson: json['episodesJson'] as String?,
+        headers: (json['headers'] as Map<String, dynamic>?)?.map((k, v) => MapEntry(k, v.toString())),
       );
+}
+
+class _ActiveWorker {
+  final http.Client client;
+  final StreamSubscription<List<int>> subscription;
+  final IOSink fileSink;
+  final Timer speedTimer;
+
+  _ActiveWorker({
+    required this.client,
+    required this.subscription,
+    required this.fileSink,
+    required this.speedTimer,
+  });
+
+  void cancel() {
+    speedTimer.cancel();
+    subscription.cancel();
+    fileSink.close();
+    client.close();
+  }
 }
 
 class DownloadService extends ChangeNotifier {
@@ -101,19 +130,33 @@ class DownloadService extends ChangeNotifier {
   DownloadService._internal();
 
   final List<DownloadTask> _tasks = [];
-  bool _isLoopRunning = false;
-  http.Client? _httpClient;
-  StreamSubscription<List<int>>? _currentSubscription;
-  IOSink? _currentFileSink;
-  DownloadTask? _activeTask;
+  final Map<String, _ActiveWorker> _activeWorkers = {};
+  bool _hasUnseenCompletions = false;
+
+  bool get hasUnseenCompletions => _hasUnseenCompletions;
+  bool get isDownloading => _tasks.any((t) => t.status == DownloadStatus.downloading || t.status == DownloadStatus.queued);
+  bool get hasFailed => _tasks.any((t) => t.status == DownloadStatus.failed);
+  int get activeDownloadingCount => _tasks.where((t) => t.status == DownloadStatus.downloading || t.status == DownloadStatus.queued).length;
+
+  void clearUnseenCompletions() {
+    if (_hasUnseenCompletions) {
+      _hasUnseenCompletions = false;
+      notifyListeners();
+    }
+  }
 
   List<DownloadTask> get tasks => List.unmodifiable(_tasks);
-  DownloadTask? get activeTask => _activeTask;
+
+  DownloadTask? get activeTask {
+    for (var t in _tasks) {
+      if (t.status == DownloadStatus.downloading) return t;
+    }
+    return _tasks.isNotEmpty ? _tasks.first : null;
+  }
 
   Future<File> get _dbFile async {
     final dir = await getApplicationDocumentsDirectory();
     final newFile = File('${dir.path}/downloads.json');
-    // Migrate legacy file if it exists
     final legacyFile = File('${Directory.current.path}/downloads.json');
     if (await legacyFile.exists() && !await newFile.exists()) {
       try {
@@ -128,8 +171,7 @@ class DownloadService extends ChangeNotifier {
 
   Future<void> init() async {
     await _loadTasks();
-    // Start download loop on startup (resumes queued items)
-    _startDownloadLoop();
+    _processQueue();
   }
 
   Future<void> _loadTasks() async {
@@ -141,9 +183,8 @@ class DownloadService extends ChangeNotifier {
         _tasks.clear();
         for (var item in list) {
           final task = DownloadTask.fromJson(item as Map<String, dynamic>);
-          // If app closed while downloading, reset to paused/failed
           if (task.status == DownloadStatus.downloading) {
-            task.status = DownloadStatus.paused;
+            task.status = DownloadStatus.queued;
           }
           task.downloadSpeed = 0;
           _tasks.add(task);
@@ -178,33 +219,25 @@ class DownloadService extends ChangeNotifier {
     List<String>? titles,
     int? episodeCount,
     int? episodeNumber,
+    int? season,
     bool? isMovie,
     String? mediaJson,
     String? episodesJson,
+    Map<String, String>? headers,
   }) async {
     final id = '${hash}_$fileIndex';
     
-    // Check if task already exists
     if (_tasks.any((t) => t.id == id)) {
       debugPrint("Task $id already exists in download queue");
       return;
     }
 
-    String baseDir = AppSettings().downloadPath;
-    if (baseDir.isEmpty) {
-      if (!kIsWeb && Platform.isAndroid) {
-        baseDir = '/storage/emulated/0/Download/watchAny';
-      } else {
-        final homeDir = Platform.environment['USERPROFILE'] ?? Platform.environment['HOME'] ?? Directory.current.path;
-        baseDir = '$homeDir/Downloads/watchAny';
-      }
-    }
+    final baseDir = await getEffectiveDownloadPath();
     final downloadsDir = Directory(baseDir);
     if (!await downloadsDir.exists()) {
       await downloadsDir.create(recursive: true);
     }
 
-    // Try parsing extension from URL or use mp4 as fallback
     final cleanedTitle = _cleanFilename(title);
     final savePath = '${downloadsDir.path}/$cleanedTitle';
 
@@ -220,26 +253,30 @@ class DownloadService extends ChangeNotifier {
       titles: titles,
       episodeCount: episodeCount,
       episodeNumber: episodeNumber,
+      season: season,
       isMovie: isMovie,
       mediaJson: mediaJson,
       episodesJson: episodesJson,
+      headers: headers,
     );
 
     _tasks.add(task);
     await _saveTasks();
     notifyListeners();
-    _startDownloadLoop();
+    _processQueue();
   }
 
   void pauseDownload(String taskId) {
-    final task = _tasks.firstWhere((t) => t.id == taskId);
+    final index = _tasks.indexWhere((t) => t.id == taskId);
+    if (index == -1) return;
+    final task = _tasks[index];
     if (task.status == DownloadStatus.downloading) {
-      _cancelCurrentDownload();
+      _stopWorker(taskId);
       task.status = DownloadStatus.paused;
       task.downloadSpeed = 0;
       _saveTasks();
       notifyListeners();
-      _startDownloadLoop();
+      _processQueue();
     } else if (task.status == DownloadStatus.queued) {
       task.status = DownloadStatus.paused;
       _saveTasks();
@@ -248,12 +285,14 @@ class DownloadService extends ChangeNotifier {
   }
 
   void resumeDownload(String taskId) {
-    final task = _tasks.firstWhere((t) => t.id == taskId);
+    final index = _tasks.indexWhere((t) => t.id == taskId);
+    if (index == -1) return;
+    final task = _tasks[index];
     if (task.status == DownloadStatus.paused || task.status == DownloadStatus.failed) {
       task.status = DownloadStatus.queued;
       _saveTasks();
       notifyListeners();
-      _startDownloadLoop();
+      _processQueue();
     }
   }
 
@@ -262,7 +301,7 @@ class DownloadService extends ChangeNotifier {
     if (index != -1) {
       final task = _tasks[index];
       if (task.status == DownloadStatus.downloading) {
-        _cancelCurrentDownload();
+        _stopWorker(taskId);
       }
       _tasks.removeAt(index);
       await _saveTasks();
@@ -278,56 +317,71 @@ class DownloadService extends ChangeNotifier {
           debugPrint("Failed to delete local download file: $e");
         }
       }
-      _startDownloadLoop();
+      _processQueue();
     }
   }
 
-  void _cancelCurrentDownload() {
-    _currentSubscription?.cancel();
-    _currentSubscription = null;
-    _currentFileSink?.close();
-    _currentFileSink = null;
-    _httpClient?.close();
-    _httpClient = null;
-    _activeTask = null;
+  Future<void> removeAllDownloads({bool deleteFiles = true}) async {
+    final taskIds = _tasks.map((t) => t.id).toList();
+    for (final id in taskIds) {
+      await removeDownload(id, deleteFile: deleteFiles);
+    }
   }
 
-  void _startDownloadLoop() {
-    if (_isLoopRunning) return;
-    _isLoopRunning = true;
-    _runNextTask();
+  Future<void> removeCompletedDownloads({bool deleteFiles = true}) async {
+    final completedIds = _tasks.where((t) => t.status == DownloadStatus.completed).map((t) => t.id).toList();
+    for (final id in completedIds) {
+      await removeDownload(id, deleteFile: deleteFiles);
+    }
   }
 
-  Future<void> _runNextTask() async {
-    // Find next queued task
+  void _stopWorker(String taskId) {
+    final worker = _activeWorkers.remove(taskId);
+    worker?.cancel();
+  }
+
+  void _processQueue() {
+    final maxConcurrent = AppSettings().maxConcurrentDownloads.clamp(1, 10);
+    final currentlyDownloading = _tasks.where((t) => t.status == DownloadStatus.downloading).length;
+    int availableSlots = maxConcurrent - currentlyDownloading;
+
+    if (availableSlots <= 0) return;
+
     final queuedTasks = _tasks.where((t) => t.status == DownloadStatus.queued).toList();
-    if (queuedTasks.isEmpty) {
-      _isLoopRunning = false;
-      return;
+    for (var task in queuedTasks) {
+      if (availableSlots <= 0) break;
+      if (_activeWorkers.containsKey(task.id)) continue;
+
+      task.status = DownloadStatus.downloading;
+      availableSlots--;
+      _startWorkerForTask(task);
     }
-
-    final task = queuedTasks.first;
-    _activeTask = task;
-    task.status = DownloadStatus.downloading;
     notifyListeners();
+  }
 
+  Future<void> _startWorkerForTask(DownloadTask task) async {
     Timer? speedTimer;
+    http.Client? client;
+    IOSink? fileSink;
+    StreamSubscription<List<int>>? subscription;
+
     try {
-      _httpClient = http.Client();
+      client = http.Client();
       final request = http.Request('GET', Uri.parse(task.streamUrl));
-      
-      // Support resume
+
+      if (task.headers != null) {
+        request.headers.addAll(task.headers!);
+      }
       if (task.downloadedBytes > 0) {
         request.headers['Range'] = 'bytes=${task.downloadedBytes}-';
       }
 
-      final response = await _httpClient!.send(request);
+      final response = await client.send(request);
 
       if (response.statusCode != 200 && response.statusCode != 206) {
         throw HttpException('Server returned status code: ${response.statusCode}');
       }
 
-      // If range request was accepted, file matches length. If server returned 200 instead of 206, restart download.
       if (response.statusCode == 200) {
         task.downloadedBytes = 0;
       }
@@ -337,35 +391,49 @@ class DownloadService extends ChangeNotifier {
       }
 
       final file = File(task.savePath);
-      // Open in append mode if resuming, else write from scratch
-      _currentFileSink = file.openWrite(
+      fileSink = file.openWrite(
         mode: response.statusCode == 206 ? FileMode.append : FileMode.write,
       );
 
       int bytesSinceLastReport = 0;
+      final List<int> sampleBytes = [];
+      final List<int> sampleMs = [];
       DateTime lastTime = DateTime.now();
 
-      speedTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      speedTimer = Timer.periodic(const Duration(milliseconds: 500), (timer) {
         if (task.status != DownloadStatus.downloading) {
           timer.cancel();
           return;
         }
         final now = DateTime.now();
-        final ms = now.difference(lastTime).inMilliseconds;
-        if (ms > 0) {
-          task.downloadSpeed = (bytesSinceLastReport * 1000) / ms;
-        }
-        bytesSinceLastReport = 0;
+        final ms = max(1, now.difference(lastTime).inMilliseconds);
         lastTime = now;
+
+        sampleBytes.add(bytesSinceLastReport);
+        sampleMs.add(ms);
+        bytesSinceLastReport = 0;
+
+        if (sampleBytes.length > 4) {
+          sampleBytes.removeAt(0);
+          sampleMs.removeAt(0);
+        }
+
+        final totalBytes = sampleBytes.reduce((a, b) => a + b);
+        final totalMs = sampleMs.reduce((a, b) => a + b);
+
+        if (totalMs > 0) {
+          task.downloadSpeed = (totalBytes * 1000.0) / totalMs;
+        }
+
         _saveTasks();
         notifyListeners();
       });
 
       final completer = Completer<void>();
 
-      _currentSubscription = response.stream.listen(
+      subscription = response.stream.listen(
         (chunk) {
-          _currentFileSink?.add(chunk);
+          fileSink?.add(chunk);
           task.downloadedBytes += chunk.length;
           bytesSinceLastReport += chunk.length;
         },
@@ -380,54 +448,106 @@ class DownloadService extends ChangeNotifier {
         cancelOnError: true,
       );
 
+      _activeWorkers[task.id] = _ActiveWorker(
+        client: client,
+        subscription: subscription,
+        fileSink: fileSink,
+        speedTimer: speedTimer,
+      );
+
       await completer.future;
-      
-      // Clean shutdown of current writers
-      await _currentFileSink?.close();
-      _currentFileSink = null;
-      _httpClient?.close();
-      _httpClient = null;
-      _activeTask = null;
+
+      _activeWorkers.remove(task.id);
+      await fileSink.close();
+      client.close();
 
       if (task.status == DownloadStatus.downloading) {
         task.status = DownloadStatus.completed;
         task.downloadSpeed = 0;
+        _hasUnseenCompletions = true;
         await _saveTasks();
         notifyListeners();
       }
     } catch (e) {
       debugPrint("Download task ${task.id} failed: $e");
       speedTimer?.cancel();
-      _cancelCurrentDownload();
-      
-      task.status = DownloadStatus.failed;
-      task.downloadSpeed = 0;
-      await _saveTasks();
-      notifyListeners();
+      _stopWorker(task.id);
+
+      if (task.status == DownloadStatus.downloading) {
+        task.status = DownloadStatus.failed;
+        task.downloadSpeed = 0;
+        await _saveTasks();
+        notifyListeners();
+      }
     }
 
-    // Run next task in queue
-    _runNextTask();
+    _processQueue();
   }
 
-  /// Calculates total size of the downloads directory in bytes.
+  Future<String> getEffectiveDownloadPath() async {
+    String baseDir = AppSettings().downloadPath;
+    if (baseDir.isNotEmpty) {
+      final dir = Directory(baseDir);
+      try {
+        if (!await dir.exists()) {
+          await dir.create(recursive: true);
+        }
+        return baseDir;
+      } catch (e) {
+        debugPrint("Error accessing custom download path $baseDir: $e");
+      }
+    }
+
+    if (!kIsWeb && Platform.isAndroid) {
+      try {
+        final extDir = await getExternalStorageDirectory();
+        if (extDir != null) {
+          final path = '${extDir.path}/watchAny';
+          final dir = Directory(path);
+          if (!await dir.exists()) await dir.create(recursive: true);
+          return path;
+        }
+      } catch (_) {}
+      const publicDir = '/storage/emulated/0/Download/watchAny';
+      try {
+        final dir = Directory(publicDir);
+        if (!await dir.exists()) await dir.create(recursive: true);
+        return publicDir;
+      } catch (_) {}
+      final appDoc = await getApplicationDocumentsDirectory();
+      final path = '${appDoc.path}/watchAnyDownloads';
+      final dir = Directory(path);
+      if (!await dir.exists()) await dir.create(recursive: true);
+      return path;
+    } else {
+      try {
+        final downloadsDir = await getDownloadsDirectory();
+        if (downloadsDir != null) {
+          final path = '${downloadsDir.path}${Platform.pathSeparator}watchAny';
+          final dir = Directory(path);
+          if (!await dir.exists()) await dir.create(recursive: true);
+          return path;
+        }
+      } catch (_) {}
+      final homeDir = Platform.environment['USERPROFILE'] ?? Platform.environment['HOME'] ?? Directory.current.path;
+      final path = '$homeDir${Platform.pathSeparator}Downloads${Platform.pathSeparator}watchAny';
+      final dir = Directory(path);
+      if (!await dir.exists()) await dir.create(recursive: true);
+      return path;
+    }
+  }
+
   Future<int> getDownloadsDirectorySize() async {
     try {
-      String baseDir = AppSettings().downloadPath;
-      if (baseDir.isEmpty) {
-        if (!kIsWeb && Platform.isAndroid) {
-          baseDir = '/storage/emulated/0/Download/watchAny';
-        } else {
-          final homeDir = Platform.environment['USERPROFILE'] ?? Platform.environment['HOME'] ?? Directory.current.path;
-          baseDir = '$homeDir/Downloads/watchAny';
-        }
-      }
+      final baseDir = await getEffectiveDownloadPath();
       final dir = Directory(baseDir);
       if (!await dir.exists()) return 0;
       int totalSize = 0;
       await for (final file in dir.list(recursive: true, followLinks: false)) {
         if (file is File) {
-          totalSize += await file.length();
+          try {
+            totalSize += await file.length();
+          } catch (_) {}
         }
       }
       return totalSize;
@@ -437,8 +557,6 @@ class DownloadService extends ChangeNotifier {
     }
   }
 
-  /// Checks if adding the new file exceeds the storage limit.
-  /// If autoManageStorage is enabled, it automatically evicts completed files.
   Future<bool> preCheckStorageLimit(int incomingFileBytes) async {
     try {
       final limitBytes = (AppSettings().downloadsLimitGB * 1024 * 1024 * 1024).round();
@@ -451,60 +569,27 @@ class DownloadService extends ChangeNotifier {
       }
       return false;
     } catch (e) {
-      debugPrint("Error prechecking storage limit: $e");
-      return true; // Don't block downloads if checks error out
+      debugPrint("Error checking storage limit: $e");
+      return true;
     }
   }
 
-  /// Evicts oldest completed downloads until the incoming file fits under the limit.
   Future<bool> forceAutoDeleteToFit(int incomingFileBytes) async {
     try {
       final limitBytes = (AppSettings().downloadsLimitGB * 1024 * 1024 * 1024).round();
-      int currentSize = await getDownloadsDirectorySize();
-      if (currentSize + incomingFileBytes <= limitBytes) return true;
-
-      // Get all completed tasks
       final completedTasks = _tasks.where((t) => t.status == DownloadStatus.completed).toList();
-      if (completedTasks.isEmpty) return false;
-
-      // Fetch modification times of local files
-      final List<MapEntry<DownloadTask, DateTime>> taskTimes = [];
-      for (final task in completedTasks) {
-        final file = File(task.savePath);
-        if (await file.exists()) {
-          final stat = await file.stat();
-          taskTimes.add(MapEntry(task, stat.modified));
+      
+      int currentSize = await getDownloadsDirectorySize();
+      for (var task in completedTasks) {
+        if (currentSize + incomingFileBytes <= limitBytes) {
+          return true;
         }
+        await removeDownload(task.id, deleteFile: true);
+        currentSize = await getDownloadsDirectorySize();
       }
-
-      // Sort by modified date (oldest first)
-      taskTimes.sort((a, b) => a.value.compareTo(b.value));
-
-      for (final entry in taskTimes) {
-        final task = entry.key;
-        try {
-          final file = File(task.savePath);
-          final size = await file.length();
-          await file.delete();
-          
-          // Keep task entry but mark failed/removed
-          task.status = DownloadStatus.failed;
-          task.downloadedBytes = 0;
-          
-          currentSize -= size;
-          if (currentSize + incomingFileBytes <= limitBytes) {
-            await _saveTasks();
-            notifyListeners();
-            return true;
-          }
-        } catch (_) {}
-      }
-
-      await _saveTasks();
-      notifyListeners();
-      return currentSize + incomingFileBytes <= limitBytes;
+      return (currentSize + incomingFileBytes <= limitBytes);
     } catch (e) {
-      debugPrint("Error executing auto-manage storage cleanup: $e");
+      debugPrint("Error in forceAutoDeleteToFit: $e");
       return false;
     }
   }

@@ -9,6 +9,8 @@ import 'watch_together_dialog.dart';
 import '../services/watch_together_service.dart';
 import '../screens/watch_together_room_screen.dart';
 
+import '../services/download_service.dart';
+
 class Sidebar extends StatelessWidget {
   final NavigationState state;
   final VoidCallback? onHistoryTap;
@@ -112,12 +114,91 @@ class Sidebar extends StatelessWidget {
                       ],
                       if (state.currentMode != AppMode.manga) ...[
                         const SizedBox(height: 8.0),
-                        _SidebarItem(
-                          icon: Icons.download_for_offline,
-                          label: 'Downloads',
-                          isSelected: state.currentPage == TabPage.downloads,
-                          isExpanded: isExpanded,
-                          onTap: () => state.setPage(TabPage.downloads),
+                        ListenableBuilder(
+                          listenable: DownloadService(),
+                          builder: (context, _) {
+                            final ds = DownloadService();
+                            if (state.currentPage == TabPage.downloads) {
+                              ds.clearUnseenCompletions();
+                            }
+                            
+                            Widget? customLeading;
+                            int badgeCount = 0;
+                            IconData icon = Icons.download_for_offline;
+                            
+                            if (ds.isDownloading) {
+                              badgeCount = ds.activeDownloadingCount;
+                              customLeading = Stack(
+                                clipBehavior: Clip.none,
+                                children: [
+                                  const Icon(Icons.downloading_rounded, color: Color(0xFF2EC4B6), size: 20.0),
+                                  Positioned(
+                                    right: -2,
+                                    top: -2,
+                                    child: Container(
+                                      width: 6,
+                                      height: 6,
+                                      decoration: const BoxDecoration(
+                                        color: Color(0xFF2EC4B6),
+                                        shape: BoxShape.circle,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              );
+                            } else if (ds.hasFailed) {
+                              customLeading = Stack(
+                                clipBehavior: Clip.none,
+                                children: [
+                                  const Icon(Icons.download_for_offline_outlined, color: Colors.redAccent, size: 20.0),
+                                  Positioned(
+                                    right: -2,
+                                    top: -2,
+                                    child: Container(
+                                      width: 6,
+                                      height: 6,
+                                      decoration: const BoxDecoration(
+                                        color: Colors.redAccent,
+                                        shape: BoxShape.circle,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              );
+                            } else if (ds.hasUnseenCompletions) {
+                              customLeading = Stack(
+                                clipBehavior: Clip.none,
+                                children: [
+                                  const Icon(Icons.task_alt_rounded, color: Colors.greenAccent, size: 20.0),
+                                  Positioned(
+                                    right: -2,
+                                    top: -2,
+                                    child: Container(
+                                      width: 6,
+                                      height: 6,
+                                      decoration: const BoxDecoration(
+                                        color: Colors.greenAccent,
+                                        shape: BoxShape.circle,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              );
+                            }
+
+                            return _SidebarItem(
+                              icon: icon,
+                              customLeading: customLeading,
+                              badgeCount: badgeCount,
+                              label: 'Downloads',
+                              isSelected: state.currentPage == TabPage.downloads,
+                              isExpanded: isExpanded,
+                              onTap: () {
+                                ds.clearUnseenCompletions();
+                                state.setPage(TabPage.downloads);
+                              },
+                            );
+                          },
                         ),
                       ],
                       const SizedBox(height: 8.0),

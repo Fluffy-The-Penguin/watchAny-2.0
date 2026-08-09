@@ -837,42 +837,44 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
                               ),
                             ),
                           ),
-                          if (_isHentai) ...[
-                            const SizedBox(height: 12.0),
-                            SizedBox(
-                              width: double.infinity,
-                              child: OutlinedButton.icon(
-                                icon: const Icon(Icons.download, color: Colors.white),
-                                label: const Text(
-                                  'Download Episode',
-                                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14.0),
-                                ),
-                                onPressed: () {
-                                  Navigator.pop(context);
+                          const SizedBox(height: 12.0),
+                          SizedBox(
+                            width: double.infinity,
+                            child: OutlinedButton.icon(
+                              icon: const Icon(Icons.download, color: Colors.white),
+                              label: const Text(
+                                'Download Episode',
+                                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14.0),
+                              ),
+                              onPressed: () {
+                                Navigator.pop(context);
 
-                                  if (_details == null) return;
+                                if (_details == null) return;
 
-                                  final titles = [
-                                    _details!['title']?['english'] ?? '',
-                                    _details!['title']?['romaji'] ?? '',
-                                    _details!['title']?['native'] ?? '',
-                                  ].where((t) => t.isNotEmpty).map((t) => t.toString()).toList();
-                                  if (_details!['synonyms'] != null) {
-                                    titles.addAll((_details!['synonyms'] as List<dynamic>).map((s) => s.toString()));
-                                  }
+                                final titles = [
+                                  _details!['title']?['english'] ?? '',
+                                  _details!['title']?['romaji'] ?? '',
+                                  _details!['title']?['native'] ?? '',
+                                ].where((t) => t.isNotEmpty).map((t) => t.toString()).toList();
+                                if (_details!['synonyms'] != null) {
+                                  titles.addAll((_details!['synonyms'] as List<dynamic>).map((s) => s.toString()));
+                                }
 
+                                if (_isHentai) {
                                   _downloadHstreamEpisode(epNum, titles);
-                                },
-                                style: OutlinedButton.styleFrom(
-                                  side: const BorderSide(color: Colors.white24),
-                                  padding: const EdgeInsets.symmetric(vertical: 14.0),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(6.0),
-                                  ),
+                                } else {
+                                  _openTorrentSelectorPanel(epNum, titles, isDownload: true);
+                                }
+                              },
+                              style: OutlinedButton.styleFrom(
+                                side: const BorderSide(color: Colors.white24),
+                                padding: const EdgeInsets.symmetric(vertical: 14.0),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(6.0),
                                 ),
                               ),
                             ),
-                          ],
+                          ),
                         ],
                       ),
                     ),
@@ -1285,7 +1287,7 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
     }
   }
 
-  void _openTorrentSelectorPanel(int epNum, List<String> titles) {
+  void _openTorrentSelectorPanel(int epNum, List<String> titles, {bool isDownload = false}) {
     final double screenWidth = MediaQuery.of(context).size.width;
     final bool isMobileSheet = screenWidth < 650;
 
@@ -1325,6 +1327,7 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
                 isMovie: (_details!['format']?.toString().toUpperCase() == 'MOVIE'),
                 media: _details,
                 episodes: _mergedEpisodes,
+                isDownload: isDownload,
               ),
             ),
           ),

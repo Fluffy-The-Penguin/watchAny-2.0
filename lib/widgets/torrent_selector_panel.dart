@@ -53,10 +53,15 @@ extension TorrentStreamExtension on TorrentStream {
     final t = title.toLowerCase();
 
     // Resolution tags
-    if (t.contains('1080p') || t.contains('1080')) extracted.add('1080p');
-    else if (t.contains('720p') || t.contains('720')) extracted.add('720p');
-    else if (t.contains('480p') || t.contains('480')) extracted.add('480p');
-    else if (t.contains('2160p') || t.contains('4k') || t.contains('2160')) extracted.add('4K');
+    if (t.contains('1080p') || t.contains('1080')) {
+      extracted.add('1080p');
+    } else if (t.contains('720p') || t.contains('720')) {
+      extracted.add('720p');
+    } else if (t.contains('480p') || t.contains('480')) {
+      extracted.add('480p');
+    } else if (t.contains('2160p') || t.contains('4k') || t.contains('2160')) {
+      extracted.add('4K');
+    }
 
     // Audio/Dub tags
     if (t.contains('dual audio') || t.contains('dual-audio') || t.contains('multi-audio')) {
@@ -100,6 +105,7 @@ class TorrentSelectorPanel extends StatefulWidget {
   final List<dynamic>? episodes;
   final void Function(String streamUrl, String title)? onStreamSelected;
   final bool isFromPlayer;
+  final bool isDownload;
 
   const TorrentSelectorPanel({
     super.key,
@@ -113,6 +119,7 @@ class TorrentSelectorPanel extends StatefulWidget {
     this.episodes,
     this.onStreamSelected,
     this.isFromPlayer = false,
+    this.isDownload = false,
   });
 
   @override
@@ -332,7 +339,7 @@ class _TorrentSelectorPanelState extends State<TorrentSelectorPanel> {
     if (bytes <= 0) return "0 B";
     const suffixes = ["B", "KB", "MB", "GB", "TB"];
     var i = (log(bytes) / log(1024)).floor();
-    return ((bytes / pow(1024, i)).toStringAsFixed(decimals)) + ' ' + suffixes[i];
+    return '${(bytes / pow(1024, i)).toStringAsFixed(decimals)} ${suffixes[i]}';
   }
 
   Widget _buildDropdown<T>({
@@ -927,6 +934,7 @@ class _TorrentSelectorPanelState extends State<TorrentSelectorPanel> {
                                                 episodes: widget.episodes,
                                                                                       onStreamSelected: widget.onStreamSelected,
                                                 isFromPlayer: widget.isFromPlayer,
+                                                isDownload: widget.isDownload,
                                               );
                                             },
                                           );
@@ -1714,6 +1722,7 @@ class BufferingProgressDialog extends StatefulWidget {
   final void Function(String streamUrl, String title)? onStreamSelected;
 
   const BufferingProgressDialog({
+    super.key,
     required this.hash,
     required this.file,
     required this.parentContext,
@@ -1738,7 +1747,6 @@ class BufferingProgressDialogState extends State<BufferingProgressDialog> {
   bool _hasError = false;
   String _errorMessage = "";
   Timer? _pollTimer;
-  int _secondsElapsed = 0;
 
   @override
   void initState() {
@@ -1861,7 +1869,6 @@ class BufferingProgressDialogState extends State<BufferingProgressDialog> {
                       setState(() {
                         _hasError = false;
                         _errorMessage = "";
-                        _secondsElapsed = 0;
                         _status = "Initializing buffering...";
                       });
                       _startPrebuffering();
@@ -1953,9 +1960,8 @@ void showStorageFullDialog(BuildContext context, int fileBytes, VoidCallback onR
 
 class _AnimatedStreamCard extends StatefulWidget {
   final Widget child;
-  final Key? key;
 
-  const _AnimatedStreamCard({required this.child, this.key}) : super(key: key);
+  const _AnimatedStreamCard({super.key, required this.child});
 
   @override
   State<_AnimatedStreamCard> createState() => _AnimatedStreamCardState();

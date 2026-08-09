@@ -12,6 +12,7 @@ import '../state/player_state.dart';
 import '../state/app_settings.dart';
 import '../state/navigation_state.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:file_picker/file_picker.dart';
 
 class DownloadsPage extends StatefulWidget {
   final AppMode mode;
@@ -21,7 +22,7 @@ class DownloadsPage extends StatefulWidget {
   State<DownloadsPage> createState() => _DownloadsPageState();
 }
 
-enum DownloadsTab { overview, files, library, settings }
+enum DownloadsTab { library, overview, settings }
 
 class _DownloadsPageState extends State<DownloadsPage> {
   DownloadsTab _activeTab = DownloadsTab.library;
@@ -41,7 +42,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
   // Settings controllers
   late final TextEditingController _serverUrlController;
   late final TextEditingController _downloadPathController;
-  int _maxConcurrent = 2;
+  late int _maxConcurrent;
   String _speedLimit = 'Unlimited';
 
   // Library filters
@@ -59,6 +60,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
     super.initState();
     _serverUrlController = TextEditingController(text: AppSettings().torrServerUrl);
     _downloadPathController = TextEditingController(text: AppSettings().downloadPath);
+    _maxConcurrent = AppSettings().maxConcurrentDownloads;
     
     // Auto-select first task if available
     final tasks = _tasks;
@@ -118,11 +120,46 @@ class _DownloadsPageState extends State<DownloadsPage> {
       final nav = NavigationState();
       final isCurrentMode = nav.currentMode == widget.mode;
       final isCurrentPage = nav.currentPage == TabPage.downloads;
-      if (mounted && isCurrentMode && isCurrentPage &&
-          (_activeTab == DownloadsTab.overview || _activeTab == DownloadsTab.files)) {
+      if (mounted && isCurrentMode && isCurrentPage && _activeTab == DownloadsTab.overview) {
         _fetchActiveTorrentStats();
       }
     });
+  }
+
+  void _navigateToDetails(DownloadTask task) {
+    final nav = NavigationState();
+    
+    if (task.anilistId != null) {
+      nav.selectAnime(task.anilistId);
+      return;
+    }
+    
+    if (task.mediaJson != null) {
+      try {
+        final media = jsonDecode(task.mediaJson!);
+        final id = media['id']?.toString();
+        final type = media['type']?.toString().toLowerCase() ?? (task.isMovie == true ? 'movie' : 'series');
+        final anilistId = media['anilistId'] ?? media['id'];
+        
+        if (widget.mode == AppMode.anime) {
+          final parsedAniId = int.tryParse(anilistId.toString());
+          if (parsedAniId != null) {
+            nav.selectAnime(parsedAniId);
+            return;
+          }
+        }
+        
+        if (id != null && id.isNotEmpty) {
+          final formattedId = id.contains(':') ? id : '$type:$id';
+          nav.selectMovie(formattedId);
+          return;
+        }
+      } catch (_) {}
+    }
+
+    if (widget.mode == AppMode.anime && task.anilistId != null) {
+      nav.selectAnime(task.anilistId);
+    }
   }
 
   Future<void> _fetchActiveTorrentStats() async {
@@ -183,14 +220,14 @@ class _DownloadsPageState extends State<DownloadsPage> {
     if (bytes <= 0) return "0 B";
     const suffixes = ["B", "KB", "MB", "GB", "TB"];
     var i = (log(bytes) / log(1024)).floor();
-    return ((bytes / pow(1024, i)).toStringAsFixed(decimals)) + ' ' + suffixes[i];
+    return '${(bytes / pow(1024, i)).toStringAsFixed(decimals)} ${suffixes[i]}';
   }
 
   String _formatSpeed(double bytesPerSecond) {
     if (bytesPerSecond <= 0) return "0 B/s";
     const suffixes = ["B/s", "KB/s", "MB/s", "GB/s"];
     var i = (log(bytesPerSecond) / log(1024)).floor();
-    return ((bytesPerSecond / pow(1024, i)).toStringAsFixed(1)) + ' ' + suffixes[i];
+    return '${(bytesPerSecond / pow(1024, i)).toStringAsFixed(1)} ${suffixes[i]}';
   }
 
   void _playLocalFile(DownloadTask task) {
@@ -324,7 +361,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
         children: [
           // Client Header
           const Text(
-            'Torrent Client',
+            'Downloads',
             style: TextStyle(color: Colors.white, fontSize: 18.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
           ),
           const SizedBox(height: 4.0),
@@ -337,7 +374,6 @@ class _DownloadsPageState extends State<DownloadsPage> {
           // Navigation Links
           _buildSidebarNavItem(DownloadsTab.library, 'Library', Icons.library_books_outlined),
           _buildSidebarNavItem(DownloadsTab.overview, 'Overview', Icons.dashboard_outlined),
-          _buildSidebarNavItem(DownloadsTab.files, 'Files', Icons.folder_open_outlined),
           _buildSidebarNavItem(DownloadsTab.settings, 'Settings', Icons.settings_outlined),
         ],
       ),
@@ -353,7 +389,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
           setState(() {
             _activeTab = tab;
           });
-          if (tab == DownloadsTab.overview || tab == DownloadsTab.files) {
+          if (tab == DownloadsTab.overview) {
             _fetchActiveTorrentStats();
           }
         },
@@ -415,7 +451,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               const Text(
-                'Torrent Client',
+                'Downloads',
                 style: TextStyle(color: Colors.white, fontSize: 16.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
               ),
               IconButton(
@@ -435,7 +471,6 @@ class _DownloadsPageState extends State<DownloadsPage> {
               children: [
                 _buildMobileHeaderTab(DownloadsTab.library, 'Library'),
                 _buildMobileHeaderTab(DownloadsTab.overview, 'Overview'),
-                _buildMobileHeaderTab(DownloadsTab.files, 'Files'),
                 _buildMobileHeaderTab(DownloadsTab.settings, 'Settings'),
               ],
             ),
@@ -452,7 +487,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
         setState(() {
           _activeTab = tab;
         });
-        if (tab == DownloadsTab.overview || tab == DownloadsTab.files) {
+        if (tab == DownloadsTab.overview) {
           _fetchActiveTorrentStats();
         }
       },
@@ -482,8 +517,6 @@ class _DownloadsPageState extends State<DownloadsPage> {
         return _buildLibraryTab();
       case DownloadsTab.overview:
         return _buildOverviewTab();
-      case DownloadsTab.files:
-        return _buildFilesTab();
       case DownloadsTab.settings:
         return _buildSettingsTab();
     }
@@ -495,6 +528,8 @@ class _DownloadsPageState extends State<DownloadsPage> {
       return _buildMangaLibraryTab();
     }
 
+    final bool isMobile = MediaQuery.of(context).size.width < 750;
+
     return ListenableBuilder(
       listenable: Listenable.merge([DownloadService(), MangaDownloadService()]),
       builder: (context, _) {
@@ -503,7 +538,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
         // Apply status filter
         List<DownloadTask> tasks = allTasks;
         if (_libraryFilter == 'ACTIVE') {
-          tasks = allTasks.where((t) => t.status == DownloadStatus.downloading || t.status == DownloadStatus.queued).toList();
+          tasks = allTasks.where((t) => t.status == DownloadStatus.downloading || t.status == DownloadStatus.queued || t.status == DownloadStatus.paused || t.status == DownloadStatus.failed).toList();
         } else if (_libraryFilter == 'COMPLETED') {
           tasks = allTasks.where((t) => t.status == DownloadStatus.completed).toList();
         }
@@ -513,275 +548,460 @@ class _DownloadsPageState extends State<DownloadsPage> {
           tasks = tasks.where((t) => t.title.toLowerCase().contains(_searchQuery.toLowerCase())).toList();
         }
 
+        final inProgressTasks = tasks.where((t) => t.status != DownloadStatus.completed).toList();
+        final completedTasks = tasks.where((t) => t.status == DownloadStatus.completed).toList();
+
         return Column(
           children: [
             _buildLibraryHeader(tasks, allTasks),
             Expanded(
               child: tasks.isEmpty
                   ? _buildEmptyState()
-                  : ListView.builder(
+                  : ListView(
                       padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 8.0),
-                      itemCount: tasks.length,
-                      itemBuilder: (context, index) {
-                        final task = tasks[index];
-                        final isSelected = _selectedTaskIds.contains(task.id);
-                        final double progress = task.totalBytes > 0 ? (task.downloadedBytes / task.totalBytes) : 0.0;
-                        
-                        Color statusColor = Colors.white30;
-                        String statusName = 'Queued';
-                        if (task.status == DownloadStatus.downloading) {
-                          statusColor = Colors.blueAccent;
-                          statusName = 'Downloading';
-                        } else if (task.status == DownloadStatus.completed) {
-                          statusColor = Colors.green;
-                          statusName = 'Completed';
-                        } else if (task.status == DownloadStatus.paused) {
-                          statusColor = Colors.white54;
-                          statusName = 'Paused';
-                        } else if (task.status == DownloadStatus.failed) {
-                          statusColor = Colors.redAccent;
-                          statusName = 'Failed';
-                        }
-
-                        final isCurrentTask = _selectedTaskId == task.id;
-
-                        Map<String, dynamic>? media;
-                        if (task.mediaJson != null) {
-                          try {
-                            media = jsonDecode(task.mediaJson!);
-                          } catch (_) {}
-                        }
-                        final String coverUrl = task.isMovie == true
-                            ? (media?['poster'] ?? '')
-                            : (media?['coverImage']?['large'] ?? media?['coverImage']?['medium'] ?? '');
-
-                        return RepaintBoundary(
-                          child: Container(
-                            margin: const EdgeInsets.only(bottom: 10.0),
-                            decoration: BoxDecoration(
-                              color: isCurrentTask ? Colors.white.withValues(alpha: 0.025) : const Color(0xFF0F0F11),
-                              borderRadius: BorderRadius.circular(12.0),
-                              border: Border.all(
-                                color: isCurrentTask ? Colors.white30 : Colors.white.withValues(alpha: 0.05),
-                                width: 1.0,
-                              ),
-                            ),
-                            child: InkWell(
-                              onTap: () {
-                                _selectTask(task.id);
-                              },
-                              onDoubleTap: () {
-                                _selectTask(task.id);
-                                setState(() {
-                                  _activeTab = DownloadsTab.overview;
-                                });
-                              },
-                              borderRadius: BorderRadius.circular(11.0),
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
-                                child: Row(
-                                  children: [
-                                    // Checkbox for multiselect
-                                    Checkbox(
-                                      value: isSelected,
-                                      activeColor: Colors.white,
-                                      checkColor: Colors.black,
-                                      side: const BorderSide(color: Colors.white38),
-                                      onChanged: (val) {
-                                        setState(() {
-                                          if (val == true) {
-                                            _selectedTaskIds.add(task.id);
-                                          } else {
-                                            _selectedTaskIds.remove(task.id);
-                                          }
-                                        });
-                                      },
-                                    ),
-                                    const SizedBox(width: 8.0),
-
-                                    // Poster/Cover Art image
-                                    ClipRRect(
-                                      borderRadius: BorderRadius.circular(6.0),
-                                      child: SizedBox(
-                                        width: 36.0,
-                                        height: 52.0,
-                                        child: coverUrl.isNotEmpty
-                                            ? CachedNetworkImage(
-                                                imageUrl: coverUrl,
-                                                fit: BoxFit.cover,
-                                                memCacheWidth: 100,
-                                                placeholder: (c, u) => Container(
-                                                  color: Colors.white.withValues(alpha: 0.03),
-                                                  child: const Icon(Icons.movie_outlined, color: Colors.white24, size: 18),
-                                                ),
-                                                errorWidget: (c, u, e) => Container(
-                                                  color: Colors.white.withValues(alpha: 0.03),
-                                                  child: const Icon(Icons.movie_outlined, color: Colors.white24, size: 18),
-                                                ),
-                                              )
-                                            : Container(
-                                                color: Colors.white.withValues(alpha: 0.03),
-                                                child: const Icon(Icons.movie_outlined, color: Colors.white24, size: 18),
-                                              ),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 14.0),
-                                  
-                                  // Main Task Info
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Row(
-                                          children: [
-                                            Expanded(
-                                              child: Text(
-                                                task.title,
-                                                maxLines: 1,
-                                                overflow: TextOverflow.ellipsis,
-                                                style: const TextStyle(
-                                                  color: Colors.white,
-                                                  fontSize: 13.5,
-                                                  fontWeight: FontWeight.bold,
-                                                  fontFamily: 'Outfit',
-                                                ),
-                                              ),
-                                            ),
-                                            const SizedBox(width: 12.0),
-                                            // Status tag
-                                            Container(
-                                              padding: const EdgeInsets.symmetric(horizontal: 6.0, vertical: 2.0),
-                                              decoration: BoxDecoration(
-                                                color: statusColor.withValues(alpha: 0.12),
-                                                borderRadius: BorderRadius.circular(4.0),
-                                              ),
-                                              child: Text(
-                                                statusName.toUpperCase(),
-                                                style: TextStyle(
-                                                  color: statusColor,
-                                                  fontSize: 9.0,
-                                                  fontWeight: FontWeight.bold,
-                                                  fontFamily: 'Outfit',
-                                                ),
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                        const SizedBox(height: 8.0),
-                                        
-                                        // Premium Custom Progress Bar
-                                        Container(
-                                          height: 4.0,
-                                          width: double.infinity,
-                                          decoration: BoxDecoration(
-                                            color: Colors.white.withValues(alpha: 0.04),
-                                            borderRadius: BorderRadius.circular(2.0),
-                                          ),
-                                          child: Align(
-                                            alignment: Alignment.centerLeft,
-                                            child: FractionallySizedBox(
-                                              widthFactor: progress.clamp(0.0, 1.0),
-                                              child: Container(
-                                                decoration: BoxDecoration(
-                                                  gradient: LinearGradient(
-                                                    colors: [
-                                                      statusColor.withValues(alpha: 0.7),
-                                                      statusColor,
-                                                    ],
-                                                  ),
-                                                  borderRadius: BorderRadius.circular(2.0),
-                                                  boxShadow: [
-                                                    BoxShadow(
-                                                      color: statusColor.withValues(alpha: 0.35),
-                                                      blurRadius: 4.0,
-                                                      spreadRadius: 1.0,
-                                                    ),
-                                                  ],
-                                                ),
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-                                        const SizedBox(height: 6.0),
-                                        
-                                        // Speed & Bytes Row
-                                        Row(
-                                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                          children: [
-                                            Text(
-                                              "${_formatBytes(task.downloadedBytes)} / ${_formatBytes(task.totalBytes)} · ${(progress * 100).toStringAsFixed(1)}%",
-                                              style: const TextStyle(color: Colors.white38, fontSize: 10.5, fontFamily: 'Outfit'),
-                                            ),
-                                            if (task.status == DownloadStatus.downloading)
-                                              Text(
-                                                _formatSpeed(task.downloadSpeed),
-                                                style: const TextStyle(color: Colors.blueAccent, fontSize: 10.5, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
-                                              ),
-                                          ],
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  const SizedBox(width: 16.0),
-                                  
-                                  // Task Actions
-                                  Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      // Overview details button
-                                      IconButton(
-                                        icon: const Icon(Icons.dashboard_outlined, color: Colors.white38, size: 18),
-                                        tooltip: 'Show Overview',
-                                        onPressed: () {
-                                          _selectTask(task.id);
-                                          setState(() {
-                                            _activeTab = DownloadsTab.overview;
-                                          });
-                                        },
-                                      ),
-                                      
-                                      // Play Offline (completed only)
-                                      if (task.status == DownloadStatus.completed)
-                                        IconButton(
-                                          icon: const Icon(Icons.play_arrow_rounded, color: Colors.green, size: 22),
-                                          tooltip: 'Play Offline',
-                                          onPressed: () => _playLocalFile(task),
-                                        ),
-
-                                      // Pause/Resume
-                                      if (task.status == DownloadStatus.downloading || task.status == DownloadStatus.queued)
-                                        IconButton(
-                                          icon: const Icon(Icons.pause, color: Colors.white54, size: 18),
-                                          tooltip: 'Pause',
-                                          onPressed: () => DownloadService().pauseDownload(task.id),
-                                        )
-                                      else if (task.status == DownloadStatus.paused || task.status == DownloadStatus.failed)
-                                        IconButton(
-                                          icon: const Icon(Icons.play_arrow, color: Colors.white54, size: 18),
-                                          tooltip: 'Resume',
-                                          onPressed: () => DownloadService().resumeDownload(task.id),
-                                        ),
-
-                                      // Delete
-                                      IconButton(
-                                        icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 18),
-                                        tooltip: 'Remove',
-                                        onPressed: () => _showDeleteDialog(context, [task.id]),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
+                      children: [
+                        if (inProgressTasks.isNotEmpty) ...[
+                          _buildSectionHeader('IN PROGRESS & QUEUED', inProgressTasks.length, Colors.blueAccent),
+                          const SizedBox(height: 8.0),
+                          ...inProgressTasks.map((t) => _buildDownloadCard(t, isMobile)),
+                          const SizedBox(height: 16.0),
+                        ],
+                        if (completedTasks.isNotEmpty) ...[
+                          _buildSectionHeader('DOWNLOADED & COMPLETED', completedTasks.length, Colors.green),
+                          const SizedBox(height: 8.0),
+                          ...completedTasks.map((t) => _buildDownloadCard(t, isMobile)),
+                          const SizedBox(height: 16.0),
+                        ],
+                      ],
+                    ),
             ),
           ],
         );
       },
+    );
+  }
+
+  Widget _buildSectionHeader(String title, int count, Color color) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6.0, top: 4.0),
+      child: Row(
+        children: [
+          Container(
+            width: 3.0,
+            height: 14.0,
+            decoration: BoxDecoration(
+              color: color,
+              borderRadius: BorderRadius.circular(2.0),
+            ),
+          ),
+          const SizedBox(width: 8.0),
+          Text(
+            title,
+            style: const TextStyle(
+              color: Colors.white70,
+              fontSize: 11.5,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 0.5,
+              fontFamily: 'Outfit',
+            ),
+          ),
+          const SizedBox(width: 8.0),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6.0, vertical: 1.0),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(10.0),
+            ),
+            child: Text(
+              '$count',
+              style: TextStyle(
+                color: color,
+                fontSize: 10.0,
+                fontWeight: FontWeight.bold,
+                fontFamily: 'Outfit',
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDownloadCard(DownloadTask task, bool isMobile) {
+    final isSelected = _selectedTaskIds.contains(task.id);
+    final double progress = task.totalBytes > 0 ? (task.downloadedBytes / task.totalBytes) : 0.0;
+    
+    Color statusColor = Colors.white30;
+    String statusName = 'Queued';
+    if (task.status == DownloadStatus.downloading) {
+      statusColor = Colors.blueAccent;
+      statusName = 'Downloading';
+    } else if (task.status == DownloadStatus.completed) {
+      statusColor = Colors.green;
+      statusName = 'Completed';
+    } else if (task.status == DownloadStatus.paused) {
+      statusColor = Colors.white54;
+      statusName = 'Paused';
+    } else if (task.status == DownloadStatus.failed) {
+      statusColor = Colors.redAccent;
+      statusName = 'Failed';
+    }
+
+    final isCurrentTask = _selectedTaskId == task.id;
+
+    Map<String, dynamic>? media;
+    if (task.mediaJson != null) {
+      try {
+        media = jsonDecode(task.mediaJson!);
+      } catch (_) {}
+    }
+    final String coverUrl = task.isMovie == true
+        ? (media?['poster'] ?? '')
+        : (media?['coverImage']?['large'] ?? media?['coverImage']?['medium'] ?? '');
+
+    return RepaintBoundary(
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 10.0),
+        decoration: BoxDecoration(
+          color: isCurrentTask ? Colors.white.withValues(alpha: 0.03) : const Color(0xFF0F0F11),
+          borderRadius: BorderRadius.circular(12.0),
+          border: Border.all(
+            color: isCurrentTask ? Colors.white30 : Colors.white.withValues(alpha: 0.05),
+            width: 1.0,
+          ),
+        ),
+        child: InkWell(
+          onTap: () {
+            _selectTask(task.id);
+          },
+          onDoubleTap: () {
+            _selectTask(task.id);
+            setState(() {
+              _activeTab = DownloadsTab.overview;
+            });
+          },
+          borderRadius: BorderRadius.circular(11.0),
+          child: Padding(
+            padding: const EdgeInsets.all(12.0),
+            child: isMobile
+                ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Checkbox(
+                            value: isSelected,
+                            activeColor: Colors.white,
+                            checkColor: Colors.black,
+                            side: const BorderSide(color: Colors.white38),
+                            onChanged: (val) {
+                              setState(() {
+                                if (val == true) {
+                                  _selectedTaskIds.add(task.id);
+                                } else {
+                                  _selectedTaskIds.remove(task.id);
+                                }
+                              });
+                            },
+                          ),
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(6.0),
+                            child: SizedBox(
+                              width: 36.0,
+                              height: 52.0,
+                              child: coverUrl.isNotEmpty
+                                  ? CachedNetworkImage(
+                                      imageUrl: coverUrl,
+                                      fit: BoxFit.cover,
+                                      memCacheWidth: 100,
+                                      placeholder: (c, u) => Container(color: Colors.white10),
+                                      errorWidget: (c, u, e) => Container(color: Colors.white10),
+                                    )
+                                  : Container(color: Colors.white10, child: const Icon(Icons.movie, size: 16, color: Colors.white24)),
+                            ),
+                          ),
+                          const SizedBox(width: 10.0),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  task.title,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 13.0,
+                                    fontWeight: FontWeight.bold,
+                                    fontFamily: 'Outfit',
+                                  ),
+                                ),
+                                const SizedBox(height: 4.0),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6.0, vertical: 2.0),
+                                  decoration: BoxDecoration(
+                                    color: statusColor.withValues(alpha: 0.12),
+                                    borderRadius: BorderRadius.circular(4.0),
+                                  ),
+                                  child: Text(
+                                    statusName.toUpperCase(),
+                                    style: TextStyle(
+                                      color: statusColor,
+                                      fontSize: 8.5,
+                                      fontWeight: FontWeight.bold,
+                                      fontFamily: 'Outfit',
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10.0),
+                      // Progress Bar
+                      Container(
+                        height: 4.0,
+                        width: double.infinity,
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.04),
+                          borderRadius: BorderRadius.circular(2.0),
+                        ),
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: FractionallySizedBox(
+                            widthFactor: progress.clamp(0.0, 1.0),
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: statusColor,
+                                borderRadius: BorderRadius.circular(2.0),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 6.0),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            "${_formatBytes(task.downloadedBytes)} / ${_formatBytes(task.totalBytes)} · ${(progress * 100).toStringAsFixed(1)}%",
+                            style: const TextStyle(color: Colors.white38, fontSize: 10.0, fontFamily: 'Outfit'),
+                          ),
+                          if (task.status == DownloadStatus.downloading)
+                            Text(
+                              _formatSpeed(task.downloadSpeed),
+                              style: const TextStyle(color: Colors.blueAccent, fontSize: 10.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 8.0),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.open_in_new_rounded, color: Colors.white54, size: 18),
+                            tooltip: 'Go to Details',
+                            onPressed: () => _navigateToDetails(task),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.dashboard_outlined, color: Colors.white38, size: 18),
+                            tooltip: 'Show Overview',
+                            onPressed: () {
+                              _selectTask(task.id);
+                              setState(() {
+                                _activeTab = DownloadsTab.overview;
+                              });
+                            },
+                          ),
+                          if (task.status == DownloadStatus.completed)
+                            IconButton(
+                              icon: const Icon(Icons.play_arrow_rounded, color: Colors.green, size: 22),
+                              tooltip: 'Play Offline',
+                              onPressed: () => _playLocalFile(task),
+                            ),
+                          if (task.status == DownloadStatus.downloading || task.status == DownloadStatus.queued)
+                            IconButton(
+                              icon: const Icon(Icons.pause, color: Colors.white54, size: 18),
+                              tooltip: 'Pause',
+                              onPressed: () => DownloadService().pauseDownload(task.id),
+                            )
+                          else if (task.status == DownloadStatus.paused || task.status == DownloadStatus.failed)
+                            IconButton(
+                              icon: const Icon(Icons.play_arrow, color: Colors.white54, size: 18),
+                              tooltip: 'Resume',
+                              onPressed: () => DownloadService().resumeDownload(task.id),
+                            ),
+                          IconButton(
+                            icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 18),
+                            tooltip: 'Remove',
+                            onPressed: () => _showDeleteDialog(context, [task.id]),
+                          ),
+                        ],
+                      ),
+                    ],
+                  )
+                : Row(
+                    children: [
+                      Checkbox(
+                        value: isSelected,
+                        activeColor: Colors.white,
+                        checkColor: Colors.black,
+                        side: const BorderSide(color: Colors.white38),
+                        onChanged: (val) {
+                          setState(() {
+                            if (val == true) {
+                              _selectedTaskIds.add(task.id);
+                            } else {
+                              _selectedTaskIds.remove(task.id);
+                            }
+                          });
+                        },
+                      ),
+                      const SizedBox(width: 8.0),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(6.0),
+                        child: SizedBox(
+                          width: 36.0,
+                          height: 52.0,
+                          child: coverUrl.isNotEmpty
+                              ? CachedNetworkImage(
+                                  imageUrl: coverUrl,
+                                  fit: BoxFit.cover,
+                                  memCacheWidth: 100,
+                                  placeholder: (c, u) => Container(color: Colors.white10),
+                                  errorWidget: (c, u, e) => Container(color: Colors.white10),
+                                )
+                              : Container(color: Colors.white10, child: const Icon(Icons.movie, size: 16, color: Colors.white24)),
+                        ),
+                      ),
+                      const SizedBox(width: 14.0),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    task.title,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 13.5,
+                                      fontWeight: FontWeight.bold,
+                                      fontFamily: 'Outfit',
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 12.0),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6.0, vertical: 2.0),
+                                  decoration: BoxDecoration(
+                                    color: statusColor.withValues(alpha: 0.12),
+                                    borderRadius: BorderRadius.circular(4.0),
+                                  ),
+                                  child: Text(
+                                    statusName.toUpperCase(),
+                                    style: TextStyle(
+                                      color: statusColor,
+                                      fontSize: 9.0,
+                                      fontWeight: FontWeight.bold,
+                                      fontFamily: 'Outfit',
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8.0),
+                            Container(
+                              height: 4.0,
+                              width: double.infinity,
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.04),
+                                borderRadius: BorderRadius.circular(2.0),
+                              ),
+                              child: Align(
+                                alignment: Alignment.centerLeft,
+                                child: FractionallySizedBox(
+                                  widthFactor: progress.clamp(0.0, 1.0),
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      color: statusColor,
+                                      borderRadius: BorderRadius.circular(2.0),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 6.0),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  "${_formatBytes(task.downloadedBytes)} / ${_formatBytes(task.totalBytes)} · ${(progress * 100).toStringAsFixed(1)}%",
+                                  style: const TextStyle(color: Colors.white38, fontSize: 10.5, fontFamily: 'Outfit'),
+                                ),
+                                if (task.status == DownloadStatus.downloading)
+                                  Text(
+                                    _formatSpeed(task.downloadSpeed),
+                                    style: const TextStyle(color: Colors.blueAccent, fontSize: 10.5, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                                  ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 16.0),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.open_in_new_rounded, color: Colors.white54, size: 18),
+                            tooltip: 'Go to Details',
+                            onPressed: () => _navigateToDetails(task),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.dashboard_outlined, color: Colors.white38, size: 18),
+                            tooltip: 'Show Overview',
+                            onPressed: () {
+                              _selectTask(task.id);
+                              setState(() {
+                                _activeTab = DownloadsTab.overview;
+                              });
+                            },
+                          ),
+                          if (task.status == DownloadStatus.completed)
+                            IconButton(
+                              icon: const Icon(Icons.play_arrow_rounded, color: Colors.green, size: 22),
+                              tooltip: 'Play Offline',
+                              onPressed: () => _playLocalFile(task),
+                            ),
+                          if (task.status == DownloadStatus.downloading || task.status == DownloadStatus.queued)
+                            IconButton(
+                              icon: const Icon(Icons.pause, color: Colors.white54, size: 18),
+                              tooltip: 'Pause',
+                              onPressed: () => DownloadService().pauseDownload(task.id),
+                            )
+                          else if (task.status == DownloadStatus.paused || task.status == DownloadStatus.failed)
+                            IconButton(
+                              icon: const Icon(Icons.play_arrow, color: Colors.white54, size: 18),
+                              tooltip: 'Resume',
+                              onPressed: () => DownloadService().resumeDownload(task.id),
+                            ),
+                          IconButton(
+                            icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 18),
+                            tooltip: 'Remove',
+                            onPressed: () => _showDeleteDialog(context, [task.id]),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -797,7 +1017,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
           tasks = allTasks.where((t) => t.status == MangaDownloadStatus.completed).toList();
         }
         if (_searchQuery.isNotEmpty) {
-          tasks = tasks.where((t) => (t.mangaTitle + ' ' + t.chapterName).toLowerCase().contains(_searchQuery.toLowerCase())).toList();
+          tasks = tasks.where((t) => '${t.mangaTitle} ${t.chapterName}'.toLowerCase().contains(_searchQuery.toLowerCase())).toList();
         }
 
         return Column(
@@ -1265,29 +1485,336 @@ class _DownloadsPageState extends State<DownloadsPage> {
   // --- 2. OVERVIEW TAB ---
   Widget _buildOverviewTab() {
     final tasks = _tasks;
-    DownloadTask? task;
-    
-    // Resolve selected task
+    final bool isMobile = MediaQuery.of(context).size.width < 750;
+
+    double totalActiveSpeed = 0.0;
+    int activeCount = 0;
+    int completedCount = 0;
+    int totalDownloadedBytes = 0;
+
+    for (var t in tasks) {
+      if (t.status == DownloadStatus.downloading) {
+        totalActiveSpeed += t.downloadSpeed;
+        activeCount++;
+      } else if (t.status == DownloadStatus.queued) {
+        activeCount++;
+      } else if (t.status == DownloadStatus.completed) {
+        completedCount++;
+        totalDownloadedBytes += t.downloadedBytes;
+      }
+    }
+
+    DownloadTask? selectedTask;
     if (_selectedTaskId != null) {
       for (var t in tasks) {
         if (t.id == _selectedTaskId) {
-          task = t;
+          selectedTask = t;
           break;
         }
       }
     }
-    
-    if (task == null && tasks.isNotEmpty) {
-      task = tasks.first;
-    }
+    selectedTask ??= tasks.isNotEmpty ? tasks.first : null;
 
+    return Padding(
+      padding: isMobile
+          ? const EdgeInsets.fromLTRB(16.0, 16.0, 16.0, 16.0)
+          : const EdgeInsets.fromLTRB(24.0, 24.0, 24.0, 24.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 1. Top Summary Dashboard Banner
+          _buildOverviewStatsBanner(totalActiveSpeed, activeCount, completedCount, totalDownloadedBytes, isMobile),
+          const SizedBox(height: 20.0),
+
+          // 2. Main Content Split View (Master-Detail Pane)
+          Expanded(
+            child: tasks.isEmpty
+                ? _buildEmptyState()
+                : (isMobile
+                    ? _buildMobileOverviewBody(tasks, selectedTask)
+                    : Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Left Task List Panel (Width 340)
+                          SizedBox(
+                            width: 340.0,
+                            child: _buildOverviewTaskListPanel(tasks, selectedTask),
+                          ),
+                          const SizedBox(width: 20.0),
+                          // Right Task Detail Inspector Panel
+                          Expanded(
+                            child: _buildOverviewTaskInspectorPanel(selectedTask),
+                          ),
+                        ],
+                      )),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildOverviewStatsBanner(double totalSpeed, int activeCount, int completedCount, int totalStorage, bool isMobile) {
+    return isMobile
+        ? Column(
+            children: [
+              Row(
+                children: [
+                  Expanded(child: _buildOverviewStatCard(Icons.speed_rounded, Colors.cyanAccent, 'ACTIVE SPEED', totalSpeed > 0 ? _formatSpeed(totalSpeed) : 'Idle')),
+                  const SizedBox(width: 10.0),
+                  Expanded(child: _buildOverviewStatCard(Icons.downloading_rounded, Colors.blueAccent, 'IN PROGRESS', '$activeCount Active')),
+                ],
+              ),
+              const SizedBox(height: 10.0),
+              Row(
+                children: [
+                  Expanded(child: _buildOverviewStatCard(Icons.check_circle_outline_rounded, Colors.greenAccent, 'COMPLETED', '$completedCount Items')),
+                  const SizedBox(width: 10.0),
+                  Expanded(child: _buildOverviewStatCard(Icons.sd_storage_rounded, Colors.purpleAccent, 'STORAGE USED', _formatBytes(totalStorage))),
+                ],
+              ),
+            ],
+          )
+        : Row(
+            children: [
+              Expanded(child: _buildOverviewStatCard(Icons.speed_rounded, Colors.cyanAccent, 'ACTIVE SPEED', totalSpeed > 0 ? _formatSpeed(totalSpeed) : 'Idle')),
+              const SizedBox(width: 14.0),
+              Expanded(child: _buildOverviewStatCard(Icons.downloading_rounded, Colors.blueAccent, 'IN PROGRESS', '$activeCount Active')),
+              const SizedBox(width: 14.0),
+              Expanded(child: _buildOverviewStatCard(Icons.check_circle_outline_rounded, Colors.greenAccent, 'COMPLETED', '$completedCount Items')),
+              const SizedBox(width: 14.0),
+              Expanded(child: _buildOverviewStatCard(Icons.sd_storage_rounded, Colors.purpleAccent, 'STORAGE USED', _formatBytes(totalStorage))),
+            ],
+          );
+  }
+
+  Widget _buildOverviewStatCard(IconData icon, Color iconColor, String title, String value) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 14.0),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0F0F11),
+        borderRadius: BorderRadius.circular(14.0),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.2),
+            blurRadius: 8.0,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10.0),
+            decoration: BoxDecoration(
+              color: iconColor.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(10.0),
+            ),
+            child: Icon(icon, color: iconColor, size: 20),
+          ),
+          const SizedBox(width: 12.0),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(color: Colors.white38, fontSize: 10.0, fontWeight: FontWeight.bold, letterSpacing: 0.5, fontFamily: 'Outfit'),
+                ),
+                const SizedBox(height: 3.0),
+                Text(
+                  value,
+                  style: const TextStyle(color: Colors.white, fontSize: 15.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMobileOverviewBody(List<DownloadTask> tasks, DownloadTask? selectedTask) {
+    return SingleChildScrollView(
+      child: Column(
+        children: [
+          SizedBox(
+            height: 280,
+            child: _buildOverviewTaskListPanel(tasks, selectedTask),
+          ),
+          const SizedBox(height: 16.0),
+          _buildOverviewTaskInspectorPanel(selectedTask),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildOverviewTaskListPanel(List<DownloadTask> tasks, DownloadTask? selectedTask) {
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFF0C0C0E),
+        borderRadius: BorderRadius.circular(16.0),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16.0, 16.0, 16.0, 12.0),
+            child: Row(
+              children: [
+                const Icon(Icons.list_alt_rounded, color: Colors.white70, size: 18),
+                const SizedBox(width: 8.0),
+                const Text(
+                  'Tasks List',
+                  style: TextStyle(color: Colors.white, fontSize: 14.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                ),
+                const Spacer(),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 2.0),
+                  decoration: BoxDecoration(
+                    color: Colors.white10,
+                    borderRadius: BorderRadius.circular(10.0),
+                  ),
+                  child: Text(
+                    '${tasks.length}',
+                    style: const TextStyle(color: Colors.white70, fontSize: 11.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1.0, color: Colors.white10),
+          Expanded(
+            child: ListView.separated(
+              padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 8.0),
+              itemCount: tasks.length,
+              separatorBuilder: (c, i) => const SizedBox(height: 6.0),
+              itemBuilder: (context, index) {
+                final task = tasks[index];
+                final isSelected = selectedTask?.id == task.id;
+                final double progress = task.totalBytes > 0 ? (task.downloadedBytes / task.totalBytes) : 0.0;
+
+                Map<String, dynamic>? media;
+                if (task.mediaJson != null) {
+                  try {
+                    media = jsonDecode(task.mediaJson!);
+                  } catch (_) {}
+                }
+                final String coverUrl = task.isMovie == true
+                    ? (media?['poster'] ?? '')
+                    : (media?['coverImage']?['large'] ?? media?['coverImage']?['medium'] ?? '');
+
+                return InkWell(
+                  onTap: () {
+                    _selectTask(task.id);
+                  },
+                  borderRadius: BorderRadius.circular(10.0),
+                  child: Container(
+                    padding: const EdgeInsets.all(10.0),
+                    decoration: BoxDecoration(
+                      color: isSelected ? Colors.white.withValues(alpha: 0.08) : Colors.transparent,
+                      borderRadius: BorderRadius.circular(10.0),
+                      border: Border.all(
+                        color: isSelected ? const Color(0xFF3A86FF).withValues(alpha: 0.6) : Colors.transparent,
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(6.0),
+                          child: SizedBox(
+                            width: 38.0,
+                            height: 52.0,
+                            child: coverUrl.isNotEmpty
+                                ? CachedNetworkImage(
+                                    imageUrl: coverUrl,
+                                    fit: BoxFit.cover,
+                                    memCacheWidth: 100,
+                                    errorWidget: (c, u, e) => Container(color: Colors.white10, child: const Icon(Icons.movie, size: 16, color: Colors.white24)),
+                                  )
+                                : Container(color: Colors.white10, child: const Icon(Icons.movie, size: 16, color: Colors.white24)),
+                          ),
+                        ),
+                        const SizedBox(width: 12.0),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                task.title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: isSelected ? Colors.white : Colors.white70,
+                                  fontSize: 12.5,
+                                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                                  fontFamily: 'Outfit',
+                                ),
+                              ),
+                              const SizedBox(height: 4.0),
+                              Row(
+                                children: [
+                                  Text(
+                                    task.status == DownloadStatus.completed
+                                        ? _formatBytes(task.totalBytes)
+                                        : (task.status == DownloadStatus.downloading
+                                            ? _formatSpeed(task.downloadSpeed)
+                                            : task.status.name.toUpperCase()),
+                                    style: TextStyle(
+                                      color: task.status == DownloadStatus.completed
+                                          ? Colors.greenAccent
+                                          : (task.status == DownloadStatus.downloading ? Colors.blueAccent : Colors.white38),
+                                      fontSize: 10.0,
+                                      fontWeight: FontWeight.bold,
+                                      fontFamily: 'Outfit',
+                                    ),
+                                  ),
+                                  const Spacer(),
+                                  Text(
+                                    '${(progress * 100).toStringAsFixed(0)}%',
+                                    style: const TextStyle(color: Colors.white54, fontSize: 10.0, fontFamily: 'Outfit'),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 4.0),
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(2.0),
+                                child: LinearProgressIndicator(
+                                  value: progress.clamp(0.0, 1.0),
+                                  minHeight: 3.0,
+                                  backgroundColor: Colors.white10,
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                    task.status == DownloadStatus.completed ? Colors.green : Colors.blueAccent,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildOverviewTaskInspectorPanel(DownloadTask? task) {
     if (task == null) {
-      return _buildNoTaskPlaceholder("No active task. Go to Library and select a download.");
+      return _buildNoTaskPlaceholder("Select a download task to view full details.");
     }
 
     final double progress = task.totalBytes > 0 ? (task.downloadedBytes / task.totalBytes) : 0.0;
     final String progressPercent = (progress * 100).toStringAsFixed(1);
-    
+
     Color statusColor = Colors.white30;
     String statusLabel = 'Queued';
     if (task.status == DownloadStatus.downloading) {
@@ -1304,11 +1831,8 @@ class _DownloadsPageState extends State<DownloadsPage> {
       statusLabel = 'Failed';
     }
 
-    // Dynamic remaining time
-    String remainingTime = "Streaming";
-    if (task.status == DownloadStatus.completed) {
-      remainingTime = "Finished";
-    } else if (task.status == DownloadStatus.paused) {
+    String remainingTime = "Finished";
+    if (task.status == DownloadStatus.paused) {
       remainingTime = "Paused";
     } else if (task.status == DownloadStatus.downloading && task.downloadSpeed > 0) {
       final remainingBytes = task.totalBytes - task.downloadedBytes;
@@ -1322,11 +1846,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
       }
     }
 
-    // Torrent statistics from TorrServer
-    final activePeers = _selectedTorrentInfo?.activePeers ?? 0;
-    final totalPeers = _selectedTorrentInfo?.totalPeers ?? 0;
-    final leechers = max(0, totalPeers - activePeers);
-    final int piecesCount = (task.totalBytes / (1024 * 1024)).ceil();    Map<String, dynamic>? media;
+    Map<String, dynamic>? media;
     if (task.mediaJson != null) {
       try {
         media = jsonDecode(task.mediaJson!);
@@ -1336,276 +1856,263 @@ class _DownloadsPageState extends State<DownloadsPage> {
         ? (media?['poster'] ?? '')
         : (media?['coverImage']?['large'] ?? media?['coverImage']?['medium'] ?? '');
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(24.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Title, hash, and status badge side-by-side with poster preview
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(8.0),
-                child: SizedBox(
-                  width: 64.0,
-                  height: 92.0,
-                  child: coverUrl.isNotEmpty
-                      ? CachedNetworkImage(
-                          imageUrl: coverUrl,
-                          fit: BoxFit.cover,
-                          memCacheWidth: 150,
-                          placeholder: (c, u) => Container(
-                            color: Colors.white.withValues(alpha: 0.03),
-                            child: const Icon(Icons.movie_outlined, color: Colors.white24, size: 24),
-                          ),
-                          errorWidget: (c, u, e) => Container(
-                            color: Colors.white.withValues(alpha: 0.03),
-                            child: const Icon(Icons.movie_outlined, color: Colors.white24, size: 24),
-                          ),
-                        )
-                      : Container(
-                          color: Colors.white.withValues(alpha: 0.03),
-                          child: const Icon(Icons.movie_outlined, color: Colors.white24, size: 24),
-                        ),
-                ),
-              ),
-              const SizedBox(width: 16.0),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      task.title,
-                      style: const TextStyle(color: Colors.white, fontSize: 16.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
-                    ),
-                    const SizedBox(height: 8.0),
-                    Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 3.0),
-                          decoration: BoxDecoration(
-                            color: statusColor.withValues(alpha: 0.15),
-                            borderRadius: BorderRadius.circular(4.0),
-                          ),
-                          child: Text(
-                            statusLabel,
-                            style: TextStyle(color: statusColor, fontSize: 9.5, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8.0),
-                    Text(
-                      'Hash: ${task.hash}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: Colors.white24, fontSize: 11.0, fontFamily: 'Outfit'),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 24.0),
+    final activePeers = _selectedTorrentInfo?.activePeers ?? 0;
+    final totalPeers = _selectedTorrentInfo?.totalPeers ?? 0;
 
-          // Progress section
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                'Progress',
-                style: TextStyle(color: Colors.white70, fontSize: 13.0, fontWeight: FontWeight.w600, fontFamily: 'Outfit'),
-              ),
-              Text(
-                '$progressPercent%',
-                style: const TextStyle(color: Colors.white, fontSize: 18.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10.0),
-          
-          // Premium Custom Progress Bar
-          Container(
-            height: 6.0,
-            width: double.infinity,
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.04),
-              borderRadius: BorderRadius.circular(3.0),
-            ),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: FractionallySizedBox(
-                widthFactor: progress.clamp(0.0, 1.0),
-                child: Container(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [
-                        statusColor.withValues(alpha: 0.7),
-                        statusColor,
-                      ],
-                    ),
-                    borderRadius: BorderRadius.circular(3.0),
-                    boxShadow: [
-                      BoxShadow(
-                        color: statusColor.withValues(alpha: 0.35),
-                        blurRadius: 4.0,
-                        spreadRadius: 1.0,
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFF0C0C0E),
+        borderRadius: BorderRadius.circular(16.0),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+      ),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(10.0),
+                  child: SizedBox(
+                    width: 80.0,
+                    height: 116.0,
+                    child: coverUrl.isNotEmpty
+                        ? CachedNetworkImage(
+                            imageUrl: coverUrl,
+                            fit: BoxFit.cover,
+                            memCacheWidth: 200,
+                            errorWidget: (c, u, e) => Container(color: Colors.white10, child: const Icon(Icons.movie, size: 32, color: Colors.white24)),
+                          )
+                        : Container(color: Colors.white10, child: const Icon(Icons.movie, size: 32, color: Colors.white24)),
+                  ),
+                ),
+                const SizedBox(width: 18.0),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        task.title,
+                        style: const TextStyle(color: Colors.white, fontSize: 17.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                      ),
+                      const SizedBox(height: 8.0),
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 3.0),
+                            decoration: BoxDecoration(
+                              color: statusColor.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(4.0),
+                            ),
+                            child: Text(
+                              statusLabel.toUpperCase(),
+                              style: TextStyle(color: statusColor, fontSize: 9.5, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                            ),
+                          ),
+                          const SizedBox(width: 8.0),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 3.0),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.06),
+                              borderRadius: BorderRadius.circular(4.0),
+                            ),
+                            child: Text(
+                              task.isMovie == true ? 'MOVIE / SERIES' : 'ANIME',
+                              style: const TextStyle(color: Colors.white60, fontSize: 9.5, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 14.0),
+                      Wrap(
+                        spacing: 8.0,
+                        runSpacing: 8.0,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          ElevatedButton.icon(
+                            icon: const Icon(Icons.play_arrow_rounded, size: 18),
+                            label: const Text('Play Video', style: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 12.0)),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF3A86FF),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 8.0),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
+                            ),
+                            onPressed: () => _playLocalFile(task),
+                          ),
+                          OutlinedButton.icon(
+                            icon: const Icon(Icons.open_in_new_rounded, size: 14),
+                            label: const Text('Details Page', style: TextStyle(fontFamily: 'Outfit', fontSize: 12.0)),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: Colors.white70,
+                              side: const BorderSide(color: Colors.white24),
+                              padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
+                            ),
+                            onPressed: () => _navigateToDetails(task),
+                          ),
+                          if (task.status == DownloadStatus.downloading)
+                            OutlinedButton.icon(
+                              icon: const Icon(Icons.pause_rounded, size: 14),
+                              label: const Text('Pause', style: TextStyle(fontFamily: 'Outfit', fontSize: 12.0)),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: Colors.white70,
+                                side: const BorderSide(color: Colors.white24),
+                                padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
+                              ),
+                              onPressed: () => DownloadService().pauseDownload(task.id),
+                            )
+                          else if (task.status == DownloadStatus.paused || task.status == DownloadStatus.failed)
+                            OutlinedButton.icon(
+                              icon: const Icon(Icons.play_arrow_rounded, size: 14),
+                              label: const Text('Resume', style: TextStyle(fontFamily: 'Outfit', fontSize: 12.0)),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: Colors.white70,
+                                side: const BorderSide(color: Colors.white24),
+                                padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
+                              ),
+                              onPressed: () => DownloadService().resumeDownload(task.id),
+                            ),
+                          OutlinedButton.icon(
+                            icon: const Icon(Icons.delete_outline_rounded, size: 14, color: Colors.redAccent),
+                            label: const Text('Delete', style: TextStyle(fontFamily: 'Outfit', fontSize: 12.0, color: Colors.redAccent)),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: Colors.redAccent,
+                              side: BorderSide(color: Colors.redAccent.withValues(alpha: 0.4)),
+                              padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
+                            ),
+                            onPressed: () => _showDeleteDialog(context, [task.id]),
+                          ),
+                        ],
                       ),
                     ],
                   ),
                 ),
+              ],
+            ),
+            const SizedBox(height: 20.0),
+            const Divider(height: 1.0, color: Colors.white10),
+            const SizedBox(height: 16.0),
+
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Progress & Transfer Status',
+                  style: TextStyle(color: Colors.white70, fontSize: 12.5, fontWeight: FontWeight.w600, fontFamily: 'Outfit'),
+                ),
+                Text(
+                  '$progressPercent%',
+                  style: const TextStyle(color: Colors.white, fontSize: 18.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8.0),
+            Container(
+              height: 7.0,
+              width: double.infinity,
+              decoration: BoxDecoration(
+                color: Colors.white10,
+                borderRadius: BorderRadius.circular(4.0),
+              ),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: FractionallySizedBox(
+                  widthFactor: progress.clamp(0.0, 1.0),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [statusColor.withValues(alpha: 0.6), statusColor],
+                      ),
+                      borderRadius: BorderRadius.circular(4.0),
+                    ),
+                  ),
+                ),
               ),
             ),
-          ),
-          const SizedBox(height: 20.0),
+            const SizedBox(height: 16.0),
 
-          // Under-bar metric tiles (Downloaded, Uploaded, Total size, Pieces)
-          MediaQuery.of(context).size.width < 750
-              ? Column(
-                  children: [
-                    Row(
-                      children: [
-                        _buildMetricTile(Icons.download_outlined, Colors.greenAccent, 'Downloaded', _formatBytes(task.downloadedBytes)),
-                        const SizedBox(width: 8.0),
-                        _buildMetricTile(Icons.upload_outlined, Colors.blueAccent, 'Uploaded', _formatBytes((task.downloadedBytes * 0.05).toInt())),
-                      ],
-                    ),
-                    const SizedBox(height: 8.0),
-                    Row(
-                      children: [
-                        _buildMetricTile(Icons.storage_outlined, Colors.purpleAccent, 'Total Size', _formatBytes(task.totalBytes)),
-                        const SizedBox(width: 8.0),
-                        _buildMetricTile(Icons.extension_outlined, Colors.orangeAccent, 'Pieces', '$piecesCount × 1 MB'),
-                      ],
-                    ),
-                  ],
-                )
-              : Row(
-                  children: [
-                    _buildMetricTile(Icons.download_outlined, Colors.greenAccent, 'Downloaded', _formatBytes(task.downloadedBytes)),
-                    _buildMetricTile(Icons.upload_outlined, Colors.blueAccent, 'Uploaded', _formatBytes((task.downloadedBytes * 0.05).toInt())),
-                    _buildMetricTile(Icons.storage_outlined, Colors.purpleAccent, 'Total Size', _formatBytes(task.totalBytes)),
-                    _buildMetricTile(Icons.extension_outlined, Colors.orangeAccent, 'Pieces', '$piecesCount × 1 MB'),
-                  ],
-                ),
-          const SizedBox(height: 24.0),
-          
-          // Divider
-          Container(height: 1.0, color: Colors.white10),
-          const SizedBox(height: 20.0),
+            Row(
+              children: [
+                Expanded(child: _buildInspectorMetricTile(Icons.download_rounded, Colors.greenAccent, 'DOWNLOADED', _formatBytes(task.downloadedBytes))),
+                const SizedBox(width: 10.0),
+                Expanded(child: _buildInspectorMetricTile(Icons.storage_rounded, Colors.purpleAccent, 'FILE SIZE', _formatBytes(task.totalBytes))),
+                const SizedBox(width: 10.0),
+                Expanded(child: _buildInspectorMetricTile(Icons.speed_rounded, Colors.blueAccent, 'SPEED', task.status == DownloadStatus.downloading ? _formatSpeed(task.downloadSpeed) : '0 B/s')),
+                const SizedBox(width: 10.0),
+                Expanded(child: _buildInspectorMetricTile(Icons.hourglass_bottom_rounded, Colors.orangeAccent, 'REMAINING', remainingTime)),
+              ],
+            ),
+            const SizedBox(height: 20.0),
+            const Divider(height: 1.0, color: Colors.white10),
+            const SizedBox(height: 16.0),
 
-          // Speed & Transfer / Time Info / Peers Grid row
-          MediaQuery.of(context).size.width < 750
-              ? Column(
-                  children: [
-                    // 1. Speed & Transfer
-                    _buildDetailsBlock(
-                      'Speed & Transfer',
-                      [
-                        _buildSubDetailTile(Icons.download, Colors.greenAccent, 'Download', _formatSpeed(task.downloadSpeed)),
-                        _buildSubDetailTile(Icons.upload, Colors.blueAccent, 'Upload', task.status == DownloadStatus.downloading ? _formatSpeed(task.downloadSpeed * 0.06) : '0 B/s'),
-                      ],
-                    ),
-                    const SizedBox(height: 12.0),
-                    
-                    // 2. Time Information
-                    _buildDetailsBlock(
-                      'Time Information',
-                      [
-                        _buildSubDetailTile(Icons.hourglass_empty, Colors.orangeAccent, 'Remaining', remainingTime),
-                        _buildSubDetailTile(Icons.access_time, Colors.grey, 'Elapsed', task.status == DownloadStatus.downloading ? 'Active' : 'Finished'),
-                      ],
-                    ),
-                    const SizedBox(height: 12.0),
-                    
-                    // 3. Peers & Connections
-                    _buildDetailsBlock(
-                      'Peers & Connections',
-                      [
-                        _buildSubDetailTile(Icons.arrow_upward, Colors.greenAccent, 'Seeders', '$activePeers'),
-                        _buildSubDetailTile(Icons.arrow_downward, Colors.blueAccent, 'Leechers', '$leechers'),
-                        _buildSubDetailTile(Icons.lan, Colors.purpleAccent, 'Wires', '${activePeers * 12 + 4}'),
-                      ],
-                    ),
-                  ],
-                )
-              : Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // 1. Speed & Transfer
-                    Expanded(
-                      child: _buildDetailsBlock(
-                        'Speed & Transfer',
-                        [
-                          _buildSubDetailTile(Icons.download, Colors.greenAccent, 'Download', _formatSpeed(task.downloadSpeed)),
-                          _buildSubDetailTile(Icons.upload, Colors.blueAccent, 'Upload', task.status == DownloadStatus.downloading ? _formatSpeed(task.downloadSpeed * 0.06) : '0 B/s'),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 16.0),
-                    
-                    // 2. Time Information
-                    Expanded(
-                      child: _buildDetailsBlock(
-                        'Time Information',
-                        [
-                          _buildSubDetailTile(Icons.hourglass_empty, Colors.orangeAccent, 'Remaining', remainingTime),
-                          _buildSubDetailTile(Icons.access_time, Colors.grey, 'Elapsed', task.status == DownloadStatus.downloading ? 'Active' : 'Finished'),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 16.0),
-                    
-                    // 3. Peers & Connections
-                    Expanded(
-                      child: _buildDetailsBlock(
-                        'Peers & Connections',
-                        [
-                          _buildSubDetailTile(Icons.arrow_upward, Colors.greenAccent, 'Seeders', '$activePeers'),
-                          _buildSubDetailTile(Icons.arrow_downward, Colors.blueAccent, 'Leechers', '$leechers'),
-                          _buildSubDetailTile(Icons.lan, Colors.purpleAccent, 'Wires', '${activePeers * 12 + 4}'),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-          const SizedBox(height: 12.0),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildMetricTile(IconData icon, Color iconColor, String label, String value) {
-    return Expanded(
-      child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 4.0),
-        padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 14.0),
-        decoration: BoxDecoration(
-          color: const Color(0xFF0F0F11),
-          borderRadius: BorderRadius.circular(10.0),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.04), width: 1.0),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(6.0),
-              decoration: BoxDecoration(
-                color: iconColor.withValues(alpha: 0.08),
-                borderRadius: BorderRadius.circular(6.0),
-              ),
-              child: Icon(icon, color: iconColor, size: 16),
+            const Text(
+              'Storage & Save Location',
+              style: TextStyle(color: Colors.white70, fontSize: 12.5, fontWeight: FontWeight.w600, fontFamily: 'Outfit'),
             ),
             const SizedBox(height: 10.0),
-            Text(
-              label,
-              style: const TextStyle(color: Colors.white38, fontSize: 9.0, fontFamily: 'Outfit', fontWeight: FontWeight.w500),
-            ),
-            const SizedBox(height: 2.0),
-            Text(
-              value,
-              style: const TextStyle(color: Colors.white, fontSize: 13.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+            Container(
+              padding: const EdgeInsets.all(12.0),
+              decoration: BoxDecoration(
+                color: const Color(0xFF0F0F11),
+                borderRadius: BorderRadius.circular(10.0),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.04)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.folder_outlined, color: Colors.white54, size: 15),
+                      const SizedBox(width: 8.0),
+                      const Text('Path: ', style: TextStyle(color: Colors.white54, fontSize: 11.0, fontFamily: 'Outfit')),
+                      Expanded(
+                        child: Text(
+                          task.savePath,
+                          style: const TextStyle(color: Colors.white, fontSize: 11.0, fontWeight: FontWeight.w500, fontFamily: 'Outfit'),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (task.hash.isNotEmpty) ...[
+                    const SizedBox(height: 6.0),
+                    Row(
+                      children: [
+                        const Icon(Icons.tag_rounded, color: Colors.white54, size: 15),
+                        const SizedBox(width: 8.0),
+                        const Text('Torrent Hash: ', style: TextStyle(color: Colors.white54, fontSize: 11.0, fontFamily: 'Outfit')),
+                        Expanded(
+                          child: Text(
+                            task.hash,
+                            style: const TextStyle(color: Colors.white38, fontSize: 11.0, fontFamily: 'Outfit'),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6.0),
+                    Row(
+                      children: [
+                        const Icon(Icons.people_outline_rounded, color: Colors.white54, size: 15),
+                        const SizedBox(width: 8.0),
+                        Text(
+                          'TorrServer Peers: $activePeers / $totalPeers',
+                          style: const TextStyle(color: Colors.white70, fontSize: 11.0, fontFamily: 'Outfit'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
             ),
           ],
         ),
@@ -1613,9 +2120,9 @@ class _DownloadsPageState extends State<DownloadsPage> {
     );
   }
 
-  Widget _buildDetailsBlock(String title, List<Widget> children) {
+  Widget _buildInspectorMetricTile(IconData icon, Color iconColor, String label, String value) {
     return Container(
-      padding: const EdgeInsets.all(16.0),
+      padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 10.0),
       decoration: BoxDecoration(
         color: const Color(0xFF0F0F11),
         borderRadius: BorderRadius.circular(10.0),
@@ -1624,27 +2131,27 @@ class _DownloadsPageState extends State<DownloadsPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            title,
-            style: const TextStyle(color: Colors.white70, fontSize: 11.5, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+          Row(
+            children: [
+              Icon(icon, color: iconColor, size: 13),
+              const SizedBox(width: 4.0),
+              Expanded(
+                child: Text(
+                  label,
+                  style: const TextStyle(color: Colors.white38, fontSize: 8.5, fontFamily: 'Outfit', fontWeight: FontWeight.w600),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 14.0),
-          ...children,
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSubDetailTile(IconData icon, Color color, String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10.0),
-      child: Row(
-        children: [
-          Icon(icon, color: color, size: 14.0),
-          const SizedBox(width: 8.0),
-          Text(label, style: const TextStyle(color: Colors.white38, fontSize: 11.0, fontFamily: 'Outfit')),
-          const Spacer(),
-          Text(value, style: const TextStyle(color: Colors.white, fontSize: 12.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit')),
+          const SizedBox(height: 6.0),
+          Text(
+            value,
+            style: const TextStyle(color: Colors.white, fontSize: 12.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
         ],
       ),
     );
@@ -1666,149 +2173,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
     );
   }
 
-  // --- 3. FILES TAB ---
-  Widget _buildFilesTab() {
-    final tasks = _tasks;
-    DownloadTask? task;
-    if (_selectedTaskId != null) {
-      for (var t in tasks) {
-        if (t.id == _selectedTaskId) {
-          task = t;
-          break;
-        }
-      }
-    }
-    if (task == null && tasks.isNotEmpty) {
-      task = tasks.first;
-    }
-
-    if (task == null) {
-      return _buildNoTaskPlaceholder("No active task. Select a download from the Library.");
-    }
-
-    final TorrentInfo? info = _selectedTorrentInfo;
-    
-    if (info == null) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const CircularProgressIndicator(color: Colors.white60, strokeWidth: 2.0),
-            const SizedBox(height: 16.0),
-            Text(
-              "Fetching file list for ${task.title}...",
-              style: const TextStyle(color: Colors.white38, fontSize: 12.0, fontFamily: 'Outfit'),
-            ),
-          ],
-        ),
-      );
-    }
-
-    final files = info.files;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.all(20.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Torrent Files',
-                style: TextStyle(color: Colors.white, fontSize: 16.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
-              ),
-              const SizedBox(height: 2.0),
-              Text(
-                '${files.length} files inside this torrent package',
-                style: const TextStyle(color: Colors.white38, fontSize: 11.0, fontFamily: 'Outfit'),
-              ),
-            ],
-          ),
-        ),
-        Expanded(
-          child: ListView.builder(
-            padding: const EdgeInsets.symmetric(horizontal: 20.0),
-            itemCount: files.length,
-            itemBuilder: (context, index) {
-              final file = files[index];
-              final isTargetFile = file.index == task!.fileIndex;
-              
-              IconData fileIcon = Icons.insert_drive_file_outlined;
-              if (file.isVideo) fileIcon = Icons.movie_outlined;
-              if (file.isAudio) fileIcon = Icons.audiotrack_outlined;
-
-              return Container(
-                margin: const EdgeInsets.only(bottom: 8.0),
-                decoration: BoxDecoration(
-                  color: isTargetFile ? Colors.white.withValues(alpha: 0.02) : const Color(0xFF0F0F11),
-                  borderRadius: BorderRadius.circular(6.0),
-                  border: Border.all(
-                    color: isTargetFile ? Colors.white24 : Colors.white.withValues(alpha: 0.03),
-                    width: 1.0,
-                  ),
-                ),
-                child: ListTile(
-                  leading: Icon(fileIcon, color: isTargetFile ? Colors.greenAccent : Colors.white38, size: 20),
-                  title: Text(
-                    file.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: isTargetFile ? Colors.white : Colors.white70,
-                      fontSize: 12.5,
-                      fontWeight: isTargetFile ? FontWeight.bold : FontWeight.normal,
-                      fontFamily: 'Outfit',
-                    ),
-                  ),
-                  subtitle: Text(
-                    file.sizeLabel,
-                    style: const TextStyle(color: Colors.white38, fontSize: 10.5, fontFamily: 'Outfit'),
-                  ),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (isTargetFile) ...[
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6.0, vertical: 2.0),
-                          decoration: BoxDecoration(
-                            color: task.status == DownloadStatus.completed ? Colors.green.withValues(alpha: 0.15) : Colors.blue.withValues(alpha: 0.15),
-                            borderRadius: BorderRadius.circular(4.0),
-                          ),
-                          child: Text(
-                            task.status == DownloadStatus.completed ? 'COMPLETED' : 'DOWNLOADING',
-                            style: TextStyle(
-                              color: task.status == DownloadStatus.completed ? Colors.green : Colors.blueAccent,
-                              fontSize: 8.5,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                        if (task.status == DownloadStatus.completed) ...[
-                          const SizedBox(width: 8.0),
-                          IconButton(
-                            icon: const Icon(Icons.play_arrow_rounded, color: Colors.green, size: 20),
-                            onPressed: () => _playLocalFile(task!),
-                          ),
-                        ],
-                      ] else ...[
-                        const Text(
-                          'Unselected',
-                          style: TextStyle(color: Colors.white24, fontSize: 10.5, fontFamily: 'Outfit'),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-              );
-            },
-          ),
-        ),
-      ],
-    );
-  }
-
-  // --- 4. SETTINGS TAB ---
+  // --- 3. SETTINGS TAB ---
   Widget _buildSettingsTab() {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24.0),
@@ -1854,21 +2219,66 @@ class _DownloadsPageState extends State<DownloadsPage> {
             style: TextStyle(color: Colors.white70, fontSize: 12.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
           ),
           const SizedBox(height: 8.0),
-          TextField(
-            controller: _downloadPathController,
-            style: const TextStyle(color: Colors.white, fontSize: 13.0, fontFamily: 'Outfit'),
-            decoration: InputDecoration(
-              filled: true,
-              fillColor: Colors.white.withValues(alpha: 0.03),
-              hintText: Platform.isAndroid
-                  ? 'Leave empty for default app storage'
-                  : 'Leave empty for default (Downloads/watchAny)',
-              hintStyle: const TextStyle(color: Colors.white24),
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(6.0), borderSide: const BorderSide(color: Colors.white10)),
-              enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(6.0), borderSide: const BorderSide(color: Colors.white10)),
-              focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(6.0), borderSide: const BorderSide(color: Colors.white38)),
-              contentPadding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 12.0),
-            ),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _downloadPathController,
+                  style: const TextStyle(color: Colors.white, fontSize: 13.0, fontFamily: 'Outfit'),
+                  decoration: InputDecoration(
+                    filled: true,
+                    fillColor: Colors.white.withValues(alpha: 0.03),
+                    hintText: Platform.isAndroid
+                        ? 'Leave empty for default app storage'
+                        : 'Leave empty for default (Downloads/watchAny)',
+                    hintStyle: const TextStyle(color: Colors.white24),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(6.0), borderSide: const BorderSide(color: Colors.white10)),
+                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(6.0), borderSide: const BorderSide(color: Colors.white10)),
+                    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(6.0), borderSide: const BorderSide(color: Colors.white38)),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 12.0),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8.0),
+              IconButton(
+                tooltip: 'Browse Folder',
+                style: IconButton.styleFrom(
+                  backgroundColor: Colors.white.withValues(alpha: 0.05),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6.0)),
+                  padding: const EdgeInsets.all(12.0),
+                ),
+                icon: const Icon(Icons.folder_open_rounded, color: Colors.white),
+                onPressed: () async {
+                  try {
+                    final path = await FilePicker.getDirectoryPath();
+                    if (path != null && path.isNotEmpty) {
+                      setState(() {
+                        _downloadPathController.text = path;
+                      });
+                    }
+                  } catch (e) {
+                    if (mounted) {
+                      NotificationService().show(context, 'Could not pick directory: $e');
+                    }
+                  }
+                },
+              ),
+              const SizedBox(width: 4.0),
+              IconButton(
+                tooltip: 'Reset to Default',
+                style: IconButton.styleFrom(
+                  backgroundColor: Colors.white.withValues(alpha: 0.05),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6.0)),
+                  padding: const EdgeInsets.all(12.0),
+                ),
+                icon: const Icon(Icons.restart_alt_rounded, color: Colors.redAccent),
+                onPressed: () {
+                  setState(() {
+                    _downloadPathController.text = '';
+                  });
+                },
+              ),
+            ],
           ),
           const SizedBox(height: 20.0),
 
@@ -1897,6 +2307,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
                     setState(() {
                       _maxConcurrent = val;
                     });
+                    AppSettings().setMaxConcurrentDownloads(val);
                   }
                 },
                 items: const [
@@ -1964,6 +2375,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
 
                 await AppSettings().setTorrServerUrl(url);
                 await AppSettings().setDownloadPath(path);
+                await AppSettings().setMaxConcurrentDownloads(_maxConcurrent);
 
                 if (!mounted) return;
                 NotificationService().show(context, 'Download settings saved successfully!');
