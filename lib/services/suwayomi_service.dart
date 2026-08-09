@@ -495,36 +495,42 @@ class SuwayomiService {
     final bool isAndroid = !kIsWeb && Platform.isAndroid;
 
     if (!isAndroid) {
-      // Desktop only: try GraphQL update first
-      try {
-        const gqlQuery = '''
-          mutation UpdateExt(\$id: String!) {
-            updateExtension(input: { id: \$id, patch: {} }) {
-              extension {
-                pkgName
-                isInstalled
-                hasUpdate
-                versionName
+      // Desktop only: try GraphQL update with patch: { install: true }
+      for (final targetId in [extId, pkgName]) {
+        if (targetId == null || targetId.isEmpty) continue;
+        try {
+          const gqlQuery = '''
+            mutation UpdateExt(\$id: String!) {
+              updateExtension(input: { id: \$id, patch: { install: true } }) {
+                extension {
+                  pkgName
+                  isInstalled
+                  hasUpdate
+                  versionName
+                }
               }
             }
+          ''';
+          final data = await _postGraphQL(gqlQuery, {'id': targetId});
+          final ext = data?['updateExtension']?['extension'];
+          if (ext != null && ext['isInstalled'] == true && ext['hasUpdate'] != true) {
+            clearSourcesCache();
+            await fetchExtensionsIndex();
+            changeNotifier.value++;
+            return true;
           }
-        ''';
-        final data = await _postGraphQL(gqlQuery, {'id': extId ?? pkgName});
-        if (data != null && data['updateExtension'] != null) {
-          clearSourcesCache();
-          unawaited(fetchExtensionsIndex());
-          return true;
+        } catch (e) {
+          developer.log('GraphQL updateExtension ($targetId) error: $e', name: 'SuwayomiService');
         }
-      } catch (e) {
-        developer.log('GraphQL updateExtension failed, falling back to install: $e', name: 'SuwayomiService');
       }
     }
 
-    // Android + desktop fallback: re-install (uses the Android fast path on Android)
+    // Android + desktop fallback: re-install (downloads latest APK and updates)
     final result = await installExtension(pkgName, extId: extId);
-    if (result && !isAndroid) {
+    if (result) {
       clearSourcesCache();
-      unawaited(fetchExtensionsIndex());
+      await fetchExtensionsIndex();
+      changeNotifier.value++;
     }
     return result;
   }
