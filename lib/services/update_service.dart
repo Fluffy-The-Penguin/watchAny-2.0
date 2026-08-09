@@ -91,8 +91,11 @@ class UpdateService extends ChangeNotifier {
     _initPackageInfo();
   }
 
-  static String _appVersion = '2.2.25';
+  static String _appVersion = '2.2.28';
   static String get currentVersion => _appVersion;
+
+  // Completer so callers can await the real version before comparing
+  final Completer<void> _packageInfoReady = Completer<void>();
 
   Future<void> _initPackageInfo() async {
     try {
@@ -102,6 +105,7 @@ class UpdateService extends ChangeNotifier {
         notifyListeners();
       }
     } catch (_) {}
+    if (!_packageInfoReady.isCompleted) _packageInfoReady.complete();
   }
   
   // GitHub Releases API Endpoint
@@ -229,6 +233,9 @@ class UpdateService extends ChangeNotifier {
     _isChecking = true;
     _error = null;
     notifyListeners();
+
+    // Wait for real version from PackageInfo before comparing
+    await _packageInfoReady.future.timeout(const Duration(seconds: 5), onTimeout: () {});
 
     await loadCachedUpdateInfo();
 
