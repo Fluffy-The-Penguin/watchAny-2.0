@@ -151,6 +151,8 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
   }
 
   double _lastScrollOffset = 0.0;
+  bool _hasMarkedReadCurrentChapter = false;
+
   void _onScroll() {
     if (_readingFormat != 'webtoon') return;
     if (!_scrollController.hasClients || _pageUrls.isEmpty) return;
@@ -163,10 +165,11 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
     }
     _lastScrollOffset = offset;
 
-    // Auto-mark read if user scrolled past 85% of Webtoon content
+    // Auto-mark read ONCE when user scrolls past 85% of Webtoon content
     final double maxScroll = _scrollController.position.maxScrollExtent;
-    if (maxScroll > 0 && offset >= maxScroll * 0.85) {
-      _flushSave(_currentPageIndex, isLastPage: true);
+    if (!_hasMarkedReadCurrentChapter && maxScroll > 0 && offset >= maxScroll * 0.85) {
+      _hasMarkedReadCurrentChapter = true;
+      _scheduleSave(_currentPageIndex, isLastPage: true);
     }
 
     // Use real rendered heights when available; fall back to estimated for unrendered pages.
@@ -294,6 +297,7 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
   }
 
   Future<void> _loadPages() async {
+    _hasMarkedReadCurrentChapter = false;
     // Immediately cancel and dispose the old downloader to free sockets and prevent background interference
     _pageLoader?.dispose();
     _pageLoader = null;
@@ -1258,10 +1262,12 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
           cacheExtent: 1200.0,
           itemBuilder: (context, index) {
             if (index == _pageUrls.length) {
-              return Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 800.0),
-                  child: _buildEndOfChapterCard(),
+              return RepaintBoundary(
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 800.0),
+                    child: _buildEndOfChapterCard(),
+                  ),
                 ),
               );
             }
@@ -1415,13 +1421,6 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
         color: const Color(0xFF141418),
         borderRadius: BorderRadius.circular(16.0),
         border: Border.all(color: Colors.white12, width: 1.0),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.5),
-            blurRadius: 16.0,
-            offset: const Offset(0, 4),
-          ),
-        ],
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,

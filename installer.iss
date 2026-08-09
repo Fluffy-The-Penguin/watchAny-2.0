@@ -1,5 +1,5 @@
 ﻿#define MyAppName "watchAny"
-#define MyAppVersion "2.2.25"
+#define MyAppVersion "2.2.27"
 #define MyAppPublisher "watchAny"
 #define MyAppURL "https://watchany.app"
 #define MyAppExeName "watch_any.exe"
@@ -23,10 +23,12 @@ ArchitecturesInstallIn64BitMode=x64compatible
 WizardStyle=modern
 UninstallDisplayIcon={app}\{#MyAppExeName}
 UninstallDisplayName={#MyAppName}
-SetupIconFile=windows\runner\resources\app_icon.ico
+#ifndef WinReleaseDir
+#define WinReleaseDir "build\windows\x64\runner\Release"
+#endif
 
 [Files]
-Source: "build\windows\x64\runner\Release\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs
+Source: "{#WinReleaseDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
@@ -53,6 +55,20 @@ begin
     end;
   end;
 end;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
