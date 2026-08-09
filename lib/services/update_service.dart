@@ -5,6 +5,7 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -86,9 +87,22 @@ class UpdateInfo {
 class UpdateService extends ChangeNotifier {
   static final UpdateService _instance = UpdateService._internal();
   factory UpdateService() => _instance;
-  UpdateService._internal();
+  UpdateService._internal() {
+    _initPackageInfo();
+  }
 
-  static const String currentVersion = '2.2.22';
+  static String _appVersion = '2.2.25';
+  static String get currentVersion => _appVersion;
+
+  Future<void> _initPackageInfo() async {
+    try {
+      final info = await PackageInfo.fromPlatform();
+      if (info.version.isNotEmpty) {
+        _appVersion = info.version;
+        notifyListeners();
+      }
+    } catch (_) {}
+  }
   
   // GitHub Releases API Endpoint
   static const String gitHubReleasesUrl = 'https://api.github.com/repos/Fluffy-The-Penguin/watchAny-2.0/releases/latest';
@@ -254,17 +268,23 @@ class UpdateService extends ChangeNotifier {
 
         if (json != null && json is Map<String, dynamic>) {
           final info = UpdateInfo.fromJson(json);
+          final normCurrent = _normalizeVersion(currentVersion);
           final normLatest = _normalizeVersion(info.version);
 
           if (_downloadedVersion != null && _normalizeVersion(_downloadedVersion!) != normLatest) {
             await clearCachedUpdateFile();
           }
 
+          if (_compareVersions(normCurrent, normLatest) >= 0) {
+            _latestUpdate = null;
+            _error = null;
+            return false;
+          }
+
           final isIgnored = ignoredVer != null && (info.version == ignoredVer || normLatest == _normalizeVersion(ignoredVer));
-          final isInstalled = installedVer != null && (info.version == installedVer || normLatest == _normalizeVersion(installedVer));
           final isRecentlyDismissed = !isManualCheck && (now - lastDismissedTime) < 86400000;
 
-          if (!isManualCheck && (isIgnored || isInstalled || isRecentlyDismissed)) {
+          if (!isManualCheck && (isIgnored || isRecentlyDismissed)) {
             _latestUpdate = null;
             _error = null;
             return false;

@@ -4949,7 +4949,7 @@ class _SettingsPageState extends State<SettingsPage> {
                             ),
                           ),
                           const SizedBox(height: 4.0),
-                          const Text(
+                          Text(
                             'Version ${UpdateService.currentVersion}',
                             style: TextStyle(
                               color: Colors.white38,

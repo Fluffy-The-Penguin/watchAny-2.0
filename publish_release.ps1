@@ -67,14 +67,18 @@ foreach ($Abi in $Abis) {
 
 # 5. Build Windows Release Binary
 Write-Host "[3/5] Building Windows release binary..." -ForegroundColor Yellow
+if (Test-Path "$ProjectRoot\build\windows") {
+    Remove-Item -Recurse -Force "$ProjectRoot\build\windows" -ErrorAction SilentlyContinue
+}
 flutter build windows --release
 if ($LASTEXITCODE -ne 0) { Write-Error "Windows build failed"; exit 1 }
 
 $WinRelease = "$ProjectRoot\build\windows\x64\runner\Release"
+$ZipPath = "$ProjectRoot\watchany_portable_$Version.zip"
 
 # Create Portable ZIP
 Write-Host "  Creating portable ZIP..." -ForegroundColor Yellow
-tar.exe -a -c -f "$oldZip" -C "$WinRelease" *
+tar.exe -a -c -f "$ZipPath" -C "$WinRelease" *
 Write-Host "  [OK] watchany_portable_$Version.zip" -ForegroundColor Green
 
 # Build Inno Setup Installer
@@ -101,7 +105,7 @@ if ($Iscc) {
 
 # 6. Commit changes and push git tag
 Write-Host "[4/5] Committing git changes and tagging v$Version..." -ForegroundColor Yellow
-git add .
+git add -A
 git commit -m "Release v$Version" --allow-empty
 git tag -a "v$Version" -m "v$Version" -f
 git push origin main --force
