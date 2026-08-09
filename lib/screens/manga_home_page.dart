@@ -613,6 +613,7 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
   Future<void> _updateExtension(Map<String, dynamic> ext) async {
     final String pkgName = ext['pkgName'] ?? '';
     final String? extId = ext['id']?.toString();
+    final String? apkUrl = ext['apkUrl']?.toString();
     final String name = ext['name']?.toString().replaceFirst('Tachiyomi: ', '').replaceFirst('Keiyoushi: ', '') ?? 'Extension';
 
     if (mounted) {
@@ -622,7 +623,7 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
     }
 
     try {
-      final success = await _suwayomiService.updateExtension(pkgName, extId: extId);
+      final success = await _suwayomiService.updateExtension(pkgName, extId: extId, apkUrl: apkUrl);
       if (mounted) {
         if (success) {
           NotificationService().show(context, 'Successfully updated $name');

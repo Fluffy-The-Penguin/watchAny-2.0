@@ -491,42 +491,17 @@ class SuwayomiService {
     }
   }
 
-  Future<bool> updateExtension(String pkgName, {String? extId}) async {
+  Future<bool> updateExtension(String pkgName, {String? extId, String? apkUrl}) async {
     final bool isAndroid = !kIsWeb && Platform.isAndroid;
 
-    if (!isAndroid) {
-      // Desktop only: try GraphQL update with patch: { install: true }
-      for (final targetId in [extId, pkgName]) {
-        if (targetId == null || targetId.isEmpty) continue;
-        try {
-          const gqlQuery = '''
-            mutation UpdateExt(\$id: String!) {
-              updateExtension(input: { id: \$id, patch: { install: true } }) {
-                extension {
-                  pkgName
-                  isInstalled
-                  hasUpdate
-                  versionName
-                }
-              }
-            }
-          ''';
-          final data = await _postGraphQL(gqlQuery, {'id': targetId});
-          final ext = data?['updateExtension']?['extension'];
-          if (ext != null && ext['isInstalled'] == true && ext['hasUpdate'] != true) {
-            clearSourcesCache();
-            await fetchExtensionsIndex();
-            changeNotifier.value++;
-            return true;
-          }
-        } catch (e) {
-          developer.log('GraphQL updateExtension ($targetId) error: $e', name: 'SuwayomiService');
-        }
-      }
+    if (isAndroid) {
+      return await installExtension(pkgName, extId: extId, apkUrl: apkUrl, forceDownloadApk: true);
     }
 
-    // Android + desktop fallback: re-install (downloads latest APK and updates)
-    final result = await installExtension(pkgName, extId: extId);
+    // Desktop: Always download the latest APK from the extension repo and upload it directly to Suwayomi Server.
+    // Hitting Suwayomi's internal GraphQL updateExtension (patch: { install: true }) only re-installs
+    // the old cached APK version that Suwayomi Server currently holds if its internal index is not refreshed.
+    final result = await installExtension(pkgName, extId: extId, apkUrl: apkUrl, forceDownloadApk: true);
     if (result) {
       clearSourcesCache();
       await fetchExtensionsIndex();
@@ -636,7 +611,7 @@ class SuwayomiService {
     }
   }
 
-  Future<bool> installExtension(String pkgName, {String? extId, String? apkUrl}) async {
+  Future<bool> installExtension(String pkgName, {String? extId, String? apkUrl, bool forceDownloadApk = false}) async {
     // Guard: one install at a time per package. Prevents the loop where a
     // changeNotifier fire or duplicate UI tap causes a second install flow to
     // start while the first is still running.
@@ -677,45 +652,50 @@ class SuwayomiService {
       }
 
       // ── DESKTOP PATH ──────────────────────────────────────────────────────
-      // 1. Local Engine API (desktop fallback)
-      try {
-        final response = await http.get(
-          Uri.parse('$_baseUrl/api/install?pkg=$pkgName'),
-        ).timeout(const Duration(seconds: 30));
-
-        if (response.statusCode == 200) {
-          final decoded = jsonDecode(response.body);
-          if (decoded['ok'] == true) {
-            clearSourcesCache();
-            changeNotifier.value++;
-            return true;
-          }
-        }
-      } catch (e) {
-        developer.log('Engine API install error: $e', name: 'SuwayomiService');
-      }
-
-      // 1. Primary Suwayomi Server GraphQL updateExtension (patch: { install: true })
-      for (final targetId in [id, pkgName]) {
+      // If NOT forceDownloadApk, try lightweight Suwayomi Server GraphQL / REST shortcuts first
+      if (!forceDownloadApk) {
+        // 1. Local Engine API (desktop fallback)
         try {
-          const gqlQuery = '''
-            mutation InstallExt(\$id: String!) {
-              updateExtension(input: { id: \$id, patch: { install: true } }) {
-                extension {
-                  pkgName
-                  isInstalled
-                }
-              }
+          final response = await http.get(
+            Uri.parse('$_baseUrl/api/install?pkg=$pkgName'),
+          ).timeout(const Duration(seconds: 10));
+
+          if (response.statusCode == 200) {
+            final decoded = jsonDecode(response.body);
+            if (decoded['ok'] == true) {
+              clearSourcesCache();
+              changeNotifier.value++;
+              return true;
             }
-          ''';
-          final data = await _postGraphQL(gqlQuery, {'id': targetId});
-          if (data != null && data['updateExtension']?['extension']?['isInstalled'] == true) {
-            clearSourcesCache();
-            changeNotifier.value++;
-            return true;
           }
         } catch (e) {
-          developer.log('GraphQL updateExtension install ($targetId) error: $e', name: 'SuwayomiService');
+          developer.log('Engine API install error: $e', name: 'SuwayomiService');
+        }
+
+        // 2. Primary Suwayomi Server GraphQL updateExtension (patch: { install: true })
+        for (final targetId in [id, pkgName]) {
+          try {
+            const gqlQuery = '''
+              mutation InstallExt(\$id: String!) {
+                updateExtension(input: { id: \$id, patch: { install: true } }) {
+                  extension {
+                    pkgName
+                    isInstalled
+                    hasUpdate
+                  }
+                }
+              }
+            ''';
+            final data = await _postGraphQL(gqlQuery, {'id': targetId});
+            final ext = data?['updateExtension']?['extension'];
+            if (ext != null && ext['isInstalled'] == true && ext['hasUpdate'] != true) {
+              clearSourcesCache();
+              changeNotifier.value++;
+              return true;
+            }
+          } catch (e) {
+            developer.log('GraphQL updateExtension install ($targetId) error: $e', name: 'SuwayomiService');
+          }
         }
       }
 
