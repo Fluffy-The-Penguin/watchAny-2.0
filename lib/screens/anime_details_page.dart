@@ -1385,8 +1385,14 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
   }
 
   void _openTorrentSelectorPanel(int epNum, List<String> titles, {bool isDownload = false}) {
-    final double screenWidth = MediaQuery.of(context).size.width;
-    final bool isMobileSheet = screenWidth < 650;
+    final Size size = MediaQuery.of(context).size;
+    final bool isLandscape = size.width > size.height;
+    final bool isMobileWidth = size.width < 600;
+
+    final double sheetWidth = isMobileWidth ? double.infinity : 800.0;
+    final double sheetHeight = isLandscape
+        ? size.height * 0.94
+        : (isMobileWidth ? size.height * 0.85 : size.height * 0.85);
 
     showModalBottomSheet(
       context: context,
@@ -1397,11 +1403,13 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
         return Align(
           alignment: Alignment.bottomCenter,
           child: Container(
-            width: isMobileSheet ? double.infinity : 800.0,
-            height: MediaQuery.of(context).size.height * (isMobileSheet ? 0.8 : 0.65),
-            margin: isMobileSheet
-                ? EdgeInsets.zero
-                : const EdgeInsets.only(left: 24.0, right: 24.0, top: 24.0),
+            width: sheetWidth,
+            height: sheetHeight,
+            margin: isLandscape
+                ? const EdgeInsets.only(top: 8.0)
+                : (isMobileWidth
+                    ? EdgeInsets.zero
+                    : const EdgeInsets.only(left: 24.0, right: 24.0, top: 16.0)),
             decoration: BoxDecoration(
               color: const Color(0xFF0C0C0E),
               borderRadius: const BorderRadius.vertical(top: Radius.circular(16.0)),

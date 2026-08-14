@@ -42,6 +42,7 @@ class MangaReaderPage extends StatefulWidget {
 class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProviderStateMixin {
   final SuwayomiService _suwayomiService = SuwayomiService();
   bool _isLoading = true;
+  bool _isChangingChapter = false;
   String? _errorMessage;
 
   List<String> _pageUrls = [];
@@ -170,6 +171,11 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
     if (!_hasMarkedReadCurrentChapter && maxScroll > 0 && offset >= maxScroll * 0.85) {
       _hasMarkedReadCurrentChapter = true;
       _scheduleSave(_currentPageIndex, isLastPage: true);
+    }
+
+    // Auto continuous read: When scrolling past end of chapter (maxScroll + 50px), auto-load next chapter
+    if (!_isChangingChapter && maxScroll > 100 && offset >= maxScroll + 50.0) {
+      _navigateToNextChapter();
     }
 
     // Use real rendered heights when available; fall back to estimated for unrendered pages.
@@ -308,6 +314,7 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
         setState(() {
           _errorMessage = "Invalid Chapter ID";
           _isLoading = false;
+          _isChangingChapter = false;
         });
       }
       return;
@@ -315,7 +322,11 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
 
     if (mounted) {
       setState(() {
-        _isLoading = true;
+        if (_pageUrls.isEmpty) {
+          _isLoading = true;
+        } else {
+          _isChangingChapter = true;
+        }
         _errorMessage = null;
       });
     }
@@ -356,6 +367,7 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
             ..clear()
             ..addAll(List.filled(urls.length, null));
           _isLoading = false;
+          _isChangingChapter = false;
           _currentPageIndex = savedPage < urls.length ? savedPage : 0;
           
           try {
@@ -395,9 +407,13 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
     } catch (e) {
       if (mounted) {
         setState(() {
-          _errorMessage = e.toString();
+          _errorMessage = _pageUrls.isEmpty ? e.toString() : null;
           _isLoading = false;
+          _isChangingChapter = false;
         });
+        if (_pageUrls.isNotEmpty) {
+          NotificationService().show(context, 'Failed to load chapter: ${e.toString().replaceAll('Exception: ', '')}');
+        }
       }
     }
   }
@@ -844,6 +860,51 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
                         ? _buildWebtoonViewer()
                         : _buildPagingViewer(),
           ),
+
+          // Floating Smooth Chapter Switch Indicator
+          if (_isChangingChapter)
+            Positioned(
+              top: _showOverlay ? 75.0 : 35.0,
+              left: 20.0,
+              right: 20.0,
+              child: Center(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 10.0),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF141417).withValues(alpha: 0.94),
+                    borderRadius: BorderRadius.circular(20.0),
+                    border: Border.all(color: const Color(0xFFFF9F1C), width: 1.2),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Colors.black87,
+                        blurRadius: 16,
+                        spreadRadius: 2,
+                      )
+                    ],
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2.0, color: Color(0xFFFF9F1C)),
+                      ),
+                      SizedBox(width: 10.0),
+                      Text(
+                        'Loading next chapter...',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 12.5,
+                          fontFamily: 'Outfit',
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
 
           // Top Header Overlay Controls
           if (_showOverlay)
@@ -1411,57 +1472,78 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
 
   Widget _buildEndOfChapterCard() {
     final int currentIdx = widget.chapters.indexWhere((c) => c['id']?.toString() == _currentChapterId);
-    final bool hasNext = currentIdx != -1 && currentIdx > 0;
-    final nextChap = hasNext ? widget.chapters[currentIdx - 1] : null;
+    final bool firstNumIsLarger = (widget.chapters.isNotEmpty &&
+        _parseChapterNumber(widget.chapters.first) >= _parseChapterNumber(widget.chapters.last));
+    final int targetIdx = firstNumIsLarger ? currentIdx - 1 : currentIdx + 1;
+    final bool hasNext = targetIdx >= 0 && targetIdx < widget.chapters.length;
+    final nextChap = hasNext ? widget.chapters[targetIdx] : null;
 
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 32.0),
-      padding: const EdgeInsets.all(24.0),
+      margin: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 24.0),
+      padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 20.0),
       decoration: BoxDecoration(
-        color: const Color(0xFF141418),
-        borderRadius: BorderRadius.circular(16.0),
-        border: Border.all(color: Colors.white12, width: 1.0),
+        color: const Color(0xFF16161A),
+        borderRadius: BorderRadius.circular(14.0),
+        border: Border.all(color: Colors.white12, width: 0.8),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.check_circle_rounded, color: Color(0xFFFF9F1C), size: 36.0),
-          const SizedBox(height: 10.0),
-          Text(
-            'Completed Chapter $_currentChapterNumber',
-            style: const TextStyle(color: Colors.white, fontSize: 16.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.check_circle_rounded, color: Color(0xFFFF9F1C), size: 22.0),
+              const SizedBox(width: 8.0),
+              Text(
+                'Finished Chapter $_currentChapterNumber',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 15.0,
+                  fontWeight: FontWeight.bold,
+                  fontFamily: 'Outfit',
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 4.0),
+          const SizedBox(height: 6.0),
           Text(
             widget.mangaTitle,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(color: Colors.white54, fontSize: 13.0, fontFamily: 'Outfit'),
+            style: const TextStyle(color: Colors.white38, fontSize: 12.0, fontFamily: 'Outfit'),
           ),
-          const SizedBox(height: 20.0),
+          const SizedBox(height: 16.0),
           if (hasNext && nextChap != null) ...[
             ElevatedButton.icon(
-              onPressed: _navigateToNextChapter,
-              icon: const Icon(Icons.arrow_forward_rounded, size: 18.0),
-              label: Text('Next Chapter (${nextChap['chapterNumber'] ?? currentIdx})'),
+              onPressed: _isChangingChapter ? null : _navigateToNextChapter,
+              icon: _isChangingChapter
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2.0, color: Colors.black),
+                    )
+                  : const Icon(Icons.arrow_forward_rounded, size: 18.0),
+              label: Text(_isChangingChapter
+                  ? 'Loading Next Chapter...'
+                  : 'Next Chapter (${nextChap['chapterNumber'] ?? (targetIdx + 1)})'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFFFF9F1C),
                 foregroundColor: Colors.black,
-                minimumSize: const Size.fromHeight(46.0),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.0)),
-                textStyle: const TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 14.0),
+                minimumSize: const Size.fromHeight(44.0),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
+                textStyle: const TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 13.5),
               ),
             ),
           ] else ...[
             Container(
-              padding: const EdgeInsets.all(12.0),
+              padding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 10.0),
               decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.05),
-                borderRadius: BorderRadius.circular(10.0),
+                color: Colors.white10,
+                borderRadius: BorderRadius.circular(8.0),
               ),
               child: const Text(
                 'You have reached the latest chapter!',
-                style: TextStyle(color: Colors.white70, fontSize: 13.0, fontFamily: 'Outfit'),
+                style: TextStyle(color: Colors.white70, fontSize: 12.5, fontFamily: 'Outfit'),
               ),
             ),
           ],
@@ -1933,7 +2015,8 @@ class MangaPageLoader {
         _downloading = List<bool>.filled(urls.length, false),
         _progress = List<double?>.filled(urls.length, null),
         _failedCounts = List<int>.filled(urls.length, 0) {
-    // Start 3 concurrent download loops for parallel pre-fetching
+    // Start 4 concurrent download loops for parallel pre-fetching (Mihon priority)
+    _startDownloadLoop();
     _startDownloadLoop();
     _startDownloadLoop();
     _startDownloadLoop();
@@ -1955,14 +2038,26 @@ class MangaPageLoader {
 
   void setPriorityIndex(int idx) {
     if (idx < 0 || idx >= urls.length) return;
-    if (localPaths[idx] != null) {
-      // Already downloaded, but let's pre-cache next ones
-      _priorityIndex = idx;
-      return;
-    }
     if (_priorityIndex == idx) return;
     
     _priorityIndex = idx;
+
+    // Mihon optimization: If the focused page is not downloaded yet, cancel in-flight tasks
+    // that are far (>3 pages away) to immediately free sockets/HTTP connections for the visible page!
+    if (localPaths[idx] == null) {
+      final keysToCancel = <int>[];
+      _activeOps.forEach((activeIdx, _) {
+        if ((activeIdx - idx).abs() > 3) {
+          keysToCancel.add(activeIdx);
+        }
+      });
+
+      for (final cancelIdx in keysToCancel) {
+        _cancelPage(cancelIdx);
+        _downloading[cancelIdx] = false;
+        _progress[cancelIdx] = null;
+      }
+    }
   }
 
   void _cancelPage(int index) {
@@ -1989,17 +2084,17 @@ class MangaPageLoader {
 
   Future<void> _startDownloadLoop() async {
     while (!_isDisposed) {
-      // Find the next index to download based on priority
+      // Find the next index to download based on Mihon priority
       int nextIdx = _getNextIndexToDownload();
       if (nextIdx == -1) {
         // All downloaded or failed! We can rest.
-        await Future.delayed(const Duration(milliseconds: 250));
+        await Future.delayed(const Duration(milliseconds: 200));
         continue;
       }
 
       await _downloadPage(nextIdx);
       // Brief pause to prevent CPU/Network thrashing
-      await Future.delayed(const Duration(milliseconds: 50));
+      await Future.delayed(const Duration(milliseconds: 25));
     }
   }
 
@@ -2007,21 +2102,40 @@ class MangaPageLoader {
     if (urls.isEmpty) return -1;
     final int safePriority = _priorityIndex.clamp(0, urls.length - 1);
     
-    // 1. Always ensure any un-downloaded pages from Page 0 up to current viewport (safePriority) are fetched first in order
-    for (int idx = 0; idx <= safePriority; idx++) {
-      if (localPaths[idx] == null && _failedCounts[idx] < 3 && !_downloading[idx]) {
-        return idx;
+    // 1. Highest Priority: The EXACT page currently visible on screen
+    if (localPaths[safePriority] == null && _failedCounts[safePriority] < 3 && !_downloading[safePriority]) {
+      return safePriority;
+    }
+    
+    // 2. Next Priority: Immediate forward pages (+1, +2, +3) for smooth reading flow
+    for (int offset = 1; offset <= 3; offset++) {
+      final int forwardIdx = safePriority + offset;
+      if (forwardIdx < urls.length && localPaths[forwardIdx] == null && _failedCounts[forwardIdx] < 3 && !_downloading[forwardIdx]) {
+        return forwardIdx;
       }
     }
     
-    // 2. Download forward in sequence from current viewport to end of chapter
-    for (int idx = safePriority + 1; idx < urls.length; idx++) {
+    // 3. Next Priority: Immediate backward page (-1) in case user scrolls back
+    final int backIdx = safePriority - 1;
+    if (backIdx >= 0 && localPaths[backIdx] == null && _failedCounts[backIdx] < 3 && !_downloading[backIdx]) {
+      return backIdx;
+    }
+    
+    // 4. Remaining pages ordered strictly by distance from current visible page (|idx - safePriority|)
+    int bestCandidate = -1;
+    int minDistance = 999999;
+    
+    for (int idx = 0; idx < urls.length; idx++) {
       if (localPaths[idx] == null && _failedCounts[idx] < 3 && !_downloading[idx]) {
-        return idx;
+        final int dist = (idx - safePriority).abs();
+        if (dist < minDistance) {
+          minDistance = dist;
+          bestCandidate = idx;
+        }
       }
     }
     
-    return -1; // Everything downloaded or failed
+    return bestCandidate;
   }
 
   Future<void> _downloadPage(int index) async {
