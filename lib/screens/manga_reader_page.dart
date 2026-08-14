@@ -48,6 +48,8 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
   List<String> _pageUrls = [];
   String _readingFormat = 'webtoon'; // 'webtoon', 'paging_ltr', 'paging_rtl', 'paging_double'
   String _colorFilterMode = 'none'; // 'none', 'grayscale', 'sepia', 'warm', 'inverted', 'boost'
+  bool _continuousReading = true; // Mihon-style seamless auto-read toggle
+  String _lastTransitionMessage = '';
   int _currentPageIndex = 0;
   final ValueNotifier<int> _currentPageNotifier = ValueNotifier<int>(0);
   MangaPageLoader? _pageLoader;
@@ -173,8 +175,8 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
       _scheduleSave(_currentPageIndex, isLastPage: true);
     }
 
-    // Auto continuous read: When scrolling past end of chapter (maxScroll + 50px), auto-load next chapter
-    if (!_isChangingChapter && maxScroll > 100 && offset >= maxScroll + 50.0) {
+    // Auto continuous read: When scrolling past end of chapter (maxScroll + 50px), auto-load next chapter if enabled
+    if (_continuousReading && !_isChangingChapter && maxScroll > 100 && offset >= maxScroll + 50.0) {
       _navigateToNextChapter();
     }
 
@@ -292,6 +294,7 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
       setState(() {
         _readingFormat = prefs.getString('manga_reading_format') ?? 'webtoon';
         _colorFilterMode = prefs.getString('manga_color_filter_mode') ?? 'none';
+        _continuousReading = prefs.getBool('manga_continuous_reading') ?? true;
       });
     }
   }
@@ -300,6 +303,7 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('manga_reading_format', _readingFormat);
     await prefs.setString('manga_color_filter_mode', _colorFilterMode);
+    await prefs.setBool('manga_continuous_reading', _continuousReading);
   }
 
   Future<void> _loadPages() async {
@@ -545,15 +549,16 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
       final int targetNum = _parseChapterNumber(targetChapter);
       
       if (targetId != null) {
+        final int prevNum = _currentChapterNumber;
+        _lastTransitionMessage = 'Chapter $prevNum Ended • Loading Chapter $targetNum...';
         setState(() {
           _currentChapterId = targetId;
           _currentChapterNumber = targetNum;
-          _isLoading = true;
-          _pageUrls = [];
           _currentPageIndex = 0;
         });
         _loadPages();
         _updateLibraryProgress();
+        NotificationService().show(context, 'Chapter $prevNum Ended → Reading Chapter $targetNum');
       }
     } else {
       NotificationService().show(context, 'You have reached the latest chapter.');
@@ -582,11 +587,11 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
       final int targetNum = _parseChapterNumber(targetChapter);
       
       if (targetId != null) {
+        final int prevNum = _currentChapterNumber;
+        _lastTransitionMessage = 'Loading Chapter $targetNum...';
         setState(() {
           _currentChapterId = targetId;
           _currentChapterNumber = targetNum;
-          _isLoading = true;
-          _pageUrls = [];
           _currentPageIndex = 0;
         });
         _loadPages();
@@ -766,6 +771,38 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
                     const Padding(
                       padding: EdgeInsets.symmetric(horizontal: 24.0, vertical: 8.0),
                       child: Text(
+                        'Chapter Transitions',
+                        style: TextStyle(color: Colors.white, fontSize: 16.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
+                      ),
+                    ),
+                    SwitchListTile(
+                      value: _continuousReading,
+                      activeColor: const Color(0xFFFF9F1C),
+                      secondary: const Icon(Icons.auto_stories, color: Color(0xFFFF9F1C)),
+                      title: const Text(
+                        'Seamless Continuous Reading (Mihon)',
+                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontFamily: 'Outfit', fontSize: 14),
+                      ),
+                      subtitle: Text(
+                        _continuousReading
+                            ? 'Auto-loads next chapter on scroll without clicking next'
+                            : 'Stops at End-of-Chapter card (requires clicking next button)',
+                        style: const TextStyle(color: Colors.white54, fontFamily: 'Outfit', fontSize: 12),
+                      ),
+                      onChanged: (val) {
+                        setState(() {
+                          _continuousReading = val;
+                        });
+                        setSheetState(() {});
+                        _saveSettings();
+                      },
+                    ),
+
+                    const Divider(color: Colors.white12, height: 24.0),
+
+                    const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 24.0, vertical: 8.0),
+                      child: Text(
                         'Color Enhancers (GPU Shaders)',
                         style: TextStyle(color: Colors.white, fontSize: 16.0, fontWeight: FontWeight.bold, fontFamily: 'Outfit'),
                       ),
@@ -882,18 +919,18 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
                       )
                     ],
                   ),
-                  child: const Row(
+                  child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      SizedBox(
+                      const SizedBox(
                         width: 14,
                         height: 14,
                         child: CircularProgressIndicator(strokeWidth: 2.0, color: Color(0xFFFF9F1C)),
                       ),
-                      SizedBox(width: 10.0),
+                      const SizedBox(width: 10.0),
                       Text(
-                        'Loading next chapter...',
-                        style: TextStyle(
+                        _lastTransitionMessage.isNotEmpty ? _lastTransitionMessage : 'Loading next chapter...',
+                        style: const TextStyle(
                           color: Colors.white,
                           fontSize: 12.5,
                           fontFamily: 'Outfit',
