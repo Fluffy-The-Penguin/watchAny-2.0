@@ -415,7 +415,6 @@ class ShellLayout extends StatelessWidget {
                               ],
                             ),
                             onPressed: () {
-                              LibraryState().clearNotificationBadge(navigationState.currentMode);
                               _showSidebarPopup(
                                 context: context,
                                 title: 'Notifications',
@@ -497,7 +496,6 @@ class ShellLayout extends StatelessWidget {
                           onViewAll: () => navigationState.setPage(TabPage.history),
                         ),
                         onNotificationsTap: () {
-                          LibraryState().clearNotificationBadge(navigationState.currentMode);
                           _showSidebarPopup(
                             context: context,
                             title: 'Notifications',
@@ -1171,7 +1169,7 @@ class _NotificationsPopupContentState extends State<_NotificationsPopupContent> 
             releaseTime = media['updatedAt'] ?? 0;
           }
 
-          final int startBaseline = ackMap['anime_$id'] ?? startMap['anime_$id'] ?? latestReleased;
+          final int startBaseline = ackMap['anime_$id'] ?? startMap['anime_$id'] ?? 0;
           final int startNew = max(localItem.watchedEpisodes, startBaseline) + 1;
 
           if (latestReleased >= startNew) {
@@ -1193,7 +1191,7 @@ class _NotificationsPopupContentState extends State<_NotificationsPopupContent> 
         final cache = LibraryState().mangaCache;
         for (var item in libraryItems) {
           final int totalChapters = item.totalEpisodes ?? 0;
-          final int startBaseline = ackMap['manga_${item.id}'] ?? startMap['manga_${item.id}'] ?? totalChapters;
+          final int startBaseline = ackMap['manga_${item.id}'] ?? startMap['manga_${item.id}'] ?? 0;
           final int startNew = max(item.watchedEpisodes, startBaseline) + 1;
           if (totalChapters >= startNew) {
             final cached = cache[item.id];
@@ -1224,7 +1222,7 @@ class _NotificationsPopupContentState extends State<_NotificationsPopupContent> 
                 final videos = meta['videos'] as List? ?? [];
                 final int latestReleased = videos.length;
                 
-                final int startBaseline = ackMap['movies_${localItem.id}'] ?? startMap['movies_${localItem.id}'] ?? latestReleased;
+                final int startBaseline = ackMap['movies_${localItem.id}'] ?? startMap['movies_${localItem.id}'] ?? 0;
                 final int startNew = max(localItem.watchedEpisodes, startBaseline) + 1;
 
                 if (latestReleased >= startNew) {
@@ -1257,6 +1255,7 @@ class _NotificationsPopupContentState extends State<_NotificationsPopupContent> 
           _items = _allItems.take(_visibleCount).toList();
           _isLoading = false;
         });
+        LibraryState().clearNotificationBadge(widget.mode);
       }
     } catch (_) {
       if (mounted) setState(() { _isLoading = false; });
