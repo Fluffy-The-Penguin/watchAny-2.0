@@ -325,12 +325,13 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
     // Determine the Continue Watching details
     final prefs = await SharedPreferences.getInstance();
     final int lastEp = prefs.getInt('anime_continue_watching_last_ep_${widget.animeId}') ?? 1;
-    final pos = prefs.getInt('anime_playback_pos_${widget.animeId}_$lastEp');
-    final dur = prefs.getInt('anime_playback_dur_${widget.animeId}_$lastEp');
+    final pb = PlayerState().getProgress(widget.animeId, lastEp);
+    final pos = pb?.position ?? prefs.getInt('anime_playback_pos_${widget.animeId}_$lastEp');
+    final dur = pb?.duration ?? prefs.getInt('anime_playback_dur_${widget.animeId}_$lastEp');
 
     int targetEp = lastEp;
     bool finished = false;
-    if (pos != null && dur != null) {
+    if (pos != null && dur != null && dur > 0) {
       final ratio = pos / dur;
       if (ratio >= 0.90) {
         finished = true;
@@ -352,6 +353,70 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
         _hasCheckedContinue = true;
       });
     }
+  }
+
+  Future<void> _toggleEpisodeWatchedStatus(int epNum, bool currentlyWatched) async {
+    final library = LibraryState();
+    final item = library.getItem(widget.animeId, 'anime');
+
+    if (!currentlyWatched) {
+      await PlayerState().markEpisodeWatched(widget.animeId, epNum);
+
+      final int currentWatched = item?.watchedEpisodes ?? 0;
+      final int newWatched = max<int>(currentWatched, epNum);
+      if (item != null) {
+        await library.saveItem(
+          id: item.id,
+          mode: item.mode,
+          format: item.format,
+          libraryStatus: item.libraryStatus,
+          rating: item.rating,
+          watchedEpisodes: newWatched,
+          totalEpisodes: item.totalEpisodes,
+          categoryIds: item.categoryIds,
+        );
+      }
+    } else {
+      await PlayerState().clearEpisodeProgress(widget.animeId, epNum);
+
+      if (item != null && item.watchedEpisodes >= epNum) {
+        await library.saveItem(
+          id: item.id,
+          mode: item.mode,
+          format: item.format,
+          libraryStatus: item.libraryStatus,
+          rating: item.rating,
+          watchedEpisodes: max<int>(0, epNum - 1),
+          totalEpisodes: item.totalEpisodes,
+          categoryIds: item.categoryIds,
+        );
+      }
+    }
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _markEpisodesUpToWatched(int epNum) async {
+    final library = LibraryState();
+    final item = library.getItem(widget.animeId, 'anime');
+
+    final List<int> epNums = List.generate(epNum, (i) => i + 1);
+    await PlayerState().markMultipleEpisodesWatched(widget.animeId, epNums);
+
+    if (item != null) {
+      final int currentWatched = item.watchedEpisodes;
+      final int newWatched = max<int>(currentWatched, epNum);
+      await library.saveItem(
+        id: item.id,
+        mode: item.mode,
+        format: item.format,
+        libraryStatus: item.libraryStatus,
+        rating: item.rating,
+        watchedEpisodes: newWatched,
+        totalEpisodes: item.totalEpisodes,
+        categoryIds: item.categoryIds,
+      );
+    }
+    if (mounted) setState(() {});
   }
 
   Widget _buildContinueButton(bool isMobile) {
@@ -647,6 +712,7 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
     required String site,
     required String overview,
     required String airDate,
+    required bool isWatched,
   }) {
     showDialog(
       context: context,
@@ -868,6 +934,37 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
                               },
                               style: OutlinedButton.styleFrom(
                                 side: const BorderSide(color: Colors.white24),
+                                padding: const EdgeInsets.symmetric(vertical: 14.0),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(6.0),
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 12.0),
+                          SizedBox(
+                            width: double.infinity,
+                            child: OutlinedButton.icon(
+                              icon: Icon(
+                                isWatched ? Icons.remove_done : Icons.check_circle_outline,
+                                color: isWatched ? const Color(0xFFFF9F1C) : const Color(0xFF2EC4B6),
+                              ),
+                              label: Text(
+                                isWatched ? 'Mark as Unwatched' : 'Mark as Watched',
+                                style: TextStyle(
+                                  color: isWatched ? const Color(0xFFFF9F1C) : const Color(0xFF2EC4B6),
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14.0,
+                                ),
+                              ),
+                              onPressed: () async {
+                                Navigator.pop(context);
+                                await _toggleEpisodeWatchedStatus(epNum, isWatched);
+                              },
+                              style: OutlinedButton.styleFrom(
+                                side: BorderSide(
+                                  color: (isWatched ? const Color(0xFFFF9F1C) : const Color(0xFF2EC4B6)).withValues(alpha: 0.5),
+                                ),
                                 padding: const EdgeInsets.symmetric(vertical: 14.0),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(6.0),
@@ -2248,13 +2345,16 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
         ],
         // Grid View of Paged Episodes
         ListenableBuilder(
-          listenable: Listenable.merge([PlayerState(), DownloadService()]),
+          listenable: Listenable.merge([PlayerState(), DownloadService(), LibraryState()]),
           builder: (context, _) {
             final downloadedEps = DownloadService()
                 .tasks
                 .where((t) => t.anilistId == widget.animeId && t.status == DownloadStatus.completed)
                 .map((t) => t.episodeNumber)
                 .toSet();
+
+            final savedItem = LibraryState().getItem(widget.animeId, 'anime');
+            final int libraryWatchedEps = savedItem?.watchedEpisodes ?? 0;
 
             return GridView.builder(
               shrinkWrap: true,
@@ -2303,6 +2403,8 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
                   isDownloaded: isDownloaded,
                   isWatched: isWatched,
                   ratio: ratio,
+                  onToggleWatched: () => _toggleEpisodeWatchedStatus(epNum, isWatched),
+                  onMarkUpToWatched: () => _markEpisodesUpToWatched(epNum),
                   onTap: () {
                     final String overview = tmdbEp?['overview'] ?? '';
                     final String airDate = tmdbEp?['air_date'] ?? '';
@@ -2313,6 +2415,7 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
                       site: finalSite,
                       overview: overview,
                       airDate: airDate,
+                      isWatched: isWatched,
                     );
                   },
                 );
@@ -2369,6 +2472,8 @@ class _EpisodeCard extends StatefulWidget {
   final bool isWatched;
   final double ratio;
   final VoidCallback onTap;
+  final VoidCallback? onToggleWatched;
+  final VoidCallback? onMarkUpToWatched;
 
   const _EpisodeCard({
     required this.animeId,
@@ -2381,6 +2486,8 @@ class _EpisodeCard extends StatefulWidget {
     required this.isWatched,
     required this.ratio,
     required this.onTap,
+    this.onToggleWatched,
+    this.onMarkUpToWatched,
   });
 
   @override
@@ -2428,6 +2535,73 @@ class _EpisodeCardState extends State<_EpisodeCard> {
     } finally {
       _resolving = false;
     }
+  }
+
+  void _showEpisodeContextMenu(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF16161A),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16.0)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                margin: const EdgeInsets.symmetric(vertical: 8.0),
+                width: 36.0,
+                height: 4.0,
+                decoration: BoxDecoration(
+                  color: Colors.white24,
+                  borderRadius: BorderRadius.circular(2.0),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                child: Text(
+                  'Episode ${widget.epNum} Options',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: 'Outfit',
+                    fontSize: 16.0,
+                  ),
+                ),
+              ),
+              ListTile(
+                leading: Icon(
+                  widget.isWatched ? Icons.remove_done : Icons.check_circle_outline,
+                  color: widget.isWatched ? const Color(0xFFFF9F1C) : const Color(0xFF2EC4B6),
+                ),
+                title: Text(
+                  widget.isWatched ? 'Mark as Unwatched' : 'Mark as Watched',
+                  style: const TextStyle(color: Colors.white, fontFamily: 'Outfit'),
+                ),
+                onTap: () {
+                  Navigator.pop(context);
+                  widget.onToggleWatched?.call();
+                },
+              ),
+              if (!widget.isWatched)
+                ListTile(
+                  leading: const Icon(Icons.done_all, color: Colors.blueAccent),
+                  title: Text(
+                    'Mark 1 to ${widget.epNum} as Watched',
+                    style: const TextStyle(color: Colors.white, fontFamily: 'Outfit'),
+                  ),
+                  onTap: () {
+                    Navigator.pop(context);
+                    widget.onMarkUpToWatched?.call();
+                  },
+                ),
+              const SizedBox(height: 8.0),
+            ],
+          ),
+        );
+      },
+    );
   }
 
   @override
@@ -2489,6 +2663,7 @@ class _EpisodeCardState extends State<_EpisodeCard> {
         onExit: (_) => setState(() => _isHovered = false),
         child: GestureDetector(
           onTap: widget.onTap,
+          onLongPress: () => _showEpisodeContextMenu(context),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -2568,6 +2743,23 @@ class _EpisodeCardState extends State<_EpisodeCard> {
                           ),
                         ),
                       ),
+                      if (isWatched)
+                        Positioned(
+                          top: 8.0,
+                          right: isDownloaded ? 28.0 : 8.0,
+                          child: Container(
+                            padding: const EdgeInsets.all(3.0),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF2EC4B6).withValues(alpha: 0.9),
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(
+                              Icons.check,
+                              color: Colors.white,
+                              size: 11.0,
+                            ),
+                          ),
+                        ),
                       if (isDownloaded)
                         Positioned(
                           top: 8.0,

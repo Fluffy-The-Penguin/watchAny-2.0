@@ -223,6 +223,64 @@ class PlayerState extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> markEpisodeWatched(dynamic mediaId, int episode, {bool isAnime = true}) async {
+    final id = mediaId.toString();
+    final key = '${id}_$episode';
+    const pos = 1000;
+    const dur = 1000;
+    _progressCache[key] = PlaybackProgress(position: pos, duration: dur);
+    notifyListeners();
+
+    final prefix = isAnime ? 'anime_' : 'movie_';
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    await _db.into(_db.playbackPositions).insertOnConflictUpdate(
+      db.PlaybackPositionsCompanion.insert(
+        mediaId: id,
+        episode: episode,
+        prefix: prefix,
+        positionMs: pos,
+        durationMs: dur,
+        savedAt: now,
+      ),
+    );
+  }
+
+  Future<void> clearEpisodeProgress(dynamic mediaId, int episode) async {
+    final id = mediaId.toString();
+    final key = '${id}_$episode';
+    _progressCache.remove(key);
+    notifyListeners();
+
+    await (_db.delete(_db.playbackPositions)
+          ..where((tbl) => tbl.mediaId.equals(id) & tbl.episode.equals(episode)))
+        .go();
+  }
+
+  Future<void> markMultipleEpisodesWatched(dynamic mediaId, List<int> episodes, {bool isAnime = true}) async {
+    final id = mediaId.toString();
+    final prefix = isAnime ? 'anime_' : 'movie_';
+    final now = DateTime.now().millisecondsSinceEpoch;
+    const pos = 1000;
+    const dur = 1000;
+
+    for (final ep in episodes) {
+      final key = '${id}_$ep';
+      _progressCache[key] = PlaybackProgress(position: pos, duration: dur);
+      await _db.into(_db.playbackPositions).insertOnConflictUpdate(
+        db.PlaybackPositionsCompanion.insert(
+          mediaId: id,
+          episode: ep,
+          prefix: prefix,
+          positionMs: pos,
+          durationMs: dur,
+          savedAt: now,
+        ),
+      );
+    }
+    notifyListeners();
+  }
+
   void startPlayback({
     required String streamUrl,
     required String title,

@@ -89,8 +89,9 @@ class NotificationService {
     );
 
     try {
+      final notifId = DateTime.now().millisecondsSinceEpoch.remainder(100000);
       await _localNotificationsPlugin.show(
-        DateTime.now().millisecond,
+        notifId,
         title,
         body,
         details,

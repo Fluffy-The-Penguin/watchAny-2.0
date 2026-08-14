@@ -32,23 +32,23 @@ class AndroidBackgroundSync {
 
   Future<void> init() async {
     // Only register WorkManager on Android!
-    if (defaultTargetPlatform == TargetPlatform.android) {
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
       await Workmanager().initialize(
         callbackDispatcher,
         isInDebugMode: kDebugMode,
       );
 
-      // Register a periodic background task firing every 6 hours.
-      // Constraints: requires unmetered Wi-Fi and device to be charging.
+      // Register a periodic background task firing every 3 hours.
+      // Constraints: requires active network connection (Wi-Fi or cellular) and battery not low.
       await Workmanager().registerPeriodicTask(
         "watchany-periodic-sync",
         syncTaskName,
-        frequency: const Duration(hours: 6),
+        frequency: const Duration(hours: 3),
         constraints: Constraints(
-          networkType: NetworkType.unmetered,
-          requiresCharging: true,
+          networkType: NetworkType.connected,
+          requiresBatteryNotLow: true,
         ),
-        existingWorkPolicy: ExistingWorkPolicy.keep,
+        existingWorkPolicy: ExistingWorkPolicy.replace,
       );
       debugPrint("WorkManager periodic sync registered.");
     }

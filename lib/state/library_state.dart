@@ -17,6 +17,7 @@ import '../database/app_database.dart' as db;
 import 'package:drift/drift.dart' as drift;
 import 'library_providers.dart';
 import '../services/sync_isolate_worker.dart';
+import '../services/notification_service.dart';
 
 
 
@@ -1088,7 +1089,13 @@ class LibraryState extends ChangeNotifier {
 
     final ackMap = await _loadNotifMap(prefs, _notifAckKey);
     final startMap = await _loadNotifMap(prefs, _notifStartKey);
+    final notifiedMap = await _loadNotifMap(prefs, 'library_notified_released');
     bool startMapDirty = false;
+    bool notifiedMapDirty = false;
+
+    final List<String> newAnimeNotifications = [];
+    final List<String> newMangaNotifications = [];
+    final List<String> newMovieNotifications = [];
 
     // Gather IDs for synchronization
     final animeIds = _items.where((item) => item.mode == 'anime').map((item) => item.id).toList();
@@ -1141,7 +1148,17 @@ class LibraryState extends ChangeNotifier {
       int ackEp = ackMap['anime_$id'] ?? startMap[startKey]!;
       int watchedOrDownloaded = max(localItem.watchedEpisodes, maxDownloaded);
       if (ackEp < watchedOrDownloaded) ackEp = watchedOrDownloaded;
-      if (latestReleased > ackEp) animeCount++;
+      if (latestReleased > ackEp) {
+        animeCount++;
+        final String notifKey = 'anime_${id}_$latestReleased';
+        if (!notifiedMap.containsKey(notifKey)) {
+          notifiedMap[notifKey] = 1;
+          notifiedMapDirty = true;
+          final freshDetails = response.freshAnimeDetails[id];
+          final title = freshDetails?['title']?['english'] ?? freshDetails?['title']?['romaji'] ?? _animeCache[id]?['title']?['english'] ?? _animeCache[id]?['title']?['romaji'] ?? 'Anime';
+          newAnimeNotifications.add('Episode $latestReleased of "$title" is now available!');
+        }
+      }
 
       // Save fresh details to cache
       final freshDetails = response.freshAnimeDetails[id];
@@ -1187,7 +1204,16 @@ class LibraryState extends ChangeNotifier {
 
       int ackEp = ackMap['manga_$id'] ?? startMap[startKey]!;
       if (ackEp < localItem.watchedEpisodes) ackEp = localItem.watchedEpisodes;
-      if (totalChapters > ackEp) mangaCount++;
+      if (totalChapters > ackEp) {
+        mangaCount++;
+        final String notifKey = 'manga_${id}_$totalChapters';
+        if (!notifiedMap.containsKey(notifKey)) {
+          notifiedMap[notifKey] = 1;
+          notifiedMapDirty = true;
+          final title = _mangaCache[id]?['title'] ?? 'Manga';
+          newMangaNotifications.add('Chapter $totalChapters of "$title" is now available!');
+        }
+      }
     }
 
     // Handle manga total episode updates
@@ -1238,11 +1264,42 @@ class LibraryState extends ChangeNotifier {
       int ackEp = ackMap['movies_$id'] ?? startMap[startKey]!;
       int watchedOrDownloaded = max(localItem.watchedEpisodes, maxDownloaded);
       if (ackEp < watchedOrDownloaded) ackEp = watchedOrDownloaded;
-      if (latestReleased > ackEp) movieCount++;
+      if (latestReleased > ackEp) {
+        movieCount++;
+        final String notifKey = 'movies_${id}_$latestReleased';
+        if (!notifiedMap.containsKey(notifKey)) {
+          notifiedMap[notifKey] = 1;
+          notifiedMapDirty = true;
+          newMovieNotifications.add('Episode $latestReleased is now available!');
+        }
+      }
     }
 
     if (startMapDirty) await _saveNotifMap(prefs, _notifStartKey, startMap);
+    if (notifiedMapDirty) await _saveNotifMap(prefs, 'library_notified_released', notifiedMap);
     await prefs.setInt('library_last_notif_sync', DateTime.now().millisecondsSinceEpoch);
+
+    // Fire native notifications for newly detected releases
+    if (newAnimeNotifications.isNotEmpty) {
+      final String notifBody = newAnimeNotifications.length == 1
+          ? newAnimeNotifications.first
+          : '${newAnimeNotifications.length} anime in your library have new episodes available!';
+      await NotificationService().showNativeNotification('New Anime Episode!', notifBody);
+    }
+
+    if (newMangaNotifications.isNotEmpty) {
+      final String notifBody = newMangaNotifications.length == 1
+          ? newMangaNotifications.first
+          : '${newMangaNotifications.length} manga in your library have new chapters available!';
+      await NotificationService().showNativeNotification('New Manga Chapter!', notifBody);
+    }
+
+    if (newMovieNotifications.isNotEmpty) {
+      final String notifBody = newMovieNotifications.length == 1
+          ? newMovieNotifications.first
+          : '${newMovieNotifications.length} series in your library have new episodes available!';
+      await NotificationService().showNativeNotification('New TV Episode!', notifBody);
+    }
 
     bool changed = false;
     if (_animeNotificationCount != animeCount) { _animeNotificationCount = animeCount; _animeBadgeCleared = false; changed = true; }
