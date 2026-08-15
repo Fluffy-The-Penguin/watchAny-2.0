@@ -460,8 +460,10 @@ class _HeroSectionState extends State<_HeroSection> {
     final double screenHeight = MediaQuery.of(context).size.height;
     final bool isMobile = screenWidth < 800;
 
-    // Native Banner Height matching Details Page (Prevents vertical zoom)
-    final double heroHeight = isMobile ? 320.0 : 360.0;
+    // Big Full Banner View aligned to show full image at bottom
+    final double heroHeight = isMobile
+        ? 440.0
+        : (screenHeight * 0.52).clamp(480.0, 580.0);
 
     final int displayCount = featuredList.length > 6 ? 6 : featuredList.length;
 
@@ -470,7 +472,7 @@ class _HeroSectionState extends State<_HeroSection> {
       width: double.infinity,
       child: DarkCloudHeroBackground(
         imageUrl: bannerUrl,
-        imageAlignment: Alignment.topRight,
+        imageAlignment: Alignment.bottomRight,
         child: Stack(
           children: [
 

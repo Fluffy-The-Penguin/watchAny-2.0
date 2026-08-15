@@ -480,8 +480,10 @@ class _MoviesHomePageState extends State<MoviesHomePage> {
     final double screenHeight = MediaQuery.of(context).size.height;
     final bool isMobile = screenWidth < 800;
 
-    // Native Banner Height matching Details Page (Prevents vertical zoom)
-    final double heroHeight = isMobile ? 320.0 : 360.0;
+    // Big Full Banner View aligned to show full image at bottom
+    final double heroHeight = isMobile
+        ? 440.0
+        : (screenHeight * 0.52).clamp(480.0, 580.0);
 
     final int displayCount = _featuredItems.length > 6 ? 6 : _featuredItems.length;
 
@@ -516,7 +518,7 @@ class _MoviesHomePageState extends State<MoviesHomePage> {
 
               return DarkCloudHeroBackground(
                 imageUrl: background,
-                imageAlignment: Alignment.topRight,
+                imageAlignment: Alignment.bottomRight,
                 child: Stack(
                   children: [
 

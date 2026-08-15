@@ -13,7 +13,7 @@ class DarkCloudHeroBackground extends StatelessWidget {
     super.key,
     required this.imageUrl,
     this.child,
-    this.imageAlignment = Alignment.topRight,
+    this.imageAlignment = Alignment.bottomRight,
   });
 
   @override
