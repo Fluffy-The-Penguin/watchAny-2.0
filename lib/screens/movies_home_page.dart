@@ -536,6 +536,7 @@ class _MoviesHomePageState extends State<MoviesHomePage> {
                         ? CachedNetworkImage(
                             imageUrl: background,
                             fit: BoxFit.cover,
+                            alignment: Alignment.topCenter,
                             filterQuality: FilterQuality.high,
                             placeholder: (context, url) => Container(color: const Color(0xFF09090D)),
                             errorWidget: (context, url, err) => Container(color: const Color(0xFF09090D)),
@@ -583,11 +584,14 @@ class _MoviesHomePageState extends State<MoviesHomePage> {
                     builder: (context) {
                       final double cardFade = (1.0 - (scrollOffset / (screenHeight * 0.35))).clamp(0.0, 1.0);
                       final double cardOffsetY = -scrollOffset * 0.30;
+                      final double cardWidth = isMobile
+                          ? (screenWidth - 32.0)
+                          : (screenWidth > 1400 ? 520.0 : (screenWidth > 1100 ? 450.0 : 390.0));
 
                       return Positioned(
                         left: isMobile ? 16.0 : 44.0,
-                        bottom: isMobile ? 32.0 : 64.0,
-                        right: isMobile ? 16.0 : (screenWidth > 1200 ? 540.0 : 380.0),
+                        bottom: isMobile ? 24.0 : 48.0,
+                        width: cardWidth,
                         child: Transform.translate(
                           offset: Offset(0, cardOffsetY),
                           child: Opacity(
@@ -812,13 +816,20 @@ class _MoviesHomePageState extends State<MoviesHomePage> {
           if (!isMobile)
             Positioned(
               right: 44.0,
-              bottom: 64.0,
+              bottom: 48.0,
               child: Container(
-                padding: const EdgeInsets.all(8.0),
+                padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 8.0),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF0C0C10).withValues(alpha: 0.70),
+                  color: const Color(0xFF0C0C10).withValues(alpha: 0.55),
                   borderRadius: BorderRadius.circular(16.0),
-                  border: Border.all(color: Colors.white.withValues(alpha: 0.12), width: 1.0),
+                  border: Border.all(color: Colors.white.withValues(alpha: 0.08), width: 1.0),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.4),
+                      blurRadius: 20,
+                      spreadRadius: 2,
+                    ),
+                  ],
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
@@ -846,19 +857,19 @@ class _MoviesHomePageState extends State<MoviesHomePage> {
                         child: AnimatedContainer(
                           duration: const Duration(milliseconds: 300),
                           curve: Curves.easeOutCubic,
-                          margin: const EdgeInsets.symmetric(horizontal: 5.0),
-                          width: isSelected ? 140.0 : 100.0,
-                          height: 80.0,
+                          margin: const EdgeInsets.symmetric(horizontal: 4.0),
+                          width: isSelected ? 96.0 : 64.0,
+                          height: 54.0,
                           decoration: BoxDecoration(
                             borderRadius: BorderRadius.circular(10.0),
                             border: Border.all(
-                              color: isSelected ? const Color(0xFFE50914) : Colors.white12,
+                              color: isSelected ? const Color(0xFFE50914) : Colors.white.withValues(alpha: 0.15),
                               width: isSelected ? 2.0 : 1.0,
                             ),
                             boxShadow: isSelected
                                 ? [
                                     BoxShadow(
-                                      color: const Color(0xFFE50914).withValues(alpha: 0.5),
+                                      color: const Color(0xFFE50914).withValues(alpha: 0.4),
                                       blurRadius: 10,
                                     ),
                                   ]
@@ -871,42 +882,17 @@ class _MoviesHomePageState extends State<MoviesHomePage> {
                                 CachedNetworkImage(
                                   imageUrl: thumbUrl,
                                   fit: BoxFit.cover,
+                                  alignment: Alignment.topCenter,
                                   width: double.infinity,
                                   height: double.infinity,
-                                  memCacheWidth: 300,
+                                  memCacheWidth: 250,
                                   placeholder: (context, url) => Container(color: Colors.black26),
                                   errorWidget: (context, url, err) => Container(color: Colors.black26),
                                 ),
-                                Container(
-                                  decoration: BoxDecoration(
-                                    gradient: LinearGradient(
-                                      colors: [
-                                        Colors.black.withValues(alpha: 0.8),
-                                        Colors.transparent,
-                                      ],
-                                      begin: Alignment.bottomCenter,
-                                      end: Alignment.topCenter,
-                                    ),
-                                  ),
-                                ),
                                 if (!isSelected)
                                   Container(
-                                    color: Colors.black.withValues(alpha: 0.4),
+                                    color: Colors.black.withValues(alpha: 0.45),
                                   ),
-                                Positioned(
-                                  left: 6.0,
-                                  bottom: 6.0,
-                                  right: 6.0,
-                                  child: Text(
-                                    '#${index + 1}',
-                                    style: TextStyle(
-                                      color: isSelected ? const Color(0xFFE50914) : Colors.white70,
-                                      fontWeight: FontWeight.w900,
-                                      fontSize: 12.0,
-                                      fontFamily: 'Outfit',
-                                    ),
-                                  ),
-                                ),
                                 if (isSelected)
                                   Positioned(
                                     top: 0,
