@@ -39,35 +39,48 @@ open class NetworkHelper {
 
 
     companion object {
-        const val DEFAULT_USER_AGENT = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36"
+        val DEFAULT_USER_AGENT: String by lazy {
+            try {
+                val ctx = uy.kohesive.injekt.Injekt.get(android.content.Context::class.java)
+                android.webkit.WebSettings.getDefaultUserAgent(ctx)
+            } catch (_: Throwable) {
+                "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36"
+            }
+        }
 
-        private class MemoryCookieJar : okhttp3.CookieJar {
-            private val store = java.util.concurrent.ConcurrentHashMap<String, MutableList<okhttp3.Cookie>>()
+        private class AndroidCookieJar : okhttp3.CookieJar {
+            private val cookieManager by lazy {
+                try {
+                    android.webkit.CookieManager.getInstance().apply {
+                        setAcceptCookie(true)
+                    }
+                } catch (_: Throwable) {
+                    null
+                }
+            }
 
             override fun saveFromResponse(url: okhttp3.HttpUrl, cookies: List<okhttp3.Cookie>) {
-                val host = url.host
-                val existing = store.getOrPut(host) { mutableListOf() }
-                synchronized(existing) {
-                    cookies.forEach { cookie ->
-                        existing.removeAll { it.name == cookie.name }
-                        existing.add(cookie)
-                    }
+                val cm = cookieManager ?: return
+                val urlString = url.toString()
+                cookies.forEach { cookie ->
+                    try {
+                        cm.setCookie(urlString, cookie.toString())
+                    } catch (_: Throwable) {}
                 }
             }
 
             override fun loadForRequest(url: okhttp3.HttpUrl): List<okhttp3.Cookie> {
-                val host = url.host
-                val now = System.currentTimeMillis()
-                val result = mutableListOf<okhttp3.Cookie>()
-                store.entries.forEach { (domain, cookies) ->
-                    if (host == domain || host.endsWith(".$domain")) {
-                        synchronized(cookies) {
-                            cookies.removeAll { it.expiresAt < now }
-                            result.addAll(cookies)
-                        }
+                val cm = cookieManager ?: return emptyList()
+                val cookieString = try { cm.getCookie(url.toString()) } catch (_: Throwable) { null }
+                if (cookieString.isNullOrBlank()) return emptyList()
+
+                return cookieString.split(";").mapNotNull { part ->
+                    try {
+                        okhttp3.Cookie.parse(url, part.trim())
+                    } catch (_: Throwable) {
+                        null
                     }
                 }
-                return result
             }
         }
 
@@ -83,8 +96,7 @@ open class NetworkHelper {
                 .addInterceptor(UncaughtExceptionInterceptor())
                 .addInterceptor(UserAgentInterceptor())
                 .addInterceptor(CloudflareInterceptor())
-                .cookieJar(MemoryCookieJar())
-
+                .cookieJar(AndroidCookieJar())
                 .sslSocketFactory(sslContext.socketFactory, trustManager)
                 .hostnameVerifier { _, _ -> true }
                 .followRedirects(true)
