@@ -12,6 +12,7 @@ import '../state/library_state.dart';
 import '../services/download_service.dart';
 import '../services/notification_service.dart';
 import '../widgets/item_details_preview_popover.dart';
+import '../widgets/dark_cloud_hero_background.dart';
 
 
 class AnimeHomePage extends StatefulWidget {
@@ -282,7 +283,7 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
                             gradient: LinearGradient(
                               colors: [
                                 Colors.transparent,
-                                const Color(0xFFE50914).withValues(alpha: 0.6 * curveVal),
+                                Colors.white.withValues(alpha: 0.35 * curveVal),
                                 Colors.transparent,
                               ],
                             ),
@@ -438,7 +439,14 @@ class _HeroSectionState extends State<_HeroSection> {
     if (widget.trending.isEmpty) return const SizedBox.shrink();
 
     final anime = widget.trending[_heroIndex];
-    final String bannerUrl = anime['bannerImage'] ?? anime['coverImage']?['extraLarge'] ?? '';
+    String bannerUrl = (anime['bannerImage'] ?? '').toString();
+    final bool hasBanner = bannerUrl.isNotEmpty;
+    if (!hasBanner) {
+      bannerUrl = (anime['coverImage']?['extraLarge'] ?? anime['coverImage']?['large'] ?? '').toString();
+    }
+    if (bannerUrl.contains('image.tmdb.org/t/p/')) {
+      bannerUrl = bannerUrl.replaceAll(RegExp(r'/w\d+/'), '/original/');
+    }
     final String coverUrl = anime['coverImage']?['large'] ?? anime['coverImage']?['extraLarge'] ?? bannerUrl;
     final String title = anime['title']?['english'] ?? anime['title']?['romaji'] ?? 'Untitled';
     final String description = _cleanDescription(anime['description']);
@@ -460,67 +468,12 @@ class _HeroSectionState extends State<_HeroSection> {
     return SizedBox(
       height: heroHeight,
       width: double.infinity,
-      child: Stack(
-        children: [
-          // 1. Banner Image (Fading Transition)
-          Positioned.fill(
-            child: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 800),
-              switchInCurve: Curves.easeInOut,
-              switchOutCurve: Curves.easeInOut,
-              child: bannerUrl.isNotEmpty
-                  ? CachedNetworkImage(
-                      imageUrl: bannerUrl,
-                      key: ValueKey('hero_banner_${anime['id']}_$_heroIndex'),
-                      fit: BoxFit.cover,
-                      alignment: Alignment.topCenter,
-                      width: double.infinity,
-                      height: double.infinity,
-                      filterQuality: FilterQuality.high,
-                      placeholder: (context, url) => Container(color: const Color(0xFF09090D)),
-                      errorWidget: (context, url, error) => Container(color: const Color(0xFF09090D)),
-                    )
-                  : Container(color: const Color(0xFF09090D), key: const ValueKey('empty_banner')),
-            ),
-          ),
-
-          // 2. Multi-Layered Cinematic Ambient Gradients
-          // Top Vignette for Nav bar blending
-          Positioned.fill(
-            child: Container(
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    Colors.black87,
-                    Colors.transparent,
-                    Colors.transparent,
-                    Color(0xFF07070A),
-                  ],
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  stops: [0.0, 0.2, 0.6, 1.0],
-                ),
-              ),
-            ),
-          ),
-          // Heavy Left Dark Vignette
-          Positioned.fill(
-            child: Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    const Color(0xFF07070A).withValues(alpha: 0.94),
-                    const Color(0xFF07070A).withValues(alpha: 0.70),
-                    Colors.black.withValues(alpha: 0.20),
-                    Colors.transparent,
-                  ],
-                  begin: Alignment.centerLeft,
-                  end: Alignment.centerRight,
-                  stops: const [0.0, 0.40, 0.75, 1.0],
-                ),
-              ),
-            ),
-          ),
+      child: DarkCloudHeroBackground(
+        imageUrl: bannerUrl,
+        hasBanner: hasBanner,
+        imageAlignment: Alignment.topRight,
+        child: Stack(
+          children: [
 
           // 3. Floating Left Glassmorphic Content Card (With Scroll Parallax & Opacity Fade)
           Builder(
@@ -539,274 +492,249 @@ class _HeroSectionState extends State<_HeroSection> {
                   offset: Offset(0, cardOffsetY),
                   child: Opacity(
                     opacity: cardFade,
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(20.0),
-                      child: BackdropFilter(
-                        filter: ImageFilter.blur(sigmaX: 16.0, sigmaY: 16.0),
-                        child: Container(
-                  padding: EdgeInsets.all(isMobile ? 18.0 : 28.0),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF0C0C10).withValues(alpha: 0.75),
-                    borderRadius: BorderRadius.circular(20.0),
-                    border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.12),
-                      width: 1.2,
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.5),
-                        blurRadius: 30,
-                        spreadRadius: 4,
-                      ),
-                    ],
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // Tag & Metadata Badges Bar
-                      Wrap(
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        spacing: 8.0,
-                        runSpacing: 6.0,
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 4.0),
-                            decoration: BoxDecoration(
-                              gradient: const LinearGradient(
-                                colors: [Color(0xFFE50914), Color(0xFFB20710)],
-                              ),
-                              borderRadius: BorderRadius.circular(6.0),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: const Color(0xFFE50914).withValues(alpha: 0.5),
-                                  blurRadius: 10,
-                                ),
-                              ],
-                            ),
-                            child: Text(
-                              '★ #${_heroIndex + 1} TRENDING',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 11.0,
-                                fontWeight: FontWeight.w900,
-                                letterSpacing: 0.5,
-                                fontFamily: 'Outfit',
-                              ),
-                            ),
-                          ),
-                          if (format.isNotEmpty)
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // Tag & Metadata Badges Bar
+                        Wrap(
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          spacing: 8.0,
+                          runSpacing: 6.0,
+                          children: [
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 9.0, vertical: 4.0),
+                              padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 4.0),
                               decoration: BoxDecoration(
-                                color: Colors.white.withValues(alpha: 0.10),
+                                color: Colors.white.withValues(alpha: 0.12),
                                 borderRadius: BorderRadius.circular(6.0),
                                 border: Border.all(color: Colors.white24, width: 0.8),
                               ),
                               child: Text(
-                                format,
+                                '★ #${_heroIndex + 1} TRENDING',
                                 style: const TextStyle(
                                   color: Colors.white,
                                   fontSize: 11.0,
-                                  fontWeight: FontWeight.w600,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: 0.5,
                                   fontFamily: 'Outfit',
                                 ),
                               ),
                             ),
-                          if (episodes != null)
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 9.0, vertical: 4.0),
-                              decoration: BoxDecoration(
-                                color: Colors.white.withValues(alpha: 0.10),
-                                borderRadius: BorderRadius.circular(6.0),
-                                border: Border.all(color: Colors.white24, width: 0.8),
-                              ),
-                              child: Text(
-                                '$episodes Episodes',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 11.0,
-                                  fontWeight: FontWeight.w600,
-                                  fontFamily: 'Outfit',
+                            if (format.isNotEmpty)
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 9.0, vertical: 4.0),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withValues(alpha: 0.08),
+                                  borderRadius: BorderRadius.circular(6.0),
+                                  border: Border.all(color: Colors.white12, width: 0.8),
                                 ),
-                              ),
-                            ),
-                          if (rating != null)
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 9.0, vertical: 4.0),
-                              decoration: BoxDecoration(
-                                color: Colors.amber.withValues(alpha: 0.18),
-                                borderRadius: BorderRadius.circular(6.0),
-                                border: Border.all(color: Colors.amber.withValues(alpha: 0.6), width: 0.8),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const Icon(Icons.star_rounded, color: Colors.amber, size: 14.0),
-                                  const SizedBox(width: 3.0),
-                                  Text(
-                                    (rating / 10).toStringAsFixed(1),
-                                    style: const TextStyle(
-                                      color: Colors.amber,
-                                      fontSize: 11.0,
-                                      fontWeight: FontWeight.bold,
-                                      fontFamily: 'Outfit',
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                        ],
-                      ),
-                      const SizedBox(height: 14.0),
-
-                      // Main Title
-                      Text(
-                        title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: isMobile ? 22.0 : 36.0,
-                          fontWeight: FontWeight.w900,
-                          height: 1.15,
-                          fontFamily: 'Outfit',
-                          letterSpacing: -0.5,
-                        ),
-                      ),
-
-                      // Synopsis Description
-                      if (description.isNotEmpty) ...[
-                        const SizedBox(height: 10.0),
-                        Text(
-                          description,
-                          maxLines: isMobile ? 2 : 3,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.80),
-                            fontSize: isMobile ? 12.0 : 13.5,
-                            height: 1.45,
-                            fontStyle: FontStyle.italic,
-                            fontFamily: 'Outfit',
-                          ),
-                        ),
-                      ],
-                      const SizedBox(height: 22.0),
-
-                      // Action Buttons Row
-                      Row(
-                        children: [
-                          ElevatedButton.icon(
-                            icon: Icon(Icons.play_arrow_rounded, color: Colors.white, size: isMobile ? 18 : 22),
-                            label: Text(isMobile ? 'Watch' : 'Watch Now'),
-                            onPressed: () {
-                              widget.navigationState.selectAnime(anime['id']);
-                            },
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFFE50914),
-                              foregroundColor: Colors.white,
-                              padding: EdgeInsets.symmetric(
-                                horizontal: isMobile ? 18.0 : 26.0,
-                                vertical: isMobile ? 11.0 : 15.0,
-                              ),
-                              elevation: 8,
-                              shadowColor: const Color(0xFFE50914).withValues(alpha: 0.5),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.0)),
-                              textStyle: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: isMobile ? 13.0 : 14.5,
-                                fontFamily: 'Outfit',
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 10.0),
-                          ListenableBuilder(
-                            listenable: LibraryState(),
-                            builder: (context, _) {
-                              final int idInt = anime['id'] is int ? anime['id'] : (int.tryParse(anime['id'].toString()) ?? 0);
-                              final bool isSaved = idInt != 0 && LibraryState().isSaved(idInt, 'anime');
-
-                              return OutlinedButton.icon(
-                                icon: Icon(
-                                  isSaved ? Icons.check_rounded : Icons.add_rounded,
-                                  color: isSaved ? const Color(0xFFE50914) : Colors.white,
-                                  size: isMobile ? 16 : 19,
-                                ),
-                                label: Text(isSaved ? 'In Library' : 'Add Library'),
-                                onPressed: () async {
-                                  if (idInt == 0) return;
-                                  final library = LibraryState();
-                                  if (isSaved) {
-                                    await library.removeItem(idInt, 'anime');
-                                    if (context.mounted) NotificationService().show(context, 'Removed from Library');
-                                  } else {
-                                    await library.saveItem(
-                                      id: idInt,
-                                      mode: 'anime',
-                                      format: format.isNotEmpty ? format : 'TV',
-                                      libraryStatus: 'planning',
-                                      rating: (rating ?? 0) / 10,
-                                      watchedEpisodes: 0,
-                                    );
-                                    if (context.mounted) NotificationService().show(context, 'Added to Library');
-                                  }
-                                },
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor: Colors.white,
-                                  backgroundColor: Colors.white.withValues(alpha: 0.08),
-                                  side: BorderSide(
-                                    color: isSaved ? const Color(0xFFE50914) : Colors.white30,
-                                    width: 1.0,
-                                  ),
-                                  padding: EdgeInsets.symmetric(
-                                    horizontal: isMobile ? 14.0 : 18.0,
-                                    vertical: isMobile ? 11.0 : 15.0,
-                                  ),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.0)),
-                                  textStyle: TextStyle(
+                                child: Text(
+                                  format,
+                                  style: const TextStyle(
+                                    color: Colors.white70,
+                                    fontSize: 11.0,
                                     fontWeight: FontWeight.w600,
-                                    fontSize: isMobile ? 12.5 : 14.0,
                                     fontFamily: 'Outfit',
                                   ),
                                 ),
-                              );
-                            },
+                              ),
+                            if (episodes != null)
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 9.0, vertical: 4.0),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withValues(alpha: 0.08),
+                                  borderRadius: BorderRadius.circular(6.0),
+                                  border: Border.all(color: Colors.white12, width: 0.8),
+                                ),
+                                child: Text(
+                                  '$episodes Episodes',
+                                  style: const TextStyle(
+                                    color: Colors.white70,
+                                    fontSize: 11.0,
+                                    fontWeight: FontWeight.w600,
+                                    fontFamily: 'Outfit',
+                                  ),
+                                ),
+                              ),
+                            if (rating != null)
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 9.0, vertical: 4.0),
+                                decoration: BoxDecoration(
+                                  color: Colors.amber.withValues(alpha: 0.18),
+                                  borderRadius: BorderRadius.circular(6.0),
+                                  border: Border.all(color: Colors.amber.withValues(alpha: 0.6), width: 0.8),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(Icons.star_rounded, color: Colors.amber, size: 14.0),
+                                    const SizedBox(width: 3.0),
+                                    Text(
+                                      (rating / 10).toStringAsFixed(1),
+                                      style: const TextStyle(
+                                        color: Colors.amber,
+                                        fontSize: 11.0,
+                                        fontWeight: FontWeight.bold,
+                                        fontFamily: 'Outfit',
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 14.0),
+
+                        // Main Title
+                        Text(
+                          title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: isMobile ? 24.0 : 40.0,
+                            fontWeight: FontWeight.w900,
+                            height: 1.12,
+                            fontFamily: 'Outfit',
+                            letterSpacing: -0.5,
+                            shadows: const [
+                              Shadow(color: Colors.black87, blurRadius: 16),
+                            ],
                           ),
-                          const SizedBox(width: 10.0),
-                          OutlinedButton.icon(
-                            icon: Icon(Icons.info_outline_rounded, color: Colors.white, size: isMobile ? 16 : 19),
-                            label: const Text('Details'),
-                            onPressed: () {
-                              widget.navigationState.selectAnime(anime['id']);
-                            },
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: Colors.white,
-                              backgroundColor: Colors.white.withValues(alpha: 0.08),
-                              side: const BorderSide(color: Colors.white30, width: 1.0),
-                              padding: EdgeInsets.symmetric(
-                                horizontal: isMobile ? 14.0 : 18.0,
-                                vertical: isMobile ? 11.0 : 15.0,
-                              ),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.0)),
-                              textStyle: TextStyle(
-                                fontWeight: FontWeight.w600,
-                                fontSize: isMobile ? 12.5 : 14.0,
-                                fontFamily: 'Outfit',
-                              ),
+                        ),
+
+                        // Synopsis Description
+                        if (description.isNotEmpty) ...[
+                          const SizedBox(height: 12.0),
+                          Text(
+                            description,
+                            maxLines: isMobile ? 2 : 3,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.85),
+                              fontSize: isMobile ? 12.5 : 14.0,
+                              height: 1.45,
+                              fontStyle: FontStyle.italic,
+                              fontFamily: 'Outfit',
+                              shadows: const [
+                                Shadow(color: Colors.black87, blurRadius: 12),
+                              ],
                             ),
                           ),
                         ],
-                      ),
-                    ],
+                        const SizedBox(height: 22.0),
+
+                        // Action Buttons Row
+                        Row(
+                          children: [
+                            ElevatedButton.icon(
+                              icon: Icon(Icons.play_arrow_rounded, color: Colors.black, size: isMobile ? 18 : 22),
+                              label: Text(isMobile ? 'Watch' : 'Watch Now'),
+                              onPressed: () {
+                                widget.navigationState.selectAnime(anime['id']);
+                              },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.white,
+                                foregroundColor: Colors.black,
+                                padding: EdgeInsets.symmetric(
+                                  horizontal: isMobile ? 18.0 : 26.0,
+                                  vertical: isMobile ? 11.0 : 15.0,
+                                ),
+                                elevation: 6,
+                                shadowColor: Colors.black54,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.0)),
+                                textStyle: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: isMobile ? 13.0 : 14.5,
+                                  fontFamily: 'Outfit',
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 10.0),
+                            ListenableBuilder(
+                              listenable: LibraryState(),
+                              builder: (context, _) {
+                                final int idInt = anime['id'] is int ? anime['id'] : (int.tryParse(anime['id'].toString()) ?? 0);
+                                final bool isSaved = idInt != 0 && LibraryState().isSaved(idInt, 'anime');
+
+                                return OutlinedButton.icon(
+                                  icon: Icon(
+                                    isSaved ? Icons.check_rounded : Icons.add_rounded,
+                                    color: Colors.white,
+                                    size: isMobile ? 16 : 19,
+                                  ),
+                                  label: Text(isSaved ? 'In Library' : 'Add Library'),
+                                  onPressed: () async {
+                                    if (idInt == 0) return;
+                                    final library = LibraryState();
+                                    if (isSaved) {
+                                      await library.removeItem(idInt, 'anime');
+                                      if (context.mounted) NotificationService().show(context, 'Removed from Library');
+                                    } else {
+                                      await library.saveItem(
+                                        id: idInt,
+                                        mode: 'anime',
+                                        format: format.isNotEmpty ? format : 'TV',
+                                        libraryStatus: 'planning',
+                                        rating: (rating ?? 0) / 10,
+                                        watchedEpisodes: 0,
+                                      );
+                                      if (context.mounted) NotificationService().show(context, 'Added to Library');
+                                    }
+                                  },
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: Colors.white,
+                                    backgroundColor: Colors.black.withValues(alpha: 0.40),
+                                    side: const BorderSide(
+                                      color: Colors.white38,
+                                      width: 1.0,
+                                    ),
+                                    padding: EdgeInsets.symmetric(
+                                      horizontal: isMobile ? 14.0 : 18.0,
+                                      vertical: isMobile ? 11.0 : 15.0,
+                                    ),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.0)),
+                                    textStyle: TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: isMobile ? 12.5 : 14.0,
+                                      fontFamily: 'Outfit',
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                            const SizedBox(width: 10.0),
+                            OutlinedButton.icon(
+                              icon: Icon(Icons.info_outline_rounded, color: Colors.white, size: isMobile ? 16 : 19),
+                              label: const Text('Details'),
+                              onPressed: () {
+                                widget.navigationState.selectAnime(anime['id']);
+                              },
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: Colors.white,
+                                backgroundColor: Colors.black.withValues(alpha: 0.40),
+                                side: const BorderSide(color: Colors.white38, width: 1.0),
+                                padding: EdgeInsets.symmetric(
+                                  horizontal: isMobile ? 14.0 : 18.0,
+                                  vertical: isMobile ? 11.0 : 15.0,
+                                ),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.0)),
+                                textStyle: TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: isMobile ? 12.5 : 14.0,
+                                  fontFamily: 'Outfit',
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ),
-            ),
+              );
+            },
           ),
-        ),
-      );
-    },
-  ),
 
           // 4. Horizontal Floating Cards Dock Switcher (Bottom Right on Desktop)
           if (!isMobile)
@@ -855,13 +783,13 @@ class _HeroSectionState extends State<_HeroSection> {
                           decoration: BoxDecoration(
                             borderRadius: BorderRadius.circular(10.0),
                             border: Border.all(
-                              color: isSelected ? const Color(0xFFE50914) : Colors.white.withValues(alpha: 0.15),
+                              color: isSelected ? Colors.white : Colors.white.withValues(alpha: 0.15),
                               width: isSelected ? 2.0 : 1.0,
                             ),
                             boxShadow: isSelected
                                 ? [
                                     BoxShadow(
-                                      color: const Color(0xFFE50914).withValues(alpha: 0.4),
+                                      color: Colors.white.withValues(alpha: 0.3),
                                       blurRadius: 10,
                                     ),
                                   ]
@@ -892,7 +820,7 @@ class _HeroSectionState extends State<_HeroSection> {
                                     right: 0,
                                     child: Container(
                                       height: 3.0,
-                                      color: const Color(0xFFE50914),
+                                      color: Colors.white,
                                     ),
                                   ),
                               ],
@@ -933,7 +861,7 @@ class _HeroSectionState extends State<_HeroSection> {
                       ),
                     ),
                     SizedBox(width: 6.0),
-                    Icon(Icons.keyboard_arrow_down_rounded, color: Color(0xFFE50914), size: 16.0),
+                    Icon(Icons.keyboard_arrow_down_rounded, color: Colors.white70, size: 16.0),
                   ],
                 ),
               ),
@@ -941,7 +869,8 @@ class _HeroSectionState extends State<_HeroSection> {
           ),
         ],
       ),
-    );
+    ),
+  );
   }
 }
 
@@ -1331,10 +1260,10 @@ class _AnimeCardState extends State<_AnimeCard> {
                                 child: Container(
                                   padding: const EdgeInsets.all(4.0),
                                   decoration: BoxDecoration(
-                                    color: isSavedInLib ? const Color(0xFFE50914) : Colors.black.withValues(alpha: 0.88),
+                                    color: isSavedInLib ? Colors.white : Colors.black.withValues(alpha: 0.88),
                                     borderRadius: BorderRadius.circular(6.0),
                                     border: Border.all(
-                                      color: isSavedInLib ? const Color(0xFFE50914) : Colors.white30,
+                                      color: isSavedInLib ? Colors.white : Colors.white30,
                                       width: 1.0,
                                     ),
                                     boxShadow: const [
@@ -1343,7 +1272,7 @@ class _AnimeCardState extends State<_AnimeCard> {
                                   ),
                                   child: Icon(
                                     isSavedInLib ? Icons.check_rounded : Icons.add_rounded,
-                                    color: Colors.white,
+                                    color: isSavedInLib ? Colors.black : Colors.white,
                                     size: 13.0,
                                   ),
                                 ),

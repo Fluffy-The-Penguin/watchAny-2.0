@@ -151,10 +151,17 @@ class _PreviewCard extends StatelessWidget {
             ? (item['coverImage']['large'] ?? item['coverImage']['extraLarge'] ?? '')
             : (item['coverImage']?.toString() ?? ''));
 
-    final description = _cleanHtml(item['description']?.toString());
+    final String rawDesc = item['description']?.toString() ??
+        item['overview']?.toString() ??
+        item['synopsis']?.toString() ??
+        item['summary']?.toString() ??
+        '';
+    final description = _cleanHtml(rawDesc);
     final format = isMovie ? (item['type']?.toString().toUpperCase() ?? 'MOVIE') : (item['format']?.toString() ?? 'TV');
     final status = isMovie ? null : (item['status']?.toString() ?? '');
-    
+    final String? year = (item['year'] ?? item['releaseYear'] ?? item['seasonYear'])?.toString();
+    final String? episodes = (item['episodes'] ?? item['episodeCount'])?.toString();
+
     double? rating;
     if (isMovie) {
       if (item['imdbRating'] != null) {
@@ -189,15 +196,15 @@ class _PreviewCard extends StatelessWidget {
       },
       child: Container(
         decoration: BoxDecoration(
-          color: const Color(0xFF0F0F14),
+          color: const Color(0xFF0D0D12),
           borderRadius: BorderRadius.circular(16.0),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.14), width: 1.0),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.16), width: 1.0),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.8),
-              blurRadius: 28,
-              spreadRadius: 6,
-              offset: const Offset(0, 10),
+              color: Colors.black.withValues(alpha: 0.9),
+              blurRadius: 32,
+              spreadRadius: 8,
+              offset: const Offset(0, 12),
             ),
           ],
         ),
@@ -207,15 +214,11 @@ class _PreviewCard extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Top Crimson Glow Accent Line
+              // Top Sleek Dark Neutral Border
               Container(
-                height: 3.0,
+                height: 2.0,
                 width: double.infinity,
-                decoration: const BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [Color(0xFFE50914), Color(0xFFB20710)],
-                  ),
-                ),
+                color: Colors.white.withValues(alpha: 0.20),
               ),
               Padding(
                 padding: const EdgeInsets.all(16.0),
@@ -301,6 +304,32 @@ class _PreviewCard extends StatelessWidget {
                                       style: const TextStyle(color: Colors.white70, fontSize: 10.5, fontWeight: FontWeight.w600, fontFamily: 'Outfit'),
                                     ),
                                   ),
+                                  if (year != null && year.isNotEmpty)
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 7.0, vertical: 3.0),
+                                      decoration: BoxDecoration(
+                                        color: Colors.white.withValues(alpha: 0.08),
+                                        borderRadius: BorderRadius.circular(5.0),
+                                        border: Border.all(color: Colors.white12, width: 0.8),
+                                      ),
+                                      child: Text(
+                                        year,
+                                        style: const TextStyle(color: Colors.white70, fontSize: 10.5, fontFamily: 'Outfit'),
+                                      ),
+                                    ),
+                                  if (episodes != null && episodes.isNotEmpty)
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 7.0, vertical: 3.0),
+                                      decoration: BoxDecoration(
+                                        color: Colors.white.withValues(alpha: 0.08),
+                                        borderRadius: BorderRadius.circular(5.0),
+                                        border: Border.all(color: Colors.white12, width: 0.8),
+                                      ),
+                                      child: Text(
+                                        '$episodes Ep',
+                                        style: const TextStyle(color: Colors.white70, fontSize: 10.5, fontFamily: 'Outfit'),
+                                      ),
+                                    ),
                                   if (status != null && status.isNotEmpty)
                                     Container(
                                       padding: const EdgeInsets.symmetric(horizontal: 7.0, vertical: 3.0),
@@ -370,11 +399,11 @@ class _PreviewCard extends StatelessWidget {
                       icon: const Icon(Icons.play_arrow_rounded, size: 16.0),
                       label: const Text('View Details'),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFE50914),
-                        foregroundColor: Colors.white,
+                        backgroundColor: Colors.white,
+                        foregroundColor: Colors.black,
                         minimumSize: const Size.fromHeight(38.0),
                         elevation: 4,
-                        shadowColor: const Color(0xFFE50914).withValues(alpha: 0.4),
+                        shadowColor: Colors.black45,
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
                         textStyle: const TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 12.5),
                       ),

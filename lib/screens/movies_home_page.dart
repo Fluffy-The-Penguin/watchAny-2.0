@@ -16,6 +16,7 @@ import '../services/download_service.dart';
 import '../services/notification_service.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../widgets/item_details_preview_popover.dart';
+import '../widgets/dark_cloud_hero_background.dart';
 
 
 class MoviesHomePage extends StatefulWidget {
@@ -412,7 +413,7 @@ class _MoviesHomePageState extends State<MoviesHomePage> {
                                 gradient: LinearGradient(
                                   colors: [
                                     Colors.transparent,
-                                    const Color(0xFFE50914).withValues(alpha: 0.6 * curveVal),
+                                    Colors.white.withValues(alpha: 0.35 * curveVal),
                                     Colors.transparent,
                                   ],
                                 ),
@@ -519,7 +520,11 @@ class _MoviesHomePageState extends State<MoviesHomePage> {
             },
             itemBuilder: (context, index) {
               final item = _featuredItems[index];
-              final background = item['background'] ?? item['poster'] ?? '';
+              String rawBg = (item['background'] ?? item['backdrop'] ?? item['poster'] ?? '').toString();
+              if (rawBg.contains('image.tmdb.org/t/p/')) {
+                rawBg = rawBg.replaceAll(RegExp(r'/w\d+/'), '/original/');
+              }
+              final background = rawBg;
               final title = item['name'] ?? item['title'] ?? 'Featured Content';
               final overview = item['description'] ?? item['overview'] ?? '';
               final type = item['type'] ?? 'movie';
@@ -528,56 +533,12 @@ class _MoviesHomePageState extends State<MoviesHomePage> {
                   ? double.tryParse(item['imdbRating'].toString())
                   : null;
 
-              return Stack(
-                children: [
-                  // Backdrop Image
-                  Positioned.fill(
-                    child: background.isNotEmpty
-                        ? CachedNetworkImage(
-                            imageUrl: background,
-                            fit: BoxFit.cover,
-                            alignment: Alignment.topCenter,
-                            filterQuality: FilterQuality.high,
-                            placeholder: (context, url) => Container(color: const Color(0xFF09090D)),
-                            errorWidget: (context, url, err) => Container(color: const Color(0xFF09090D)),
-                          )
-                        : Container(color: const Color(0xFF09090D)),
-                  ),
-
-                  // Gradients for Legibility & Deep Bottom Integration
-                  Positioned.fill(
-                    child: Container(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [
-                            Colors.black.withValues(alpha: 0.85),
-                            Colors.black.withValues(alpha: 0.40),
-                            Colors.transparent,
-                            Colors.black.withValues(alpha: 0.95),
-                          ],
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          stops: const [0.0, 0.35, 0.65, 1.0],
-                        ),
-                      ),
-                    ),
-                  ),
-                  Positioned.fill(
-                    child: Container(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [
-                            const Color(0xFF07070A).withValues(alpha: 0.70),
-                            Colors.black.withValues(alpha: 0.20),
-                            Colors.transparent,
-                          ],
-                          begin: Alignment.centerLeft,
-                          end: Alignment.centerRight,
-                          stops: const [0.0, 0.40, 0.75],
-                        ),
-                      ),
-                    ),
-                  ),
+              return DarkCloudHeroBackground(
+                imageUrl: background,
+                hasBanner: true,
+                imageAlignment: Alignment.topRight,
+                child: Stack(
+                  children: [
 
                   // Left Floating Glassmorphic Card (With Scroll Parallax & Opacity Fade)
                   Builder(
@@ -596,221 +557,198 @@ class _MoviesHomePageState extends State<MoviesHomePage> {
                           offset: Offset(0, cardOffsetY),
                           child: Opacity(
                             opacity: cardFade,
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(20.0),
-                              child: BackdropFilter(
-                                filter: ImageFilter.blur(sigmaX: 16.0, sigmaY: 16.0),
-                                child: Container(
-                                  padding: EdgeInsets.all(isMobile ? 18.0 : 28.0),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFF0C0C10).withValues(alpha: 0.75),
-                                    borderRadius: BorderRadius.circular(20.0),
-                                    border: Border.all(
-                                      color: Colors.white.withValues(alpha: 0.12),
-                                      width: 1.2,
-                                    ),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: Colors.black.withValues(alpha: 0.5),
-                                        blurRadius: 30,
-                                        spreadRadius: 4,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                // Badges Row
+                                Wrap(
+                                  crossAxisAlignment: WrapCrossAlignment.center,
+                                  spacing: 8.0,
+                                  runSpacing: 6.0,
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 4.0),
+                                      decoration: BoxDecoration(
+                                        color: Colors.white.withValues(alpha: 0.12),
+                                        borderRadius: BorderRadius.circular(6.0),
+                                        border: Border.all(color: Colors.white24, width: 0.8),
                                       ),
-                                    ],
-                                  ),
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      // Badges Row
-                                      Wrap(
-                                        crossAxisAlignment: WrapCrossAlignment.center,
-                                        spacing: 8.0,
-                                        runSpacing: 6.0,
-                                children: [
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 4.0),
-                                    decoration: BoxDecoration(
-                                      gradient: const LinearGradient(
-                                        colors: [Color(0xFFE50914), Color(0xFFB20710)],
-                                      ),
-                                      borderRadius: BorderRadius.circular(6.0),
-                                      boxShadow: [
-                                        BoxShadow(
-                                          color: const Color(0xFFE50914).withValues(alpha: 0.5),
-                                          blurRadius: 10,
+                                      child: Text(
+                                        '★ #${index + 1} FEATURED',
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 11.0,
+                                          fontWeight: FontWeight.w800,
+                                          letterSpacing: 0.5,
+                                          fontFamily: 'Outfit',
                                         ),
-                                      ],
-                                    ),
-                                    child: Text(
-                                      '★ #${index + 1} FEATURED',
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 11.0,
-                                        fontWeight: FontWeight.w900,
-                                        letterSpacing: 0.5,
-                                        fontFamily: 'Outfit',
                                       ),
                                     ),
-                                  ),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 9.0, vertical: 4.0),
-                                    decoration: BoxDecoration(
-                                      color: Colors.white.withValues(alpha: 0.10),
-                                      borderRadius: BorderRadius.circular(6.0),
-                                      border: Border.all(color: Colors.white24, width: 0.8),
-                                    ),
-                                    child: Text(
-                                      type.toUpperCase(),
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 11.0,
-                                        fontWeight: FontWeight.w600,
-                                        fontFamily: 'Outfit',
-                                      ),
-                                    ),
-                                  ),
-                                  if (rating != null)
                                     Container(
                                       padding: const EdgeInsets.symmetric(horizontal: 9.0, vertical: 4.0),
                                       decoration: BoxDecoration(
-                                        color: Colors.amber.withValues(alpha: 0.18),
+                                        color: Colors.white.withValues(alpha: 0.08),
                                         borderRadius: BorderRadius.circular(6.0),
-                                        border: Border.all(color: Colors.amber.withValues(alpha: 0.6), width: 0.8),
+                                        border: Border.all(color: Colors.white12, width: 0.8),
                                       ),
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          const Icon(Icons.star_rounded, color: Colors.amber, size: 14.0),
-                                          const SizedBox(width: 3.0),
-                                          Text(
-                                            rating.toStringAsFixed(1),
-                                            style: const TextStyle(
-                                              color: Colors.amber,
-                                              fontSize: 11.0,
-                                              fontWeight: FontWeight.bold,
-                                              fontFamily: 'Outfit',
-                                            ),
-                                          ),
-                                        ],
+                                      child: Text(
+                                        type.toUpperCase(),
+                                        style: const TextStyle(
+                                          color: Colors.white70,
+                                          fontSize: 11.0,
+                                          fontWeight: FontWeight.w600,
+                                          fontFamily: 'Outfit',
+                                        ),
                                       ),
                                     ),
-                                ],
-                              ),
-                              const SizedBox(height: 14.0),
-
-                              // Title
-                              Text(
-                                title,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: isMobile ? 22.0 : 36.0,
-                                  fontWeight: FontWeight.w900,
-                                  height: 1.15,
-                                  fontFamily: 'Outfit',
-                                  letterSpacing: -0.5,
+                                    if (rating != null)
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 9.0, vertical: 4.0),
+                                        decoration: BoxDecoration(
+                                          color: Colors.amber.withValues(alpha: 0.18),
+                                          borderRadius: BorderRadius.circular(6.0),
+                                          border: Border.all(color: Colors.amber.withValues(alpha: 0.6), width: 0.8),
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            const Icon(Icons.star_rounded, color: Colors.amber, size: 14.0),
+                                            const SizedBox(width: 3.0),
+                                            Text(
+                                              rating.toStringAsFixed(1),
+                                              style: const TextStyle(
+                                                color: Colors.amber,
+                                                fontSize: 11.0,
+                                                fontWeight: FontWeight.bold,
+                                                fontFamily: 'Outfit',
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                  ],
                                 ),
-                              ),
+                                const SizedBox(height: 14.0),
 
-                              // Description
-                              if (overview.isNotEmpty) ...[
-                                const SizedBox(height: 10.0),
+                                // Title
                                 Text(
-                                  overview,
-                                  maxLines: isMobile ? 2 : 3,
+                                  title,
+                                  maxLines: 2,
                                   overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
-                                    color: Colors.white.withValues(alpha: 0.80),
-                                    fontSize: isMobile ? 12.0 : 13.5,
-                                    height: 1.45,
-                                    fontStyle: FontStyle.italic,
+                                    color: Colors.white,
+                                    fontSize: isMobile ? 24.0 : 40.0,
+                                    fontWeight: FontWeight.w900,
+                                    height: 1.12,
                                     fontFamily: 'Outfit',
+                                    letterSpacing: -0.5,
+                                    shadows: const [
+                                      Shadow(color: Colors.black87, blurRadius: 16),
+                                    ],
                                   ),
                                 ),
-                              ],
-                              const SizedBox(height: 22.0),
 
-                              // Action Buttons
-                              Row(
-                                children: [
-                                  ElevatedButton.icon(
-                                    onPressed: id.isNotEmpty
-                                        ? () {
-                                            MovieMetadataCache.placeholders[id] =
-                                                Map<String, dynamic>.from(item);
-                                            MovieMetadataCache.placeholders['$type:$id'] =
-                                                Map<String, dynamic>.from(item);
-                                            widget.navigationState.selectMovie('$type:$id');
-                                          }
-                                        : null,
-                                    icon: Icon(
-                                      type == 'series' ? Icons.play_arrow_rounded : Icons.play_arrow_rounded,
-                                      size: isMobile ? 18 : 22,
-                                    ),
-                                    label: Text(type == 'series' ? 'Watch Series' : 'Watch Movie'),
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: const Color(0xFFE50914),
-                                      foregroundColor: Colors.white,
-                                      elevation: 6,
-                                      shadowColor: const Color(0xFFE50914).withValues(alpha: 0.5),
-                                      padding: EdgeInsets.symmetric(
-                                        horizontal: isMobile ? 16.0 : 22.0,
-                                        vertical: isMobile ? 12.0 : 16.0,
-                                      ),
-                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.0)),
-                                      textStyle: TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: isMobile ? 13.0 : 15.0,
-                                        fontFamily: 'Outfit',
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12.0),
-                                  OutlinedButton.icon(
-                                    onPressed: id.isNotEmpty
-                                        ? () {
-                                            MovieMetadataCache.placeholders[id] =
-                                                Map<String, dynamic>.from(item);
-                                            MovieMetadataCache.placeholders['$type:$id'] =
-                                                Map<String, dynamic>.from(item);
-                                            widget.navigationState.selectMovie('$type:$id');
-                                          }
-                                        : null,
-                                    icon: Icon(Icons.info_outline_rounded, color: Colors.white, size: isMobile ? 16 : 19),
-                                    label: const Text('Details'),
-                                    style: OutlinedButton.styleFrom(
-                                      foregroundColor: Colors.white,
-                                      backgroundColor: Colors.white.withValues(alpha: 0.08),
-                                      side: const BorderSide(color: Colors.white30, width: 1.0),
-                                      padding: EdgeInsets.symmetric(
-                                        horizontal: isMobile ? 14.0 : 18.0,
-                                        vertical: isMobile ? 11.0 : 15.0,
-                                      ),
-                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.0)),
-                                      textStyle: TextStyle(
-                                        fontWeight: FontWeight.w600,
-                                        fontSize: isMobile ? 12.5 : 14.0,
-                                        fontFamily: 'Outfit',
-                                      ),
+                                // Description
+                                if (overview.isNotEmpty) ...[
+                                  const SizedBox(height: 12.0),
+                                  Text(
+                                    overview,
+                                    maxLines: isMobile ? 2 : 3,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: Colors.white.withValues(alpha: 0.85),
+                                      fontSize: isMobile ? 12.5 : 14.0,
+                                      height: 1.45,
+                                      fontStyle: FontStyle.italic,
+                                      fontFamily: 'Outfit',
+                                      shadows: const [
+                                        Shadow(color: Colors.black87, blurRadius: 12),
+                                      ],
                                     ),
                                   ),
                                 ],
-                              ),
-                            ],
+                                const SizedBox(height: 22.0),
+
+                                // Action Buttons
+                                Row(
+                                  children: [
+                                    ElevatedButton.icon(
+                                      onPressed: id.isNotEmpty
+                                          ? () {
+                                              MovieMetadataCache.placeholders[id] =
+                                                  Map<String, dynamic>.from(item);
+                                              MovieMetadataCache.placeholders['$type:$id'] =
+                                                  Map<String, dynamic>.from(item);
+                                              widget.navigationState.selectMovie('$type:$id');
+                                            }
+                                          : null,
+                                      icon: Icon(
+                                        Icons.play_arrow_rounded,
+                                        color: Colors.black,
+                                        size: isMobile ? 18 : 22,
+                                      ),
+                                      label: Text(type == 'series' ? 'Watch Series' : 'Watch Movie'),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: Colors.white,
+                                        foregroundColor: Colors.black,
+                                        elevation: 6,
+                                        shadowColor: Colors.black54,
+                                        padding: EdgeInsets.symmetric(
+                                          horizontal: isMobile ? 18.0 : 26.0,
+                                          vertical: isMobile ? 11.0 : 15.0,
+                                        ),
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.0)),
+                                        textStyle: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: isMobile ? 13.0 : 14.5,
+                                          fontFamily: 'Outfit',
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12.0),
+                                    OutlinedButton.icon(
+                                      onPressed: id.isNotEmpty
+                                          ? () {
+                                              MovieMetadataCache.placeholders[id] =
+                                                  Map<String, dynamic>.from(item);
+                                              MovieMetadataCache.placeholders['$type:$id'] =
+                                                  Map<String, dynamic>.from(item);
+                                              widget.navigationState.selectMovie('$type:$id');
+                                            }
+                                          : null,
+                                      icon: Icon(Icons.info_outline_rounded, color: Colors.white, size: isMobile ? 16 : 19),
+                                      label: const Text('Details'),
+                                      style: OutlinedButton.styleFrom(
+                                        foregroundColor: Colors.white,
+                                        backgroundColor: Colors.black.withValues(alpha: 0.40),
+                                        side: const BorderSide(color: Colors.white38, width: 1.0),
+                                        padding: EdgeInsets.symmetric(
+                                          horizontal: isMobile ? 14.0 : 18.0,
+                                          vertical: isMobile ? 11.0 : 15.0,
+                                        ),
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.0)),
+                                        textStyle: TextStyle(
+                                          fontWeight: FontWeight.w600,
+                                          fontSize: isMobile ? 12.5 : 14.0,
+                                          fontFamily: 'Outfit',
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
-                      ),
-                    ),
-                  ),
                 ),
               );
             },
           ),
         ],
-      );
-    },
-  ),
+      ),
+    );
+  },
+),
 
           // 2. Desktop Horizontal Floating Deck Switcher
           if (!isMobile)
@@ -863,13 +801,13 @@ class _MoviesHomePageState extends State<MoviesHomePage> {
                           decoration: BoxDecoration(
                             borderRadius: BorderRadius.circular(10.0),
                             border: Border.all(
-                              color: isSelected ? const Color(0xFFE50914) : Colors.white.withValues(alpha: 0.15),
+                              color: isSelected ? Colors.white : Colors.white.withValues(alpha: 0.15),
                               width: isSelected ? 2.0 : 1.0,
                             ),
                             boxShadow: isSelected
                                 ? [
                                     BoxShadow(
-                                      color: const Color(0xFFE50914).withValues(alpha: 0.4),
+                                      color: Colors.white.withValues(alpha: 0.3),
                                       blurRadius: 10,
                                     ),
                                   ]
@@ -900,7 +838,7 @@ class _MoviesHomePageState extends State<MoviesHomePage> {
                                     right: 0,
                                     child: Container(
                                       height: 3.0,
-                                      color: const Color(0xFFE50914),
+                                      color: Colors.white,
                                     ),
                                   ),
                               ],
@@ -941,7 +879,7 @@ class _MoviesHomePageState extends State<MoviesHomePage> {
                       ),
                     ),
                     SizedBox(width: 6.0),
-                    Icon(Icons.keyboard_arrow_down_rounded, color: Color(0xFFE50914), size: 16.0),
+                    Icon(Icons.keyboard_arrow_down_rounded, color: Colors.white70, size: 16.0),
                   ],
                 ),
               ),
@@ -1333,10 +1271,10 @@ class _MovieCardState extends State<_MovieCard> {
                                 child: Container(
                                   padding: const EdgeInsets.all(4.0),
                                   decoration: BoxDecoration(
-                                    color: isSavedInLib ? const Color(0xFFE50914) : Colors.black.withValues(alpha: 0.88),
+                                    color: isSavedInLib ? Colors.white : Colors.black.withValues(alpha: 0.88),
                                     borderRadius: BorderRadius.circular(6.0),
                                     border: Border.all(
-                                      color: isSavedInLib ? const Color(0xFFE50914) : Colors.white30,
+                                      color: isSavedInLib ? Colors.white : Colors.white30,
                                       width: 1.0,
                                     ),
                                     boxShadow: const [
@@ -1345,7 +1283,7 @@ class _MovieCardState extends State<_MovieCard> {
                                   ),
                                   child: Icon(
                                     isSavedInLib ? Icons.check_rounded : Icons.add_rounded,
-                                    color: Colors.white,
+                                    color: isSavedInLib ? Colors.black : Colors.white,
                                     size: 13.0,
                                   ),
                                 ),
