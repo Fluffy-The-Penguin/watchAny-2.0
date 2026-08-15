@@ -1145,7 +1145,6 @@ class _NotificationsPopupContentState extends State<_NotificationsPopupContent> 
       return;
     }
 
-    final startMap = await LibraryState().getNotificationStartMap();
     final ackMap = await LibraryState().getNotificationAckMap();
     final List<Map<String, dynamic>> generated = [];
 
@@ -1169,8 +1168,8 @@ class _NotificationsPopupContentState extends State<_NotificationsPopupContent> 
             releaseTime = media['updatedAt'] ?? 0;
           }
 
-          final int startBaseline = ackMap['anime_$id'] ?? startMap['anime_$id'] ?? 0;
-          final int startNew = max(localItem.watchedEpisodes, startBaseline) + 1;
+          final int ackEp = ackMap['anime_$id'] ?? 0;
+          final int startNew = max(localItem.watchedEpisodes, ackEp) + 1;
 
           if (latestReleased >= startNew) {
             final int endNew = latestReleased;
@@ -1191,8 +1190,8 @@ class _NotificationsPopupContentState extends State<_NotificationsPopupContent> 
         final cache = LibraryState().mangaCache;
         for (var item in libraryItems) {
           final int totalChapters = item.totalEpisodes ?? 0;
-          final int startBaseline = ackMap['manga_${item.id}'] ?? startMap['manga_${item.id}'] ?? 0;
-          final int startNew = max(item.watchedEpisodes, startBaseline) + 1;
+          final int ackEp = ackMap['manga_${item.id}'] ?? 0;
+          final int startNew = max(item.watchedEpisodes, ackEp) + 1;
           if (totalChapters >= startNew) {
             final cached = cache[item.id];
             final int endNew = totalChapters;
@@ -1222,8 +1221,8 @@ class _NotificationsPopupContentState extends State<_NotificationsPopupContent> 
                 final videos = meta['videos'] as List? ?? [];
                 final int latestReleased = videos.length;
                 
-                final int startBaseline = ackMap['movies_${localItem.id}'] ?? startMap['movies_${localItem.id}'] ?? 0;
-                final int startNew = max(localItem.watchedEpisodes, startBaseline) + 1;
+                final int ackEp = ackMap['movies_${localItem.id}'] ?? 0;
+                final int startNew = max(localItem.watchedEpisodes, ackEp) + 1;
 
                 if (latestReleased >= startNew) {
                   final int endNew = latestReleased;

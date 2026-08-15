@@ -56,7 +56,6 @@ class _NotificationsPageState extends State<NotificationsPage> {
       return;
     }
 
-    final startMap = await LibraryState().getNotificationStartMap();
     final ackMap = await LibraryState().getNotificationAckMap();
 
     if (widget.mode == AppMode.movies) {
@@ -73,14 +72,14 @@ class _NotificationsPageState extends State<NotificationsPage> {
               if (meta != null) {
                 final videos = meta['videos'] as List? ?? [];
                 final int latestReleased = videos.length;
-                final int startBaseline = ackMap['movies_${localItem.id}'] ?? startMap['movies_${localItem.id}'] ?? 0;
+                final int ackEp = ackMap['movies_${localItem.id}'] ?? 0;
                 final localDownloads = DownloadService().tasks.where(
                   (t) => t.anilistId == localItem.id && t.status == DownloadStatus.completed
                 );
                 final int maxDownloaded = localDownloads.isEmpty 
                     ? 0 
                     : localDownloads.map((t) => t.episodeNumber ?? 0).fold(0, max);
-                final int startNew = max(max(localItem.watchedEpisodes, maxDownloaded), startBaseline) + 1;
+                final int startNew = max(max(localItem.watchedEpisodes, maxDownloaded), ackEp) + 1;
                 
                 if (latestReleased >= startNew) {
                   final int endNew = latestReleased;
@@ -151,14 +150,14 @@ class _NotificationsPageState extends State<NotificationsPage> {
             releaseTime = media['updatedAt'] ?? 0;
           }
 
-          final int startBaseline = ackMap['anime_$id'] ?? startMap['anime_$id'] ?? 0;
+          final int ackEp = ackMap['anime_$id'] ?? 0;
           final localDownloads = DownloadService().tasks.where(
             (t) => t.anilistId == id && t.status == DownloadStatus.completed
           );
           final int maxDownloaded = localDownloads.isEmpty 
               ? 0 
               : localDownloads.map((t) => t.episodeNumber ?? 0).fold(0, max);
-          final int startNew = max(max(localItem.watchedEpisodes, maxDownloaded), startBaseline) + 1;
+          final int startNew = max(max(localItem.watchedEpisodes, maxDownloaded), ackEp) + 1;
 
           if (latestReleased >= startNew) {
             final int endNew = latestReleased;
@@ -184,8 +183,8 @@ class _NotificationsPageState extends State<NotificationsPage> {
         final cache = LibraryState().mangaCache;
         for (var item in libraryItems) {
           final int totalChapters = item.totalEpisodes ?? 0;
-          final int startBaseline = ackMap['manga_${item.id}'] ?? startMap['manga_${item.id}'] ?? 0;
-          final int startNew = max(item.watchedEpisodes, startBaseline) + 1;
+          final int ackEp = ackMap['manga_${item.id}'] ?? 0;
+          final int startNew = max(item.watchedEpisodes, ackEp) + 1;
           if (totalChapters >= startNew) {
             final cached = cache[item.id];
             final int endNew = totalChapters;

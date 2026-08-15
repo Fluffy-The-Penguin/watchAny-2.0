@@ -769,17 +769,22 @@ class PlayerState extends ChangeNotifier {
         ..where((tbl) => tbl.mediaId.equals(cw.mediaId) & tbl.episode.equals(cw.lastEpisode));
       final pb = await pbQuery.getSingleOrNull();
 
+      bool include = true;
       if (pb != null && pb.durationMs > 0) {
         final ratio = pb.positionMs / pb.durationMs;
-        if (ratio > 0.001 && ratio < 0.90) {
-          try {
-            final mediaMap = jsonDecode(cw.metadataJson) as Map<String, dynamic>;
-            items.add({
-              'media': mediaMap,
-              'timestamp': cw.timestamp,
-            });
-          } catch (_) {}
+        if (ratio >= 0.95) {
+          include = false; // Finished episode/movie
         }
+      }
+
+      if (include) {
+        try {
+          final mediaMap = jsonDecode(cw.metadataJson) as Map<String, dynamic>;
+          items.add({
+            'media': mediaMap,
+            'timestamp': cw.timestamp,
+          });
+        } catch (_) {}
       }
     }
 

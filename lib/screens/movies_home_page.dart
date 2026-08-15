@@ -12,7 +12,9 @@ import '../widgets/smooth_scroll_area.dart';
 import '../state/app_settings.dart';
 import '../state/library_state.dart';
 import '../services/download_service.dart';
+import '../services/notification_service.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import '../widgets/item_details_preview_popover.dart';
 
 
 class MoviesHomePage extends StatefulWidget {
@@ -453,10 +455,22 @@ class _MoviesHomePageState extends State<MoviesHomePage> {
   Widget _buildHeroBanner() {
     if (_featuredItems.isEmpty) return const SizedBox.shrink();
 
+    final double screenWidth = MediaQuery.of(context).size.width;
+    final double screenHeight = MediaQuery.of(context).size.height;
+    final bool isMobile = screenWidth < 800;
+
+    final double heroHeight = isMobile
+        ? (screenHeight * 0.52).clamp(380.0, 440.0)
+        : (screenHeight * 0.72).clamp(520.0, 680.0);
+
+    final int displayCount = _featuredItems.length > 6 ? 6 : _featuredItems.length;
+
     return SizedBox(
-      height: 480.0,
+      height: heroHeight,
+      width: double.infinity,
       child: Stack(
         children: [
+          // 1. Page View Banner Backgrounds
           PageView.builder(
             controller: _pageController,
             itemCount: _featuredItems.length,
@@ -479,136 +493,379 @@ class _MoviesHomePageState extends State<MoviesHomePage> {
 
               return Stack(
                 children: [
-                  // Backdrop
-                  Container(
-                    width: double.infinity,
-                    height: 480.0,
-                    decoration: BoxDecoration(
-                      image: background.isNotEmpty
-                          ? DecorationImage(
-                              image: NetworkImage(background),
-                              fit: BoxFit.cover,
-                            )
-                          : null,
-                      color: Colors.white10,
-                    ),
+                  // Backdrop Image
+                  Positioned.fill(
+                    child: background.isNotEmpty
+                        ? CachedNetworkImage(
+                            imageUrl: background,
+                            fit: BoxFit.cover,
+                            memCacheWidth: 1920,
+                            placeholder: (context, url) => Container(color: Colors.black),
+                            errorWidget: (context, url, err) => Container(color: Colors.black),
+                          )
+                        : Container(color: Colors.black),
                   ),
-                  // Gradient overlay
-                  Container(
-                    height: 480.0,
-                    decoration: const BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [Colors.black38, Colors.black87, Colors.black],
-                        stops: [0.0, 0.65, 1.0],
+
+                  // Gradients for Legibility & Deep Bottom Integration
+                  Positioned.fill(
+                    child: Container(
+                      decoration: const BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            Colors.black87,
+                            Colors.transparent,
+                            Colors.transparent,
+                            Color(0xFF0B0B0E),
+                          ],
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          stops: [0.0, 0.25, 0.5, 1.0],
+                        ),
                       ),
                     ),
                   ),
-                  // Content
+                  Positioned.fill(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            const Color(0xFF0B0B0E).withValues(alpha: 0.96),
+                            const Color(0xFF0B0B0E).withValues(alpha: 0.75),
+                            Colors.black.withValues(alpha: 0.25),
+                            Colors.transparent,
+                          ],
+                          begin: Alignment.centerLeft,
+                          end: Alignment.centerRight,
+                          stops: const [0.0, 0.35, 0.7, 1.0],
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  // Left Content Text Column
                   Positioned(
-                    left: 24.0,
-                    right: 24.0,
-                    bottom: 40.0,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        if (rating != null)
-                          Container(
-                            margin: const EdgeInsets.only(bottom: 8.0),
-                            padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
-                            decoration: BoxDecoration(
-                              color: Colors.amber,
-                              borderRadius: BorderRadius.circular(4.0),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Icon(Icons.star, color: Colors.black, size: 12.0),
-                                const SizedBox(width: 4.0),
-                                Text(
-                                  rating.toStringAsFixed(1),
+                    left: isMobile ? 18.0 : 36.0,
+                    bottom: isMobile ? 20.0 : 36.0,
+                    right: isMobile ? 18.0 : 180.0,
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 640.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          // Badges Row
+                          Wrap(
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            spacing: 8.0,
+                            runSpacing: 6.0,
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 4.0),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFE50914),
+                                  borderRadius: BorderRadius.circular(6.0),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: const Color(0xFFE50914).withValues(alpha: 0.4),
+                                      blurRadius: 8,
+                                      spreadRadius: 1,
+                                    ),
+                                  ],
+                                ),
+                                child: Text(
+                                  '★ #${index + 1}',
                                   style: const TextStyle(
-                                    color: Colors.black,
-                                    fontSize: 11.0,
+                                    color: Colors.white,
+                                    fontSize: 11.5,
                                     fontWeight: FontWeight.bold,
                                     fontFamily: 'Outfit',
                                   ),
                                 ),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 4.0),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withValues(alpha: 0.12),
+                                  borderRadius: BorderRadius.circular(6.0),
+                                  border: Border.all(color: Colors.white24, width: 0.8),
+                                ),
+                                child: Text(
+                                  type.toUpperCase(),
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 11.5,
+                                    fontWeight: FontWeight.w600,
+                                    fontFamily: 'Outfit',
+                                  ),
+                                ),
+                              ),
+                              if (rating != null)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 4.0),
+                                  decoration: BoxDecoration(
+                                    color: Colors.amber.withValues(alpha: 0.2),
+                                    borderRadius: BorderRadius.circular(6.0),
+                                    border: Border.all(color: Colors.amber.withValues(alpha: 0.6), width: 0.8),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Icon(Icons.star_rounded, color: Colors.amber, size: 14.0),
+                                      const SizedBox(width: 3.0),
+                                      Text(
+                                        rating.toStringAsFixed(1),
+                                        style: const TextStyle(
+                                          color: Colors.amber,
+                                          fontSize: 11.5,
+                                          fontWeight: FontWeight.bold,
+                                          fontFamily: 'Outfit',
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                            ],
+                          ),
+                          const SizedBox(height: 12.0),
+
+                          // Title
+                          Text(
+                            title,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: isMobile ? 24.0 : 38.0,
+                              fontWeight: FontWeight.w900,
+                              height: 1.12,
+                              fontFamily: 'Outfit',
+                              letterSpacing: -0.4,
+                              shadows: const [
+                                Shadow(color: Colors.black87, blurRadius: 12, offset: Offset(0, 2)),
                               ],
                             ),
                           ),
-                        Text(
-                          title,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 32.0,
-                            fontWeight: FontWeight.bold,
-                            fontFamily: 'Outfit',
-                          ),
-                        ),
-                        if (description.isNotEmpty) ...[
-                          const SizedBox(height: 6.0),
-                          ConstrainedBox(
-                            constraints: const BoxConstraints(maxWidth: 600.0),
-                            child: Text(
+
+                          // Description
+                          if (description.isNotEmpty) ...[
+                            const SizedBox(height: 10.0),
+                            Text(
                               description,
-                              maxLines: 3,
+                              maxLines: isMobile ? 2 : 3,
                               overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(color: Colors.white70, fontSize: 14.0),
+                              style: TextStyle(
+                                color: Colors.white.withValues(alpha: 0.82),
+                                fontSize: isMobile ? 12.5 : 14.0,
+                                height: 1.42,
+                                fontStyle: FontStyle.italic,
+                                fontFamily: 'Outfit',
+                              ),
+                            ),
+                          ],
+                          const SizedBox(height: 20.0),
+
+                          // Action Buttons
+                          Row(
+                            children: [
+                              ElevatedButton.icon(
+                                onPressed: id.isNotEmpty
+                                    ? () {
+                                        MovieMetadataCache.placeholders[id] =
+                                            Map<String, dynamic>.from(item);
+                                        MovieMetadataCache.placeholders['$type:$id'] =
+                                            Map<String, dynamic>.from(item);
+                                        widget.navigationState.selectMovie('$type:$id');
+                                      }
+                                    : null,
+                                icon: Icon(Icons.play_arrow_rounded, color: Colors.white, size: isMobile ? 18 : 22),
+                                label: Text(isMobile ? 'Watch' : 'Watch Now'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFFE50914),
+                                  foregroundColor: Colors.white,
+                                  padding: EdgeInsets.symmetric(
+                                    horizontal: isMobile ? 20.0 : 28.0,
+                                    vertical: isMobile ? 11.0 : 14.0,
+                                  ),
+                                  elevation: 6,
+                                  shadowColor: const Color(0xFFE50914).withValues(alpha: 0.5),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.0)),
+                                  textStyle: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: isMobile ? 13.5 : 15.0,
+                                    fontFamily: 'Outfit',
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 14.0),
+                              OutlinedButton.icon(
+                                onPressed: id.isNotEmpty
+                                    ? () {
+                                        MovieMetadataCache.placeholders[id] =
+                                            Map<String, dynamic>.from(item);
+                                        MovieMetadataCache.placeholders['$type:$id'] =
+                                            Map<String, dynamic>.from(item);
+                                        widget.navigationState.selectMovie('$type:$id');
+                                      }
+                                    : null,
+                                icon: Icon(Icons.info_outline_rounded, color: Colors.white, size: isMobile ? 16 : 19),
+                                label: const Text('Details'),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: Colors.white,
+                                  backgroundColor: Colors.white.withValues(alpha: 0.12),
+                                  side: const BorderSide(color: Colors.white30, width: 1.0),
+                                  padding: EdgeInsets.symmetric(
+                                    horizontal: isMobile ? 16.0 : 22.0,
+                                    vertical: isMobile ? 11.0 : 14.0,
+                                  ),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.0)),
+                                  textStyle: TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: isMobile ? 13.5 : 15.0,
+                                    fontFamily: 'Outfit',
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 18.0),
+
+                          // Bottom Segment Progress Indicators
+                          Row(
+                            children: List.generate(
+                              displayCount,
+                              (idx) {
+                                final bool isSelected = idx == _currentCarouselIndex;
+                                return GestureDetector(
+                                  onTap: () {
+                                    setState(() {
+                                      _currentCarouselIndex = idx;
+                                    });
+                                    _pageController?.animateToPage(
+                                      idx,
+                                      duration: const Duration(milliseconds: 500),
+                                      curve: Curves.easeInOut,
+                                    );
+                                    _startCarouselTimer();
+                                  },
+                                  child: AnimatedContainer(
+                                    duration: const Duration(milliseconds: 350),
+                                    margin: const EdgeInsets.only(right: 8.0),
+                                    width: isSelected ? 36.0 : 12.0,
+                                    height: 4.0,
+                                    decoration: BoxDecoration(
+                                      color: isSelected ? const Color(0xFFE50914) : Colors.white30,
+                                      borderRadius: BorderRadius.circular(2.0),
+                                      boxShadow: isSelected
+                                          ? [
+                                              BoxShadow(
+                                                color: const Color(0xFFE50914).withValues(alpha: 0.6),
+                                                blurRadius: 6,
+                                                spreadRadius: 1,
+                                              ),
+                                            ]
+                                          : null,
+                                    ),
+                                  ),
+                                );
+                              },
                             ),
                           ),
                         ],
-                        const SizedBox(height: 16.0),
-                        ElevatedButton.icon(
-                          onPressed: id.isNotEmpty
-                              ? () {
-                                  MovieMetadataCache.placeholders[id] =
-                                      Map<String, dynamic>.from(item);
-                                  MovieMetadataCache.placeholders['$type:$id'] =
-                                      Map<String, dynamic>.from(item);
-                                  widget.navigationState.selectMovie('$type:$id');
-                                }
-                              : null,
-                          icon: const Icon(Icons.info_outline, color: Colors.black, size: 18.0),
-                          label: const Text('View Details',
-                              style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 14.0),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
-                          ),
-                        ),
-                      ],
+                      ),
                     ),
                   ),
                 ],
               );
             },
           ),
-          // Indicator dots
-          Positioned(
-            bottom: 16.0,
-            right: 24.0,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: List.generate(_featuredItems.length, (index) {
-                final isSelected = index == _currentCarouselIndex;
-                return AnimatedContainer(
-                  duration: const Duration(milliseconds: 300),
-                  margin: const EdgeInsets.only(right: 6.0),
-                  width: isSelected ? 20.0 : 6.0,
-                  height: 6.0,
-                  decoration: BoxDecoration(
-                    color: isSelected ? Colors.white : Colors.white30,
-                    borderRadius: BorderRadius.circular(3.0),
+
+          // 2. Desktop Right-Side Vertical Interactive Thumbnail Switcher
+          if (!isMobile)
+            Positioned(
+              right: 28.0,
+              top: 36.0,
+              bottom: 36.0,
+              child: Center(
+                child: SingleChildScrollView(
+                  physics: const BouncingScrollPhysics(),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: List.generate(
+                      displayCount,
+                      (index) {
+                        final item = _featuredItems[index];
+                        final bool isSelected = index == _currentCarouselIndex;
+                        final String thumbUrl = item['poster']?.toString() ??
+                            item['background']?.toString() ??
+                            '';
+
+                        return GestureDetector(
+                          onTap: () {
+                            setState(() {
+                              _currentCarouselIndex = index;
+                            });
+                            _pageController?.animateToPage(
+                              index,
+                              duration: const Duration(milliseconds: 500),
+                              curve: Curves.easeInOut,
+                            );
+                            _startCarouselTimer();
+                          },
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 300),
+                            curve: Curves.easeOutCubic,
+                            margin: const EdgeInsets.symmetric(vertical: 5.0),
+                            width: isSelected ? 68.0 : 58.0,
+                            height: isSelected ? 96.0 : 82.0,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(10.0),
+                              border: Border.all(
+                                color: isSelected ? const Color(0xFFE50914) : Colors.white24,
+                                width: isSelected ? 2.5 : 1.0,
+                              ),
+                              boxShadow: isSelected
+                                  ? [
+                                      BoxShadow(
+                                        color: const Color(0xFFE50914).withValues(alpha: 0.6),
+                                        blurRadius: 12,
+                                        spreadRadius: 1,
+                                      ),
+                                    ]
+                                  : [
+                                      const BoxShadow(
+                                        color: Colors.black54,
+                                        blurRadius: 6,
+                                      ),
+                                    ],
+                            ),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(8.0),
+                              child: Stack(
+                                children: [
+                                  CachedNetworkImage(
+                                    imageUrl: thumbUrl,
+                                    fit: BoxFit.cover,
+                                    width: double.infinity,
+                                    height: double.infinity,
+                                    memCacheWidth: 200,
+                                    placeholder: (context, url) => Container(color: Colors.black26),
+                                    errorWidget: (context, url, err) => Container(color: Colors.black26),
+                                  ),
+                                  if (!isSelected)
+                                    Container(
+                                      color: Colors.black.withValues(alpha: 0.35),
+                                    ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
                   ),
-                );
-              }),
+                ),
+              ),
             ),
-          ),
         ],
       ),
     );
@@ -732,27 +989,35 @@ class _MovieRailwayTrackState extends State<_MovieRailwayTrack> {
                 itemCount: widget.items.length,
                 itemBuilder: (context, index) {
                   final item = widget.items[index] as Map;
-                  return _MovieCard(
+                  final type = item['type']?.toString() ?? 'movie';
+                  final id = item['id']?.toString() ?? '';
+                  final String selectId = id.contains(':') ? id : '$type:$id';
+
+                  return HoverPreviewWrapper(
                     item: item,
+                    isMovie: true,
                     onTap: () {
-                      final type = item['type']?.toString() ?? 'movie';
-                      final id = item['id']?.toString() ?? '';
                       if (id.isEmpty) return;
-                      final String selectId = id.contains(':') ? id : '$type:$id';
-                      MovieMetadataCache.placeholders[id] =
-                          Map<String, dynamic>.from(item.cast());
-                      MovieMetadataCache.placeholders[selectId] =
-                          Map<String, dynamic>.from(item.cast());
+                      MovieMetadataCache.placeholders[id] = Map<String, dynamic>.from(item.cast());
+                      MovieMetadataCache.placeholders[selectId] = Map<String, dynamic>.from(item.cast());
                       widget.navigationState.selectMovie(selectId);
                     },
-                    onDelete: widget.title == 'Continue Watching'
-                        ? () {
-                            final id = item['id']?.toString() ?? '';
-                            if (id.isNotEmpty) {
-                              PlayerState.removeFromContinueWatching(id, isAnime: false);
+                    child: _MovieCard(
+                      item: item,
+                      onTap: () {
+                        if (id.isEmpty) return;
+                        MovieMetadataCache.placeholders[id] = Map<String, dynamic>.from(item.cast());
+                        MovieMetadataCache.placeholders[selectId] = Map<String, dynamic>.from(item.cast());
+                        widget.navigationState.selectMovie(selectId);
+                      },
+                      onDelete: widget.title == 'Continue Watching'
+                          ? () {
+                              if (id.isNotEmpty) {
+                                PlayerState.removeFromContinueWatching(id, isAnime: false);
+                              }
                             }
-                          }
-                        : null,
+                          : null,
+                    ),
                   );
                 },
               ),
@@ -945,35 +1210,97 @@ class _MovieCardState extends State<_MovieCard> {
                             ),
                           ),
                         ),
-                      if (rating != null)
-                        Positioned(
-                          right: 6.0,
-                          top: 6.0,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 5.0, vertical: 2.0),
-                            decoration: BoxDecoration(
-                              color: Colors.black87,
-                              borderRadius: BorderRadius.circular(4.0),
-                              border: Border.all(color: Colors.white12),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Icon(Icons.star, color: Colors.amber, size: 10.0),
-                                const SizedBox(width: 2.0),
-                                Text(
-                                  rating.toStringAsFixed(1),
-                                  style: const TextStyle(
+                      // Score Badge / Hover Add-to-Library Button
+                      Positioned(
+                        right: 6.0,
+                        top: 6.0,
+                        child: ListenableBuilder(
+                          listenable: LibraryState(),
+                          builder: (context, _) {
+                            final rawId = item['id']?.toString() ?? '';
+                            final int libId = rawId.isEmpty ? 0 : (() {
+                              final digits = RegExp(r'\d+').allMatches(rawId).map((m) => m.group(0)!).join();
+                              final n = int.tryParse(digits);
+                              if (n != null && n > 0) return n;
+                              return rawId.hashCode.abs();
+                            })();
+
+                            final bool isSavedInLib = libId != 0 && LibraryState().isSaved(libId, 'movies');
+
+                            if (_isHovered || isSavedInLib) {
+                              return GestureDetector(
+                                behavior: HitTestBehavior.opaque,
+                                onTap: () async {
+                                  if (libId == 0) return;
+                                  final library = LibraryState();
+                                  if (isSavedInLib) {
+                                    await library.removeItem(libId, 'movies');
+                                    if (context.mounted) NotificationService().show(context, 'Removed from Library');
+                                  } else {
+                                    await library.saveItem(
+                                      id: libId,
+                                      mode: 'movies',
+                                      format: type == 'series' ? 'TV' : 'MOVIE',
+                                      libraryStatus: 'planning',
+                                      rating: rating ?? 0.0,
+                                      watchedEpisodes: 0,
+                                    );
+                                    await library.updateMovieCache(libId, Map<String, dynamic>.from(item.cast()));
+                                    if (context.mounted) NotificationService().show(context, 'Added to Library');
+                                  }
+                                },
+                                child: Container(
+                                  padding: const EdgeInsets.all(4.0),
+                                  decoration: BoxDecoration(
+                                    color: isSavedInLib ? const Color(0xFFE50914) : Colors.black.withValues(alpha: 0.88),
+                                    borderRadius: BorderRadius.circular(6.0),
+                                    border: Border.all(
+                                      color: isSavedInLib ? const Color(0xFFE50914) : Colors.white30,
+                                      width: 1.0,
+                                    ),
+                                    boxShadow: const [
+                                      BoxShadow(color: Colors.black54, blurRadius: 6),
+                                    ],
+                                  ),
+                                  child: Icon(
+                                    isSavedInLib ? Icons.check_rounded : Icons.add_rounded,
                                     color: Colors.white,
-                                    fontSize: 9.0,
-                                    fontWeight: FontWeight.bold,
+                                    size: 13.0,
                                   ),
                                 ),
-                              ],
-                            ),
-                          ),
+                              );
+                            }
+
+                            if (rating != null) {
+                              return Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 5.0, vertical: 2.0),
+                                decoration: BoxDecoration(
+                                  color: Colors.black87,
+                                  borderRadius: BorderRadius.circular(4.0),
+                                  border: Border.all(color: Colors.white12),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(Icons.star, color: Colors.amber, size: 10.0),
+                                    const SizedBox(width: 2.0),
+                                    Text(
+                                      rating.toStringAsFixed(1),
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 9.0,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            }
+
+                            return const SizedBox.shrink();
+                          },
                         ),
+                      ),
                       // Play overlay on hover
                       Positioned.fill(
                         child: AnimatedOpacity(

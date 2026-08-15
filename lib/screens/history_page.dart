@@ -2,7 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../state/navigation_state.dart';
 import '../state/player_state.dart';
+import '../state/library_state.dart';
+import '../services/notification_service.dart';
 import '../widgets/smooth_scroll_area.dart';
+import '../widgets/item_details_preview_popover.dart';
 
 class HistoryPage extends StatefulWidget {
   final AppMode mode;
@@ -279,127 +282,176 @@ class _HistoryPageState extends State<HistoryPage> {
                             final episodes = item['episodes'] as List<int>;
                             final timeAgo = _formatTimeAgo(item['timestamp']);
 
-                            return Container(
-                              margin: const EdgeInsets.only(bottom: 12.0),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF0F0F11),
-                                borderRadius: BorderRadius.circular(10.0),
-                                border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
-                              ),
-                              child: InkWell(
-                                onTap: () {
-                                  final isManga = item['isManga'] ?? false;
-                                  final isAnime = item['isAnime'] ?? true;
-                                  if (isManga) {
-                                    widget.navigationState.selectManga(item['id'].toString());
-                                  } else if (isAnime) {
-                                    final idInt = int.tryParse(item['id'].toString());
-                                    if (idInt != null) {
-                                      widget.navigationState.selectAnime(idInt);
-                                    }
-                                  } else {
-                                    widget.navigationState.selectMovie(item['id'].toString());
-                                  }
-                                },
-                                borderRadius: BorderRadius.circular(10.0),
-                                child: Padding(
-                                  padding: const EdgeInsets.all(12.0),
-                                  child: Row(
-                                    children: [
-                                      // Cover Art
-                                      ClipRRect(
-                                        borderRadius: BorderRadius.circular(6.0),
-                                        child: SizedBox(
-                                          width: 48.0,
-                                          height: 68.0,
-                                          child: coverUrl.isNotEmpty
-                                              ? CachedNetworkImage(
-                                                  imageUrl: coverUrl,
-                                                  fit: BoxFit.cover,
-                                                  memCacheWidth: 100,
-                                                  placeholder: (context, url) => Container(color: Colors.grey[950]),
-                                                  errorWidget: (context, url, error) => Container(color: Colors.grey[950]),
-                                                )
-                                              : Container(color: Colors.grey[950]),
+                            final isManga = item['isManga'] ?? false;
+                            final isAnime = item['isAnime'] ?? true;
+                            void navigateToItem() {
+                              if (isManga) {
+                                widget.navigationState.selectManga(item['id'].toString());
+                              } else if (isAnime) {
+                                final idInt = int.tryParse(item['id'].toString());
+                                if (idInt != null) {
+                                  widget.navigationState.selectAnime(idInt);
+                                }
+                              } else {
+                                widget.navigationState.selectMovie(item['id'].toString());
+                              }
+                            }
+
+                            return HoverPreviewWrapper(
+                              item: media,
+                              isMovie: !isAnime && !isManga,
+                              onTap: navigateToItem,
+                              child: Container(
+                                margin: const EdgeInsets.only(bottom: 12.0),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF0F0F11),
+                                  borderRadius: BorderRadius.circular(10.0),
+                                  border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
+                                ),
+                                child: InkWell(
+                                  onTap: navigateToItem,
+                                  borderRadius: BorderRadius.circular(10.0),
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(12.0),
+                                    child: Row(
+                                      children: [
+                                        // Cover Art
+                                        ClipRRect(
+                                          borderRadius: BorderRadius.circular(6.0),
+                                          child: SizedBox(
+                                            width: 48.0,
+                                            height: 68.0,
+                                            child: coverUrl.isNotEmpty
+                                                ? CachedNetworkImage(
+                                                    imageUrl: coverUrl,
+                                                    fit: BoxFit.cover,
+                                                    memCacheWidth: 100,
+                                                    placeholder: (context, url) => Container(color: Colors.grey[950]),
+                                                    errorWidget: (context, url, error) => Container(color: Colors.grey[950]),
+                                                  )
+                                                : Container(color: Colors.grey[950]),
+                                          ),
                                         ),
-                                      ),
-                                      const SizedBox(width: 16.0),
-                                      
-                                      // Details
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              title,
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: const TextStyle(
-                                                color: Colors.white,
-                                                fontWeight: FontWeight.bold,
-                                                fontSize: 14.0,
-                                                fontFamily: 'Outfit',
+                                        const SizedBox(width: 16.0),
+                                        
+                                        // Details
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                title,
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: const TextStyle(
+                                                  color: Colors.white,
+                                                  fontWeight: FontWeight.bold,
+                                                  fontSize: 14.0,
+                                                  fontFamily: 'Outfit',
+                                                ),
                                               ),
-                                            ),
-                                            const SizedBox(height: 6.0),
-                                            Text(
-                                              (item['isManga'] ?? false)
-                                                  ? 'Read Chapters: ${_formatEpisodeRanges(episodes)}'
-                                                  : 'Watched Episodes: ${_formatEpisodeRanges(episodes)}',
-                                              style: TextStyle(
-                                                color: (item['isManga'] ?? false)
-                                                    ? const Color(0xFFA855F7)
-                                                    : const Color(0xFF3A86FF),
-                                                fontWeight: FontWeight.w600,
-                                                fontSize: 12.0,
-                                                fontFamily: 'Outfit',
-                                              ),
-                                            ),
-                                            if (format.isNotEmpty || timeAgo.isNotEmpty) ...[
                                               const SizedBox(height: 6.0),
-                                              Row(
-                                                children: [
-                                                  if (format.isNotEmpty) ...[
-                                                    Container(
-                                                      padding: const EdgeInsets.symmetric(horizontal: 5.0, vertical: 2.0),
-                                                      decoration: BoxDecoration(
-                                                        color: Colors.white.withValues(alpha: 0.05),
-                                                        borderRadius: BorderRadius.circular(3.0),
+                                              Text(
+                                                isManga
+                                                    ? 'Read Chapters: ${_formatEpisodeRanges(episodes)}'
+                                                    : 'Watched Episodes: ${_formatEpisodeRanges(episodes)}',
+                                                style: TextStyle(
+                                                  color: isManga
+                                                      ? const Color(0xFFA855F7)
+                                                      : const Color(0xFF3A86FF),
+                                                  fontWeight: FontWeight.w600,
+                                                  fontSize: 12.0,
+                                                  fontFamily: 'Outfit',
+                                                ),
+                                              ),
+                                              if (format.isNotEmpty || timeAgo.isNotEmpty) ...[
+                                                const SizedBox(height: 6.0),
+                                                Row(
+                                                  children: [
+                                                    if (format.isNotEmpty) ...[
+                                                      Container(
+                                                        padding: const EdgeInsets.symmetric(horizontal: 5.0, vertical: 2.0),
+                                                        decoration: BoxDecoration(
+                                                          color: Colors.white.withValues(alpha: 0.05),
+                                                          borderRadius: BorderRadius.circular(3.0),
+                                                        ),
+                                                        child: Text(
+                                                          format,
+                                                          style: const TextStyle(
+                                                            color: Colors.white54,
+                                                            fontSize: 9.0,
+                                                            fontWeight: FontWeight.bold,
+                                                            fontFamily: 'Outfit',
+                                                          ),
+                                                        ),
                                                       ),
-                                                      child: Text(
-                                                        format,
+                                                      const SizedBox(width: 10.0),
+                                                    ],
+                                                    if (timeAgo.isNotEmpty)
+                                                      Text(
+                                                        timeAgo,
                                                         style: const TextStyle(
-                                                          color: Colors.white54,
-                                                          fontSize: 9.0,
-                                                          fontWeight: FontWeight.bold,
+                                                          color: Colors.white38,
+                                                          fontSize: 11.0,
                                                           fontFamily: 'Outfit',
                                                         ),
                                                       ),
-                                                    ),
-                                                    const SizedBox(width: 10.0),
                                                   ],
-                                                  if (timeAgo.isNotEmpty)
-                                                    Text(
-                                                      timeAgo,
-                                                      style: const TextStyle(
-                                                        color: Colors.white38,
-                                                        fontSize: 11.0,
-                                                        fontFamily: 'Outfit',
-                                                      ),
-                                                    ),
-                                                ],
-                                              ),
+                                                ),
+                                              ],
                                             ],
-                                          ],
+                                          ),
                                         ),
-                                      ),
-                                      
-                                      const Icon(
-                                        Icons.chevron_right,
-                                        color: Colors.white30,
-                                        size: 20.0,
-                                      ),
-                                    ],
+                                        
+                                        const SizedBox(width: 8.0),
+                                        // Quick Add to Library button
+                                        ListenableBuilder(
+                                          listenable: LibraryState(),
+                                          builder: (context, _) {
+                                            final rawIdStr = item['id']?.toString() ?? '';
+                                            final String modeStr = isManga ? 'manga' : (isAnime ? 'anime' : 'movies');
+                                            
+                                            int libId = 0;
+                                            if (isManga || isAnime) {
+                                              libId = int.tryParse(rawIdStr) ?? 0;
+                                            } else {
+                                              final digits = RegExp(r'\d+').allMatches(rawIdStr).map((m) => m.group(0)!).join();
+                                              final n = int.tryParse(digits);
+                                              libId = (n != null && n > 0) ? n : rawIdStr.hashCode.abs();
+                                            }
+
+                                            final bool isSavedInLib = libId != 0 && LibraryState().isSaved(libId, modeStr);
+
+                                            return IconButton(
+                                              tooltip: isSavedInLib ? 'Remove from Library' : 'Add to Library',
+                                              icon: Icon(
+                                                isSavedInLib ? Icons.check_circle_rounded : Icons.add_circle_outline_rounded,
+                                                color: isSavedInLib ? const Color(0xFFE50914) : Colors.white54,
+                                                size: 22.0,
+                                              ),
+                                              onPressed: () async {
+                                                if (libId == 0) return;
+                                                final library = LibraryState();
+                                                if (isSavedInLib) {
+                                                  await library.removeItem(libId, modeStr);
+                                                  if (context.mounted) NotificationService().show(context, 'Removed from Library');
+                                                } else {
+                                                  await library.saveItem(
+                                                    id: libId,
+                                                    mode: modeStr,
+                                                    format: format.isNotEmpty ? format : 'TV',
+                                                    libraryStatus: 'planning',
+                                                    rating: 0.0,
+                                                    watchedEpisodes: episodes.isNotEmpty ? episodes.last : 0,
+                                                  );
+                                                  if (context.mounted) NotificationService().show(context, 'Added to Library');
+                                                }
+                                              },
+                                            );
+                                          },
+                                        ),
+                                      ],
+                                    ),
                                   ),
                                 ),
                               ),
