@@ -460,10 +460,8 @@ class _HeroSectionState extends State<_HeroSection> {
     final double screenHeight = MediaQuery.of(context).size.height;
     final bool isMobile = screenWidth < 800;
 
-    // Responsive Widescreen Height (Prevents 2.7x vertical zoom stretch on Desktop)
-    final double heroHeight = isMobile
-        ? (screenHeight * 0.70).clamp(420.0, 560.0)
-        : (screenHeight * 0.65).clamp(520.0, 700.0);
+    // Native Banner Height matching Details Page (Prevents vertical zoom)
+    final double heroHeight = isMobile ? 320.0 : 360.0;
 
     final int displayCount = featuredList.length > 6 ? 6 : featuredList.length;
 
