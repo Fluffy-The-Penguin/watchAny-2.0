@@ -104,11 +104,11 @@ class _HoverPreviewWrapperState extends State<HoverPreviewWrapper> {
     return MouseRegion(
       onEnter: (_) {
         _hoverTimer?.cancel();
-        _hoverTimer = Timer(const Duration(milliseconds: 320), _showOverlay);
+        _hoverTimer = Timer(const Duration(milliseconds: 60), _showOverlay);
       },
       onExit: (_) {
         _hoverTimer?.cancel();
-        _hoverTimer = Timer(const Duration(milliseconds: 150), _removeOverlay);
+        _hoverTimer = Timer(const Duration(milliseconds: 100), _removeOverlay);
       },
       child: GestureDetector(
         onTap: () {
@@ -174,180 +174,217 @@ class _PreviewCard extends StatelessWidget {
       genres = (item['genre'] as String).split(',').map((g) => g.trim()).take(4).toList();
     }
 
-    return Container(
-      padding: const EdgeInsets.all(16.0),
-      decoration: BoxDecoration(
-        color: const Color(0xFF141418),
-        borderRadius: BorderRadius.circular(16.0),
-        border: Border.all(color: const Color(0xFFE50914).withValues(alpha: 0.4), width: 1.2),
-        boxShadow: const [
-          BoxShadow(
-            color: Colors.black87,
-            blurRadius: 24,
-            spreadRadius: 4,
-            offset: Offset(0, 8),
+    return TweenAnimationBuilder<double>(
+      duration: const Duration(milliseconds: 140),
+      curve: Curves.easeOutCubic,
+      tween: Tween<double>(begin: 0.0, end: 1.0),
+      builder: (context, value, child) {
+        return Transform.scale(
+          scale: 0.95 + (0.05 * value),
+          child: Opacity(
+            opacity: value,
+            child: child,
           ),
-        ],
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+        );
+      },
+      child: Container(
+        decoration: BoxDecoration(
+          color: const Color(0xFF0F0F14),
+          borderRadius: BorderRadius.circular(16.0),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.14), width: 1.0),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.8),
+              blurRadius: 28,
+              spreadRadius: 6,
+              offset: const Offset(0, 10),
+            ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(15.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(8.0),
-                child: SizedBox(
-                  width: 55.0,
-                  height: 80.0,
-                  child: coverUrl.isNotEmpty
-                      ? CachedNetworkImage(
-                          imageUrl: coverUrl,
-                          fit: BoxFit.cover,
-                          memCacheWidth: 150,
-                          placeholder: (context, url) => Container(color: Colors.black26),
-                          errorWidget: (context, url, err) => Container(color: Colors.black26),
-                        )
-                      : Container(color: Colors.black26),
+              // Top Crimson Glow Accent Line
+              Container(
+                height: 3.0,
+                width: double.infinity,
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [Color(0xFFE50914), Color(0xFFB20710)],
+                  ),
                 ),
               ),
-              const SizedBox(width: 12.0),
-              Expanded(
+              Padding(
+                padding: const EdgeInsets.all(16.0),
                 child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 15.0,
-                        fontWeight: FontWeight.bold,
-                        fontFamily: 'Outfit',
-                        height: 1.15,
-                      ),
-                    ),
-                    const SizedBox(height: 8.0),
-                    Wrap(
-                      spacing: 6.0,
-                      runSpacing: 4.0,
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        if (rating != null)
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6.0, vertical: 2.0),
-                            decoration: BoxDecoration(
-                              color: Colors.amber.withValues(alpha: 0.2),
-                              borderRadius: BorderRadius.circular(4.0),
-                              border: Border.all(color: Colors.amber.withValues(alpha: 0.6), width: 0.8),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Icon(Icons.star_rounded, color: Colors.amber, size: 12.0),
-                                const SizedBox(width: 2.0),
-                                Text(
-                                  rating.toStringAsFixed(1),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(8.0),
+                          child: SizedBox(
+                            width: 58.0,
+                            height: 84.0,
+                            child: coverUrl.isNotEmpty
+                                ? CachedNetworkImage(
+                                    imageUrl: coverUrl,
+                                    fit: BoxFit.cover,
+                                    memCacheWidth: 150,
+                                    placeholder: (context, url) => Container(color: const Color(0xFF181820)),
+                                    errorWidget: (context, url, err) => Container(color: const Color(0xFF181820)),
+                                  )
+                                : Container(color: const Color(0xFF181820)),
+                          ),
+                        ),
+                        const SizedBox(width: 14.0),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                title,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 15.0,
+                                  fontWeight: FontWeight.w900,
+                                  fontFamily: 'Outfit',
+                                  height: 1.15,
+                                ),
+                              ),
+                              const SizedBox(height: 8.0),
+                              Wrap(
+                                spacing: 6.0,
+                                runSpacing: 4.0,
+                                children: [
+                                  if (rating != null)
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 7.0, vertical: 3.0),
+                                      decoration: BoxDecoration(
+                                        color: Colors.amber.withValues(alpha: 0.15),
+                                        borderRadius: BorderRadius.circular(5.0),
+                                        border: Border.all(color: Colors.amber.withValues(alpha: 0.5), width: 0.8),
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          const Icon(Icons.star_rounded, color: Colors.amber, size: 12.0),
+                                          const SizedBox(width: 3.0),
+                                          Text(
+                                            rating.toStringAsFixed(1),
+                                            style: const TextStyle(
+                                              color: Colors.amber,
+                                              fontSize: 10.5,
+                                              fontWeight: FontWeight.bold,
+                                              fontFamily: 'Outfit',
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 7.0, vertical: 3.0),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white.withValues(alpha: 0.08),
+                                      borderRadius: BorderRadius.circular(5.0),
+                                      border: Border.all(color: Colors.white12, width: 0.8),
+                                    ),
+                                    child: Text(
+                                      format,
+                                      style: const TextStyle(color: Colors.white70, fontSize: 10.5, fontWeight: FontWeight.w600, fontFamily: 'Outfit'),
+                                    ),
+                                  ),
+                                  if (status != null && status.isNotEmpty)
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 7.0, vertical: 3.0),
+                                      decoration: BoxDecoration(
+                                        color: Colors.white.withValues(alpha: 0.08),
+                                        borderRadius: BorderRadius.circular(5.0),
+                                        border: Border.all(color: Colors.white12, width: 0.8),
+                                      ),
+                                      child: Text(
+                                        status,
+                                        style: const TextStyle(color: Colors.white70, fontSize: 10.5, fontFamily: 'Outfit'),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (genres.isNotEmpty) ...[
+                      const SizedBox(height: 12.0),
+                      Wrap(
+                        spacing: 6.0,
+                        runSpacing: 4.0,
+                        children: genres
+                            .map(
+                              (g) => Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 3.0),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withValues(alpha: 0.06),
+                                  borderRadius: BorderRadius.circular(6.0),
+                                  border: Border.all(color: Colors.white12, width: 0.8),
+                                ),
+                                child: Text(
+                                  g,
                                   style: const TextStyle(
-                                    color: Colors.amber,
+                                    color: Colors.white70,
                                     fontSize: 10.5,
-                                    fontWeight: FontWeight.bold,
+                                    fontWeight: FontWeight.w500,
                                     fontFamily: 'Outfit',
                                   ),
                                 ),
-                              ],
-                            ),
-                          ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6.0, vertical: 2.0),
-                          decoration: BoxDecoration(
-                            color: Colors.white10,
-                            borderRadius: BorderRadius.circular(4.0),
-                            border: Border.all(color: Colors.white24, width: 0.8),
-                          ),
-                          child: Text(
-                            format,
-                            style: const TextStyle(color: Colors.white70, fontSize: 10.5, fontFamily: 'Outfit'),
-                          ),
+                              ),
+                            )
+                            .toList(),
+                      ),
+                    ],
+                    if (description.isNotEmpty) ...[
+                      const SizedBox(height: 12.0),
+                      Text(
+                        description,
+                        maxLines: 3,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.78),
+                          fontSize: 12.0,
+                          height: 1.40,
+                          fontStyle: FontStyle.italic,
+                          fontFamily: 'Outfit',
                         ),
-                        if (status != null && status.isNotEmpty)
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6.0, vertical: 2.0),
-                            decoration: BoxDecoration(
-                              color: Colors.white10,
-                              borderRadius: BorderRadius.circular(4.0),
-                              border: Border.all(color: Colors.white24, width: 0.8),
-                            ),
-                            child: Text(
-                              status,
-                              style: const TextStyle(color: Colors.white70, fontSize: 10.5, fontFamily: 'Outfit'),
-                            ),
-                          ),
-                      ],
+                      ),
+                    ],
+                    const SizedBox(height: 14.0),
+                    ElevatedButton.icon(
+                      onPressed: onTap,
+                      icon: const Icon(Icons.play_arrow_rounded, size: 16.0),
+                      label: const Text('View Details'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFE50914),
+                        foregroundColor: Colors.white,
+                        minimumSize: const Size.fromHeight(38.0),
+                        elevation: 4,
+                        shadowColor: const Color(0xFFE50914).withValues(alpha: 0.4),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
+                        textStyle: const TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 12.5),
+                      ),
                     ),
                   ],
                 ),
               ),
             ],
           ),
-          if (genres.isNotEmpty) ...[
-            const SizedBox(height: 10.0),
-            Wrap(
-              spacing: 6.0,
-              runSpacing: 4.0,
-              children: genres
-                  .map(
-                    (g) => Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 3.0),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFE50914).withValues(alpha: 0.15),
-                        borderRadius: BorderRadius.circular(12.0),
-                        border: Border.all(color: const Color(0xFFE50914).withValues(alpha: 0.3), width: 0.8),
-                      ),
-                      child: Text(
-                        g,
-                        style: const TextStyle(
-                          color: Color(0xFFFF4D4D),
-                          fontSize: 10.5,
-                          fontWeight: FontWeight.w600,
-                          fontFamily: 'Outfit',
-                        ),
-                      ),
-                    ),
-                  )
-                  .toList(),
-            ),
-          ],
-          if (description.isNotEmpty) ...[
-            const SizedBox(height: 10.0),
-            Text(
-              description,
-              maxLines: 3,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.75),
-                fontSize: 12.0,
-                height: 1.35,
-                fontStyle: FontStyle.italic,
-                fontFamily: 'Outfit',
-              ),
-            ),
-          ],
-          const SizedBox(height: 14.0),
-          ElevatedButton.icon(
-            onPressed: onTap,
-            icon: const Icon(Icons.arrow_forward_rounded, size: 15.0),
-            label: const Text('View Details'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFE50914),
-              foregroundColor: Colors.white,
-              minimumSize: const Size.fromHeight(36.0),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
-              textStyle: const TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold, fontSize: 12.5),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui';
 import 'dart:developer' as developer;
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -241,105 +242,137 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
     final bool isOffline = AppSettings().offlineMode;
 
     return SmoothScrollArea(
-      builder: (controller, physics) => ListView(
-        controller: controller,
-        physics: physics,
-        padding: EdgeInsets.zero,
-        children: [
-          // 1. Hero Section (Fading Banner Carousel) - Localized State
-          if (_trending.isNotEmpty)
-            _HeroSection(
-              trending: _trending,
-              navigationState: widget.navigationState,
-            ),
+      builder: (controller, physics) => AnimatedBuilder(
+        animation: controller,
+        builder: (context, child) {
+          final double scrollOffset = controller.hasClients ? controller.offset : 0.0;
+          final double screenHeight = MediaQuery.of(context).size.height;
+          final double revealProgress = (scrollOffset / (screenHeight * 0.35)).clamp(0.0, 1.0);
+          final double curveVal = Curves.easeOutCubic.transform(revealProgress);
 
-          // 2. Content Railways (Horizontal tracks with load-more at the end)
-          Padding(
-            padding: const EdgeInsets.only(left: 20.0, right: 20.0, bottom: 40.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _AnimeContinueWatchingSection(navigationState: widget.navigationState),
-                const SizedBox(height: 24.0),
-                if (_trending.isNotEmpty)
-                  _RailwayTrack(
-                    title: isOffline ? 'Watching (Local)' : 'Trending Now',
-                    initialItems: _trending,
-                    onLoadMore: isOffline ? (page) async => const [] : (page) => _loadMoreCategoryData(category: 'trending', page: page),
-                    navigationState: widget.navigationState,
-                  ),
+          return ListView(
+            controller: controller,
+            physics: physics,
+            padding: EdgeInsets.zero,
+            children: [
+              // 1. Hero Section (Fading Banner Carousel) - Localized State
+              if (_trending.isNotEmpty)
+                _HeroSection(
+                  trending: _trending,
+                  navigationState: widget.navigationState,
+                  scrollOffset: scrollOffset,
+                ),
 
-                if (_popularThisSeason.isNotEmpty)
-                  _RailwayTrack(
-                    title: isOffline ? 'Completed (Local)' : 'Popular This Season',
-                    initialItems: _popularThisSeason,
-                    onLoadMore: isOffline ? (page) async => const [] : (page) => _loadMoreCategoryData(category: 'popular', page: page),
-                    navigationState: widget.navigationState,
-                  ),
-                
-                if (_newlyReleased.isNotEmpty)
-                  _RailwayTrack(
-                    title: isOffline ? 'Planning (Local)' : 'Newly Released',
-                    initialItems: _newlyReleased,
-                    onLoadMore: isOffline ? (page) async => const [] : (page) => _loadMoreCategoryData(category: 'newlyReleased', page: page),
-                    navigationState: widget.navigationState,
-                  ),
-                
-                if (_upcoming.isNotEmpty)
-                  _RailwayTrack(
-                    title: isOffline ? 'Downloaded (Local)' : 'Upcoming Releases',
-                    initialItems: _upcoming,
-                    onLoadMore: isOffline ? (page) async => const [] : (page) => _loadMoreCategoryData(category: 'upcoming', page: page),
-                    navigationState: widget.navigationState,
-                  ),
+              // 2. Content Railways (Unlocks with scale, fade & slide on scroll)
+              Transform.translate(
+                offset: Offset(0, 40.0 * (1.0 - curveVal)),
+                child: Opacity(
+                  opacity: (0.15 + (0.85 * curveVal)).clamp(0.0, 1.0),
+                  child: Padding(
+                    padding: const EdgeInsets.only(left: 20.0, right: 20.0, bottom: 40.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Glowing Crimson Accent Line when unlocking content
+                        Container(
+                          height: 2.0,
+                          width: double.infinity,
+                          margin: const EdgeInsets.only(bottom: 24.0),
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [
+                                Colors.transparent,
+                                const Color(0xFFE50914).withValues(alpha: 0.6 * curveVal),
+                                Colors.transparent,
+                              ],
+                            ),
+                          ),
+                        ),
+                        _AnimeContinueWatchingSection(navigationState: widget.navigationState),
+                        const SizedBox(height: 24.0),
+                        if (_trending.isNotEmpty)
+                          _RailwayTrack(
+                            title: isOffline ? 'Watching (Local)' : 'Trending Now',
+                            initialItems: _trending,
+                            onLoadMore: isOffline ? (page) async => const [] : (page) => _loadMoreCategoryData(category: 'trending', page: page),
+                            navigationState: widget.navigationState,
+                          ),
 
-                const SizedBox(height: 16.0),
-                const Text(
-                  'Genres',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 22.0,
-                    fontWeight: FontWeight.bold,
-                    fontFamily: 'Outfit',
+                        if (_popularThisSeason.isNotEmpty)
+                          _RailwayTrack(
+                            title: isOffline ? 'Completed (Local)' : 'Popular This Season',
+                            initialItems: _popularThisSeason,
+                            onLoadMore: isOffline ? (page) async => const [] : (page) => _loadMoreCategoryData(category: 'popular', page: page),
+                            navigationState: widget.navigationState,
+                          ),
+                        
+                        if (_newlyReleased.isNotEmpty)
+                          _RailwayTrack(
+                            title: isOffline ? 'Planning (Local)' : 'Newly Released',
+                            initialItems: _newlyReleased,
+                            onLoadMore: isOffline ? (page) async => const [] : (page) => _loadMoreCategoryData(category: 'newlyReleased', page: page),
+                            navigationState: widget.navigationState,
+                          ),
+                        
+                        if (_upcoming.isNotEmpty)
+                          _RailwayTrack(
+                            title: isOffline ? 'Downloaded (Local)' : 'Upcoming Releases',
+                            initialItems: _upcoming,
+                            onLoadMore: isOffline ? (page) async => const [] : (page) => _loadMoreCategoryData(category: 'upcoming', page: page),
+                            navigationState: widget.navigationState,
+                          ),
+
+                        const SizedBox(height: 16.0),
+                        const Text(
+                          'Genres',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 22.0,
+                            fontWeight: FontWeight.bold,
+                            fontFamily: 'Outfit',
+                          ),
+                        ),
+                        const SizedBox(height: 12.0),
+
+                        if (_action.isNotEmpty)
+                          _RailwayTrack(
+                            title: 'Action',
+                            initialItems: _action,
+                            onLoadMore: (page) => _loadMoreCategoryData(category: 'Action', page: page),
+                            navigationState: widget.navigationState,
+                          ),
+                        
+                        if (_adventure.isNotEmpty)
+                          _RailwayTrack(
+                            title: 'Adventure',
+                            initialItems: _adventure,
+                            onLoadMore: (page) => _loadMoreCategoryData(category: 'Adventure', page: page),
+                            navigationState: widget.navigationState,
+                          ),
+                        
+                        if (_romance.isNotEmpty)
+                          _RailwayTrack(
+                            title: 'Romance',
+                            initialItems: _romance,
+                            onLoadMore: (page) => _loadMoreCategoryData(category: 'Romance', page: page),
+                            navigationState: widget.navigationState,
+                          ),
+                        
+                        if (_fantasy.isNotEmpty)
+                          _RailwayTrack(
+                            title: 'Fantasy',
+                            initialItems: _fantasy,
+                            onLoadMore: (page) => _loadMoreCategoryData(category: 'Fantasy', page: page),
+                            navigationState: widget.navigationState,
+                          ),
+                      ],
+                    ),
                   ),
                 ),
-                const SizedBox(height: 12.0),
-
-                if (_action.isNotEmpty)
-                  _RailwayTrack(
-                    title: 'Action',
-                    initialItems: _action,
-                    onLoadMore: (page) => _loadMoreCategoryData(category: 'Action', page: page),
-                    navigationState: widget.navigationState,
-                  ),
-                
-                if (_adventure.isNotEmpty)
-                  _RailwayTrack(
-                    title: 'Adventure',
-                    initialItems: _adventure,
-                    onLoadMore: (page) => _loadMoreCategoryData(category: 'Adventure', page: page),
-                    navigationState: widget.navigationState,
-                  ),
-                
-                if (_romance.isNotEmpty)
-                  _RailwayTrack(
-                    title: 'Romance',
-                    initialItems: _romance,
-                    onLoadMore: (page) => _loadMoreCategoryData(category: 'Romance', page: page),
-                    navigationState: widget.navigationState,
-                  ),
-                
-                if (_fantasy.isNotEmpty)
-                  _RailwayTrack(
-                    title: 'Fantasy',
-                    initialItems: _fantasy,
-                    onLoadMore: (page) => _loadMoreCategoryData(category: 'Fantasy', page: page),
-                    navigationState: widget.navigationState,
-                  ),
-              ],
-            ),
-          ),
-        ],
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -349,10 +382,12 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
 class _HeroSection extends StatefulWidget {
   final List<dynamic> trending;
   final NavigationState navigationState;
+  final double scrollOffset;
 
   const _HeroSection({
     required this.trending,
     required this.navigationState,
+    this.scrollOffset = 0.0,
   });
 
   @override
@@ -415,10 +450,10 @@ class _HeroSectionState extends State<_HeroSection> {
     final double screenHeight = MediaQuery.of(context).size.height;
     final bool isMobile = screenWidth < 800;
 
-    // Full window hero height: ~72% of window height on desktop (min 520, max 680), 420 on mobile
+    // 100% Viewport Full Window Height on Desktop/Tablet
     final double heroHeight = isMobile
-        ? (screenHeight * 0.52).clamp(380.0, 440.0)
-        : (screenHeight * 0.72).clamp(520.0, 680.0);
+        ? (screenHeight * 0.85).clamp(460.0, 600.0)
+        : screenHeight;
 
     final int displayCount = widget.trending.length > 6 ? 6 : widget.trending.length;
 
@@ -430,9 +465,9 @@ class _HeroSectionState extends State<_HeroSection> {
           // 1. Banner Image (Fading Transition)
           Positioned.fill(
             child: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 700),
-              switchInCurve: Curves.easeIn,
-              switchOutCurve: Curves.easeOut,
+              duration: const Duration(milliseconds: 800),
+              switchInCurve: Curves.easeInOut,
+              switchOutCurve: Curves.easeInOut,
               child: bannerUrl.isNotEmpty
                   ? CachedNetworkImage(
                       imageUrl: bannerUrl,
@@ -440,16 +475,16 @@ class _HeroSectionState extends State<_HeroSection> {
                       fit: BoxFit.cover,
                       width: double.infinity,
                       height: double.infinity,
-                      memCacheWidth: 1920,
-                      placeholder: (context, url) => Container(color: Colors.black),
-                      errorWidget: (context, url, error) => Container(color: Colors.black),
+                      filterQuality: FilterQuality.high,
+                      placeholder: (context, url) => Container(color: const Color(0xFF09090D)),
+                      errorWidget: (context, url, error) => Container(color: const Color(0xFF09090D)),
                     )
-                  : Container(color: Colors.black, key: const ValueKey('empty_banner')),
+                  : Container(color: const Color(0xFF09090D), key: const ValueKey('empty_banner')),
             ),
           ),
 
-          // 2. Gradients for Legibility & Deep Bottom Integration
-          // Top Vignette
+          // 2. Multi-Layered Cinematic Ambient Gradients
+          // Top Vignette for Nav bar blending
           Positioned.fill(
             child: Container(
               decoration: const BoxDecoration(
@@ -458,353 +493,466 @@ class _HeroSectionState extends State<_HeroSection> {
                     Colors.black87,
                     Colors.transparent,
                     Colors.transparent,
-                    Color(0xFF0B0B0E),
+                    Color(0xFF07070A),
                   ],
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
-                  stops: [0.0, 0.25, 0.5, 1.0],
+                  stops: [0.0, 0.2, 0.6, 1.0],
                 ),
               ),
             ),
           ),
-          // Heavy Left Dark Overlay for Crisp Readable Text
+          // Heavy Left Dark Vignette
           Positioned.fill(
             child: Container(
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   colors: [
-                    const Color(0xFF0B0B0E).withValues(alpha: 0.96),
-                    const Color(0xFF0B0B0E).withValues(alpha: 0.75),
-                    Colors.black.withValues(alpha: 0.25),
+                    const Color(0xFF07070A).withValues(alpha: 0.94),
+                    const Color(0xFF07070A).withValues(alpha: 0.70),
+                    Colors.black.withValues(alpha: 0.20),
                     Colors.transparent,
                   ],
                   begin: Alignment.centerLeft,
                   end: Alignment.centerRight,
-                  stops: const [0.0, 0.35, 0.7, 1.0],
+                  stops: const [0.0, 0.40, 0.75, 1.0],
                 ),
               ),
             ),
           ),
 
-          // 3. Left Content Column
-          Positioned(
-            left: isMobile ? 18.0 : 36.0,
-            bottom: isMobile ? 20.0 : 36.0,
-            right: isMobile ? 18.0 : 180.0,
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 640.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // Badges Row
-                  Wrap(
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    spacing: 8.0,
-                    runSpacing: 6.0,
-                    children: [
-                      // Rank Badge
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 4.0),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFE50914),
-                          borderRadius: BorderRadius.circular(6.0),
-                          boxShadow: [
-                            BoxShadow(
-                              color: const Color(0xFFE50914).withValues(alpha: 0.4),
-                              blurRadius: 8,
-                              spreadRadius: 1,
-                            ),
-                          ],
-                        ),
-                        child: Text(
-                          '★ #${_heroIndex + 1}',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 11.5,
-                            fontWeight: FontWeight.bold,
-                            fontFamily: 'Outfit',
-                          ),
-                        ),
+          // 3. Floating Left Glassmorphic Content Card (With Scroll Parallax & Opacity Fade)
+          Builder(
+            builder: (context) {
+              final double cardFade = (1.0 - (widget.scrollOffset / (screenHeight * 0.35))).clamp(0.0, 1.0);
+              final double cardOffsetY = -widget.scrollOffset * 0.30;
+
+              return Positioned(
+                left: isMobile ? 16.0 : 44.0,
+                bottom: isMobile ? 32.0 : 64.0,
+                right: isMobile ? 16.0 : (screenWidth > 1200 ? 540.0 : 380.0),
+                child: Transform.translate(
+                  offset: Offset(0, cardOffsetY),
+                  child: Opacity(
+                    opacity: cardFade,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(20.0),
+                      child: BackdropFilter(
+                        filter: ImageFilter.blur(sigmaX: 16.0, sigmaY: 16.0),
+                        child: Container(
+                  padding: EdgeInsets.all(isMobile ? 18.0 : 28.0),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF0C0C10).withValues(alpha: 0.75),
+                    borderRadius: BorderRadius.circular(20.0),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.12),
+                      width: 1.2,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.5),
+                        blurRadius: 30,
+                        spreadRadius: 4,
                       ),
-                      if (format.isNotEmpty)
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 4.0),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(6.0),
-                            border: Border.all(color: Colors.white24, width: 0.8),
-                          ),
-                          child: Text(
-                            format,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 11.5,
-                              fontWeight: FontWeight.w600,
-                              fontFamily: 'Outfit',
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Tag & Metadata Badges Bar
+                      Wrap(
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        spacing: 8.0,
+                        runSpacing: 6.0,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 4.0),
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(
+                                colors: [Color(0xFFE50914), Color(0xFFB20710)],
+                              ),
+                              borderRadius: BorderRadius.circular(6.0),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: const Color(0xFFE50914).withValues(alpha: 0.5),
+                                  blurRadius: 10,
+                                ),
+                              ],
+                            ),
+                            child: Text(
+                              '★ #${_heroIndex + 1} TRENDING',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 11.0,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: 0.5,
+                                fontFamily: 'Outfit',
+                              ),
                             ),
                           ),
-                        ),
-                      if (episodes != null)
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 4.0),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(6.0),
-                            border: Border.all(color: Colors.white24, width: 0.8),
-                          ),
-                          child: Text(
-                            '$episodes Episodes',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 11.5,
-                              fontWeight: FontWeight.w600,
-                              fontFamily: 'Outfit',
-                            ),
-                          ),
-                        ),
-                      if (rating != null)
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 4.0),
-                          decoration: BoxDecoration(
-                            color: Colors.amber.withValues(alpha: 0.2),
-                            borderRadius: BorderRadius.circular(6.0),
-                            border: Border.all(color: Colors.amber.withValues(alpha: 0.6), width: 0.8),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(Icons.star_rounded, color: Colors.amber, size: 14.0),
-                              const SizedBox(width: 3.0),
-                              Text(
-                                (rating / 10).toStringAsFixed(1),
+                          if (format.isNotEmpty)
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 9.0, vertical: 4.0),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.10),
+                                borderRadius: BorderRadius.circular(6.0),
+                                border: Border.all(color: Colors.white24, width: 0.8),
+                              ),
+                              child: Text(
+                                format,
                                 style: const TextStyle(
-                                  color: Colors.amber,
-                                  fontSize: 11.5,
-                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                  fontSize: 11.0,
+                                  fontWeight: FontWeight.w600,
                                   fontFamily: 'Outfit',
                                 ),
                               ),
-                            ],
-                          ),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 12.0),
-
-                  // Title
-                  Text(
-                    title,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: isMobile ? 24.0 : 38.0,
-                      fontWeight: FontWeight.w900,
-                      height: 1.12,
-                      fontFamily: 'Outfit',
-                      letterSpacing: -0.4,
-                      shadows: const [
-                        Shadow(color: Colors.black87, blurRadius: 12, offset: Offset(0, 2)),
-                      ],
-                    ),
-                  ),
-
-                  // Description
-                  if (description.isNotEmpty) ...[
-                    const SizedBox(height: 10.0),
-                    Text(
-                      description,
-                      maxLines: isMobile ? 2 : 3,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.82),
-                        fontSize: isMobile ? 12.5 : 14.0,
-                        height: 1.42,
-                        fontStyle: FontStyle.italic,
-                        fontFamily: 'Outfit',
-                      ),
-                    ),
-                  ],
-                  const SizedBox(height: 20.0),
-
-                  // Action Buttons Row
-                  Row(
-                    children: [
-                      ElevatedButton.icon(
-                        icon: Icon(Icons.play_arrow_rounded, color: Colors.white, size: isMobile ? 18 : 22),
-                        label: Text(isMobile ? 'Watch' : 'Watch Now'),
-                        onPressed: () {
-                          widget.navigationState.selectAnime(anime['id']);
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFFE50914),
-                          foregroundColor: Colors.white,
-                          padding: EdgeInsets.symmetric(
-                            horizontal: isMobile ? 20.0 : 28.0,
-                            vertical: isMobile ? 11.0 : 14.0,
-                          ),
-                          elevation: 6,
-                          shadowColor: const Color(0xFFE50914).withValues(alpha: 0.5),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.0)),
-                          textStyle: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: isMobile ? 13.5 : 15.0,
-                            fontFamily: 'Outfit',
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 14.0),
-                      OutlinedButton.icon(
-                        icon: Icon(Icons.info_outline_rounded, color: Colors.white, size: isMobile ? 16 : 19),
-                        label: const Text('Details'),
-                        onPressed: () {
-                          widget.navigationState.selectAnime(anime['id']);
-                        },
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.white,
-                          backgroundColor: Colors.white.withValues(alpha: 0.12),
-                          side: const BorderSide(color: Colors.white30, width: 1.0),
-                          padding: EdgeInsets.symmetric(
-                            horizontal: isMobile ? 16.0 : 22.0,
-                            vertical: isMobile ? 11.0 : 14.0,
-                          ),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.0)),
-                          textStyle: TextStyle(
-                            fontWeight: FontWeight.w600,
-                            fontSize: isMobile ? 13.5 : 15.0,
-                            fontFamily: 'Outfit',
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 18.0),
-
-                  // Bottom Line Progress Indicators
-                  Row(
-                    children: List.generate(
-                      displayCount,
-                      (index) {
-                        final bool isSelected = index == _heroIndex;
-                        return GestureDetector(
-                          onTap: () {
-                            setState(() {
-                              _heroIndex = index;
-                            });
-                            _startHeroTimer();
-                          },
-                          child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 350),
-                            margin: const EdgeInsets.only(right: 8.0),
-                            width: isSelected ? 36.0 : 12.0,
-                            height: 4.0,
-                            decoration: BoxDecoration(
-                              color: isSelected ? const Color(0xFFE50914) : Colors.white30,
-                              borderRadius: BorderRadius.circular(2.0),
-                              boxShadow: isSelected
-                                  ? [
-                                      BoxShadow(
-                                        color: const Color(0xFFE50914).withValues(alpha: 0.6),
-                                        blurRadius: 6,
-                                        spreadRadius: 1,
-                                      ),
-                                    ]
-                                  : null,
                             ),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-
-          // 4. Desktop Right-Side Vertical Interactive Thumbnail Switcher
-          if (!isMobile)
-            Positioned(
-              right: 28.0,
-              top: 36.0,
-              bottom: 36.0,
-              child: Center(
-                child: SingleChildScrollView(
-                  physics: const BouncingScrollPhysics(),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: List.generate(
-                      displayCount,
-                      (index) {
-                        final item = widget.trending[index];
-                        final bool isSelected = index == _heroIndex;
-                        final String thumbUrl = item['coverImage']?['large'] ??
-                            item['coverImage']?['extraLarge'] ??
-                            item['bannerImage'] ??
-                            '';
-
-                        return GestureDetector(
-                          onTap: () {
-                            setState(() {
-                              _heroIndex = index;
-                            });
-                            _startHeroTimer();
-                          },
-                          child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 300),
-                            curve: Curves.easeOutCubic,
-                            margin: const EdgeInsets.symmetric(vertical: 5.0),
-                            width: isSelected ? 68.0 : 58.0,
-                            height: isSelected ? 96.0 : 82.0,
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(10.0),
-                              border: Border.all(
-                                color: isSelected ? const Color(0xFFE50914) : Colors.white24,
-                                width: isSelected ? 2.5 : 1.0,
+                          if (episodes != null)
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 9.0, vertical: 4.0),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.10),
+                                borderRadius: BorderRadius.circular(6.0),
+                                border: Border.all(color: Colors.white24, width: 0.8),
                               ),
-                              boxShadow: isSelected
-                                  ? [
-                                      BoxShadow(
-                                        color: const Color(0xFFE50914).withValues(alpha: 0.6),
-                                        blurRadius: 12,
-                                        spreadRadius: 1,
-                                      ),
-                                    ]
-                                  : [
-                                      const BoxShadow(
-                                        color: Colors.black54,
-                                        blurRadius: 6,
-                                      ),
-                                    ],
+                              child: Text(
+                                '$episodes Episodes',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 11.0,
+                                  fontWeight: FontWeight.w600,
+                                  fontFamily: 'Outfit',
+                                ),
+                              ),
                             ),
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(8.0),
-                              child: Stack(
+                          if (rating != null)
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 9.0, vertical: 4.0),
+                              decoration: BoxDecoration(
+                                color: Colors.amber.withValues(alpha: 0.18),
+                                borderRadius: BorderRadius.circular(6.0),
+                                border: Border.all(color: Colors.amber.withValues(alpha: 0.6), width: 0.8),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  CachedNetworkImage(
-                                    imageUrl: thumbUrl,
-                                    fit: BoxFit.cover,
-                                    width: double.infinity,
-                                    height: double.infinity,
-                                    memCacheWidth: 200,
-                                    placeholder: (context, url) => Container(color: Colors.black26),
-                                    errorWidget: (context, url, err) => Container(color: Colors.black26),
-                                  ),
-                                  if (!isSelected)
-                                    Container(
-                                      color: Colors.black.withValues(alpha: 0.35),
+                                  const Icon(Icons.star_rounded, color: Colors.amber, size: 14.0),
+                                  const SizedBox(width: 3.0),
+                                  Text(
+                                    (rating / 10).toStringAsFixed(1),
+                                    style: const TextStyle(
+                                      color: Colors.amber,
+                                      fontSize: 11.0,
+                                      fontWeight: FontWeight.bold,
+                                      fontFamily: 'Outfit',
                                     ),
+                                  ),
                                 ],
                               ),
                             ),
+                        ],
+                      ),
+                      const SizedBox(height: 14.0),
+
+                      // Main Title
+                      Text(
+                        title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: isMobile ? 22.0 : 36.0,
+                          fontWeight: FontWeight.w900,
+                          height: 1.15,
+                          fontFamily: 'Outfit',
+                          letterSpacing: -0.5,
+                        ),
+                      ),
+
+                      // Synopsis Description
+                      if (description.isNotEmpty) ...[
+                        const SizedBox(height: 10.0),
+                        Text(
+                          description,
+                          maxLines: isMobile ? 2 : 3,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.80),
+                            fontSize: isMobile ? 12.0 : 13.5,
+                            height: 1.45,
+                            fontStyle: FontStyle.italic,
+                            fontFamily: 'Outfit',
                           ),
-                        );
-                      },
-                    ),
+                        ),
+                      ],
+                      const SizedBox(height: 22.0),
+
+                      // Action Buttons Row
+                      Row(
+                        children: [
+                          ElevatedButton.icon(
+                            icon: Icon(Icons.play_arrow_rounded, color: Colors.white, size: isMobile ? 18 : 22),
+                            label: Text(isMobile ? 'Watch' : 'Watch Now'),
+                            onPressed: () {
+                              widget.navigationState.selectAnime(anime['id']);
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFFE50914),
+                              foregroundColor: Colors.white,
+                              padding: EdgeInsets.symmetric(
+                                horizontal: isMobile ? 18.0 : 26.0,
+                                vertical: isMobile ? 11.0 : 15.0,
+                              ),
+                              elevation: 8,
+                              shadowColor: const Color(0xFFE50914).withValues(alpha: 0.5),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.0)),
+                              textStyle: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: isMobile ? 13.0 : 14.5,
+                                fontFamily: 'Outfit',
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10.0),
+                          ListenableBuilder(
+                            listenable: LibraryState(),
+                            builder: (context, _) {
+                              final int idInt = anime['id'] is int ? anime['id'] : (int.tryParse(anime['id'].toString()) ?? 0);
+                              final bool isSaved = idInt != 0 && LibraryState().isSaved(idInt, 'anime');
+
+                              return OutlinedButton.icon(
+                                icon: Icon(
+                                  isSaved ? Icons.check_rounded : Icons.add_rounded,
+                                  color: isSaved ? const Color(0xFFE50914) : Colors.white,
+                                  size: isMobile ? 16 : 19,
+                                ),
+                                label: Text(isSaved ? 'In Library' : 'Add Library'),
+                                onPressed: () async {
+                                  if (idInt == 0) return;
+                                  final library = LibraryState();
+                                  if (isSaved) {
+                                    await library.removeItem(idInt, 'anime');
+                                    if (context.mounted) NotificationService().show(context, 'Removed from Library');
+                                  } else {
+                                    await library.saveItem(
+                                      id: idInt,
+                                      mode: 'anime',
+                                      format: format.isNotEmpty ? format : 'TV',
+                                      libraryStatus: 'planning',
+                                      rating: (rating ?? 0) / 10,
+                                      watchedEpisodes: 0,
+                                    );
+                                    if (context.mounted) NotificationService().show(context, 'Added to Library');
+                                  }
+                                },
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: Colors.white,
+                                  backgroundColor: Colors.white.withValues(alpha: 0.08),
+                                  side: BorderSide(
+                                    color: isSaved ? const Color(0xFFE50914) : Colors.white30,
+                                    width: 1.0,
+                                  ),
+                                  padding: EdgeInsets.symmetric(
+                                    horizontal: isMobile ? 14.0 : 18.0,
+                                    vertical: isMobile ? 11.0 : 15.0,
+                                  ),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.0)),
+                                  textStyle: TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: isMobile ? 12.5 : 14.0,
+                                    fontFamily: 'Outfit',
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                          const SizedBox(width: 10.0),
+                          OutlinedButton.icon(
+                            icon: Icon(Icons.info_outline_rounded, color: Colors.white, size: isMobile ? 16 : 19),
+                            label: const Text('Details'),
+                            onPressed: () {
+                              widget.navigationState.selectAnime(anime['id']);
+                            },
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: Colors.white,
+                              backgroundColor: Colors.white.withValues(alpha: 0.08),
+                              side: const BorderSide(color: Colors.white30, width: 1.0),
+                              padding: EdgeInsets.symmetric(
+                                horizontal: isMobile ? 14.0 : 18.0,
+                                vertical: isMobile ? 11.0 : 15.0,
+                              ),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.0)),
+                              textStyle: TextStyle(
+                                fontWeight: FontWeight.w600,
+                                fontSize: isMobile ? 12.5 : 14.0,
+                                fontFamily: 'Outfit',
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
                 ),
               ),
             ),
+          ),
+        ),
+      );
+    },
+  ),
+
+          // 4. Horizontal Floating Cards Dock Switcher (Bottom Right on Desktop)
+          if (!isMobile)
+            Positioned(
+              right: 44.0,
+              bottom: 64.0,
+              child: Container(
+                padding: const EdgeInsets.all(8.0),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF0C0C10).withValues(alpha: 0.70),
+                  borderRadius: BorderRadius.circular(16.0),
+                  border: Border.all(color: Colors.white.withValues(alpha: 0.12), width: 1.0),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: List.generate(
+                    displayCount,
+                    (index) {
+                      final item = widget.trending[index];
+                      final bool isSelected = index == _heroIndex;
+                      final String thumbUrl = item['coverImage']?['large'] ??
+                          item['coverImage']?['extraLarge'] ??
+                          item['bannerImage'] ??
+                          '';
+
+                      return GestureDetector(
+                        onTap: () {
+                          setState(() {
+                            _heroIndex = index;
+                          });
+                          _startHeroTimer();
+                        },
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 300),
+                          curve: Curves.easeOutCubic,
+                          margin: const EdgeInsets.symmetric(horizontal: 5.0),
+                          width: isSelected ? 140.0 : 100.0,
+                          height: 80.0,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(10.0),
+                            border: Border.all(
+                              color: isSelected ? const Color(0xFFE50914) : Colors.white12,
+                              width: isSelected ? 2.0 : 1.0,
+                            ),
+                            boxShadow: isSelected
+                                ? [
+                                    BoxShadow(
+                                      color: const Color(0xFFE50914).withValues(alpha: 0.5),
+                                      blurRadius: 10,
+                                    ),
+                                  ]
+                                : null,
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(9.0),
+                            child: Stack(
+                              children: [
+                                CachedNetworkImage(
+                                  imageUrl: thumbUrl,
+                                  fit: BoxFit.cover,
+                                  width: double.infinity,
+                                  height: double.infinity,
+                                  memCacheWidth: 300,
+                                  placeholder: (context, url) => Container(color: Colors.black26),
+                                  errorWidget: (context, url, err) => Container(color: Colors.black26),
+                                ),
+                                Container(
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      colors: [
+                                        Colors.black.withValues(alpha: 0.8),
+                                        Colors.transparent,
+                                      ],
+                                      begin: Alignment.bottomCenter,
+                                      end: Alignment.topCenter,
+                                    ),
+                                  ),
+                                ),
+                                if (!isSelected)
+                                  Container(
+                                    color: Colors.black.withValues(alpha: 0.4),
+                                  ),
+                                Positioned(
+                                  left: 6.0,
+                                  bottom: 6.0,
+                                  right: 6.0,
+                                  child: Text(
+                                    '#${index + 1}',
+                                    style: TextStyle(
+                                      color: isSelected ? const Color(0xFFE50914) : Colors.white70,
+                                      fontWeight: FontWeight.w900,
+                                      fontSize: 12.0,
+                                      fontFamily: 'Outfit',
+                                    ),
+                                  ),
+                                ),
+                                if (isSelected)
+                                  Positioned(
+                                    top: 0,
+                                    left: 0,
+                                    right: 0,
+                                    child: Container(
+                                      height: 3.0,
+                                      color: const Color(0xFFE50914),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
+            ),
+
+          // 5. Floating "Scroll to Explore" Prompt at Bottom Center
+          Positioned(
+            bottom: 16.0,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 6.0),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.65),
+                  borderRadius: BorderRadius.circular(20.0),
+                  border: Border.all(color: Colors.white12, width: 0.8),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'EXPLORE MORE',
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 1.2,
+                        fontFamily: 'Outfit',
+                      ),
+                    ),
+                    SizedBox(width: 6.0),
+                    Icon(Icons.keyboard_arrow_down_rounded, color: Color(0xFFE50914), size: 16.0),
+                  ],
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -1172,7 +1320,7 @@ class _AnimeCardState extends State<_AnimeCard> {
                             final int? parsedId = rawId is int ? rawId : int.tryParse(rawId?.toString() ?? '');
                             final bool isSavedInLib = parsedId != null && LibraryState().isSaved(parsedId, 'anime');
 
-                            if (_isHovered || isSavedInLib) {
+                            if (_isHovered) {
                               return GestureDetector(
                                 behavior: HitTestBehavior.opaque,
                                 onTap: () {

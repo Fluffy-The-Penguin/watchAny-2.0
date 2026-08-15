@@ -42,6 +42,11 @@ class MyCustomScrollBehavior extends MaterialScrollBehavior {
   ScrollPhysics getScrollPhysics(BuildContext context) {
     return const ClampingScrollPhysics(parent: AlwaysScrollableScrollPhysics());
   }
+
+  @override
+  Widget buildScrollbar(BuildContext context, Widget child, ScrollableDetails details) {
+    return child;
+  }
 }
 
 
@@ -270,6 +275,13 @@ class _MyAppState extends State<MyApp> with WindowListener, WidgetsBindingObserv
           primary: Colors.white,
           secondary: Colors.white70,
           surface: Colors.black,
+        ),
+        scrollbarTheme: ScrollbarThemeData(
+          thickness: WidgetStateProperty.all(0.0),
+          thumbColor: WidgetStateProperty.all(Colors.transparent),
+          trackColor: WidgetStateProperty.all(Colors.transparent),
+          trackBorderColor: WidgetStateProperty.all(Colors.transparent),
+          interactive: false,
         ),
         useMaterial3: true,
       ),
