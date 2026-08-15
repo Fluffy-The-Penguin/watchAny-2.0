@@ -480,10 +480,8 @@ class _MoviesHomePageState extends State<MoviesHomePage> {
     final double screenHeight = MediaQuery.of(context).size.height;
     final bool isMobile = screenWidth < 800;
 
-    // Big Full Banner View aligned to show full image at bottom
-    final double heroHeight = isMobile
-        ? 440.0
-        : (screenHeight * 0.52).clamp(480.0, 580.0);
+    // Lightweight & Sleek Widescreen Hero Banner Height
+    final double heroHeight = isMobile ? 360.0 : 420.0;
 
     final int displayCount = _featuredItems.length > 6 ? 6 : _featuredItems.length;
 
@@ -525,8 +523,6 @@ class _MoviesHomePageState extends State<MoviesHomePage> {
                   // Left Floating Glassmorphic Card (With Scroll Parallax & Opacity Fade)
                   Builder(
                     builder: (context) {
-                      final double cardFade = (1.0 - (scrollOffset / (screenHeight * 0.35))).clamp(0.0, 1.0);
-                      final double cardOffsetY = -scrollOffset * 0.30;
                       final double cardWidth = isMobile
                           ? (screenWidth - 32.0)
                           : (screenWidth > 1400 ? 520.0 : (screenWidth > 1100 ? 450.0 : 390.0));
@@ -535,11 +531,7 @@ class _MoviesHomePageState extends State<MoviesHomePage> {
                         left: isMobile ? 16.0 : 44.0,
                         bottom: isMobile ? 24.0 : 48.0,
                         width: cardWidth,
-                        child: Transform.translate(
-                          offset: Offset(0, cardOffsetY),
-                          child: Opacity(
-                            opacity: cardFade,
-                            child: Column(
+                        child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               mainAxisSize: MainAxisSize.min,
                               children: [
@@ -721,16 +713,9 @@ class _MoviesHomePageState extends State<MoviesHomePage> {
                                 ),
                               ],
                             ),
-                          ),
-                ),
-              );
-            },
-          ),
-        ],
-      ),
-    );
-  },
-),
+                          );
+                        },
+                      ),
 
           // 2. Desktop Horizontal Floating Deck Switcher
           if (!isMobile)
@@ -833,44 +818,15 @@ class _MoviesHomePageState extends State<MoviesHomePage> {
                 ),
               ),
             ),
-
-          // 3. Floating "Scroll to Explore" Prompt at Bottom Center
-          Positioned(
-            bottom: 16.0,
-            left: 0,
-            right: 0,
-            child: Center(
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 6.0),
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.65),
-                  borderRadius: BorderRadius.circular(20.0),
-                  border: Border.all(color: Colors.white12, width: 0.8),
-                ),
-                child: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      'EXPLORE MORE',
-                      style: TextStyle(
-                        color: Colors.white70,
-                        fontSize: 10.5,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 1.2,
-                        fontFamily: 'Outfit',
-                      ),
-                    ),
-                    SizedBox(width: 6.0),
-                    Icon(Icons.keyboard_arrow_down_rounded, color: Colors.white70, size: 16.0),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+          ],
+        ),
+      );
+    },
+  ),
+],
+),
+);
+}
 }
 
 // ─── Continue Watching Rail ───────────────────────────────────────────────────
@@ -1106,6 +1062,11 @@ class _MovieCard extends StatefulWidget {
 
 class _MovieCardState extends State<_MovieCard> {
   bool _isHovered = false;
+
+  Widget _placeholder() => Container(
+        color: Colors.grey[950],
+        child: const Icon(Icons.movie, color: Colors.white24),
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -1344,13 +1305,9 @@ class _MovieCardState extends State<_MovieCard> {
           ),
         ),
       ),
-    ),);
-  }
-
-  Widget _placeholder() => Container(
-        color: Colors.grey[950],
-        child: const Icon(Icons.movie, color: Colors.white24),
-      );
+    ),
+  );
+}
 }
 
 // ─── Fade-in Animation Widget ─────────────────────────────────────────────────

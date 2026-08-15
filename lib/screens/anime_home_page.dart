@@ -460,10 +460,8 @@ class _HeroSectionState extends State<_HeroSection> {
     final double screenHeight = MediaQuery.of(context).size.height;
     final bool isMobile = screenWidth < 800;
 
-    // Big Full Banner View aligned to show full image at bottom
-    final double heroHeight = isMobile
-        ? 440.0
-        : (screenHeight * 0.52).clamp(480.0, 580.0);
+    // Lightweight & Sleek Widescreen Hero Banner Height
+    final double heroHeight = isMobile ? 360.0 : 420.0;
 
     final int displayCount = featuredList.length > 6 ? 6 : featuredList.length;
 
@@ -479,8 +477,6 @@ class _HeroSectionState extends State<_HeroSection> {
           // 3. Floating Left Glassmorphic Content Card (With Scroll Parallax & Opacity Fade)
           Builder(
             builder: (context) {
-              final double cardFade = (1.0 - (widget.scrollOffset / (screenHeight * 0.35))).clamp(0.0, 1.0);
-              final double cardOffsetY = -widget.scrollOffset * 0.30;
               final double cardWidth = isMobile
                   ? (screenWidth - 32.0)
                   : (screenWidth > 1400 ? 520.0 : (screenWidth > 1100 ? 450.0 : 390.0));
@@ -489,11 +485,7 @@ class _HeroSectionState extends State<_HeroSection> {
                 left: isMobile ? 16.0 : 44.0,
                 bottom: isMobile ? 24.0 : 48.0,
                 width: cardWidth,
-                child: Transform.translate(
-                  offset: Offset(0, cardOffsetY),
-                  child: Opacity(
-                    opacity: cardFade,
-                    child: Column(
+                child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -731,11 +723,9 @@ class _HeroSectionState extends State<_HeroSection> {
                         ),
                       ],
                     ),
-                  ),
-                ),
-              );
-            },
-          ),
+                  );
+                },
+              ),
 
           // 4. Horizontal Floating Cards Dock Switcher (Bottom Right on Desktop)
           if (!isMobile)
@@ -834,40 +824,6 @@ class _HeroSectionState extends State<_HeroSection> {
                 ),
               ),
             ),
-
-          // 5. Floating "Scroll to Explore" Prompt at Bottom Center
-          Positioned(
-            bottom: 16.0,
-            left: 0,
-            right: 0,
-            child: Center(
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 6.0),
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.65),
-                  borderRadius: BorderRadius.circular(20.0),
-                  border: Border.all(color: Colors.white12, width: 0.8),
-                ),
-                child: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      'EXPLORE MORE',
-                      style: TextStyle(
-                        color: Colors.white70,
-                        fontSize: 10.5,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 1.2,
-                        fontFamily: 'Outfit',
-                      ),
-                    ),
-                    SizedBox(width: 6.0),
-                    Icon(Icons.keyboard_arrow_down_rounded, color: Colors.white70, size: 16.0),
-                  ],
-                ),
-              ),
-            ),
-          ),
         ],
       ),
     ),
