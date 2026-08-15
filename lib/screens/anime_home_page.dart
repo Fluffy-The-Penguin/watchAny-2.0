@@ -13,6 +13,8 @@ import '../services/download_service.dart';
 import '../services/notification_service.dart';
 import '../widgets/item_details_preview_popover.dart';
 import '../widgets/dark_cloud_hero_background.dart';
+import '../services/kitsu_service.dart';
+import '../services/banner_resolver_service.dart';
 
 
 class AnimeHomePage extends StatefulWidget {
@@ -418,8 +420,28 @@ class _HeroSectionState extends State<_HeroSection> {
         setState(() {
           _heroIndex = (_heroIndex + 1) % widget.trending.length;
         });
+        _enrichCurrentKitsuBanner();
       }
     });
+    _enrichCurrentKitsuBanner();
+  }
+
+  void _enrichCurrentKitsuBanner() async {
+    if (widget.trending.isEmpty) return;
+    final anime = widget.trending[_heroIndex % widget.trending.length];
+    final String title = anime['title']?['english'] ?? anime['title']?['romaji'] ?? '';
+    if (title.isNotEmpty) {
+      final String? bestBanner = await BannerResolverService.getBestBanner(
+        title: title,
+        anilistBanner: anime['bannerImage']?.toString(),
+        format: anime['format'],
+      );
+      if (bestBanner != null && mounted) {
+        setState(() {
+          anime['bannerImage'] = bestBanner;
+        });
+      }
+    }
   }
 
   String _cleanDescription(String? htmlDesc) {
@@ -438,16 +460,18 @@ class _HeroSectionState extends State<_HeroSection> {
   Widget build(BuildContext context) {
     if (widget.trending.isEmpty) return const SizedBox.shrink();
 
-    final anime = widget.trending[_heroIndex];
-    String bannerUrl = (anime['bannerImage'] ?? '').toString();
-    final bool hasBanner = bannerUrl.isNotEmpty;
-    if (!hasBanner) {
-      bannerUrl = (anime['coverImage']?['extraLarge'] ?? anime['coverImage']?['large'] ?? '').toString();
-    }
+    // Filter list to only use items with actual widescreen banners for the Hero Slider
+    final List<dynamic> heroItems = widget.trending
+        .where((item) => (item['bannerImage']?.toString() ?? '').isNotEmpty)
+        .toList();
+    final List<dynamic> featuredList = heroItems.isNotEmpty ? heroItems : widget.trending;
+    final int safeIndex = _heroIndex >= featuredList.length ? 0 : _heroIndex;
+    final anime = featuredList[safeIndex];
+
+    String bannerUrl = (anime['bannerImage'] ?? anime['coverImage']?['extraLarge'] ?? '').toString();
     if (bannerUrl.contains('image.tmdb.org/t/p/')) {
       bannerUrl = bannerUrl.replaceAll(RegExp(r'/w\d+/'), '/original/');
     }
-    final String coverUrl = anime['coverImage']?['large'] ?? anime['coverImage']?['extraLarge'] ?? bannerUrl;
     final String title = anime['title']?['english'] ?? anime['title']?['romaji'] ?? 'Untitled';
     final String description = _cleanDescription(anime['description']);
     final double? rating = anime['averageScore'] != null ? (anime['averageScore'] as num).toDouble() : null;
@@ -458,19 +482,18 @@ class _HeroSectionState extends State<_HeroSection> {
     final double screenHeight = MediaQuery.of(context).size.height;
     final bool isMobile = screenWidth < 800;
 
-    // 100% Viewport Full Window Height on Desktop/Tablet
+    // Responsive Widescreen Height (Prevents 2.7x vertical zoom stretch on Desktop)
     final double heroHeight = isMobile
-        ? (screenHeight * 0.85).clamp(460.0, 600.0)
-        : screenHeight;
+        ? (screenHeight * 0.70).clamp(420.0, 560.0)
+        : (screenHeight * 0.65).clamp(520.0, 700.0);
 
-    final int displayCount = widget.trending.length > 6 ? 6 : widget.trending.length;
+    final int displayCount = featuredList.length > 6 ? 6 : featuredList.length;
 
     return SizedBox(
       height: heroHeight,
       width: double.infinity,
       child: DarkCloudHeroBackground(
         imageUrl: bannerUrl,
-        hasBanner: hasBanner,
         imageAlignment: Alignment.topRight,
         child: Stack(
           children: [

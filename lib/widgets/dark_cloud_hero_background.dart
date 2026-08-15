@@ -2,20 +2,18 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 
-/// A premium cinematic hero background that uses dark atmospheric cloud effects,
-/// soft ambient color diffusion, and seamless edge-feathering instead of stretching images.
+/// Atmospheric Hero Background that displays high-res widescreen banners with full clarity,
+/// bright artwork, and dark cloud vignettes strictly around the outer edges/corners.
 class DarkCloudHeroBackground extends StatelessWidget {
   final String imageUrl;
   final Widget? child;
   final Alignment imageAlignment;
-  final bool hasBanner;
 
   const DarkCloudHeroBackground({
     super.key,
     required this.imageUrl,
     this.child,
     this.imageAlignment = Alignment.topRight,
-    this.hasBanner = true,
   });
 
   @override
@@ -27,91 +25,22 @@ class DarkCloudHeroBackground extends StatelessWidget {
     return Stack(
       fit: StackFit.expand,
       children: [
-        // 1. Deepest Base Layer (Pure Obsidian Dark)
+        // 1. Deep Dark Base
         Container(color: const Color(0xFF060609)),
 
-        // 2. Ambient Blurred Color Cloud Layer (Pulls color from image into dark fog)
+        // 2. High-Quality Crisp Banner Image (Bright, Unblurred & Full Clarity)
         Positioned.fill(
-          child: ImageFiltered(
-            imageFilter: ImageFilter.blur(sigmaX: 90.0, sigmaY: 90.0),
-            child: Transform.scale(
-              scale: 1.2,
-              child: Opacity(
-                opacity: 0.35,
-                child: CachedNetworkImage(
-                  imageUrl: imageUrl,
-                  fit: BoxFit.cover,
-                  alignment: Alignment.center,
-                  errorWidget: (_, __, ___) => const SizedBox.shrink(),
-                ),
-              ),
-            ),
+          child: CachedNetworkImage(
+            imageUrl: imageUrl,
+            fit: BoxFit.cover,
+            alignment: imageAlignment,
+            filterQuality: FilterQuality.high,
+            placeholder: (context, url) => Container(color: const Color(0xFF07070A)),
+            errorWidget: (context, url, err) => Container(color: const Color(0xFF07070A)),
           ),
         ),
 
-        // 3. Radial Dark Cloud Vignettes (Creates atmospheric smoke/cloud depth)
-        Positioned.fill(
-          child: Container(
-            decoration: BoxDecoration(
-              gradient: RadialGradient(
-                center: const Alignment(-0.6, -0.4),
-                radius: 1.4,
-                colors: [
-                  const Color(0xFF07070A).withValues(alpha: 0.40),
-                  const Color(0xFF07070A).withValues(alpha: 0.85),
-                  const Color(0xFF060609),
-                ],
-                stops: const [0.0, 0.65, 1.0],
-              ),
-            ),
-          ),
-        ),
-
-        // 4. Main High-Quality Crisp Image (Faded at edges with Cloud Mask)
-        Positioned.fill(
-          child: ShaderMask(
-            shaderCallback: (rect) {
-              return LinearGradient(
-                begin: Alignment.centerLeft,
-                end: Alignment.centerRight,
-                colors: [
-                  Colors.transparent, // Heavy cloud fade over text area (Left)
-                  Colors.transparent,
-                  Colors.black.withValues(alpha: 0.65),
-                  Colors.black,       // Full image opacity (Right)
-                ],
-                stops: const [0.0, 0.25, 0.55, 1.0],
-              ).createShader(rect);
-            },
-            blendMode: BlendMode.dstIn,
-            child: ShaderMask(
-              shaderCallback: (rect) {
-                return const LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Colors.black,
-                    Colors.black,
-                    Colors.transparent, // Fade bottom edge into dark clouds
-                  ],
-                  stops: [0.0, 0.70, 1.0],
-                ).createShader(rect);
-              },
-              blendMode: BlendMode.dstIn,
-              child: CachedNetworkImage(
-                imageUrl: imageUrl,
-                fit: hasBanner ? BoxFit.cover : BoxFit.fitHeight,
-                alignment: imageAlignment,
-                filterQuality: FilterQuality.high,
-                placeholder: (context, url) => Container(color: const Color(0xFF07070A)),
-                errorWidget: (context, url, err) => Container(color: const Color(0xFF07070A)),
-              ),
-            ),
-          ),
-        ),
-
-        // 5. Dark Cloud Overlay & Text Protection Gradients
-        // Left Column Dark Cloud Shadow
+        // 3. Left Text Protection Shadow (Soft gradient for title legibility)
         Positioned.fill(
           child: Container(
             decoration: BoxDecoration(
@@ -119,19 +48,18 @@ class DarkCloudHeroBackground extends StatelessWidget {
                 begin: Alignment.centerLeft,
                 end: Alignment.centerRight,
                 colors: [
-                  const Color(0xFF060609),
                   const Color(0xFF060609).withValues(alpha: 0.95),
                   const Color(0xFF060609).withValues(alpha: 0.70),
-                  const Color(0xFF060609).withValues(alpha: 0.20),
+                  const Color(0xFF060609).withValues(alpha: 0.25),
                   Colors.transparent,
                 ],
-                stops: const [0.0, 0.25, 0.45, 0.70, 1.0],
+                stops: const [0.0, 0.25, 0.48, 0.75],
               ),
             ),
           ),
         ),
 
-        // Top & Bottom Fog Layers for Smooth Navigation & Content Transitions
+        // 4. Dark Cloud Fog on Top & Bottom Outer Edges (Corner / Frame Integration)
         Positioned.fill(
           child: Container(
             decoration: const BoxDecoration(
@@ -139,18 +67,37 @@ class DarkCloudHeroBackground extends StatelessWidget {
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
                 colors: [
-                  Color(0xCC060609), // Top bar dark fog
+                  Color(0xDD060609), // Top bar dark fog
                   Colors.transparent,
                   Colors.transparent,
                   Color(0xFF060609), // Bottom edge deep fog
                 ],
-                stops: [0.0, 0.20, 0.65, 1.0],
+                stops: [0.0, 0.18, 0.72, 1.0],
               ),
             ),
           ),
         ),
 
-        // 6. Child Content (Text, Metadata, Actions)
+        // 5. Corner Vignette Cloud Overlay (Feathers the 4 outer corners seamlessly)
+        Positioned.fill(
+          child: Container(
+            decoration: BoxDecoration(
+              gradient: RadialGradient(
+                center: Alignment.center,
+                radius: 1.15,
+                colors: [
+                  Colors.transparent,
+                  Colors.transparent,
+                  const Color(0xFF060609).withValues(alpha: 0.65),
+                  const Color(0xFF060609),
+                ],
+                stops: const [0.0, 0.65, 0.88, 1.0],
+              ),
+            ),
+          ),
+        ),
+
+        // 6. Floating Overlay Child (Title, Badges, Action Buttons, Switches)
         if (child != null) Positioned.fill(child: child!),
       ],
     );

@@ -72,14 +72,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
               if (meta != null) {
                 final videos = meta['videos'] as List? ?? [];
                 final int latestReleased = videos.length;
-                final int ackEp = ackMap['movies_${localItem.id}'] ?? 0;
-                final localDownloads = DownloadService().tasks.where(
-                  (t) => t.anilistId == localItem.id && t.status == DownloadStatus.completed
-                );
-                final int maxDownloaded = localDownloads.isEmpty 
-                    ? 0 
-                    : localDownloads.map((t) => t.episodeNumber ?? 0).fold(0, max);
-                final int startNew = max(max(localItem.watchedEpisodes, maxDownloaded), ackEp) + 1;
+                final int startNew = localItem.watchedEpisodes + 1;
                 
                 if (latestReleased >= startNew) {
                   final int endNew = latestReleased;
@@ -150,14 +143,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
             releaseTime = media['updatedAt'] ?? 0;
           }
 
-          final int ackEp = ackMap['anime_$id'] ?? 0;
-          final localDownloads = DownloadService().tasks.where(
-            (t) => t.anilistId == id && t.status == DownloadStatus.completed
-          );
-          final int maxDownloaded = localDownloads.isEmpty 
-              ? 0 
-              : localDownloads.map((t) => t.episodeNumber ?? 0).fold(0, max);
-          final int startNew = max(max(localItem.watchedEpisodes, maxDownloaded), ackEp) + 1;
+          final int startNew = localItem.watchedEpisodes + 1;
 
           if (latestReleased >= startNew) {
             final int endNew = latestReleased;
@@ -183,8 +169,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
         final cache = LibraryState().mangaCache;
         for (var item in libraryItems) {
           final int totalChapters = item.totalEpisodes ?? 0;
-          final int ackEp = ackMap['manga_${item.id}'] ?? 0;
-          final int startNew = max(item.watchedEpisodes, ackEp) + 1;
+          final int startNew = item.watchedEpisodes + 1;
           if (totalChapters >= startNew) {
             final cached = cache[item.id];
             final int endNew = totalChapters;

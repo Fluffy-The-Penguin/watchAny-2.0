@@ -23,6 +23,8 @@ import '../models/torrent.dart';
 import '../widgets/poster_image_viewer.dart';
 import '../widgets/smooth_scroll_area.dart';
 import '../state/library_state.dart';
+import '../services/kitsu_service.dart';
+import '../services/banner_resolver_service.dart';
 
 class AnimeDetailsPage extends StatefulWidget {
   final int animeId;
@@ -101,6 +103,18 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
     try {
       final data = await _anilistService.fetchAnimeDetails(widget.animeId);
       final mappings = await mappingsFuture;
+
+      final String title = data['title']?['english'] ?? data['title']?['romaji'] ?? '';
+      if (title.isNotEmpty) {
+        final bestBanner = await BannerResolverService.getBestBanner(
+          title: title,
+          anilistBanner: data['bannerImage']?.toString(),
+          format: data['format'],
+        );
+        if (bestBanner != null) {
+          data['bannerImage'] = bestBanner;
+        }
+      }
 
       if (mounted) {
         // Merge episodes list

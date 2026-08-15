@@ -498,9 +498,10 @@ class _MoviesHomePageState extends State<MoviesHomePage> {
     final double screenHeight = MediaQuery.of(context).size.height;
     final bool isMobile = screenWidth < 800;
 
+    // Responsive Widescreen Height (Prevents 2.7x vertical zoom stretch on Desktop)
     final double heroHeight = isMobile
-        ? (screenHeight * 0.85).clamp(460.0, 600.0)
-        : screenHeight;
+        ? (screenHeight * 0.70).clamp(420.0, 560.0)
+        : (screenHeight * 0.65).clamp(520.0, 700.0);
 
     final int displayCount = _featuredItems.length > 6 ? 6 : _featuredItems.length;
 
@@ -535,7 +536,6 @@ class _MoviesHomePageState extends State<MoviesHomePage> {
 
               return DarkCloudHeroBackground(
                 imageUrl: background,
-                hasBanner: true,
                 imageAlignment: Alignment.topRight,
                 child: Stack(
                   children: [
