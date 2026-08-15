@@ -13,7 +13,6 @@ import '../services/download_service.dart';
 import '../services/notification_service.dart';
 import '../widgets/item_details_preview_popover.dart';
 import '../widgets/dark_cloud_hero_background.dart';
-import '../services/kitsu_service.dart';
 import '../services/banner_resolver_service.dart';
 
 
@@ -266,34 +265,15 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
                   scrollOffset: scrollOffset,
                 ),
 
-              // 2. Content Railways (Unlocks with scale, fade & slide on scroll)
-              Transform.translate(
-                offset: Offset(0, 40.0 * (1.0 - curveVal)),
-                child: Opacity(
-                  opacity: (0.15 + (0.85 * curveVal)).clamp(0.0, 1.0),
-                  child: Padding(
-                    padding: const EdgeInsets.only(left: 20.0, right: 20.0, bottom: 40.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // Glowing Crimson Accent Line when unlocking content
-                        Container(
-                          height: 2.0,
-                          width: double.infinity,
-                          margin: const EdgeInsets.only(bottom: 24.0),
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: [
-                                Colors.transparent,
-                                Colors.white.withValues(alpha: 0.35 * curveVal),
-                                Colors.transparent,
-                              ],
-                            ),
-                          ),
-                        ),
-                        _AnimeContinueWatchingSection(navigationState: widget.navigationState),
-                        const SizedBox(height: 24.0),
-                        if (_trending.isNotEmpty)
+              // 2. Content Railways & Continue Watching Section
+              Padding(
+                padding: const EdgeInsets.only(left: 20.0, right: 20.0, top: 28.0, bottom: 40.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _AnimeContinueWatchingSection(navigationState: widget.navigationState),
+                    const SizedBox(height: 28.0),
+                    if (_trending.isNotEmpty)
                           _RailwayTrack(
                             title: isOffline ? 'Watching (Local)' : 'Trending Now',
                             initialItems: _trending,
@@ -371,8 +351,6 @@ class _AnimeHomePageState extends State<AnimeHomePage> {
                       ],
                     ),
                   ),
-                ),
-              ),
             ],
           );
         },
@@ -420,13 +398,13 @@ class _HeroSectionState extends State<_HeroSection> {
         setState(() {
           _heroIndex = (_heroIndex + 1) % widget.trending.length;
         });
-        _enrichCurrentKitsuBanner();
+        _enrichCurrentHeroBanner();
       }
     });
-    _enrichCurrentKitsuBanner();
+    _enrichCurrentHeroBanner();
   }
 
-  void _enrichCurrentKitsuBanner() async {
+  void _enrichCurrentHeroBanner() async {
     if (widget.trending.isEmpty) return;
     final anime = widget.trending[_heroIndex % widget.trending.length];
     final String title = anime['title']?['english'] ?? anime['title']?['romaji'] ?? '';

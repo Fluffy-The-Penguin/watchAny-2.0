@@ -396,29 +396,12 @@ class _MoviesHomePageState extends State<MoviesHomePage> {
                     // 1. Featured Hero Banner
                     if (_featuredItems.isNotEmpty) _buildHeroBanner(scrollOffset),
 
-                    // 2. Animated Railways Container (Unlocks with scale, fade & slide on scroll)
-                    Transform.translate(
-                      offset: Offset(0, 40.0 * (1.0 - curveVal)),
-                      child: Opacity(
-                        opacity: (0.15 + (0.85 * curveVal)).clamp(0.0, 1.0),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // Crimson Ambient Top Accent Line when unlocking content
-                            Container(
-                              height: 2.0,
-                              width: double.infinity,
-                              margin: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 12.0),
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  colors: [
-                                    Colors.transparent,
-                                    Colors.white.withValues(alpha: 0.35 * curveVal),
-                                    Colors.transparent,
-                                  ],
-                                ),
-                              ),
-                            ),
+                    // 2. Content Railways & Continue Watching Container
+                    Padding(
+                      padding: const EdgeInsets.only(top: 28.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
                             // Continue Watching (Stremio items only)
                             _ContinueWatchingRail(navigationState: widget.navigationState),
 
@@ -480,7 +463,6 @@ class _MoviesHomePageState extends State<MoviesHomePage> {
                           ],
                         ),
                       ),
-                    ),
                   ],
                 ),
               );

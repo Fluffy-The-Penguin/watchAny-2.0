@@ -23,7 +23,6 @@ import '../models/torrent.dart';
 import '../widgets/poster_image_viewer.dart';
 import '../widgets/smooth_scroll_area.dart';
 import '../state/library_state.dart';
-import '../services/kitsu_service.dart';
 import '../services/banner_resolver_service.dart';
 
 class AnimeDetailsPage extends StatefulWidget {

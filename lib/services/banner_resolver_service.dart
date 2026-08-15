@@ -1,44 +1,26 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import 'kitsu_service.dart';
 
-/// Helper service that resolves high-resolution hero/banner images using the user's exact 3-tier fallback:
-/// 1st Choice: Kitsu 1080p Widescreen Banner
-/// 2nd Fallback: TMDB 1080p/4K Widescreen Backdrop
-/// 3rd (Last) Fallback: AniList bannerImage
+/// Dedicated high-definition Banner Resolver Service.
+/// 1st Choice: TMDB / TVDB 1080p/4K Widescreen Backdrop
+/// 2nd Choice: AniList Genuine Banner Image (bannerImage)
+/// 
+/// NEVER falls back to vertical cover poster art (extraLarge) to avoid 2.7x zoom stretch!
 class BannerResolverService {
   static final Map<String, String?> _resolvedCache = {};
 
-  /// Resolves the optimal high-definition banner URL for an anime or title.
+  /// Resolves the optimal high-definition horizontal banner URL for an anime or show.
   static Future<String?> getBestBanner({
     required String title,
     String? anilistBanner,
     String? format,
   }) async {
     final String cleanKey = title.trim().toLowerCase();
-    if (_resolvedCache.containsKey(cleanKey) && _resolvedCache[cleanKey] != null) {
+    if (_resolvedCache.containsKey(cleanKey)) {
       return _resolvedCache[cleanKey];
     }
 
-    // 1st Choice: Kitsu 1080p Widescreen Banner
-    if (title.isNotEmpty) {
-      final kitsuBanner = await KitsuService.getBannerImage(title);
-      if (kitsuBanner != null && kitsuBanner.isNotEmpty) {
-        _resolvedCache[cleanKey] = kitsuBanner;
-        return kitsuBanner;
-      }
-    }
-
-    // 2nd Fallback: TMDB 1080p/4K Backdrop
-    if (title.isNotEmpty) {
-      final tmdbBackdrop = await _fetchTmdbBackdrop(title, format: format ?? 'TV');
-      if (tmdbBackdrop != null && tmdbBackdrop.isNotEmpty) {
-        _resolvedCache[cleanKey] = tmdbBackdrop;
-        return tmdbBackdrop;
-      }
-    }
-
-    // 3rd (Last) Fallback: AniList bannerImage
+    // 1st Choice: Check if AniList already has a valid horizontal bannerImage
     if (anilistBanner != null && anilistBanner.isNotEmpty) {
       String finalAnilist = anilistBanner;
       if (finalAnilist.contains('image.tmdb.org/t/p/')) {
@@ -48,6 +30,16 @@ class BannerResolverService {
       return finalAnilist;
     }
 
+    // 2nd Choice: Search TMDB for a 1080p / 4K Widescreen Backdrop
+    if (title.isNotEmpty) {
+      final tmdbBackdrop = await _fetchTmdbBackdrop(title, format: format ?? 'TV');
+      if (tmdbBackdrop != null && tmdbBackdrop.isNotEmpty) {
+        _resolvedCache[cleanKey] = tmdbBackdrop;
+        return tmdbBackdrop;
+      }
+    }
+
+    _resolvedCache[cleanKey] = null;
     return null;
   }
 
@@ -55,8 +47,10 @@ class BannerResolverService {
   static Future<String?> _fetchTmdbBackdrop(String title, {String format = 'TV'}) async {
     try {
       final searchType = format.toUpperCase() == 'MOVIE' ? 'movie' : 'tv';
+      // Clean title for better search precision
+      final cleanTitle = title.split(':').first.split('~').first.trim();
       final uri = Uri.parse(
-        'https://api.themoviedb.org/3/search/$searchType?api_key=15d2ec48754c86065f357913610d720a&query=${Uri.encodeComponent(title)}',
+        'https://api.themoviedb.org/3/search/$searchType?api_key=15d2ec48754c86065f357913610d720a&query=${Uri.encodeComponent(cleanTitle)}',
       );
       final response = await http.get(uri).timeout(const Duration(seconds: 4));
       if (response.statusCode == 200) {

@@ -1,5 +1,5 @@
 ﻿#define MyAppName "watchAny"
-#define MyAppVersion "2.2.37"
+#define MyAppVersion "2.2.38"
 #define MyAppPublisher "watchAny"
 #define MyAppURL "https://watchany.app"
 #define MyAppExeName "watch_any.exe"
@@ -55,6 +55,9 @@ begin
     end;
   end;
 end;
+
+
+
 
 
 
