@@ -604,13 +604,15 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
 
     if (matchingInterval != null) {
       if (AppSettings().autoSkipIntro) {
-        final target = matchingInterval.endTime.toInt();
-        if (player.state.position.inSeconds < target - 1) {
+        // Offset by 1.5s so we land precisely at the start of the episode scene without skipping dialogue
+        final double targetSec = (matchingInterval.endTime - 1.5).clamp(matchingInterval.startTime, matchingInterval.endTime);
+        final int targetMs = (targetSec * 1000).round();
+        if (player.state.position.inMilliseconds < targetMs - 1000) {
           if (!_autoSkippedIntervals.contains(matchingInterval)) {
             _autoSkippedIntervals.add(matchingInterval);
-            player.seek(Duration(seconds: target));
+            player.seek(Duration(milliseconds: targetMs));
             developer.log(
-              'Auto-skipped ${matchingInterval.skipType} to ${target}s',
+              'Auto-skipped ${matchingInterval.skipType} to ${targetSec}s',
               name: 'watchAny.PlayerScreen',
             );
           }
@@ -633,8 +635,9 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
   void _performSkip() {
     final active = PlayerState().activeSkipInterval;
     if (active == null) return;
-    final target = active.endTime.toInt();
-    player.seek(Duration(seconds: target));
+    final double targetSec = (active.endTime - 1.5).clamp(active.startTime, active.endTime);
+    final int targetMs = (targetSec * 1000).round();
+    player.seek(Duration(milliseconds: targetMs));
     PlayerState().setShowSkipButton(false);
     PlayerState().setActiveSkipInterval(null);
   }

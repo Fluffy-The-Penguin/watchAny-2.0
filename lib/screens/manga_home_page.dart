@@ -331,6 +331,9 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
       if (mounted) {
         setState(() {
           _catalogManga = manga;
+          if (manga.isEmpty && (_selectedExtensionName ?? '').toLowerCase().contains("mangafire")) {
+            _catalogError = "MangaFire is currently protected by Cloudflare Bot Protection on Android.\n\nPlease switch to MangaDex, ComicK, or Flame Comics!";
+          }
           _hasMoreCatalog = manga.length >= 20;
           _loadingCatalog = false;
         });
@@ -338,7 +341,12 @@ class _MangaHomePageState extends State<MangaHomePage> with SingleTickerProvider
     } catch (e) {
       if (mounted) {
         setState(() {
-          _catalogError = e.toString().replaceFirst('Exception: ', '');
+          final errStr = e.toString().replaceFirst('Exception: ', '');
+          if ((_selectedExtensionName ?? '').toLowerCase().contains("mangafire") || errStr.contains("403")) {
+            _catalogError = "MangaFire is currently protected by Cloudflare Bot Protection on Android.\n\nPlease switch to MangaDex, ComicK, or Flame Comics!";
+          } else {
+            _catalogError = errStr;
+          }
           _loadingCatalog = false;
         });
       }
