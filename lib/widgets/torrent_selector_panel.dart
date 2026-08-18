@@ -12,6 +12,9 @@ import '../services/download_service.dart';
 import '../state/player_state.dart';
 import '../state/app_settings.dart';
 import '../state/navigation_state.dart';
+import '../models/web_stream_server.dart';
+import '../services/web_stream_service.dart';
+import '../screens/web_stream_player_page.dart';
 import 'package:flutter/gestures.dart';
 import 'shimmer_card.dart';
 
@@ -133,6 +136,7 @@ class _TorrentSelectorPanelState extends State<TorrentSelectorPanel> {
   bool _isLoading = true;
   String? _errorMessage;
   List<TorrentStream> _streams = [];
+  int _sourceTab = 0; // 0: Torrents, 1: Direct Web Streams
   
   // Filters state
   String? _selectedResolution; // null means 'All'
@@ -590,6 +594,285 @@ class _TorrentSelectorPanelState extends State<TorrentSelectorPanel> {
     );
   }
 
+  Widget _buildSourceTabBar(bool isMobile) {
+    if (widget.anilistId == null) return const SizedBox.shrink();
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 4.0),
+      padding: const EdgeInsets.all(3.0),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.04),
+        borderRadius: BorderRadius.circular(8.0),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: _buildSourceTabItem(
+              icon: Icons.download_rounded,
+              label: isMobile ? 'Torrents' : 'Torrents & Extensions',
+              isSelected: _sourceTab == 0,
+              onTap: () {
+                setState(() => _sourceTab = 0);
+                _handleUserActivity();
+              },
+            ),
+          ),
+          Expanded(
+            child: _buildSourceTabItem(
+              icon: Icons.language_rounded,
+              label: isMobile ? 'Web Stream' : 'Direct Web Streams',
+              badge: 'Built-in',
+              isSelected: _sourceTab == 1,
+              onTap: () {
+                setState(() => _sourceTab = 1);
+                _handleUserActivity();
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSourceTabItem({
+    required IconData icon,
+    required String label,
+    String? badge,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(vertical: 7.0),
+        decoration: BoxDecoration(
+          color: isSelected ? Colors.cyanAccent.withValues(alpha: 0.15) : Colors.transparent,
+          borderRadius: BorderRadius.circular(6.0),
+          border: isSelected ? Border.all(color: Colors.cyanAccent.withValues(alpha: 0.4)) : null,
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              icon,
+              size: 14.0,
+              color: isSelected ? Colors.cyanAccent : Colors.white60,
+            ),
+            const SizedBox(width: 6.0),
+            Text(
+              label,
+              style: TextStyle(
+                color: isSelected ? Colors.cyanAccent : Colors.white70,
+                fontSize: 12.0,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                fontFamily: 'Outfit',
+              ),
+            ),
+            if (badge != null) ...[
+              const SizedBox(width: 6.0),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 5.0, vertical: 1.0),
+                decoration: BoxDecoration(
+                  color: isSelected
+                      ? Colors.cyanAccent.withValues(alpha: 0.25)
+                      : Colors.white.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(4.0),
+                ),
+                child: Text(
+                  badge,
+                  style: TextStyle(
+                    color: isSelected ? Colors.cyanAccent : Colors.white60,
+                    fontSize: 9.0,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildWebStreamsView(bool isMobile) {
+    return ListView(
+      controller: _scrollController,
+      padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 12.0),
+      children: [
+        // Info Banner
+        Container(
+          padding: const EdgeInsets.all(12.0),
+          margin: const EdgeInsets.only(bottom: 16.0),
+          decoration: BoxDecoration(
+            color: const Color(0xFF131320),
+            borderRadius: BorderRadius.circular(10.0),
+            border: Border.all(color: Colors.cyanAccent.withValues(alpha: 0.15)),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.info_outline_rounded, color: Colors.cyanAccent, size: 20),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Direct Web Streams are built-in web players that stream instantly without downloading or torrent client setup.',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.8),
+                    fontSize: 12.0,
+                    fontFamily: 'Outfit',
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        // Server Cards
+        ...WebStreamService.availableServers.map((server) {
+          return Container(
+            margin: const EdgeInsets.only(bottom: 12.0),
+            padding: const EdgeInsets.all(14.0),
+            decoration: BoxDecoration(
+              color: const Color(0xFF14141E),
+              borderRadius: BorderRadius.circular(12.0),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.3),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8.0),
+                      decoration: BoxDecoration(
+                        color: Colors.cyanAccent.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(8.0),
+                      ),
+                      child: const Icon(Icons.dns_rounded, color: Colors.cyanAccent, size: 18),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Text(
+                                server.name,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 14.5,
+                                  fontWeight: FontWeight.bold,
+                                  fontFamily: 'Outfit',
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6.0, vertical: 2.0),
+                                decoration: BoxDecoration(
+                                  color: Colors.cyanAccent.withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(4.0),
+                                ),
+                                child: Text(
+                                  server.badge,
+                                  style: const TextStyle(
+                                    color: Colors.cyanAccent,
+                                    fontSize: 9.5,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            server.description,
+                            style: const TextStyle(
+                              color: Colors.white54,
+                              fontSize: 11.5,
+                              fontFamily: 'Outfit',
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    // Play SUB Button
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        icon: const Icon(Icons.play_arrow_rounded, size: 18),
+                        label: const Text('Play (SUB)', style: TextStyle(fontWeight: FontWeight.bold)),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.cyanAccent,
+                          foregroundColor: Colors.black,
+                          padding: const EdgeInsets.symmetric(vertical: 10.0),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
+                          elevation: 0,
+                        ),
+                        onPressed: () => _openWebStream(server, AudioType.sub),
+                      ),
+                    ),
+                    if (server.supportsDub) ...[
+                      const SizedBox(width: 8),
+                      // Play DUB Button
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          icon: const Icon(Icons.record_voice_over_rounded, size: 16),
+                          label: const Text('Play (DUB)', style: TextStyle(fontWeight: FontWeight.bold)),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF1E1E2C),
+                            foregroundColor: Colors.white,
+                            side: const BorderSide(color: Colors.white24),
+                            padding: const EdgeInsets.symmetric(vertical: 10.0),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
+                            elevation: 0,
+                          ),
+                          onPressed: () => _openWebStream(server, AudioType.dub),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ],
+            ),
+          );
+        }),
+      ],
+    );
+  }
+
+  void _openWebStream(WebStreamServer server, AudioType audioType) {
+    if (widget.anilistId == null) return;
+    _cancelAllTimers();
+    Navigator.pop(context); // Close sheet
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => WebStreamPlayerPage(
+          anilistId: widget.anilistId!,
+          malId: widget.media?['idMal'] as int?,
+          title: widget.titles.firstOrNull ?? 'Anime',
+          episode: widget.episodeNumber,
+          totalEpisodes: widget.episodeCount,
+          initialServerId: server.id,
+          initialAudioType: audioType,
+          navigationState: NavigationState(),
+        ),
+      ),
+    );
+  }
+
   Widget _buildAutoSelectIndicatorBar() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 10.0),
@@ -665,7 +948,7 @@ class _TorrentSelectorPanelState extends State<TorrentSelectorPanel> {
         children: [
           // Title Bar Header
           Container(
-            padding: EdgeInsets.symmetric(horizontal: 20.0, vertical: isMobile ? 12.0 : 16.0),
+            padding: EdgeInsets.symmetric(horizontal: 20.0, vertical: isMobile ? 10.0 : 14.0),
             color: Colors.white.withValues(alpha: 0.01),
             child: Row(
               children: [
@@ -700,39 +983,45 @@ class _TorrentSelectorPanelState extends State<TorrentSelectorPanel> {
               ],
             ),
           ),
-          
-          // Filters
-          _buildFilterRow(isMobile),
-          
-          // Auto-select banner
-          AnimatedSize(
-            duration: const Duration(milliseconds: 300),
-            curve: Curves.easeInOut,
-            child: (_isAutoSelectActive && _processedStreams.isNotEmpty)
-                ? _buildAutoSelectIndicatorBar()
-                : const SizedBox(width: double.infinity, height: 0),
-          ),
-          
-          // Main list area
-          Expanded(
-            child: (_isLoading && _processedStreams.isEmpty)
-                ? ListView.builder(
-                    padding: const EdgeInsets.all(16.0),
-                    itemCount: 6,
-                    itemBuilder: (context, index) => const Padding(
-                      padding: EdgeInsets.only(bottom: 10.0),
-                      child: ShimmerCard(),
-                    ),
-                  )
 
-                : _errorMessage != null && _processedStreams.isEmpty
-                    ? Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(24.0),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              const Icon(Icons.error_outline, color: Colors.redAccent, size: 36),
+          // Source Tab Bar (Torrents vs Direct Web Streams)
+          _buildSourceTabBar(isMobile),
+          
+          if (_sourceTab == 1)
+            Expanded(child: _buildWebStreamsView(isMobile))
+          else ...[
+            // Filters
+            _buildFilterRow(isMobile),
+            
+            // Auto-select banner
+            AnimatedSize(
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeInOut,
+              child: (_isAutoSelectActive && _processedStreams.isNotEmpty)
+                  ? _buildAutoSelectIndicatorBar()
+                  : const SizedBox(width: double.infinity, height: 0),
+            ),
+            
+            // Main list area
+            Expanded(
+              child: (_isLoading && _processedStreams.isEmpty)
+                  ? ListView.builder(
+                      padding: const EdgeInsets.all(16.0),
+                      itemCount: 6,
+                      itemBuilder: (context, index) => const Padding(
+                        padding: EdgeInsets.only(bottom: 10.0),
+                        child: ShimmerCard(),
+                      ),
+                    )
+
+                  : _errorMessage != null && _processedStreams.isEmpty
+                      ? Center(
+                          child: Padding(
+                            padding: const EdgeInsets.all(24.0),
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                const Icon(Icons.error_outline, color: Colors.redAccent, size: 36),
                               const SizedBox(height: 12.0),
                               Text(
                                 'Search failed: $_errorMessage',
@@ -968,6 +1257,7 @@ class _TorrentSelectorPanelState extends State<TorrentSelectorPanel> {
                         ],
                       ),
           ),
+          ],
         ],
       ),
     );
