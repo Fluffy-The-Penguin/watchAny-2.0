@@ -22,6 +22,8 @@ import 'screens/setup_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'widgets/brand_splash_screen.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart' hide X509Certificate;
+import 'package:path_provider/path_provider.dart';
 import 'state/library_providers.dart';
 import 'services/android_background_sync.dart';
 import 'services/notification_service.dart';
@@ -29,6 +31,7 @@ import 'services/notification_service.dart';
 import 'services/watch_together_service.dart';
 
 final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
+WebViewEnvironment? appWebViewEnvironment;
 
 class MyCustomScrollBehavior extends MaterialScrollBehavior {
   @override
@@ -78,6 +81,26 @@ void main() async {
   VideoProxyService().start();
   
   final bool isDesktop = !kIsWeb && (Platform.isWindows || Platform.isMacOS || Platform.isLinux);
+
+  if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
+    try {
+      final availableVersion = await WebViewEnvironment.getAvailableVersion();
+      if (availableVersion != null) {
+        final appSupportDir = await getApplicationSupportDirectory();
+        final webViewDataDir = Directory('${appSupportDir.path}/WebView2');
+        if (!webViewDataDir.existsSync()) {
+          webViewDataDir.createSync(recursive: true);
+        }
+        appWebViewEnvironment = await WebViewEnvironment.create(
+          settings: WebViewEnvironmentSettings(
+            userDataFolder: webViewDataDir.path,
+          ),
+        );
+      }
+    } catch (e) {
+      LogService().error('Failed to initialize WebViewEnvironment: $e');
+    }
+  }
 
   if (isDesktop) {
     // Initialize the window manager immediately so the native window shows up instantly

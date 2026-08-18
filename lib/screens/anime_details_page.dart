@@ -1099,16 +1099,16 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
               style: TextStyle(color: Colors.white, fontFamily: 'Outfit', fontSize: 16.0),
             ),
             content: Text(
-              "This episode is available in your active batch torrent:\n\n${mapping['torrentTitle']}\n\nDo you want to play it directly or search for another stream?",
+              "This episode is available in your active batch torrent:\n\n${mapping['torrentTitle']}\n\nDo you want to play it directly or stream online?",
               style: const TextStyle(color: Colors.white70, fontSize: 13.0, height: 1.4),
             ),
             actions: [
               TextButton(
                 onPressed: () {
                   Navigator.pop(context);
-                  _openTorrentSelectorPanel(epNum, titles);
+                  _openWebStreamPlayer(epNum, titles);
                 },
-                child: const Text("Search Streams", style: TextStyle(color: Colors.white70)),
+                child: const Text("Stream Online", style: TextStyle(color: Colors.cyanAccent)),
               ),
               ElevatedButton(
                 onPressed: () {
@@ -1126,8 +1126,30 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
         },
       );
     } else {
-      _openTorrentSelectorPanel(epNum, titles);
+      _openWebStreamPlayer(epNum, titles);
     }
+  }
+
+  void _openWebStreamPlayer(int epNum, List<String> titles) {
+    final title = _details?['title']?['english'] ?? _details?['title']?['romaji'] ?? (titles.isNotEmpty ? titles[0] : 'Anime');
+    final totalEp = _mergedEpisodes.isNotEmpty ? _mergedEpisodes.length : (_details?['episodes'] as int? ?? 0);
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => WebStreamPlayerPage(
+          anilistId: widget.animeId,
+          malId: _details?['idMal'] as int?,
+          title: title,
+          episode: epNum,
+          totalEpisodes: totalEp,
+          episodesData: _mergedEpisodes,
+          initialServerId: 'megaplay_ani',
+          initialAudioType: AudioType.sub,
+          navigationState: widget.navigationState,
+          onOpenTorrents: () => _openTorrentSelectorPanel(epNum, titles),
+        ),
+      ),
+    );
   }
 
   /// Searches hstream.moe and plays the best matching source directly.
