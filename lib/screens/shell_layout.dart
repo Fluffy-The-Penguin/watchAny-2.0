@@ -588,8 +588,9 @@ class ShellLayout extends StatelessWidget {
                     width: playerState.isMinimized ? 280.0 : screenWidth,
                     height: playerState.isMinimized ? 158.0 : screenHeight,
                     child: Material(
-                      type: MaterialType.transparency,
+                      color: playerState.isMinimized ? Colors.transparent : Colors.black,
                       child: Container(
+                        color: playerState.isMinimized ? null : Colors.black,
                         decoration: BoxDecoration(
                           boxShadow: playerState.isMinimized ? const [
                             BoxShadow(

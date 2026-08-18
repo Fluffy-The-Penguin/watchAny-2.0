@@ -490,6 +490,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
     } else {
       PlayerState().enterFullscreen();
       if (isDesktop) {
+        windowManager.setBackgroundColor(Colors.black);
         windowManager.setFullScreen(true);
         SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
       } else {
@@ -1929,10 +1930,12 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
                 controller: controller,
                 subtitleViewConfiguration: subtitleConfig,
                 fit: PlayerState().videoFit,
+                fill: const Color(0xFF000000),
                 onEnterFullscreen: () async {
                   PlayerState().enterFullscreen();
                   if (isDesktop) {
                     try {
+                      await windowManager.setBackgroundColor(Colors.black);
                       await windowManager.setFullScreen(true);
                     } catch (_) {}
                     await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
@@ -2157,12 +2160,12 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
                           child: Container(
                             padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 6.0),
                             decoration: BoxDecoration(
-                              color: Colors.black.withOpacity(0.75),
+                              color: Colors.black.withValues(alpha: 0.75),
                               borderRadius: BorderRadius.circular(20.0),
                               border: Border.all(color: Colors.white12, width: 1.0),
                               boxShadow: [
                                 BoxShadow(
-                                  color: Colors.black.withOpacity(0.4),
+                                  color: Colors.black.withValues(alpha: 0.4),
                                   blurRadius: 10,
                                   offset: const Offset(0, 4),
                                 ),
@@ -3074,12 +3077,12 @@ class _PlayerScreenState extends State<PlayerScreen> with WindowListener {
     return Container(
       padding: const EdgeInsets.all(16.0),
       decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.85),
+        color: Colors.black.withValues(alpha: 0.85),
         borderRadius: BorderRadius.circular(12.0),
-        border: Border.all(color: Colors.cyanAccent.withOpacity(0.3), width: 1.0),
+        border: Border.all(color: Colors.cyanAccent.withValues(alpha: 0.3), width: 1.0),
         boxShadow: [
           BoxShadow(
-            color: Colors.cyanAccent.withOpacity(0.08),
+            color: Colors.cyanAccent.withValues(alpha: 0.08),
             blurRadius: 16.0,
             spreadRadius: 2.0,
           ),
@@ -3206,7 +3209,7 @@ class _SpeedGraphPainter extends CustomPainter {
     if (history.isEmpty) return;
 
     final paint = Paint()
-      ..color = Colors.cyanAccent.withOpacity(0.85)
+      ..color = Colors.cyanAccent.withValues(alpha: 0.85)
       ..strokeWidth = 2.0
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round;
@@ -3216,8 +3219,8 @@ class _SpeedGraphPainter extends CustomPainter {
         begin: Alignment.topCenter,
         end: Alignment.bottomCenter,
         colors: [
-          Colors.cyanAccent.withOpacity(0.25),
-          Colors.cyanAccent.withOpacity(0.0),
+          Colors.cyanAccent.withValues(alpha: 0.25),
+          Colors.cyanAccent.withValues(alpha: 0.0),
         ],
       ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
 

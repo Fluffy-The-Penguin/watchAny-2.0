@@ -1887,6 +1887,9 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
                   tooltip: isFS ? 'Exit Full Screen' : 'Full Screen',
                   onPressed: () async {
                     final nextFS = !isFS;
+                    if (nextFS) {
+                      await windowManager.setBackgroundColor(Colors.black);
+                    }
                     await windowManager.setFullScreen(nextFS);
                     setState(() {});
                   },

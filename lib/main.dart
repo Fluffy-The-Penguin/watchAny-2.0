@@ -291,8 +291,11 @@ class _MyAppState extends State<MyApp> with WindowListener, WidgetsBindingObserv
           onKeyEvent: (node, event) {
             if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.f11) {
               if (!_isDesktop) return KeyEventResult.ignored;
-              windowManager.isFullScreen().then((isFS) {
-                windowManager.setFullScreen(!isFS);
+              windowManager.isFullScreen().then((isFS) async {
+                if (!isFS) {
+                  await windowManager.setBackgroundColor(Colors.black);
+                }
+                await windowManager.setFullScreen(!isFS);
               });
               return KeyEventResult.handled;
             }
@@ -332,6 +335,7 @@ class _MyAppState extends State<MyApp> with WindowListener, WidgetsBindingObserv
                     
                     // Schedule borders and app reveal after 450ms, guaranteed to run
                     Future.delayed(const Duration(milliseconds: 450), () async {
+                      await windowManager.setBackgroundColor(Colors.black);
                       await windowManager.setResizable(true);
                       await windowManager.setHasShadow(true);
                       await windowManager.setTitleBarStyle(TitleBarStyle.hidden);
