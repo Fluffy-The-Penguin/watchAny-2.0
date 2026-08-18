@@ -1099,16 +1099,16 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
               style: TextStyle(color: Colors.white, fontFamily: 'Outfit', fontSize: 16.0),
             ),
             content: Text(
-              "This episode is available in your active batch torrent:\n\n${mapping['torrentTitle']}\n\nDo you want to play it directly or stream online?",
+              "This episode is available in your active batch torrent:\n\n${mapping['torrentTitle']}\n\nDo you want to play it directly or choose another method?",
               style: const TextStyle(color: Colors.white70, fontSize: 13.0, height: 1.4),
             ),
             actions: [
               TextButton(
                 onPressed: () {
                   Navigator.pop(context);
-                  _openWebStreamPlayer(epNum, titles);
+                  _showPlaybackChoiceSheet(epNum, titles);
                 },
-                child: const Text("Stream Online", style: TextStyle(color: Colors.cyanAccent)),
+                child: const Text("Choose Source", style: TextStyle(color: Colors.cyanAccent)),
               ),
               ElevatedButton(
                 onPressed: () {
@@ -1119,15 +1119,202 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
                   backgroundColor: Colors.white,
                   foregroundColor: Colors.black,
                 ),
-                child: const Text("Play Direct", style: TextStyle(fontWeight: FontWeight.bold)),
+                child: const Text("Play Direct Batch", style: TextStyle(fontWeight: FontWeight.bold)),
               ),
             ],
           );
         },
       );
     } else {
-      _openWebStreamPlayer(epNum, titles);
+      _showPlaybackChoiceSheet(epNum, titles);
     }
+  }
+
+  void _showPlaybackChoiceSheet(int epNum, List<String> titles) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF0F0F1A),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20.0)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 18.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.play_circle_outline_rounded, color: Colors.cyanAccent, size: 24),
+                    const SizedBox(width: 10),
+                    Text(
+                      'Play Episode $epNum',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 17,
+                        fontWeight: FontWeight.bold,
+                        fontFamily: 'Outfit',
+                      ),
+                    ),
+                    const Spacer(),
+                    IconButton(
+                      icon: const Icon(Icons.close, color: Colors.white60),
+                      onPressed: () => Navigator.pop(ctx),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Choose how you want to watch this episode:',
+                  style: TextStyle(color: Colors.white.withValues(alpha: 0.6), fontSize: 12.5),
+                ),
+                const SizedBox(height: 16),
+
+                // Option 1: Direct Web Stream
+                InkWell(
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _openWebStreamPlayer(epNum, titles);
+                  },
+                  borderRadius: BorderRadius.circular(12.0),
+                  child: Container(
+                    padding: const EdgeInsets.all(14.0),
+                    decoration: BoxDecoration(
+                      color: Colors.cyanAccent.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(12.0),
+                      border: Border.all(color: Colors.cyanAccent.withValues(alpha: 0.3)),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10.0),
+                          decoration: BoxDecoration(
+                            color: Colors.cyanAccent.withValues(alpha: 0.2),
+                            borderRadius: BorderRadius.circular(10.0),
+                          ),
+                          child: const Icon(Icons.flash_on_rounded, color: Colors.cyanAccent, size: 22),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  const Text(
+                                    'Direct Play (Web Stream)',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 14.5,
+                                      fontWeight: FontWeight.bold,
+                                      fontFamily: 'Outfit',
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6.0, vertical: 2.0),
+                                    decoration: BoxDecoration(
+                                      color: Colors.cyanAccent,
+                                      borderRadius: BorderRadius.circular(4.0),
+                                    ),
+                                    child: const Text(
+                                      'Instant',
+                                      style: TextStyle(color: Colors.black, fontSize: 9.5, fontWeight: FontWeight.bold),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 3),
+                              Text(
+                                'Play immediately via built-in servers (VidNest HD, Pahe CDN, AnimePlay)',
+                                style: TextStyle(color: Colors.white.withValues(alpha: 0.6), fontSize: 11.5),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const Icon(Icons.arrow_forward_ios_rounded, color: Colors.cyanAccent, size: 14),
+                      ],
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 10),
+
+                // Option 2: Torrents & P2P Extensions
+                InkWell(
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _openTorrentSelectorPanel(epNum, titles);
+                  },
+                  borderRadius: BorderRadius.circular(12.0),
+                  child: Container(
+                    padding: const EdgeInsets.all(14.0),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF161626),
+                      borderRadius: BorderRadius.circular(12.0),
+                      border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10.0),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.06),
+                            borderRadius: BorderRadius.circular(10.0),
+                          ),
+                          child: const Icon(Icons.download_rounded, color: Colors.white70, size: 22),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  const Text(
+                                    'Stream via Torrent / Extension',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 14.5,
+                                      fontWeight: FontWeight.bold,
+                                      fontFamily: 'Outfit',
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6.0, vertical: 2.0),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white.withValues(alpha: 0.1),
+                                      borderRadius: BorderRadius.circular(4.0),
+                                    ),
+                                    child: const Text(
+                                      'P2P',
+                                      style: TextStyle(color: Colors.white70, fontSize: 9.5, fontWeight: FontWeight.bold),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 3),
+                              Text(
+                                'High-bitrate P2P streaming, batch episodes & Keiyoushi extensions',
+                                style: TextStyle(color: Colors.white.withValues(alpha: 0.6), fontSize: 11.5),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const Icon(Icons.arrow_forward_ios_rounded, color: Colors.white38, size: 14),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   void _openWebStreamPlayer(int epNum, List<String> titles) {
@@ -1143,7 +1330,7 @@ class _AnimeDetailsPageState extends State<AnimeDetailsPage> {
           episode: epNum,
           totalEpisodes: totalEp,
           episodesData: _mergedEpisodes,
-          initialServerId: 'megaplay_ani',
+          initialServerId: 'vidnest_hd',
           initialAudioType: AudioType.sub,
           navigationState: widget.navigationState,
           onOpenTorrents: () => _openTorrentSelectorPanel(epNum, titles),

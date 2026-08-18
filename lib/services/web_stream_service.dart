@@ -7,18 +7,6 @@ class WebStreamService {
 
   static final List<WebStreamServer> availableServers = [
     WebStreamServer(
-      id: 'megaplay_ani',
-      name: 'MegaPlay (Ani)',
-      badge: 'Fast',
-      description: 'AniList Direct Fast Stream (1080p / 720p / Auto)',
-      supportsDub: true,
-      qualityLabel: 'Fast Direct',
-      urlBuilder: ({required anilistId, required episode, required audioType, malId}) {
-        final mode = audioType == AudioType.dub ? 'dub' : 'sub';
-        return 'https://megaplay.buzz/stream/ani/$anilistId/$episode/$mode';
-      },
-    ),
-    WebStreamServer(
       id: 'vidnest_hd',
       name: 'VidNest (HD)',
       badge: '1080p',
@@ -43,6 +31,30 @@ class WebStreamService {
       },
     ),
     WebStreamServer(
+      id: 'animeplay',
+      name: 'AnimePlay',
+      badge: 'Fast CDN',
+      description: 'Ultra Fast Direct Stream Server',
+      supportsDub: true,
+      qualityLabel: 'Fast Cloud Stream',
+      urlBuilder: ({required anilistId, required episode, required audioType, malId}) {
+        final mode = audioType == AudioType.dub ? 'dub' : 'sub';
+        return 'https://animeplay.cfd/stream/ani/$anilistId/$episode/$mode';
+      },
+    ),
+    WebStreamServer(
+      id: 'megaplay_ani',
+      name: 'MegaPlay (Ani)',
+      badge: 'Fast',
+      description: 'AniList Direct Fast Stream (1080p / 720p / Auto)',
+      supportsDub: true,
+      qualityLabel: 'Fast Direct',
+      urlBuilder: ({required anilistId, required episode, required audioType, malId}) {
+        final mode = audioType == AudioType.dub ? 'dub' : 'sub';
+        return 'https://megaplay.buzz/stream/ani/$anilistId/$episode/$mode';
+      },
+    ),
+    WebStreamServer(
       id: 'megaplay_mal',
       name: 'MegaPlay (MAL)',
       badge: 'MAL',
@@ -53,18 +65,6 @@ class WebStreamService {
         final mode = audioType == AudioType.dub ? 'dub' : 'sub';
         final targetId = (malId != null && malId > 0) ? malId : anilistId;
         return 'https://megaplay.buzz/stream/mal/$targetId/$episode/$mode';
-      },
-    ),
-    WebStreamServer(
-      id: 'anikoto_catalog',
-      name: 'Anikoto Catalog',
-      badge: 'Catalog',
-      description: 'Anikoto Universal Catalog Embed',
-      supportsDub: true,
-      qualityLabel: 'Catalog Embed',
-      urlBuilder: ({required anilistId, required episode, required audioType, malId}) {
-        final mode = audioType == AudioType.dub ? 'dub' : 'sub';
-        return 'https://megaplay.buzz/stream/ani/$anilistId/$episode/$mode';
       },
     ),
     WebStreamServer(

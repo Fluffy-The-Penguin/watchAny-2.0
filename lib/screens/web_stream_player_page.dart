@@ -69,7 +69,7 @@ class _WebStreamPlayerPageState extends State<WebStreamPlayerPage> {
     _currentEpisode = widget.episode;
     _currentAudioType = widget.initialAudioType;
 
-    final initialId = widget.initialServerId ?? 'megaplay_ani';
+    final initialId = widget.initialServerId ?? 'vidnest_hd';
     _selectedServer = WebStreamService.availableServers.firstWhere(
       (s) => s.id == initialId,
       orElse: () => WebStreamService.availableServers.first,
