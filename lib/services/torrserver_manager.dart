@@ -5,6 +5,7 @@ import 'package:flutter/services.dart' show rootBundle, MethodChannel;
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
+import 'package:path/path.dart' as p;
 import '../state/app_settings.dart';
 import 'log_service.dart';
 
@@ -181,7 +182,8 @@ class TorrServerManager {
       await appDir.create(recursive: true);
     }
 
-    final exePath = '${appDir.path}\\torrserver.exe';
+    final exeName = Platform.isWindows ? 'torrserver.exe' : 'torrserver';
+    final exePath = p.join(appDir.path, exeName);
     final file = File(exePath);
 
     // Copy from assets to local file if not exists or if size is 0

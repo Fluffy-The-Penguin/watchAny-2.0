@@ -116,6 +116,17 @@ class _MangaReaderPageState extends State<MangaReaderPage> with SingleTickerProv
     // Restore status bar and navigation bar when leaving
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: SystemUiOverlay.values);
     
+    // Reset image cache boundaries back to platform defaults to reclaim RAM immediately
+    final bool isDesktop = !kIsWeb && (Platform.isWindows || Platform.isMacOS || Platform.isLinux);
+    final imageCache = PaintingBinding.instance.imageCache;
+    if (isDesktop) {
+      imageCache.maximumSize = 150;
+      imageCache.maximumSizeBytes = 80 * 1024 * 1024;
+    } else {
+      imageCache.maximumSize = 80;
+      imageCache.maximumSizeBytes = 40 * 1024 * 1024;
+    }
+
     // Exit fullscreen if windowManager is active
     windowManager.isFullScreen().then((isFS) {
       if (isFS) {

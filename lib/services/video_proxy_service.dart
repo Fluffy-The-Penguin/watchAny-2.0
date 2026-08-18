@@ -13,8 +13,20 @@ class VideoProxyService {
   int get port => _server?.port ?? 0;
   bool get isRunning => _server != null;
   
-  // Cache for DASH manifests to avoid re-fetching when player asks for audio/video playlists
+  // Bounded LRU Cache for DASH manifests to avoid memory bloat during long playback sessions
+  static const int _maxMpdCacheSize = 50;
   final Map<String, String> _mpdCache = {};
+
+  void _putMpdCache(String key, String value) {
+    if (_mpdCache.length >= _maxMpdCacheSize) {
+      _mpdCache.remove(_mpdCache.keys.first);
+    }
+    _mpdCache[key] = value;
+  }
+
+  void clearCache() {
+    _mpdCache.clear();
+  }
 
   Future<void> start() async {
     if (_server != null) return;
@@ -32,6 +44,7 @@ class VideoProxyService {
   }
 
   void stop() {
+    _mpdCache.clear();
     _client?.close(force: true);
     _client = null;
     _server?.close(force: true);
@@ -202,7 +215,7 @@ class VideoProxyService {
           return;
         }
         mpdText = await ioRes.transform(utf8.decoder).join();
-        _mpdCache[targetUrl] = mpdText;
+        _putMpdCache(targetUrl, mpdText);
       } catch (e) {
         request.response
           ..statusCode = HttpStatus.internalServerError

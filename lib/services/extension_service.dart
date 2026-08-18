@@ -841,7 +841,10 @@ class ExtensionService extends ChangeNotifier {
         
         debugPrint('[_fetchMappings] Mappings response for $anilistId: status ${response.statusCode}');
         if (response.statusCode == 200) {
-          final data = jsonDecode(response.body) as Map<String, dynamic>;
+          final dynamic parsed = response.body.length > 2000
+              ? await compute(jsonDecode, response.body)
+              : jsonDecode(response.body);
+          final data = Map<String, dynamic>.from(parsed as Map);
           _mappingsCache[anilistId] = data;
           return data;
         }
